@@ -1,0 +1,6 @@
+{
+  "name": "Quality Data Integration System",
+  "description": "前端数据整合系统，包含RTY整机综合直通率、LRR部件故障率、DOA报修率、MFR月化故障率四个核心模块",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
