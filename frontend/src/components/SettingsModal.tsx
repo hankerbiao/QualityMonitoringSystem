@@ -1,61 +1,67 @@
 import { useState, useEffect } from 'react';
-import { Settings, Save, Database, BellRing, Target, Mail, Key, X, CheckCircle, Mic, ToggleRight, Bot } from 'lucide-react';
+import { Settings, Save, Database, BellRing, Target, Mail, Key, X, CheckCircle, Bot, Loader2, Eye, EyeOff } from 'lucide-react';
+import { settingsApi } from '../api/settingsApi';
 import { useModelTargets } from '../context/ModelTargetsContext';
-import { useSettings } from '../context/SettingsContext';
 
 interface SettingsModalProps {
   onClose: () => void;
+  onSaved: () => void;
 }
 
-export default function SettingsModal({ onClose }: SettingsModalProps) {
+export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) {
   useEffect(() => {
     document.body.style.overflow = 'hidden';
     return () => { document.body.style.overflow = 'unset'; };
   }, []);
 
-  const [activeTab, setActiveTab] = useState<'mes' | 'rty' | 'email' | 'feature' | 'ai'>('mes');
+  const [activeTab, setActiveTab] = useState<'mes' | 'rty' | 'email' | 'ai'>('mes');
+  const [showPassword, setShowPassword] = useState(false);
   const [saved, setSaved] = useState(false);
-  const { modelTargets: targets, setModelTargets: setTargets } = useModelTargets();
-  const { settings, updateSettings, updateAI } = useSettings();
+  const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const { setModelTargets: setTargets } = useModelTargets();
 
-  const [mesConfig, setMesConfig] = useState({
-    username: '',
-    password: ''
-  });
-
+  const [mesConfig, setMesConfig] = useState({ username: '', password: '' });
+  const [emailConfig, setEmailConfig] = useState({ enabled: true, emails: '', attachReport: true });
+  const [aiConfig, setAiConfig] = useState({ apiUrl: '', modelId: '', apiKey: '', maxTokens: 4096 });
+  const [modelTargets, setModelTargets] = useState<Record<string, number>>({});
   const [newModel, setNewModel] = useState('');
   const [newTarget, setNewTarget] = useState('');
 
-  const [emailConfig, setEmailConfig] = useState({
-    enabled: true,
-    emails: 'manager@company.com; quality-team@company.com',
-    attachReport: true
-  });
-
-  const [aiConfig, setAiConfig] = useState({
-    enabled: settings.ai.enabled,
-    apiUrl: settings.ai.apiUrl,
-    modelId: settings.ai.modelId,
-    apiKey: settings.ai.apiKey,
-    maxTokens: settings.ai.maxTokens || 4096,
-  });
+  useEffect(() => {
+    settingsApi.getAll()
+      .then((data) => {
+        if (data.mes) {
+          setMesConfig({ username: data.mes.username, password: data.mes.password || '' });
+        }
+        if (data.modelTargets) {
+          setModelTargets(data.modelTargets);
+        }
+        if (data.emailAlert) {
+          setEmailConfig({
+            enabled: data.emailAlert.enabled,
+            emails: data.emailAlert.emails,
+            attachReport: data.emailAlert.attachReport,
+          });
+        }
+        if (data.ai) {
+          setAiConfig(data.ai);
+        }
+      })
+      .catch((err) => console.error('Failed to load settings:', err))
+      .finally(() => setLoading(false));
+  }, []);
 
   const handleTargetChange = (model: string, value: string) => {
     const num = parseFloat(value);
-    setTargets({
-      ...targets,
-      [model]: isNaN(num) ? 0 : num
-    });
+    setModelTargets((prev) => ({ ...prev, [model]: isNaN(num) ? 0 : num }));
   };
 
   const handleAddModel = () => {
     if (newModel && newTarget) {
       const num = parseFloat(newTarget);
       if (!isNaN(num)) {
-        setTargets({
-          ...targets,
-          [newModel]: num
-        });
+        setModelTargets((prev) => ({ ...prev, [newModel]: num }));
         setNewModel('');
         setNewTarget('');
       }
@@ -63,26 +69,50 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
   };
 
   const handleRemoveModel = (model: string) => {
-    const newTargets = { ...targets };
-    delete newTargets[model];
-    setTargets(newTargets);
+    setModelTargets((prev) => {
+      const next = { ...prev };
+      delete next[model];
+      return next;
+    });
   };
 
-  const handleSave = () => {
-    updateAI(aiConfig);
-    setSaved(true);
-    setTimeout(() => {
-      onClose();
-    }, 1500);
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await settingsApi.updateAll({
+        mes: { username: mesConfig.username, password: mesConfig.password },
+        modelTargets,
+        emailAlert: emailConfig,
+        ai: aiConfig,
+      });
+      setTargets(modelTargets);
+      setSaved(true);
+      onSaved();
+      setTimeout(onClose, 1500);
+    } catch (err) {
+      console.error('Failed to save settings:', err);
+    } finally {
+      setSaving(false);
+    }
   };
+
+  if (loading) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
+        <div className="flex items-center gap-3 text-slate-500">
+          <Loader2 className="w-5 h-5 animate-spin" />
+          <span>加载配置中...</span>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
-      <div 
+      <div
         className="bg-white rounded-lg shadow-2xl border border-slate-200 w-full max-w-4xl h-[600px] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        
         <header className="px-6 py-4 flex items-center justify-between border-b border-slate-200 bg-slate-50">
           <div className="flex items-center gap-3">
             <div className="w-8 h-8 bg-white rounded flex items-center justify-center border border-slate-200 shadow-sm">
@@ -94,14 +124,15 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <button 
+            <button
               onClick={handleSave}
-              className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 shadow-sm"
+              disabled={saving}
+              className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 shadow-sm"
             >
-              <Save className="w-4 h-4" />
-              保存配置
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {saving ? '保存中...' : '保存配置'}
             </button>
-            <button 
+            <button
               onClick={onClose}
               className="p-1.5 rounded-md hover:bg-slate-200 text-slate-500 transition-colors"
             >
@@ -111,58 +142,38 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
         </header>
 
         <div className="flex flex-1 overflow-hidden bg-white">
-          {/* Sidebar Tabs */}
           <div className="w-56 bg-slate-50 border-r border-slate-200 flex flex-col p-3 gap-1">
             <button
               onClick={() => setActiveTab('mes')}
-              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
-                activeTab === 'mes' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-              }`}
+              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${activeTab === 'mes' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
             >
               <Database className={`w-4 h-4 ${activeTab === 'mes' ? 'text-blue-600' : 'text-slate-400'}`} />
               MES 系统接入
             </button>
             <button
               onClick={() => setActiveTab('rty')}
-              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
-                activeTab === 'rty' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-              }`}
+              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${activeTab === 'rty' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
             >
               <Target className={`w-4 h-4 ${activeTab === 'rty' ? 'text-blue-600' : 'text-slate-400'}`} />
               机型指标配置
             </button>
             <button
               onClick={() => setActiveTab('email')}
-              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
-                activeTab === 'email' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-              }`}
+              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${activeTab === 'email' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
             >
               <BellRing className={`w-4 h-4 ${activeTab === 'email' ? 'text-blue-600' : 'text-slate-400'}`} />
               邮件预警规则
             </button>
             <button
-              onClick={() => setActiveTab('feature')}
-              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
-                activeTab === 'feature' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-              }`}
-            >
-              <ToggleRight className={`w-4 h-4 ${activeTab === 'feature' ? 'text-blue-600' : 'text-slate-400'}`} />
-              功能开关
-            </button>
-            <button
               onClick={() => setActiveTab('ai')}
-              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
-                activeTab === 'ai' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
-              }`}
+              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${activeTab === 'ai' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
             >
               <Bot className={`w-4 h-4 ${activeTab === 'ai' ? 'text-blue-600' : 'text-slate-400'}`} />
               AI 配置
             </button>
           </div>
 
-          {/* Content Area */}
           <div className="flex-1 overflow-y-auto p-6">
-            
             {activeTab === 'mes' && (
               <div className="space-y-6">
                 <div>
@@ -177,8 +188,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                     <input
                       type="text"
                       value={mesConfig.username}
-                      onChange={(e) => setMesConfig({...mesConfig, username: e.target.value})}
-                      placeholder="输入 MES 系统账号"
+                      onChange={(e) => setMesConfig({ ...mesConfig, username: e.target.value })}
                       className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
                     />
                   </div>
@@ -186,19 +196,25 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                     <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-1.5">
                       <Key className="w-3.5 h-3.5 text-slate-400" /> 密码
                     </label>
-                    <input
-                      type="password"
-                      value={mesConfig.password}
-                      onChange={(e) => setMesConfig({...mesConfig, password: e.target.value})}
-                      placeholder="输入密码"
-                      className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
-                    />
+                    <div className="relative">
+                      <input
+                        type={showPassword ? 'text' : 'password'}
+                        value={mesConfig.password}
+                        onChange={(e) => setMesConfig({ ...mesConfig, password: e.target.value })}
+                        className="w-full border border-slate-300 rounded-md px-3 py-2 pr-10 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-all"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPassword(!showPassword)}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 transition-colors"
+                      >
+                        {showPassword ? <Eye className="w-4 h-4" /> : <EyeOff className="w-4 h-4" />}
+                      </button>
+                    </div>
                   </div>
-                  <div className="pt-2">
-                    <p className="text-xs text-slate-500 bg-blue-50/50 text-blue-700/80 px-3 py-2.5 rounded border border-blue-100">
-                      注: 该账号用于系统后台定期从 MES (10.8.101.49:9991) 自动拉取 RTY 和 LRR 数据。
-                    </p>
-                  </div>
+                  <p className="text-xs text-slate-500 bg-blue-50/50 text-blue-700/80 px-3 py-2.5 rounded border border-blue-100">
+                    注: 该账号用于系统后台定期从 MES (10.8.101.49:9991) 自动拉取 RTY 和 LRR 数据。
+                  </p>
                 </div>
               </div>
             )}
@@ -209,7 +225,6 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                   <h3 className="text-base font-semibold text-slate-800 mb-1">直通率标准配置</h3>
                   <p className="text-sm text-slate-500 mb-4">按机型配置 RTY 目标合格率，系统将据此进行达标判定。</p>
                 </div>
-                
                 <div className="flex-1 flex flex-col min-h-0">
                   <div className="border border-slate-200 rounded-md overflow-hidden flex-1 overflow-y-auto mb-4">
                     <table className="w-full text-left text-sm whitespace-nowrap">
@@ -221,11 +236,9 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-slate-100 text-slate-700">
-                        {Object.entries(targets).map(([model, target]) => (
+                        {Object.entries(modelTargets).map(([model, target]) => (
                           <tr key={model} className="hover:bg-slate-50 transition-colors">
-                            <td className="px-4 py-2 border-r border-slate-100 font-medium text-slate-800">
-                              {model}
-                            </td>
+                            <td className="px-4 py-2 border-r border-slate-100 font-medium text-slate-800">{model}</td>
                             <td className="px-4 py-2 border-r border-slate-100">
                               <div className="flex items-center gap-2 max-w-[120px]">
                                 <input
@@ -239,23 +252,20 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                               </div>
                             </td>
                             <td className="px-4 py-2 text-center">
-                              <button 
+                              <button
                                 onClick={() => handleRemoveModel(model)}
                                 className="text-red-500 hover:text-red-700 transition-colors text-xs font-medium"
-                              >
-                                删除
-                              </button>
+                              >删除</button>
                             </td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
-
                   <div className="p-4 bg-slate-50 border border-slate-200 rounded-md flex items-end gap-3 shrink-0">
                     <div className="flex-1">
                       <label className="block text-xs font-medium text-slate-600 mb-1.5">新增机型</label>
-                      <input 
+                      <input
                         type="text"
                         placeholder="例如: 6410 X21"
                         value={newModel}
@@ -265,7 +275,7 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                     </div>
                     <div className="w-32">
                       <label className="block text-xs font-medium text-slate-600 mb-1.5">目标 (%)</label>
-                      <input 
+                      <input
                         type="number"
                         placeholder="98.5"
                         step="0.1"
@@ -274,13 +284,11 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                         className="w-full border border-slate-300 rounded-md px-3 py-1.5 text-sm outline-none focus:border-blue-500"
                       />
                     </div>
-                    <button 
+                    <button
                       onClick={handleAddModel}
                       disabled={!newModel || !newTarget}
                       className="px-4 py-1.5 bg-slate-800 text-white text-sm font-medium rounded-md hover:bg-slate-700 transition-colors disabled:opacity-50 h-[34px]"
-                    >
-                      添加
-                    </button>
+                    >添加</button>
                   </div>
                 </div>
               </div>
@@ -292,16 +300,15 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                   <h3 className="text-base font-semibold text-slate-800 mb-1">邮件预警规则</h3>
                   <p className="text-sm text-slate-500 mb-6">配置当直通率低于标准时的邮件预警行为。</p>
                 </div>
-                
                 <div className="space-y-6">
                   <div>
                     <div className="flex items-center gap-3">
                       <label className="relative inline-flex items-center cursor-pointer">
-                        <input 
-                          type="checkbox" 
-                          className="sr-only peer" 
+                        <input
+                          type="checkbox"
+                          className="sr-only peer"
                           checked={emailConfig.enabled}
-                          onChange={(e) => setEmailConfig({...emailConfig, enabled: e.target.checked})}
+                          onChange={(e) => setEmailConfig({ ...emailConfig, enabled: e.target.checked })}
                         />
                         <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
                       </label>
@@ -311,65 +318,28 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                       当机型月度生产量或周生产量 &ge; 50台，且实际 RTY 低于设定的目标直通率时，系统将自动触发预警邮件。
                     </p>
                   </div>
-
                   <div className={!emailConfig.enabled ? 'opacity-50 pointer-events-none transition-opacity' : 'transition-opacity'}>
                     <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-1.5">
                       <Mail className="w-4 h-4 text-slate-400" /> 预警接收人邮箱
                     </label>
-                    <textarea 
+                    <textarea
                       rows={3}
                       value={emailConfig.emails}
-                      onChange={(e) => setEmailConfig({...emailConfig, emails: e.target.value})}
+                      onChange={(e) => setEmailConfig({ ...emailConfig, emails: e.target.value })}
                       className="w-full border border-slate-300 rounded-md p-3 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                      placeholder="manager@company.com; multiple@company.com"
                     />
                     <p className="text-xs text-slate-500 mt-1.5">支持配置多个邮箱，请使用分号 ( ; ) 分隔</p>
                   </div>
-                  
                   <div className={!emailConfig.enabled ? 'opacity-50 pointer-events-none' : ''}>
                     <label className="flex items-center gap-2 cursor-pointer w-fit">
-                      <input 
-                        type="checkbox" 
+                      <input
+                        type="checkbox"
                         checked={emailConfig.attachReport}
-                        onChange={(e) => setEmailConfig({...emailConfig, attachReport: e.target.checked})}
-                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500" 
+                        onChange={(e) => setEmailConfig({ ...emailConfig, attachReport: e.target.checked })}
+                        className="w-4 h-4 rounded border-slate-300 text-blue-600 focus:ring-blue-500"
                       />
                       <span className="text-sm text-slate-700">在告警邮件中附带故障明细数据及报表链接</span>
                     </label>
-                  </div>
-                </div>
-              </div>
-            )}
-
-            {activeTab === 'feature' && (
-              <div className="space-y-6 max-w-2xl">
-                <div>
-                  <h3 className="text-base font-semibold text-slate-800 mb-1">功能开关配置</h3>
-                  <p className="text-sm text-slate-500 mb-6">控制系统中各功能的启用状态。</p>
-                </div>
-                
-                <div className="space-y-6">
-                  <div className="p-4 bg-white border border-slate-200 rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
-                          <Mic className="w-5 h-5 text-blue-600" />
-                        </div>
-                        <div>
-                          <h4 className="text-sm font-medium text-slate-800">语音输入</h4>
-                          <p className="text-xs text-slate-500 mt-0.5">开启后，"QualiBoard AI 助手"悬浮球将显示在页面右下角</p>
-                        </div>
-                      </div>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input 
-                          type="checkbox" 
-                          className="sr-only peer" 
-                          checked={settings.voiceInputEnabled}
-                          onChange={(e) => updateSettings({ voiceInputEnabled: e.target.checked })}
-                        />
-                        <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                      </label>
-                    </div>
                   </div>
                 </div>
               </div>
@@ -379,79 +349,49 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
               <div className="space-y-6 max-w-2xl">
                 <div>
                   <h3 className="text-base font-semibold text-slate-800 mb-1">AI 模型配置</h3>
-                  <p className="text-sm text-slate-500 mb-6">配置 AI 助手使用的模型服务，QualiBoard AI 助手将根据 RTY 数据上下文进行智能问答。</p>
+                  <p className="text-sm text-slate-500 mb-6">配置 AI 助手使用的模型服务。</p>
                 </div>
-
                 <div className="space-y-5">
-                  <div className="flex items-center gap-3 p-4 bg-white border border-slate-200 rounded-lg">
-                    <div className="flex items-center gap-3 flex-1">
-                      <div className="w-10 h-10 bg-indigo-50 rounded-lg flex items-center justify-center">
-                        <Bot className="w-5 h-5 text-indigo-600" />
-                      </div>
-                      <div>
-                        <h4 className="text-sm font-medium text-slate-800">启用 AI 助手</h4>
-                        <p className="text-xs text-slate-500 mt-0.5">开启后，AI 助手将使用配置的模型服务进行对话</p>
-                      </div>
-                    </div>
-                    <label className="relative inline-flex items-center cursor-pointer">
-                      <input 
-                        type="checkbox" 
-                        className="sr-only peer" 
-                        checked={aiConfig.enabled}
-                        onChange={(e) => setAiConfig({...aiConfig, enabled: e.target.checked})}
-                      />
-                      <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-indigo-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
-                    </label>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">API 地址</label>
+                    <input
+                      type="text"
+                      value={aiConfig.apiUrl}
+                      onChange={(e) => setAiConfig({ ...aiConfig, apiUrl: e.target.value })}
+                      className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">支持 OpenAI 兼容格式的 API 地址</p>
                   </div>
-
-                  <div className={`space-y-4 ${!aiConfig.enabled ? 'opacity-50 pointer-events-none' : ''}`}>
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">API 地址</label>
-                      <input
-                        type="text"
-                        value={aiConfig.apiUrl}
-                        onChange={(e) => setAiConfig({...aiConfig, apiUrl: e.target.value})}
-                        placeholder="https://api.openai.com/v1/chat/completions"
-                        className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                      />
-                      <p className="text-xs text-slate-500 mt-1">支持 OpenAI 兼容格式的 API 地址（支持 硅基流动 / OneAPI 等）</p>
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">模型 ID</label>
-                      <input
-                        type="text"
-                        value={aiConfig.modelId}
-                        onChange={(e) => setAiConfig({...aiConfig, modelId: e.target.value})}
-                        placeholder="gpt-4o-mini"
-                        className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-1.5">
-                        <Key className="w-3.5 h-3.5 text-slate-400" /> API Key
-                      </label>
-                      <input
-                        type="password"
-                        value={aiConfig.apiKey}
-                        onChange={(e) => setAiConfig({...aiConfig, apiKey: e.target.value})}
-                        placeholder="sk-..."
-                        className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                      />
-                    </div>
-
-                    <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1.5">最大 Token 数</label>
-                      <input
-                        type="number"
-                        value={aiConfig.maxTokens}
-                        onChange={(e) => setAiConfig({...aiConfig, maxTokens: parseInt(e.target.value) || 4096})}
-                        placeholder="4096"
-                        className="w-48 border border-slate-300 rounded-md px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
-                      />
-                      <p className="text-xs text-slate-500 mt-1">控制单次响应的最大 token 数量，防止回复过长</p>
-                    </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">模型 ID</label>
+                    <input
+                      type="text"
+                      value={aiConfig.modelId}
+                      onChange={(e) => setAiConfig({ ...aiConfig, modelId: e.target.value })}
+                      className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5 flex items-center gap-1.5">
+                      <Key className="w-3.5 h-3.5 text-slate-400" /> API Key
+                    </label>
+                    <input
+                      type="password"
+                      value={aiConfig.apiKey}
+                      onChange={(e) => setAiConfig({ ...aiConfig, apiKey: e.target.value })}
+                      placeholder="留空则不修改"
+                      className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1.5">最大 Token 数</label>
+                    <input
+                      type="number"
+                      value={aiConfig.maxTokens}
+                      onChange={(e) => setAiConfig({ ...aiConfig, maxTokens: parseInt(e.target.value) || 4096 })}
+                      className="w-48 border border-slate-300 rounded-md px-3 py-2 text-sm outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500"
+                    />
+                    <p className="text-xs text-slate-500 mt-1">控制单次响应的最大 token 数量，防止回复过长</p>
                   </div>
                 </div>
               </div>

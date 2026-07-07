@@ -519,19 +519,17 @@ export default function AlertConfigModal({ onClose, rawData = [], modelTargets =
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-4">
                     <h5 className="text-xs font-semibold text-slate-700">RTY 热力图</h5>
-                    <div className="flex items-center gap-2 text-[10px] text-slate-500">
-                      <span>低</span>
-                      <div className="flex h-3">
-                        <div className="w-6 bg-red-500"></div>
-                        <div className="w-6 bg-orange-400"></div>
-                        <div className="w-6 bg-yellow-400"></div>
-                        <div className="w-6 bg-lime-400"></div>
-                        <div className="w-6 bg-green-500"></div>
-                      </div>
-                      <span>高</span>
+                    <div className="flex items-center gap-4 text-[10px] text-slate-500">
+                      <span className="flex items-center gap-1">
+                        <span className="w-3 h-3 rounded-sm bg-green-500 inline-block"></span>
+                        达成
+                      </span>
+                      <span className="flex items-center gap-1">
+                        <span className="w-3 h-3 rounded-sm bg-red-500 inline-block"></span>
+                        未达成
+                      </span>
                     </div>
                   </div>
-                  <p className="text-[10px] text-slate-400">颜色越深表示直通率越低，红色标注低于目标值</p>
                 </div>
                 <div className="overflow-x-auto border border-slate-200 rounded-sm">
                   <table className="w-full text-left border-collapse">
@@ -576,21 +574,9 @@ export default function AlertConfigModal({ onClose, rawData = [], modelTargets =
                                   bgClass = 'bg-red-100';
                                   textClass = 'text-red-700';
                                   fontClass = 'font-semibold';
-                                } else if (rty >= 99.9) {
+                                } else {
                                   bgClass = 'bg-green-100';
                                   textClass = 'text-green-700';
-                                } else if (rty >= 99.5) {
-                                  bgClass = 'bg-lime-50';
-                                  textClass = 'text-lime-700';
-                                } else if (rty >= 99.0) {
-                                  bgClass = 'bg-yellow-50';
-                                  textClass = 'text-yellow-700';
-                                } else if (rty >= 98.0) {
-                                  bgClass = 'bg-orange-50';
-                                  textClass = 'text-orange-600';
-                                } else {
-                                  bgClass = 'bg-red-50';
-                                  textClass = 'text-red-600';
                                 }
                               }
                               
@@ -604,7 +590,7 @@ export default function AlertConfigModal({ onClose, rawData = [], modelTargets =
                                 </td>
                               );
                             })}
-                            <td className={`px-2 py-2 border-r border-slate-100 text-center text-[10px] font-semibold bg-slate-100 ${avgRty >= 99.5 ? 'text-green-700' : avgRty >= 99.0 ? 'text-yellow-700' : 'text-red-600'}`}>
+                            <td className={`px-2 py-2 border-r border-slate-100 text-center text-[10px] font-semibold bg-slate-100 ${avgRty >= 99.5 ? 'text-green-700' : 'text-red-600'}`}>
                               {avgRty > 0 ? `${avgRty.toFixed(2)}%` : '-'}
                             </td>
                           </tr>

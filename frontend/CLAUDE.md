@@ -1,80 +1,109 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to AI coding assistants when working with code in this repository.
 
 ## Project Overview
 
-QualiBoard 品质看板 - A React-based frontend for integrating four quality data subsystems:
-- **RTY**: Overall First Pass Yield (整机综合直通率)
-- **LRR**: Factory Part Failure Rate (部件故障率)
-- **DOA**: Out-of-Box Failure Rate (开箱报修率)
-- **MFR**: Monthly Field Failure Rate (月化故障率)
-
-Currently, only the RTY module is fully implemented.
+QualiBoard 品质看板 - 企业级质量数据整合平台：
+- **RTY**: 整机综合直通率 (已实现完整功能)
+- **LRR**: 部件故障率 (开发中)
+- **DOA**: 开箱报修率 (开发中)
+- **MFR**: 月化故障率 (开发中)
 
 ## Commands
 
 See AGENTS.md for the full command reference. Quick reference:
 
 ```bash
-npm run dev      # Start dev server on port 3000
-npm run build    # Production build
-npm run lint     # TypeScript type check only (no linter installed)
-npm run preview  # Preview production build
+npm run dev      # 开发服务器 (端口 3000，HTTPS 已启用)
+npm run build    # 生产构建
+npm run lint     # TypeScript 类型检查 (无 ESLint/Prettier)
+npm run preview  # 预览生产构建
+npm run clean    # 清理构建产物
 ```
 
 ## Tech Stack
 
 - **React 19** + **TypeScript 5.8**
-- **Vite 6** - Build tool
-- **Tailwind CSS v4** - Using `@tailwindcss/vite` plugin (no tailwind.config.js)
-- **React Router DOM v7** - Client-side routing
-- **Recharts** - Charts (ComposedChart, Bar, Line)
-- **Lucide React** - Icons
+- **Vite 6** - 构建工具，配置 HMR 通过 `DISABLE_HMR` 环境变量控制
+- **Tailwind CSS v4** - CSS-first 配置，使用 `@tailwindcss/vite` 插件，无 tailwind.config.js
+- **React Router DOM v7** - 客户端路由
+- **Recharts** - 图表 (ComposedChart 双轴)
+- **Lucide React** - 图标
+- **xlsx** - Excel 导出
 
-> Note: `components.json` exists as shadcn/ui schema config, but no components have been installed. All UI components are custom-built.
+> 注意: `components.json` 存在但未安装 shadcn/ui 组件，所有 UI 均为自定义实现。
 
 ## Architecture
 
 ```
 src/
-├── api/           # Data layer - currently mock data, ready for real backend
-│   ├── rtyApi.ts  # API methods with 500ms simulated delay
-│   └── mockData.ts
-├── components/    # Modal components (DefectModal, InputModal, AlertConfigModal, etc.)
+├── api/                      # API 层
+│   ├── rtyApi.ts            # RTY 数据接口 (带过滤参数)
+│   ├── settingsApi.ts       # 系统配置接口 (统一保存)
+│   ├── authApi.ts           # 认证接口 (OA 登录代理)
+│   ├── aiApi.ts             # AI 分析接口
+│   └── mockData.ts          # 开发用模拟数据
+├── components/
+│   ├── SettingsModal.tsx    # 系统配置管理弹窗 (MES/机型/邮件/AI Tab)
+│   ├── DefectModal.tsx      # 故障明细弹窗
+│   ├── InputModal.tsx       # 投入明细弹窗
+│   ├── AlertConfigModal.tsx # 预警配置弹窗
+│   └── ProtectedLayout.tsx  # 受保护布局 (OA 登录验证)
 ├── pages/
-│   ├── Home.tsx   # Dashboard with 4 module cards (Bento Grid layout)
-│   └── RTYPage.tsx
-├── types.ts       # Shared TypeScript interfaces (RTYData, DefectDetail, InputDetail)
-├── lib/utils.ts   # Utility functions (cn for class merging)
-├── App.tsx        # Router setup with routes: /, /rty, /lrr, /doa, /mfr
-└── index.css      # Tailwind v4 imports, Inter + JetBrains Mono fonts
+│   ├── Home.tsx             # 首页 (Bento Grid 四模块卡片)
+│   └── RTYPage.tsx          # RTY 整机直通率页面
+├── context/
+│   └── ModelTargetsContext.tsx  # 机型指标上下文 (跨组件共享)
+├── types.ts                 # TypeScript 接口
+├── App.tsx                  # 路由配置 (/, /rty, /lrr, /doa, /mfr, /settings)
+└── index.css                # Tailwind v4 入口 + 字体配置
 ```
 
-## Key Patterns
+## Key Conventions
 
-- **Path aliases**: `@/*` maps to project root for imports
-- **Mock API structure**: All API calls return Promises, simulating async with `delay()`
-- **Modal pattern**: State-driven modal visibility with `recordId` prop for data fetching
-- **Filter state**: Centralized `RTYFilterParams` state in RTYPage
-- **Chart integration**: Recharts `ResponsiveContainer` with `ComposedChart` (Bar + Line dual-axis)
+- **路径别名**: `@/*` 映射到项目根目录
+- **Mock API**: 所有 API 调用返回 Promise，用 `delay()` 模拟 500ms 延迟，保留真实后端替换结构
+- **配置管理**: SettingsModal 一次性保存全部配置到后端 `PUT /api/settings`
+- **RTYPage 刷新**: 监听 `settings-saved` 自定义事件，刷新数据
+- **MES 密码**: 明文从后端返回，前端直接显示，支持眼睛图标切换显示/隐藏
+- **过滤参数**: 集中在 RTYPage 组件的 `filters` state (`RTYFilterParams` 接口)
+- **图表**: Recharts `ResponsiveContainer` + `ComposedChart` (Bar + Line 双轴)
 
-## Configuration Files
+## OA 登录流程 (双 Token)
 
-- `vite.config.ts` - Vite with Tailwind v4 plugin, `@/` alias, HMR control via `DISABLE_HMR`
-- `tsconfig.json` - ES2022 target, bundler module resolution, `paths` for `@/*`
-- `components.json` - shadcn/ui schema config placeholder (style: base-nova, prefix: "")
+1. 访问受保护路由 → ProtectedLayout 检查 access_token
+2. 无 Token → 重定向到 `/login`
+3. 点击「OA 登录」→ 调用 `GET /api/auth/oa/callback?next=前端地址`
+4. 后端 302 重定向到 OA 登录页
+5. OA 回调 `GET /api/auth/oa/callback?status=success&payload=JWT`
+6. 后端签发双 token，存储 refresh_token，返回 302 → `前端/login?access_token=xxx&refresh_token=xxx`
+7. 前端 `LoginPage` 存储双 token，调用 `getCurrentUser()` 验证后跳转首页
+8. **自动刷新**: access_token 剩余 < 60s 时提前刷新；收到 401 立即刷新
+9. refresh_token 过期或登出 → 重新 OA 登录
+
+## 系统配置管理 (SettingsModal)
+
+四个 Tab：
+- **MES 系统接入**: username + password 明文显示，眼睛图标切换
+- **机型指标配置**: 添加/删除机型目标值
+- **邮件预警规则**: enabled + emails + attachReport
+- **AI 模型配置**: apiUrl + modelId + apiKey + maxTokens
 
 ## Environment Variables
 
-Create `.env` from `.env.example`:
-```
-GEMINI_API_KEY=your_key  # Not currently used (AI features planned)
+```bash
+# .env.development
+VITE_API_BASE_URL=http://localhost:8000
+
+# AI Studio 模式 (禁用 HMR)
+DISABLE_HMR=true
 ```
 
-## Future Work (per docs/design.md)
+## Future Work
 
-- Implement LRR, DOA, MFR module pages
-- Add authentication (Auth)
-- Replace mock APIs with real backend integration
-- Add email alerting system
+- LRR、DOA、MFR 模块页面
+- 邮件预警发送功能
+- AI 助手集成真实 LLM API
+- MES 密码加密存储
+- 生产环境 CORS 域名限制

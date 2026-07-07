@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api import rty, settings, ai
+from app.api import rty, settings, ai, auth
 from app.core.config import get_settings
 from app.core.logger import setup_logger, log_info, log_warning, log_error
 from app.db.mongodb import connect_to_mongo, close_mongo_connection
@@ -72,6 +72,7 @@ app.add_middleware(
 app.include_router(rty.router, prefix="/api/rty", tags=["RTY"])
 app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
 app.include_router(ai.router, prefix="/api/ai", tags=["AI"])
+app.include_router(auth.router, prefix="/api", tags=["Auth"])
 
 
 @app.get("/health")

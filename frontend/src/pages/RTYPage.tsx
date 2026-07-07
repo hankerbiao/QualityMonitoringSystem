@@ -38,7 +38,7 @@ export default function RTYPage() {
   const [filters, setFilters] = useState<RTYFilterParams>({
     statMethod: '整体直通率',
     dateRange: { from: undefined, to: undefined },
-    model: 'all',
+    model: '普通机型',
     productModel: 'all',
     customer: '',
     base: 'all',
@@ -100,6 +100,12 @@ export default function RTYPage() {
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  useEffect(() => {
+    const handler = () => fetchData();
+    window.addEventListener('settings-saved', handler);
+    return () => window.removeEventListener('settings-saved', handler);
+  }, [fetchData]);
 
   const handleSearch = () => {
     fetchData();
@@ -246,10 +252,8 @@ export default function RTYPage() {
                   value={filters.model}
                   onChange={e => setFilters({...filters, model: e.target.value})}
                 >
-                  <option value="all">全部方法</option>
                   <option value="普通机型">普通机型</option>
                   <option value="复合机型">复合机型</option>
-                  <option value="Qiandaohu 一拖多机型">Qiandaohu 一拖多机型</option>
                 </select>
               </div>
 

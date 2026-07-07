@@ -1,5 +1,6 @@
-import { createContext, useContext, useState } from 'react';
+import { createContext, useContext, useState, useEffect } from 'react';
 import type { ReactNode } from 'react';
+import { settingsApi } from '../api/settingsApi';
 
 const DEFAULT_TARGETS: Record<string, number> = {
   '6210 C21 BOX': 99.0,
@@ -11,14 +12,30 @@ const DEFAULT_TARGETS: Record<string, number> = {
 interface ModelTargetsContextType {
   modelTargets: Record<string, number>;
   setModelTargets: (targets: Record<string, number>) => void;
+  loading: boolean;
 }
 
 const ModelTargetsContext = createContext<ModelTargetsContextType | undefined>(undefined);
 
 export function ModelTargetsProvider({ children }: { children: ReactNode }) {
   const [modelTargets, setModelTargets] = useState<Record<string, number>>(DEFAULT_TARGETS);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    settingsApi.getModelTargets()
+      .then((items) => {
+        if (Object.keys(items).length > 0) {
+          setModelTargets(items);
+        }
+      })
+      .catch((err) => {
+        console.error('[ModelTargets] Failed to load from backend:', err);
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
   return (
-    <ModelTargetsContext.Provider value={{ modelTargets, setModelTargets }}>
+    <ModelTargetsContext.Provider value={{ modelTargets, setModelTargets, loading }}>
       {children}
     </ModelTargetsContext.Provider>
   );

@@ -18,9 +18,10 @@ class MESConfigCreate(MESConfigBase):
     pass
 
 
-class MESConfig(MESConfigBase):
+class MESConfig(BaseModel):
     """MES 配置响应模型"""
-    password: str = Field(..., description="返回时隐藏密码")
+    username: str
+    password: str
 
     class Config:
         from_attributes = True
@@ -88,6 +89,22 @@ class EmailAlertConfigUpdate(BaseModel):
     attachReport: Optional[bool] = None
 
 
+# ============== AI 模型配置 ==============
+
+class AIConfigSchema(BaseModel):
+    apiUrl: str = Field("", description="AI API 地址")
+    modelId: str = Field("", description="模型 ID")
+    apiKey: str = Field("", description="API Key")
+    maxTokens: int = Field(4096, ge=1, le=32768, description="最大 Token 数")
+
+
+class AIConfigUpdate(BaseModel):
+    apiUrl: Optional[str] = None
+    modelId: Optional[str] = None
+    apiKey: Optional[str] = None
+    maxTokens: Optional[int] = None
+
+
 # ============== 功能开关配置 ==============
 
 class FeatureFlagsBase(BaseModel):
@@ -120,6 +137,7 @@ class SettingsResponse(BaseModel):
     modelTargets: Dict[str, float] = Field(default_factory=dict)
     emailAlert: EmailAlertConfig
     featureFlags: FeatureFlags
+    ai: AIConfigSchema
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -128,3 +146,4 @@ class SettingsUpdateRequest(BaseModel):
     modelTargets: Optional[Dict[str, float]] = None
     emailAlert: Optional[EmailAlertConfigUpdate] = None
     featureFlags: Optional[FeatureFlagsUpdate] = None
+    ai: Optional[AIConfigUpdate] = None

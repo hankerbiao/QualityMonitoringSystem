@@ -1,69 +1,44 @@
-import { createContext, useContext, useState, useCallback } from 'react';
-
-interface AIConfig {
-  enabled: boolean;
-  apiUrl: string;
-  modelId: string;
-  apiKey: string;
-  maxTokens: number;
-}
-
-interface Settings {
-  voiceInputEnabled: boolean;
-  ai: AIConfig;
-}
+import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
+import { settingsApi, type AIConfig } from '../api/settingsApi';
 
 interface SettingsContextType {
-  settings: Settings;
-  updateSettings: (settings: Partial<Settings>) => void;
-  updateAI: (config: Partial<AIConfig>) => void;
+  ai: AIConfig;
+  updateAI: (config: Partial<AIConfig>) => Promise<void>;
+  loading: boolean;
 }
 
-const DEFAULT_SETTINGS: Settings = {
-  voiceInputEnabled: false,
-  ai: {
-    enabled: false,
-    apiUrl: '',
-    modelId: '',
-    apiKey: '',
-    maxTokens: 4096,
-  },
+const DEFAULT_AI: AIConfig = {
+  apiUrl: '',
+  modelId: '',
+  apiKey: '',
+  maxTokens: 4096,
 };
-
-const STORAGE_KEY = 'quality_monitoring_settings';
-
-function loadSettings(): Settings {
-  try {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    return stored ? { ...DEFAULT_SETTINGS, ...JSON.parse(stored) } : DEFAULT_SETTINGS;
-  } catch {
-    return DEFAULT_SETTINGS;
-  }
-}
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
-export function SettingsProvider({ children }: { children: React.ReactNode }) {
-  const [settings, setSettings] = useState<Settings>(loadSettings);
+export function SettingsProvider({ children }: { children: ReactNode }) {
+  const [ai, setAI] = useState<AIConfig>(DEFAULT_AI);
+  const [loading, setLoading] = useState(true);
 
-  const updateSettings = useCallback((newSettings: Partial<Settings>) => {
-    setSettings((prev) => {
-      const updated = { ...prev, ...newSettings };
-      try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
-      } catch {
-        console.warn('Failed to persist settings');
-      }
-      return updated;
-    });
+  useEffect(() => {
+    settingsApi.getAll()
+      .then((data) => {
+        setAI(data.ai || DEFAULT_AI);
+      })
+      .catch((err) => {
+        console.error('[Settings] Failed to load from backend:', err);
+      })
+      .finally(() => setLoading(false));
   }, []);
 
-  const updateAI = useCallback((config: Partial<AIConfig>) => {
-    updateSettings({ ai: { ...settings.ai, ...config } });
-  }, [settings.ai, updateSettings]);
+  const updateAI = useCallback(async (config: Partial<AIConfig>) => {
+    const updated = { ...ai, ...config };
+    setAI(updated);
+    await settingsApi.updateAI(config);
+  }, [ai]);
 
   return (
-    <SettingsContext.Provider value={{ settings, updateSettings, updateAI }}>
+    <SettingsContext.Provider value={{ ai, updateAI, loading }}>
       {children}
     </SettingsContext.Provider>
   );

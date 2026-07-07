@@ -2,7 +2,6 @@ import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-
 import Home from './pages/Home';
 import RTYPage from './pages/RTYPage';
 import LoginPage from './pages/LoginPage';
-import AIAssistant from './components/AIAssistant';
 import { ModelTargetsProvider } from './context/ModelTargetsContext';
 import { SettingsProvider } from './context/SettingsContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -10,12 +9,7 @@ import { AuthProvider, useAuth } from './context/AuthContext';
 function ProtectedLayout() {
   const { isAuthenticated } = useAuth();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
-  return (
-    <>
-      <Outlet />
-      <AIAssistant />
-    </>
-  );
+  return <Outlet />;
 }
 
 function AppContent() {
@@ -35,14 +29,14 @@ function AppContent() {
 
 export default function App() {
   return (
-    <AuthProvider>
-      <ModelTargetsProvider>
-        <SettingsProvider>
-          <Router>
+    <Router>
+      <AuthProvider>
+        <ModelTargetsProvider>
+          <SettingsProvider>
             <AppContent />
-          </Router>
-        </SettingsProvider>
-      </ModelTargetsProvider>
-    </AuthProvider>
+          </SettingsProvider>
+        </ModelTargetsProvider>
+      </AuthProvider>
+    </Router>
   );
 }

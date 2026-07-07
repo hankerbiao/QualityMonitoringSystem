@@ -13,11 +13,21 @@ class Settings(BaseSettings):
     DEBUG: bool = True
 
     # MongoDB 配置
-    MONGODB_URL: str = "mongodb://10.17.154.252:27017"
+    MONGODB_URL: str = "mongodb://10.17.154.252:27019"
     MONGODB_DB_NAME: str = "quality_monitoring"
 
     # API 配置
     API_V1_PREFIX: str = "/api"
+
+    # OA 登录配置
+    OA_JWT_SECRET: str = "bc3868bfa47ef87440a9e874afaad77c706c6229d08e5bb74f51ab726d072fc4"
+    OA_LOGIN_URL: str = "http://10.2.48.65/auth/oa/callback"
+    OA_APP_NAME: str = "qualiboard"
+    OA_LOGIN_BASE_URL: str = "http://tl.cooacloud.com/springboard_v3/login_proxy"
+    SESSION_EXPIRE_DAYS: int = 30
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
+    JWT_SECRET: str = "default-jwt-secret-change-in-production"
 
     # 日志配置
     LOG_DIR: str = "logs"

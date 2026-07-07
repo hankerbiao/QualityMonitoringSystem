@@ -60,6 +60,13 @@ async def create_indexes() -> None:
     # 投入明细索引
     await mongodb.db.input_details.create_index([("recordId", 1)])
 
+    # 用户索引
+    await mongodb.db.users.create_index("itcode", unique=True)
+
+    # 会话索引
+    await mongodb.db.sessions.create_index("sessionId", unique=True)
+    await mongodb.db.sessions.create_index("expiresAt")
+
 
 def get_database() -> AsyncIOMotorDatabase:
     """获取数据库实例"""

@@ -1,52 +1,59 @@
 # AGENTS.md
 
+## Project Structure
+
+```
+QualityMonitoringSystem/
+├── frontend/           # React + Vite + TypeScript (main dev area)
+├── backend/            # FastAPI (in progress)
+└── docker/             # Reserved for containerization
+```
+
 ## Commands
 
+All frontend commands run from `frontend/` directory:
+
 ```bash
-npm run dev      # Vite dev server on port 3000 (0.0.0.0)
+npm run dev      # Vite dev server on port 3000 (0.0.0.0, HTTPS enabled)
 npm run build    # Production build to dist/
 npm run lint     # TypeScript type check only (no ESLint/Prettier)
-npm run preview  # Preview production build locally
+npm run preview  # Preview production build
 npm run clean    # Remove dist/ and server.js
 ```
 
 ## Architecture
 
-React 19 + TypeScript 5.8 + Vite 6 + Tailwind CSS v4 (no tailwind.config.js) + xlsx.
-
-Only RTY module is implemented. LRR/DOA/MFR routes redirect to home.
-
-```
-src/
-├── api/rtyApi.ts           # Mock API with 500ms delay() wrapper
-├── api/mockData.ts         # Generated data (run node generate_mock.cjs to regenerate)
-├── pages/RTYPage.tsx       # Main RTY page (~580 lines, handles filters + charts + modals + export)
-├── pages/Home.tsx          # Dashboard with 4 module cards ("QualiBoard 品质看板")
-├── components/
-│   ├── DefectModal.tsx     # 故障明细弹窗
-│   ├── InputModal.tsx      # 投入明细弹窗
-│   ├── AlertConfigModal.tsx# 预警配置弹窗
-│   └── AIAssistant.tsx     # AI 智能助手 (悬浮球式)
-├── types.ts                # RTYData, DefectDetail, InputDetail interfaces
-├── lib/utils.ts            # cn() for Tailwind class merging
-```
+- **Monorepo**: Frontend (React/Vite) + Backend (FastAPI)
+- **Only RTY module is implemented**; LRR/DOA/MFR routes redirect to Home
+- **Path alias**: `@/*` maps to `frontend/` root
+- **Backend connected**: All API calls proxied to `http://localhost:8000`
 
 ## Key Conventions
 
-- **Path alias**: `@/*` maps to project root (vite.config.ts + tsconfig.json)
-- **No linter/formatter**: `npm run lint` runs `tsc --noEmit` only
-- **Tailwind v4**: Uses `@tailwindcss/vite` plugin, no config file, CSS-first config in index.css
-- **Mock API**: All API calls return Promises with `delay()`. Replace with real backend later.
-- **Modal pattern**: State-driven visibility in parent, passes `recordId` for data fetching
+- **Tailwind v4**: Uses `@tailwindcss/vite` plugin, no config file, CSS-first in `index.css`
+- **Mock API**: All API calls use `delay()` wrapper (500ms). Ready for real backend replacement.
+- **Dual Token Auth**: access_token (15min, localStorage) + refresh_token (30day, sessionStorage) + auto-refresh
+- **Settings**: SettingsModal saves all configs via `PUT /api/settings`, RTYPage listens for `settings-saved` event
+- **MES Password**: Returned in plaintext from backend, toggle with eye icon
 - **Table sorting**: RTYPage supports sorting by time, defectCount, inputCount, rtyRate
 - **Excel export**: Uses `xlsx` library, supports column selection
-- **AI Assistant**: Floating ball UI, uses mock responses, localStorage for visibility state
-- **Utility scripts**: Root `generate_mock.cjs` regenerates mockData.ts, `update_modal.cjs` updates AlertConfigModal
 
 ## Gotchas
 
 - HMR disabled when `DISABLE_HMR=true` env var set (AI Studio editing mode)
 - `src/index.css` has Tailwind v4 imports + Inter/JetBrains Mono fonts
 - Chart components use Recharts `ComposedChart` with dual Y-axes (Bar + Line)
-- Design doc in `docs/design.md` is in Chinese, describes full system spec
+- Design doc in `frontend/docs/design.md` (Chinese) describes full system spec
 - RTYPage includes quick navigation tabs to switch between modules (RTY/LRR/DOA/MFR)
+- MongoDB port is **27019** (not default 27017)
+
+## Testing / Verification
+
+- No test suite; verify with `npm run lint`
+- Mock data: regenerate via `node generate_mock.cjs` at project root
+
+## Design Doc
+
+`frontend/docs/design.md` (Chinese) describes full system spec.
+Skills provide specialized instructions and workflows for specific tasks.
+Use the skill tool to load a skill when a task matches its description.

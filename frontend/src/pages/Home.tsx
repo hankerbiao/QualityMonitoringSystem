@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { 
   Activity, 
@@ -7,13 +7,35 @@ import {
   BarChart3,
   ArrowRight,
   Settings,
-  ShieldCheck
+  ShieldCheck,
+  LogOut,
+  ChevronDown,
+  Mail
 } from 'lucide-react';
 import SettingsModal from '../components/SettingsModal';
+import { useAuth } from '../context/AuthContext';
 
 export default function Home() {
   const navigate = useNavigate();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const { user, logout } = useAuth();
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const displayName = user?.姓名 || user?.真实姓名 || user?.name || user?.itcode || '';
+  const avatarChar = displayName.charAt(0) || 'U';
+  const department = user?.部门 || user?.department || '';
+  const email = user?.邮件 || user?.email || '';
 
   return (
     <div className="min-h-screen bg-slate-50/50 text-slate-800 p-6 lg:p-12 font-sans selection:bg-blue-500/30">
@@ -32,11 +54,47 @@ export default function Home() {
               基于 5000 公司销售订单数据，全面打通 MES、SAP、SCS 等核心系统，提供端到端的整机与部件质量监控、深度分析与自动化预警。
             </p>
           </div>
-          <div className="flex items-center gap-4 text-sm font-medium">
-            <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-600 rounded-full border border-emerald-200">
-              <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-              系统运行正常
-            </div>
+          <div className="flex items-center gap-3" ref={menuRef}>
+            {user && (
+              <div className="relative">
+                <button
+                  onClick={() => setUserMenuOpen((v) => !v)}
+                  className="flex items-center gap-3 pl-2 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl hover:border-blue-300 hover:shadow-sm transition-all"
+                >
+                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-sm">
+                    <span className="text-white text-sm font-semibold">{avatarChar}</span>
+                  </div>
+                  <div className="text-left">
+                    <p className="text-sm font-semibold text-slate-800 leading-none">{displayName}</p>
+                    <p className="text-xs text-slate-400 leading-none mt-0.5">{department}</p>
+                  </div>
+                  <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} />
+                </button>
+                {userMenuOpen && (
+                  <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-xl border border-slate-200 shadow-lg shadow-slate-900/10 py-2 z-50 overflow-hidden">
+                    <div className="px-4 py-3 border-b border-slate-100">
+                      <p className="text-sm font-semibold text-slate-800">{displayName}</p>
+                      <p className="text-xs text-slate-400 mt-0.5">{user.itcode} · {department}</p>
+                    </div>
+                    {email && (
+                      <div className="flex items-center gap-2 px-4 py-2 text-xs text-slate-500">
+                        <Mail className="w-3.5 h-3.5 text-slate-400" />
+                        {email}
+                      </div>
+                    )}
+                    <div className="border-t border-slate-100 mt-1 pt-1">
+                      <button
+                        onClick={() => { setUserMenuOpen(false); logout(); }}
+                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-slate-600 hover:text-red-600 hover:bg-red-50 transition-colors"
+                      >
+                        <LogOut className="w-4 h-4" />
+                        退出登录
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         </header>
 
@@ -103,7 +161,7 @@ export default function Home() {
                 </div>
                 <h3 className="text-lg font-bold text-slate-800 mb-2">DOA (开箱报修与换件率)</h3>
                 <p className="text-slate-500 text-sm leading-relaxed">
-                  联动 SAP 发货数量与 SCS 报修数据，追踪设备开箱即损状态。细分“DOA报修率”与纯硬件更换的“DOA换件率”，全面评估出厂及物流交付质量。
+                  联动 SAP 发货数量与 SCS 报修数据，追踪设备开箱即损状态。细分"DOA报修率"与纯硬件更换的"DOA换件率"，全面评估出厂及物流交付质量。
                 </p>
               </div>
               <div className="mt-6 flex justify-end">
@@ -137,7 +195,7 @@ export default function Home() {
             </div>
           </div>
 
-          {/* System Settings / Config */}
+          {/* System Settings */}
           <div 
             onClick={() => setIsSettingsOpen(true)}
             className="group relative overflow-hidden bg-slate-50/50 border border-slate-200/50 rounded-2xl p-6 cursor-pointer transition-all duration-300 hover:bg-slate-100/50 hover:shadow-md"
@@ -166,7 +224,10 @@ export default function Home() {
       </div>
 
       {isSettingsOpen && (
-        <SettingsModal onClose={() => setIsSettingsOpen(false)} />
+        <SettingsModal
+          onClose={() => setIsSettingsOpen(false)}
+          onSaved={() => window.dispatchEvent(new CustomEvent('settings-saved'))}
+        />
       )}
     </div>
   );

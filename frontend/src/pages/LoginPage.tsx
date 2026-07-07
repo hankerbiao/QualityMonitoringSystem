@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../context/AuthContext';
 import { ShieldCheck, Activity, AlertTriangle, PackageCheck, Wrench, Zap, ArrowRight } from 'lucide-react';
+import { getOALoginUrl } from '../context/AuthContext';
 
 const modules = [
   { icon: Activity, label: 'RTY 直通率', desc: '整机生产质量实时追踪', color: '#0071e3' },
@@ -12,13 +11,10 @@ const modules = [
 
 export default function LoginPage() {
   const [loading, setLoading] = useState(false);
-  const { login } = useAuth();
-  const navigate = useNavigate();
 
-  const handleOALogin = async () => {
+  const handleOALogin = () => {
     setLoading(true);
-    await login('admin', '123456');
-    navigate('/');
+    window.location.href = getOALoginUrl();
   };
 
   return (

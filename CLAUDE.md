@@ -1,133 +1,180 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to AI coding assistants when working with code in this repository.
 
-Enterprise-grade quality data integration platform consolidating four quality modules:
-- **RTY**: 整机综合直通率 (Overall First Pass Yield) - **Fully implemented**
-- **LRR**: 部件故障率 (Part Failure Rate) - Planned
-- **DOA**: 开箱报修率 (Out-of-Box Failure Rate) - Planned
-- **MFR**: 月化故障率 (Monthly Field Failure Rate) - Planned
+## Project Overview
+
+QualiBoard 品质看板 - 企业级质量数据整合平台：
+- **RTY**: 整机综合直通率 (Overall First Pass Yield) - **已完整实现**
+- **LRR**: 部件故障率 (Part Failure Rate) - 开发中
+- **DOA**: 开箱报修率 (Out-of-Box Failure Rate) - 开发中
+- **MFR**: 月化故障率 (Monthly Field Failure Rate) - 开发中
 
 ## Repository Structure
 
 ```
 QualiBoard/
-├── frontend/          # Main development area (React + Vite + TypeScript)
-├── backend/           # Reserved for future backend services
-├── docker/            # Reserved for containerization
-└── .claude/           # Claude Code configuration
+├── frontend/          # React + Vite + TypeScript (主要开发区域)
+│   ├── src/
+│   │   ├── api/       # API 接口层 (已对接后端)
+│   │   ├── components/# 组件 (SettingsModal, DefectModal, InputModal, ...)
+│   │   ├── pages/     # 页面 (Home, RTYPage, ProtectedLayout)
+│   │   ├── context/   # React Context (ModelTargetsContext)
+│   │   └── types.ts   # TypeScript 类型定义
+│   ├── docs/
+│   │   └── design.md  # 系统设计文档 (中文)
+│   ├── README.md      # 项目说明
+│   └── AGENTS.md      # AI 助手指令
+├── backend/           # FastAPI 后端 (已实现)
+│   ├── app/
+│   │   ├── api/       # API 路由 (rty, settings, ai, auth)
+│   │   ├── core/      # 配置、日志
+│   │   ├── db/        # MongoDB (Motor 异步)
+│   │   └── schemas/   # Pydantic 模型
+│   ├── init_default_settings.py  # 初始化默认配置
+│   ├── import_mock_data.py       # 导入模拟数据
+│   └── README.md      # 后端说明
+├── docker/            # 预留用于容器化
+└── CLAUDE.md          # 本文件
 ```
 
 ## Commands
 
-All commands run from the `frontend/` directory:
+前端 (所有命令在 `frontend/` 目录):
 
 ```bash
-cd frontend
-
-npm run dev      # Start dev server on port 3000 with HTTPS
-npm run build    # Production build to dist/
-npm run lint     # TypeScript type check only (no linter/formatter)
-npm run preview  # Preview production build
-npm run clean    # Remove dist/ and server.js
+npm run dev      # 开发服务器 (端口 3000)
+npm run build    # 生产构建
+npm run lint     # TypeScript 类型检查 (无 linter)
+npm run preview  # 预览生产构建
+npm run clean    # 清理构建产物
 ```
 
-## Tech Stack (frontend)
+后端:
+
+```bash
+cd backend
+uv sync                        # 安装依赖
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000  # 启动服务
+uv run python init_default_settings.py  # 初始化配置数据
+uv run python import_mock_data.py       # 导入模拟数据
+```
+
+## Tech Stack
+
+### Frontend
 
 - **React 19** + **TypeScript 5.8**
-- **Vite 6** - Build tool with HTTPS enabled (self-signed cert)
-- **Tailwind CSS v4** - Uses `@tailwindcss/vite` plugin (no tailwind.config.js)
-- **React Router DOM v7** - Client-side routing
-- **Recharts** - Charts (ComposedChart with Bar + Line dual-axis)
-- **Lucide React** - Icons
-- **xlsx** - Excel export functionality
-- **Voice Recognition** - FunASR WebSocket integration (see VoiceInput.tsx)
+- **Vite 6** - 构建工具
+- **Tailwind CSS v4** - CSS-first 配置，无 tailwind.config.js
+- **React Router DOM v7** - 路由
+- **Recharts** - 图表 (ComposedChart 双轴)
+- **Lucide React** - 图标
+- **xlsx** - Excel 导出
+
+### Backend
+
+- **Python 3.10+** + **FastAPI**
+- **Motor** - 异步 MongoDB
+- **Loguru** - 日志系统
+- **Pydantic** - 数据验证
 
 ## Architecture
 
-### Source Structure
+### Frontend Structure
 
 ```
 frontend/src/
 ├── api/
-│   ├── rtyApi.ts       # Mock API with delay() wrapper (500ms simulated latency)
-│   └── mockData.ts     # Generated mock data
+│   ├── rtyApi.ts       # RTY 数据接口 (过滤参数: statMethod, model, dateRange, ...)
+│   ├── settingsApi.ts  # 系统配置接口 (统一 PUT /api/settings)
+│   ├── authApi.ts      # 认证接口 (OA 登录代理)
+│   └── aiApi.ts        # AI 分析接口
 ├── components/
-│   ├── AIAssistant.tsx      # Floating AI assistant (rule-based mock responses)
-│   ├── AlertConfigModal.tsx # Email alert configuration
-│   ├── DefectModal.tsx      # Defect detail modal
-│   ├── DetailModal.tsx      # Common detail modal
-│   ├── InputModal.tsx       # Input detail modal
-│   ├── SettingsModal.tsx    # System configuration (MES, RTY targets, alerts)
-│   └── VoiceInput.tsx       # Voice input with FunASR WebSocket
-├── context/
-│   ├── ModelTargetsContext.tsx  # RTY target rates per model
-│   └── SettingsContext.tsx      # System settings state
-├── hooks/
-│   └── useVoiceRecognition.ts   # WebSocket audio streaming to FunASR
+│   ├── SettingsModal.tsx    # 系统配置管理 (MES/机型/邮件/AI 四 Tab)
+│   ├── DefectModal.tsx      # 故障明细弹窗
+│   ├── InputModal.tsx       # 投入明细弹窗
+│   ├── AlertConfigModal.tsx # 预警配置弹窗
+│   └── ProtectedLayout.tsx  # 受保护布局 (OA 登录验证)
 ├── pages/
-│   ├── Home.tsx    # Dashboard with 4 module cards (Bento Grid layout)
-│   └── RTYPage.tsx # RTY data table + charts + modals (~580 lines)
-├── types.ts        # Shared interfaces: RTYData, DefectDetail, InputDetail
-├── App.tsx         # Router setup with /, /rty, /lrr, /doa, /mfr routes
-└── index.css       # Tailwind v4 imports + Inter/JetBrains Mono fonts
+│   ├── Home.tsx             # 首页 (Bento Grid 四模块卡片)
+│   └── RTYPage.tsx          # RTY 页面 (~538 行，过滤 + 表格 + 图表)
+├── context/
+│   └── ModelTargetsContext.tsx  # 机型指标上下文
+├── types.ts        # RTYData, DefectDetail, InputDetail 等
+├── App.tsx         # 路由: /, /rty, /lrr, /doa, /mfr, /settings, /login
+└── index.css       # Tailwind v4 入口 + 字体配置
 ```
 
-### Key Patterns
+### Backend Structure
 
-- **Path alias**: `@/*` maps to frontend root (vite.config.ts + tsconfig.json)
-- **Mock API pattern**: All API calls return Promises with `delay()`. Ready for real backend replacement.
-- **Modal pattern**: Parent manages visibility state, passes `recordId` for data fetching
-- **Voice recognition**: WebSocket connection → AudioContext (16kHz) → ScriptProcessor → PCM16 streaming → FunASR backend
-- **Chart integration**: Recharts `ComposedChart` with dual Y-axes for production volume + RTY rate
+```
+backend/app/
+├── main.py              # FastAPI 入口 (生命周期、CORS、路由注册)
+├── auth_service.py      # OA JWT 验证 + Session 管理
+├── api/
+│   ├── rty.py           # GET /api/rty/list, /{id}/defects, /{id}/inputs, /cycle-stats
+│   ├── settings.py      # GET/PUT /api/settings (MES/机型指标/邮件/AI)
+│   ├── ai.py            # POST /api/ai/analyze
+│   └── auth.py          # GET/POST /api/auth/oa/callback, /auth/me, /auth/logout
+├── core/
+│   ├── config.py        # pydantic-settings (MongoDB 27019, OA JWT)
+│   └── logger.py        # Loguru 日志 + 审计日志
+└── db/
+    └── mongodb.py       # Motor 异步连接
+```
 
-### Routes
+## Key Patterns
+
+- **前端代理**: Vite dev server 代理 `/api/*` → 后端 `http://localhost:8000`
+- **OA 登录**: ProtectedLayout 检查 localStorage.token → 无则 redirect /login
+- **配置管理**: SettingsModal 一次性保存全部配置，RTYPage 监听 `settings-saved` 事件刷新
+- **MES 密码**: 后端明文返回，前端眼睛图标切换显示/隐藏
+- **Mock API**: 保留 Promise + delay() 结构，ready for real backend
+
+## Routes
 
 | Path | Component | Status |
 |------|-----------|--------|
 | `/` | Home | ✅ |
 | `/rty` | RTYPage | ✅ |
-| `/lrr` | Home (redirect) | Planned |
-| `/doa` | Home (redirect) | Planned |
-| `/mfr` | Home (redirect) | Planned |
+| `/settings` | SettingsModal | ✅ |
+| `/login` | LoginPage | ✅ |
+| `/lrr` | Home (redirect) | 🚧 |
+| `/doa` | Home (redirect) | 🚧 |
+| `/mfr` | Home (redirect) | 🚧 |
 
-## Configuration
+## Environment Variables
 
-### Vite (vite.config.ts)
-- HTTPS enabled with self-signed certificates (`key.pem`, `cert.pem`)
-- WebSocket proxy: `/ws-voice` → `ws://10.17.150.235:10095` (FunASR service)
-- HMR can be disabled via `DISABLE_HMR=true` environment variable
+### Frontend
 
-### TypeScript (tsconfig.json)
-- Target: ES2022, Module: ESNext
-- Strict mode enabled
-- Path alias: `@/*` → `./`
-
-### Environment Variables
-
-Create `frontend/.env` from `frontend/.env.example`:
-```
-GEMINI_API_KEY=your_key  # For future AI features
-APP_URL=your_app_url     # For self-referential links
+```bash
+# frontend/.env
+VITE_API_BASE_URL=http://localhost:8000
+DISABLE_HMR=true  # 禁用 HMR (AI Studio 编辑模式)
 ```
 
-## Voice Input Feature
+### Backend
 
-Located in `src/hooks/useVoiceRecognition.ts`:
-- Connects to FunASR WebSocket service
-- Audio pipeline: `getUserMedia` → `AudioContext(16kHz)` → `ScriptProcessor(4096)` → `PCM16` → WebSocket
-- Protocol: Send `{ type: 'end' }` to stop, receive `is_final`/`complete` for final results
+```bash
+# backend/.env
+MONGODB_URL=mongodb://10.17.154.252:27019  # 非默认端口
+OA_JWT_SECRET=your_secret                   # 必填
+DEBUG=true
+```
 
-## Future Work (per docs/design.md)
+## 已实现功能
 
-- [ ] Implement LRR, DOA, MFR module pages
-- [ ] Add unified authentication (Auth)
-- [ ] Replace mock APIs with real backend integration
-- [ ] Integrate Gemini AI for AI Assistant (requires GEMINI_API_KEY)
-- [ ] Email alerting system
+- OA 单点登录 (JWT 验证 + MongoDB Session)
+- RTY 数据看板 (过滤、排序、明细穿透、Excel 导出)
+- 系统配置管理 (MES/机型指标/邮件预警/AI)
+- 周期统计与趋势图表
+- 密码显示/隐藏切换
 
-## Notes
+## 后续计划
 
-- `components.json` exists as shadcn/ui schema config but no components installed - all UI is custom
-- Design documentation in `frontend/docs/design.md` (Chinese) describes full system spec
-- Mock data can be regenerated via root scripts `generate_mock.cjs` and `update_modal.cjs`
+- [ ] LRR、DOA、MFR 模块页面
+- [ ] 邮件预警发送功能
+- [ ] AI 助手集成真实 LLM API
+- [ ] MES 密码加密存储
+- [ ] 生产环境 CORS 域名限制

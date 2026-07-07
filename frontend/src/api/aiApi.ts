@@ -1,4 +1,5 @@
 import type { RTYData } from '../types';
+import { apiFetch } from './authApi';
 
 export interface AIMessage {
   role: 'user' | 'assistant' | 'system';
@@ -84,7 +85,7 @@ export const aiApi = {
     rtyData: RTYData[]
   ): Promise<string> {
     const context = buildContext(rtyData);
-    const response = await fetch('/api/ai/chat', {
+    const response = await apiFetch('/api/ai/chat', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ config, messages, context }),

@@ -23,6 +23,8 @@ from app.schemas.settings import (
     FeatureFlagsUpdate,
     SettingsResponse,
     SettingsUpdateRequest,
+    AIConfigSchema,
+    AIConfigUpdate,
 )
 from app.schemas.common import Response
 from app.models.documents import Collections
@@ -45,7 +47,7 @@ async def get_all_settings():
     if mes_config:
         mes = MESConfig(
             username=mes_config.get("username", ""),
-            password="********"  # 隐藏密码
+            password=mes_config.get("password", ""),
         )
 
     # 获取机型指标配置
@@ -77,6 +79,18 @@ async def get_all_settings():
     else:
         feature_flags = FeatureFlags(voiceInputEnabled=False)
 
+    # 获取 AI 模型配置
+    ai_config_doc = await db[Collections.CONFIGS].find_one({"key": "ai_config"})
+    if ai_config_doc:
+        ai = AIConfigSchema(
+            apiUrl=ai_config_doc.get("apiUrl", ""),
+            modelId=ai_config_doc.get("modelId", ""),
+            apiKey="",  # 不返回明文
+            maxTokens=ai_config_doc.get("maxTokens", 4096),
+        )
+    else:
+        ai = AIConfigSchema()
+
     return Response(
         success=True,
         data=SettingsResponse(
@@ -84,6 +98,7 @@ async def get_all_settings():
             modelTargets=model_targets,
             emailAlert=email_alert,
             featureFlags=feature_flags,
+            ai=ai,
         )
     )
 
@@ -150,6 +165,25 @@ async def update_all_settings(request: SettingsUpdateRequest):
                 upsert=True
             )
 
+    # 更新 AI 模型配置
+    if request.ai is not None:
+        ai_update = {}
+        if request.ai.apiUrl is not None:
+            ai_update["apiUrl"] = request.ai.apiUrl
+        if request.ai.modelId is not None:
+            ai_update["modelId"] = request.ai.modelId
+        if request.ai.apiKey is not None:
+            ai_update["apiKey"] = request.ai.apiKey
+        if request.ai.maxTokens is not None:
+            ai_update["maxTokens"] = request.ai.maxTokens
+        if ai_update:
+            ai_update["updatedAt"] = updated_at
+            await db[Collections.CONFIGS].update_one(
+                {"key": "ai_config"},
+                {"$set": ai_update},
+                upsert=True
+            )
+
     # 返回更新后的配置
     return await get_all_settings()
 
@@ -172,7 +206,7 @@ async def get_mes_config():
         success=True,
         data=MESConfig(
             username=doc.get("username", ""),
-            password="********"  # 隐藏实际密码
+            password=doc.get("password", "")
         )
     )
 
@@ -205,7 +239,7 @@ async def update_mes_config(config: MESConfigUpdate):
         success=True,
         data=MESConfig(
             username=doc.get("username", ""),
-            password="********"
+            password=doc.get("password", "")
         ),
         message="MES 配置已更新"
     )
@@ -445,4 +479,72 @@ async def update_feature_flags(flags: FeatureFlagsUpdate):
             voiceInputEnabled=doc.get("voiceInputEnabled", False),
         ),
         message="功能开关配置已更新"
+    )
+
+
+# ============== AI 模型配置接口 ==============
+
+@router.get("/ai", response_model=Response[AIConfigSchema])
+async def get_ai_config():
+    """
+    获取 AI 模型配置
+    """
+    db = get_database()
+
+    doc = await db[Collections.CONFIGS].find_one({"key": "ai_config"})
+
+    if not doc:
+        return Response(success=True, data=AIConfigSchema())
+
+    return Response(
+        success=True,
+        data=AIConfigSchema(
+            apiUrl=doc.get("apiUrl", ""),
+            modelId=doc.get("modelId", ""),
+            apiKey="",
+            maxTokens=doc.get("maxTokens", 4096),
+        )
+    )
+
+
+@router.put("/ai", response_model=Response[AIConfigSchema])
+async def update_ai_config(config: AIConfigUpdate):
+    """
+    更新 AI 模型配置
+    """
+    db = get_database()
+    updated_at = datetime.utcnow()
+
+    update_data = {}
+    if config.apiUrl is not None:
+        update_data["apiUrl"] = config.apiUrl
+    if config.modelId is not None:
+        update_data["modelId"] = config.modelId
+    if config.apiKey is not None:
+        update_data["apiKey"] = config.apiKey
+    if config.maxTokens is not None:
+        update_data["maxTokens"] = config.maxTokens
+
+    if not update_data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+
+    update_data["updatedAt"] = updated_at
+
+    await db[Collections.CONFIGS].update_one(
+        {"key": "ai_config"},
+        {"$set": update_data},
+        upsert=True
+    )
+
+    doc = await db[Collections.CONFIGS].find_one({"key": "ai_config"})
+
+    return Response(
+        success=True,
+        data=AIConfigSchema(
+            apiUrl=doc.get("apiUrl", ""),
+            modelId=doc.get("modelId", ""),
+            apiKey="",
+            maxTokens=doc.get("maxTokens", 4096),
+        ),
+        message="AI 模型配置已更新"
     )
