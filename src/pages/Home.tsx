@@ -6,8 +6,6 @@ import {
   Wrench, 
   BarChart3,
   ArrowRight,
-  Database,
-  Layers,
   Settings,
   ShieldCheck
 } from 'lucide-react';
@@ -28,10 +26,10 @@ export default function Home() {
               <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-600/20">
                 <ShieldCheck className="w-6 h-6 text-white" />
               </div>
-              <h1 className="text-3xl font-bold text-slate-900 tracking-tight">质量数据整合系统 (QMS)</h1>
+              <h1 className="text-3xl font-bold text-slate-900 tracking-tight">数质看板</h1>
             </div>
             <p className="text-slate-500 max-w-xl leading-relaxed">
-              基于 5000 公司销售订单数据，全面打通 MES、SAP、SCS 等核心系统，为您提供端到端的整机与部件质量监控、深度分析与自动化预警。
+              基于 5000 公司销售订单数据，全面打通 MES、SAP、SCS 等核心系统，提供端到端的整机与部件质量监控、深度分析与自动化预警。
             </p>
           </div>
           <div className="flex items-center gap-4 text-sm font-medium">
@@ -161,7 +159,7 @@ export default function Home() {
             <span>5000公司信息系统开发部</span>
           </div>
           <div>
-            有问题光圈联系 @libiao1
+            有问题请联系 @libiao1
           </div>
         </footer>
 
@@ -173,5 +171,3 @@ export default function Home() {
     </div>
   );
 }
-
-

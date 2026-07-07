@@ -28,16 +28,33 @@ export const rtyApi = {
     
     let result = [...mockRtyData];
     
-    // 模拟前端筛选逻辑
+    // 计算方法
     if (params.model && params.model !== 'all') {
       result = result.filter(item => item.model === params.model);
     }
+    // 生产机型
     if (params.productModel && params.productModel !== 'all') {
       result = result.filter(item => item.productModel === params.productModel);
     }
+    // 基地
     if (params.base && params.base !== 'all') {
       result = result.filter(item => item.base === params.base);
     }
+    // 客户
+    if (params.customer && params.customer.trim()) {
+      result = result.filter(item => item.customer.includes(params.customer.trim()));
+    }
+    // 时间范围
+    if (params.dateRange.from) {
+      const fromStr = params.dateRange.from.toISOString().split('T')[0];
+      result = result.filter(item => item.time >= fromStr);
+    }
+    if (params.dateRange.to) {
+      const toStr = params.dateRange.to.toISOString().split('T')[0];
+      result = result.filter(item => item.time <= toStr);
+    }
+    // 销售订单 / 生产订单 / 序列号 — mock 数据中无对应字段，
+    // 接入真实后端后这些筛选条件由服务端处理
     
     return result;
   },

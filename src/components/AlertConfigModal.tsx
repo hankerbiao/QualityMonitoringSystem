@@ -1,5 +1,5 @@
-import React, { useState, useMemo } from 'react';
-import { X, Bell, Mail, Info, Calendar } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { X, Bell, Calendar } from 'lucide-react';
 import {
   ComposedChart,
   Line,
@@ -20,19 +20,52 @@ interface AlertConfigModalProps {
 }
 
 // 预定义一些颜色，用于图表中的不同机型
-const COLORS = ['#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444'];
+const COLORS = ['#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444', '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16'];
+
+const WEEKDAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+function formatDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** 获取当前追踪周期（周六→下周五） */
+function getCurrentCycle(): string {
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0=周日, 6=周六
+  // 本周六距离今天的天数
+  const daysToSaturday = (6 - dayOfWeek + 7) % 7;
+  const thisSaturday = new Date(now);
+  thisSaturday.setDate(now.getDate() - (dayOfWeek === 6 ? 0 : daysToSaturday));
+  
+  // 如果今天 < 周六，则周期起始是上一个周六
+  const cycleStart = new Date(thisSaturday);
+  if (dayOfWeek !== 6) {
+    cycleStart.setDate(thisSaturday.getDate() - 7);
+  }
+  const cycleEnd = new Date(cycleStart);
+  cycleEnd.setDate(cycleStart.getDate() + 6);
+  
+  return `${formatDate(cycleStart)} (${WEEKDAY_NAMES[cycleStart.getDay()]}) - ${formatDate(cycleEnd)} (${WEEKDAY_NAMES[cycleEnd.getDay()]})`;
+}
 
 export default function AlertConfigModal({ onClose, rawData = [], modelTargets = {} }: AlertConfigModalProps) {
-  const currentCycle = "2026-06-27 (周六) - 2026-07-03 (周五)";
-  const [emails, setEmails] = useState("manager@company.com; quality-team@company.com");
-  
+  const currentCycle = getCurrentCycle();
+
   // 时间范围快捷键：6 = 近半年, 12 = 近一年, custom = 自定义
-  const [timeFilter, setTimeFilter] = useState<'6' | '12' | 'custom'>('12');
-  const [customStart, setCustomStart] = useState('2025-07');
-  const [customEnd, setCustomEnd] = useState('2026-06');
+  const [timeFilter, setTimeFilter] = useState<'6' | '12' | 'custom'>('6');
+  const [customStart, setCustomStart] = useState(() => {
+    const d = new Date(); d.setFullYear(d.getFullYear() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [customEnd, setCustomEnd] = useState(() => {
+    const d = new Date(); d.setMonth(d.getMonth() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
   
-  // 简单计算一下基准日期（假设当前是2026-06）
-  const baseDate = new Date('2026-06-30');
+  const baseDate = new Date();
   
   const filteredData = useMemo(() => {
     let result = rawData;

@@ -1,5 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { Settings, Save, Database, BellRing, Target, Mail, Key, X } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Settings, Save, Database, BellRing, Target, Mail, Key, X, CheckCircle, Mic, ToggleRight } from 'lucide-react';
+import { useModelTargets } from '../context/ModelTargetsContext';
+import { useSettings } from '../context/SettingsContext';
 
 interface SettingsModalProps {
   onClose: () => void;
@@ -8,23 +10,17 @@ interface SettingsModalProps {
 export default function SettingsModal({ onClose }: SettingsModalProps) {
   useEffect(() => {
     document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = 'unset';
-    };
+    return () => { document.body.style.overflow = 'unset'; };
   }, []);
 
-  const [activeTab, setActiveTab] = useState<'mes' | 'rty' | 'email'>('mes');
-  
+  const [activeTab, setActiveTab] = useState<'mes' | 'rty' | 'email' | 'feature'>('mes');
+  const [saved, setSaved] = useState(false);
+  const { modelTargets: targets, setModelTargets: setTargets } = useModelTargets();
+  const { settings, updateSettings } = useSettings();
+
   const [mesConfig, setMesConfig] = useState({
     username: '',
     password: ''
-  });
-
-  const [targets, setTargets] = useState<Record<string, number>>({
-    '6210 C21 BOX': 99.0,
-    '6210 C21': 99.0,
-    '6210 C31': 99.0,
-    '普通机型': 99.0
   });
 
   const [newModel, setNewModel] = useState('');
@@ -65,10 +61,10 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
   };
 
   const handleSave = () => {
-    // In a real app, this would save to a backend API
-    // For now, we just show an alert
-    alert('配置已保存');
-    onClose();
+    setSaved(true);
+    setTimeout(() => {
+      onClose();
+    }, 1500);
   };
 
   return (
@@ -134,6 +130,15 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
             >
               <BellRing className={`w-4 h-4 ${activeTab === 'email' ? 'text-blue-600' : 'text-slate-400'}`} />
               邮件预警规则
+            </button>
+            <button
+              onClick={() => setActiveTab('feature')}
+              className={`flex items-center gap-2.5 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${
+                activeTab === 'feature' ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+              }`}
+            >
+              <ToggleRight className={`w-4 h-4 ${activeTab === 'feature' ? 'text-blue-600' : 'text-slate-400'}`} />
+              功能开关
             </button>
           </div>
 
@@ -317,9 +322,50 @@ export default function SettingsModal({ onClose }: SettingsModalProps) {
                 </div>
               </div>
             )}
+
+            {activeTab === 'feature' && (
+              <div className="space-y-6 max-w-2xl">
+                <div>
+                  <h3 className="text-base font-semibold text-slate-800 mb-1">功能开关配置</h3>
+                  <p className="text-sm text-slate-500 mb-6">控制系统中各功能的启用状态。</p>
+                </div>
+                
+                <div className="space-y-6">
+                  <div className="p-4 bg-white border border-slate-200 rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 bg-blue-50 rounded-lg flex items-center justify-center">
+                          <Mic className="w-5 h-5 text-blue-600" />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-medium text-slate-800">语音输入</h4>
+                          <p className="text-xs text-slate-500 mt-0.5">开启后，"数质看板 AI 助手"悬浮球将显示在页面右下角</p>
+                        </div>
+                      </div>
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input 
+                          type="checkbox" 
+                          className="sr-only peer" 
+                          checked={settings.voiceInputEnabled}
+                          onChange={(e) => updateSettings({ voiceInputEnabled: e.target.checked })}
+                        />
+                        <div className="w-11 h-6 bg-slate-200 peer-focus:outline-none peer-focus:ring-4 peer-focus:ring-blue-300 rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       </div>
+
+      {saved && (
+        <div className="fixed top-6 right-6 z-[100] bg-green-50 border border-green-200 text-green-800 px-5 py-3 rounded-md shadow-lg flex items-center gap-2 animate-in fade-in slide-in-from-right-2 transition-all">
+          <CheckCircle className="w-4 h-4 text-green-600" />
+          <span className="text-sm font-medium">配置已保存</span>
+        </div>
+      )}
     </div>
   );
 }

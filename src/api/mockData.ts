@@ -1,449 +1,105 @@
 import { RTYData, DefectDetail, InputDetail } from '../types';
 
-export const mockRtyData: RTYData[] = [
-  {
-    id: '1',
-    time: '2025-07-15',
-    model: '普通机型',
-    productModel: '6210 C21 BOX',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 45,
-    inputCount: 809,
-    rtyRate: 94.438,
-    targetRate: 99.0,
-  },
-  {
-    id: '2',
-    time: '2025-07-15',
-    model: '普通机型',
-    productModel: '6210 C21',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 68,
-    inputCount: 1610,
-    rtyRate: 95.776,
-    targetRate: 99.0,
-  },
-  {
-    id: '3',
-    time: '2025-07-15',
-    model: '普通机型',
-    productModel: '6210 C31',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 71,
-    inputCount: 1337,
-    rtyRate: 94.690,
-    targetRate: 99.0,
-  },
-  {
-    id: '4',
-    time: '2025-08-15',
-    model: '普通机型',
-    productModel: '6210 C21 BOX',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 210,
-    inputCount: 2474,
-    rtyRate: 91.512,
-    targetRate: 99.0,
-  },
-  {
-    id: '5',
-    time: '2025-08-15',
-    model: '普通机型',
-    productModel: '6210 C21',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 68,
-    inputCount: 1816,
-    rtyRate: 96.256,
-    targetRate: 99.0,
-  },
-  {
-    id: '6',
-    time: '2025-08-15',
-    model: '普通机型',
-    productModel: '6210 C31',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 112,
-    inputCount: 1374,
-    rtyRate: 91.849,
-    targetRate: 99.0,
-  },
-  {
-    id: '7',
-    time: '2025-09-15',
-    model: '普通机型',
-    productModel: '6210 C21 BOX',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 83,
-    inputCount: 2211,
-    rtyRate: 96.246,
-    targetRate: 99.0,
-  },
-  {
-    id: '8',
-    time: '2025-09-15',
-    model: '普通机型',
-    productModel: '6210 C21',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 46,
-    inputCount: 1729,
-    rtyRate: 97.340,
-    targetRate: 99.0,
-  },
-  {
-    id: '9',
-    time: '2025-09-15',
-    model: '普通机型',
-    productModel: '6210 C31',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 163,
-    inputCount: 2203,
-    rtyRate: 92.601,
-    targetRate: 99.0,
-  },
-  {
-    id: '10',
-    time: '2025-10-15',
-    model: '普通机型',
-    productModel: '6210 C21 BOX',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 24,
-    inputCount: 1143,
-    rtyRate: 97.900,
-    targetRate: 99.0,
-  },
-  {
-    id: '11',
-    time: '2025-10-15',
-    model: '普通机型',
-    productModel: '6210 C21',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 131,
-    inputCount: 2266,
-    rtyRate: 94.219,
-    targetRate: 99.0,
-  },
-  {
-    id: '12',
-    time: '2025-10-15',
-    model: '普通机型',
-    productModel: '6210 C31',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 78,
-    inputCount: 1206,
-    rtyRate: 93.532,
-    targetRate: 99.0,
-  },
-  {
-    id: '13',
-    time: '2025-11-15',
-    model: '普通机型',
-    productModel: '6210 C21 BOX',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 129,
-    inputCount: 1928,
-    rtyRate: 93.309,
-    targetRate: 99.0,
-  },
-  {
-    id: '14',
-    time: '2025-11-15',
-    model: '普通机型',
-    productModel: '6210 C21',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 44,
-    inputCount: 1230,
-    rtyRate: 96.423,
-    targetRate: 99.0,
-  },
-  {
-    id: '15',
-    time: '2025-11-15',
-    model: '普通机型',
-    productModel: '6210 C31',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 169,
-    inputCount: 2237,
-    rtyRate: 92.445,
-    targetRate: 99.0,
-  },
-  {
-    id: '16',
-    time: '2025-12-15',
-    model: '普通机型',
-    productModel: '6210 C21 BOX',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 57,
-    inputCount: 577,
-    rtyRate: 90.121,
-    targetRate: 99.0,
-  },
-  {
-    id: '17',
-    time: '2025-12-15',
-    model: '普通机型',
-    productModel: '6210 C21',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 32,
-    inputCount: 793,
-    rtyRate: 95.965,
-    targetRate: 99.0,
-  },
-  {
-    id: '18',
-    time: '2025-12-15',
-    model: '普通机型',
-    productModel: '6210 C31',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 138,
-    inputCount: 2406,
-    rtyRate: 94.264,
-    targetRate: 99.0,
-  },
-  {
-    id: '19',
-    time: '2026-01-15',
-    model: '普通机型',
-    productModel: '6210 C21 BOX',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 57,
-    inputCount: 2122,
-    rtyRate: 97.314,
-    targetRate: 99.0,
-  },
-  {
-    id: '20',
-    time: '2026-01-15',
-    model: '普通机型',
-    productModel: '6210 C21',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 77,
-    inputCount: 1774,
-    rtyRate: 95.660,
-    targetRate: 99.0,
-  },
-  {
-    id: '21',
-    time: '2026-01-15',
-    model: '普通机型',
-    productModel: '6210 C31',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 5,
-    inputCount: 532,
-    rtyRate: 99.060,
-    targetRate: 99.0,
-  },
-  {
-    id: '22',
-    time: '2026-02-15',
-    model: '普通机型',
-    productModel: '6210 C21 BOX',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 204,
-    inputCount: 2419,
-    rtyRate: 91.567,
-    targetRate: 99.0,
-  },
-  {
-    id: '23',
-    time: '2026-02-15',
-    model: '普通机型',
-    productModel: '6210 C21',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 43,
-    inputCount: 871,
-    rtyRate: 95.063,
-    targetRate: 99.0,
-  },
-  {
-    id: '24',
-    time: '2026-02-15',
-    model: '普通机型',
-    productModel: '6210 C31',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 205,
-    inputCount: 2265,
-    rtyRate: 90.949,
-    targetRate: 99.0,
-  },
-  {
-    id: '25',
-    time: '2026-03-15',
-    model: '普通机型',
-    productModel: '6210 C21 BOX',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 72,
-    inputCount: 2261,
-    rtyRate: 96.816,
-    targetRate: 99.0,
-  },
-  {
-    id: '26',
-    time: '2026-03-15',
-    model: '普通机型',
-    productModel: '6210 C21',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 84,
-    inputCount: 962,
-    rtyRate: 91.268,
-    targetRate: 99.0,
-  },
-  {
-    id: '27',
-    time: '2026-03-15',
-    model: '普通机型',
-    productModel: '6210 C31',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 95,
-    inputCount: 1084,
-    rtyRate: 91.236,
-    targetRate: 99.0,
-  },
-  {
-    id: '28',
-    time: '2026-04-15',
-    model: '普通机型',
-    productModel: '6210 C21 BOX',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 14,
-    inputCount: 1240,
-    rtyRate: 98.871,
-    targetRate: 99.0,
-  },
-  {
-    id: '29',
-    time: '2026-04-15',
-    model: '普通机型',
-    productModel: '6210 C21',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 27,
-    inputCount: 2160,
-    rtyRate: 98.750,
-    targetRate: 99.0,
-  },
-  {
-    id: '30',
-    time: '2026-04-15',
-    model: '普通机型',
-    productModel: '6210 C31',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 122,
-    inputCount: 1860,
-    rtyRate: 93.441,
-    targetRate: 99.0,
-  },
-  {
-    id: '31',
-    time: '2026-05-15',
-    model: '普通机型',
-    productModel: '6210 C21 BOX',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 123,
-    inputCount: 1746,
-    rtyRate: 92.955,
-    targetRate: 99.0,
-  },
-  {
-    id: '32',
-    time: '2026-05-15',
-    model: '普通机型',
-    productModel: '6210 C21',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 36,
-    inputCount: 639,
-    rtyRate: 94.366,
-    targetRate: 99.0,
-  },
-  {
-    id: '33',
-    time: '2026-05-15',
-    model: '普通机型',
-    productModel: '6210 C31',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 48,
-    inputCount: 572,
-    rtyRate: 91.608,
-    targetRate: 99.0,
-  },
-  {
-    id: '34',
-    time: '2026-06-15',
-    model: '普通机型',
-    productModel: '6210 C21 BOX',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 115,
-    inputCount: 1620,
-    rtyRate: 92.901,
-    targetRate: 99.0,
-  },
-  {
-    id: '35',
-    time: '2026-06-15',
-    model: '普通机型',
-    productModel: '6210 C21',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 5,
-    inputCount: 2239,
-    rtyRate: 99.777,
-    targetRate: 99.0,
-  },
-  {
-    id: '36',
-    time: '2026-06-15',
-    model: '普通机型',
-    productModel: '6210 C31',
-    customer: '客户A',
-    base: '天津',
-    defectCount: 103,
-    inputCount: 2193,
-    rtyRate: 95.303,
-    targetRate: 99.0,
-  }
+const BASES = ['天津', '昆山', '桐乡', '大同'];
+const CUSTOMERS = ['客户A', '客户B', '客户C'];
+const MODELS = ['6210 C21 BOX', '6210 C21', '6210 C31', '普通机型'];
+const MODEL_CATEGORIES = ['普通机型', '复合机型', '普通机型', '普通机型'];
+
+function rand(min: number, max: number): number {
+  return Math.floor(Math.random() * (max - min + 1)) + min;
+}
+
+function pick<T>(arr: T[]): T {
+  return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function roundRty(defect: number, input: number): number {
+  if (input === 0) return 100;
+  return Number((((input - defect) / input) * 100).toFixed(3));
+}
+
+export const mockRtyData: RTYData[] = [];
+
+// 生成2025-07到2026-06各个月份的数据
+const months = [
+  '2025-07-15', '2025-08-15', '2025-09-15', '2025-10-15',
+  '2025-11-15', '2025-12-15', '2026-01-15', '2026-02-15',
+  '2026-03-15', '2026-04-15', '2026-05-15', '2026-06-15'
 ];
 
-export const mockDefectDetails: Record<string, DefectDetail[]> = {
-  '1': [
-    { id: 'd1', defectCode: 'E001', description: '屏幕划痕', count: 5 },
-    { id: 'd2', defectCode: 'E002', description: '无法开机', count: 7 },
-  ]
-};
+let id = 0;
+months.forEach(time => {
+  BASES.forEach(base => {
+    CUSTOMERS.forEach(customer => {
+      MODELS.forEach((productModel, mi) => {
+        id++;
+        const inputCount = rand(500, 2500);
+        const defectCount = rand(5, Math.floor(inputCount * 0.12));
+        const rtyRate = roundRty(defectCount, inputCount);
+        mockRtyData.push({
+          id: String(id),
+          time,
+          model: MODEL_CATEGORIES[mi],
+          productModel,
+          customer,
+          base,
+          defectCount,
+          inputCount,
+          rtyRate,
+          targetRate: 99.0,
+        });
+      });
+    });
+  });
+});
 
-export const mockInputDetails: Record<string, InputDetail[]> = {
-  '1': [
-    { id: 'i1', workOrder: 'WO-20231001-01', productLine: 'L1', count: 800 },
-  ]
-};
+export const mockDefectDetails: Record<string, DefectDetail[]> = {};
+export const mockInputDetails: Record<string, InputDetail[]> = {};
+
+// 为每个 record 生成故障明细和投入明细
+const defectTemplates: { code: string; desc: string }[] = [
+  { code: 'E001', desc: '屏幕划痕' },
+  { code: 'E002', desc: '无法开机' },
+  { code: 'E003', desc: '按键失灵' },
+  { code: 'E004', desc: 'WiFi 连接异常' },
+  { code: 'E005', desc: '电池续航不足' },
+  { code: 'E006', desc: '摄像头模糊' },
+  { code: 'E007', desc: '扬声器杂音' },
+  { code: 'E008', desc: '充电口松动' },
+  { code: 'E009', desc: '系统卡顿' },
+  { code: 'E010', desc: '蓝牙断连' },
+];
+
+const productLines = ['L1', 'L2', 'L3', 'L4', 'L5'];
+
+for (let i = 1; i <= id; i++) {
+  const key = String(i);
+  const numDefects = rand(1, 5);
+  const defectDetails: DefectDetail[] = [];
+  const usedCodes = new Set<string>();
+  for (let d = 0; d < numDefects; d++) {
+    const tmpl = defectTemplates[d % defectTemplates.length];
+    if (!usedCodes.has(tmpl.code)) {
+      usedCodes.add(tmpl.code);
+      defectDetails.push({
+        id: `d${key}-${d}`,
+        defectCode: tmpl.code,
+        description: tmpl.desc,
+        count: rand(1, 15),
+      });
+    }
+  }
+  mockDefectDetails[key] = defectDetails;
+
+  const numInputs = rand(2, 5);
+  const inputDetails: InputDetail[] = [];
+  for (let inp = 0; inp < numInputs; inp++) {
+    inputDetails.push({
+      id: `i${key}-${inp}`,
+      workOrder: `WO-${key}-${String(inp + 1).padStart(2, '0')}`,
+      productLine: pick(productLines),
+      count: rand(100, 800),
+    });
+  }
+  mockInputDetails[key] = inputDetails;
+}
