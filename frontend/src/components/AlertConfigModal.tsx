@@ -1,0 +1,671 @@
+import { useState, useMemo } from 'react';
+import { X, Bell, Calendar, Filter } from 'lucide-react';
+import {
+  LineChart,
+  BarChart,
+  Line,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer
+} from 'recharts';
+import { RTYData } from '../types';
+
+interface AlertConfigModalProps {
+  onClose: () => void;
+  rawData: RTYData[];
+  modelTargets?: Record<string, number>;
+}
+
+// 预定义一些颜色，用于图表中的不同机型
+const COLORS = ['#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444', '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16'];
+
+const WEEKDAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
+
+function formatDate(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** 获取当前追踪周期（周六→下周五） */
+function getCurrentCycle(): string {
+  const now = new Date();
+  const dayOfWeek = now.getDay(); // 0=周日, 6=周六
+  // 本周六距离今天的天数
+  const daysToSaturday = (6 - dayOfWeek + 7) % 7;
+  const thisSaturday = new Date(now);
+  thisSaturday.setDate(now.getDate() - (dayOfWeek === 6 ? 0 : daysToSaturday));
+  
+  // 如果今天 < 周六，则周期起始是上一个周六
+  const cycleStart = new Date(thisSaturday);
+  if (dayOfWeek !== 6) {
+    cycleStart.setDate(thisSaturday.getDate() - 7);
+  }
+  const cycleEnd = new Date(cycleStart);
+  cycleEnd.setDate(cycleStart.getDate() + 6);
+  
+  return `${formatDate(cycleStart)} (${WEEKDAY_NAMES[cycleStart.getDay()]}) - ${formatDate(cycleEnd)} (${WEEKDAY_NAMES[cycleEnd.getDay()]})`;
+}
+
+export default function AlertConfigModal({ onClose, rawData = [], modelTargets = {} }: AlertConfigModalProps) {
+  const currentCycle = getCurrentCycle();
+
+  // 时间范围快捷键：6 = 近半年, 12 = 近一年, custom = 自定义
+  const [timeFilter, setTimeFilter] = useState<'6' | '12' | 'custom'>('6');
+  
+  // 机型筛选状态
+  const [selectedModels, setSelectedModels] = useState<Set<string> | null>(null);
+  const [showModelFilter, setShowModelFilter] = useState(false);
+  
+  // 视图模式：chart = 双图表，heatmap = 热力图
+  const [viewMode, setViewMode] = useState<'chart' | 'heatmap'>('heatmap');
+  const [customStart, setCustomStart] = useState(() => {
+    const d = new Date(); d.setFullYear(d.getFullYear() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  const [customEnd, setCustomEnd] = useState(() => {
+    const d = new Date(); d.setMonth(d.getMonth() - 1);
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+  });
+  
+  const baseDate = new Date();
+  
+  const filteredData = useMemo(() => {
+    let result = rawData;
+    if (timeFilter !== 'custom') {
+      const monthsToSubtract = parseInt(timeFilter);
+      const startDate = new Date(baseDate);
+      startDate.setMonth(startDate.getMonth() - monthsToSubtract);
+      result = result.filter(item => new Date(item.time) >= startDate);
+    } else {
+      if (customStart && customEnd) {
+        result = result.filter(item => {
+          const month = item.time.substring(0, 7);
+          return month >= customStart && month <= customEnd;
+        });
+      }
+    }
+    return result;
+  }, [rawData, timeFilter, customStart, customEnd]);
+
+  const { trendData, trendModels, tableData, allMonths } = useMemo(() => {
+    const map = new Map<string, any>();
+    const modelsSet = new Set<string>();
+
+    filteredData.forEach(item => {
+      const month = item.time.substring(0, 7);
+      if (!map.has(month)) {
+        map.set(month, { time: month });
+      }
+      const current = map.get(month)!;
+      
+      modelsSet.add(item.productModel);
+      
+      // 对于每种机型，计算 inputCount 和 (input - defect) / input 的 rty
+      if (!current[item.productModel]) {
+        current[item.productModel] = { inputCount: 0, defectCount: 0 };
+      }
+      current[item.productModel].inputCount += item.inputCount;
+      current[item.productModel].defectCount += item.defectCount;
+    });
+
+    const monthsArray = Array.from(map.keys()).sort();
+    const modelsArray = Array.from(modelsSet).sort();
+
+    const chartData = monthsArray.map(month => {
+      const item = map.get(month);
+      const result: any = { time: month };
+      
+      modelsArray.forEach(model => {
+        if (item[model]) {
+          result[`${model}_input`] = item[model].inputCount;
+          const rty = ((item[model].inputCount - item[model].defectCount) / item[model].inputCount) * 100;
+          result[`${model}_rty`] = Number(rty.toFixed(3));
+        } else {
+          result[`${model}_input`] = 0;
+          // 不要为没有数据的设置 RTY，以免折线图断崖掉到0
+        }
+      });
+      return result;
+    });
+
+    // 为表格生成数据
+    // 每一行是一个机型，列是月份
+    const tblData = modelsArray.map(model => {
+      const rowData: any = { model };
+      monthsArray.forEach(month => {
+        const monthData = map.get(month);
+        if (monthData && monthData[model] && monthData[model].inputCount > 0) {
+          const rty = ((monthData[model].inputCount - monthData[model].defectCount) / monthData[model].inputCount) * 100;
+          const target = modelTargets[model] || 99.0;
+          rowData[month] = {
+            text: `${rty.toFixed(3)}% (${monthData[model].defectCount}/${monthData[model].inputCount})`,
+            belowTarget: rty < target
+          };
+        } else {
+          rowData[month] = { text: '-' };
+        }
+      });
+      return rowData;
+    });
+
+    return { trendData: chartData, trendModels: modelsArray, tableData: tblData, allMonths: monthsArray };
+  }, [filteredData]);
+
+  // 根据筛选状态获取实际显示的机型列表
+  const displayModels = useMemo(() => {
+    if (selectedModels === null) {
+      return trendModels;
+    }
+    return trendModels.filter(m => selectedModels.has(m));
+  }, [trendModels, selectedModels]);
+
+  // 机型选择/取消的辅助函数
+  const toggleModel = (model: string) => {
+    setSelectedModels(prev => {
+      const newSet = prev ? new Set(prev) : new Set(trendModels);
+      if (newSet.has(model)) {
+        newSet.delete(model);
+      } else {
+        newSet.add(model);
+      }
+      return newSet;
+    });
+  };
+
+  const selectAllModels = () => setSelectedModels(null);
+  const clearAllModels = () => setSelectedModels(new Set());
+
+  // 计算一下总投入和平均RTY等统计数据
+  const { totalInput, totalDefect, avgRty, highestRiskModel, bestModel, maxInputMonth } = useMemo(() => {
+    let totalIn = 0;
+    let totalDef = 0;
+    const modelStats = new Map<string, { in: number, def: number }>();
+    const monthStats = new Map<string, number>();
+
+    filteredData.forEach(item => {
+      totalIn += item.inputCount;
+      totalDef += item.defectCount;
+
+      const model = item.productModel;
+      if (!modelStats.has(model)) modelStats.set(model, { in: 0, def: 0 });
+      modelStats.get(model)!.in += item.inputCount;
+      modelStats.get(model)!.def += item.defectCount;
+
+      const month = item.time.substring(0, 7);
+      if (!monthStats.has(month)) monthStats.set(month, 0);
+      monthStats.set(month, monthStats.get(month)! + item.inputCount);
+    });
+
+    const rty = totalIn > 0 ? ((totalIn - totalDef) / totalIn) * 100 : 0;
+
+    let highestRisk = "无";
+    let highestDefectRate = -1;
+    let best = "无";
+    let bestRty = -1;
+
+    modelStats.forEach((stats, model) => {
+      if (stats.in > 0) {
+        const defectRate = stats.def / stats.in;
+        const currentRty = (stats.in - stats.def) / stats.in;
+        if (defectRate > highestDefectRate) {
+          highestDefectRate = defectRate;
+          highestRisk = model;
+        }
+        if (currentRty > bestRty) {
+          bestRty = currentRty;
+          best = model;
+        }
+      }
+    });
+
+    let maxInMonth = "无";
+    let maxIn = -1;
+    monthStats.forEach((val, month) => {
+      if (val > maxIn) {
+        maxIn = val;
+        maxInMonth = month;
+      }
+    });
+
+    return { 
+      totalInput: totalIn, 
+      totalDefect: totalDef,
+      avgRty: rty.toFixed(2),
+      highestRiskModel: highestRisk,
+      bestModel: best,
+      maxInputMonth: maxInMonth
+    };
+  }, [filteredData]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+      <div 
+        className="bg-white rounded-md shadow-xl border border-slate-200 w-full max-w-6xl overflow-hidden flex flex-col relative"
+        onClick={(e) => e.stopPropagation()}
+        style={{ maxHeight: '90vh' }}
+      >
+        <div className="px-5 py-3 border-b border-slate-200 flex justify-between items-center bg-[#f8fafc]">
+          <div className="flex items-center gap-2">
+            <Bell className="w-4 h-4 text-slate-700" />
+            <h3 className="text-base font-semibold text-slate-800">周期统计</h3>
+          </div>
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={onClose}
+              className="p-1 rounded-sm hover:bg-slate-200 text-slate-500 transition-colors"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+        
+        <div className="p-6 overflow-y-auto bg-white flex flex-col gap-6">
+          {/* 上方：统计概览，占据全宽 */}
+          <div className="flex flex-col gap-4">
+            <h4 className="text-sm font-semibold text-slate-800 border-b border-slate-100 pb-2">当前周期统计概览</h4>
+            
+            <div className="bg-blue-50/50 p-3 rounded-sm border border-blue-100 flex items-start gap-2 w-fit">
+              <Calendar className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+              <div>
+                <p className="text-xs font-medium text-blue-800">监控周期定义 (周六至下周五)</p>
+                <p className="text-[11px] text-blue-600 mt-0.5">当前追踪：{currentCycle}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+              <div className="p-3 border border-slate-200 rounded-sm bg-slate-50">
+                <p className="text-[11px] text-slate-500 font-semibold mb-1">周期内累计投入</p>
+                <p className="text-lg font-bold text-slate-800">{totalInput.toLocaleString()} <span className="text-xs font-normal text-slate-500">台</span></p>
+              </div>
+              <div className="p-3 border border-slate-200 rounded-sm bg-slate-50">
+                <p className="text-[11px] text-slate-500 font-semibold mb-1">综合平均直通率</p>
+                <p className="text-lg font-bold text-slate-800">{avgRty}%</p>
+              </div>
+              <div className="p-3 border border-slate-200 rounded-sm bg-slate-50">
+                <p className="text-[11px] text-slate-500 font-semibold mb-1">周期内总故障数</p>
+                <p className="text-lg font-bold text-slate-800">{totalDefect.toLocaleString()} <span className="text-xs font-normal text-slate-500">件</span></p>
+              </div>
+              <div className="p-3 border border-slate-200 rounded-sm bg-slate-50">
+                <p className="text-[11px] text-slate-500 font-semibold mb-1">产量最高月份</p>
+                <p className="text-lg font-bold text-slate-800">{maxInputMonth}</p>
+              </div>
+              <div className="p-3 border border-slate-200 rounded-sm bg-slate-50">
+                <p className="text-[11px] text-slate-500 font-semibold mb-1">高风险机型 (故障率最高)</p>
+                <p className="text-sm font-bold text-slate-800 mt-1 truncate" title={highestRiskModel}>{highestRiskModel}</p>
+              </div>
+              <div className="p-3 border border-slate-200 rounded-sm bg-slate-50">
+                <p className="text-[11px] text-slate-500 font-semibold mb-1">最佳表现机型 (RTY最高)</p>
+                <p className="text-sm font-bold text-slate-800 mt-1 truncate" title={bestModel}>{bestModel}</p>
+              </div>
+            </div>
+          </div>
+
+          {/* 下方：趋势图表及表格 */}
+          <div className="w-full border-t border-slate-100 pt-6">
+            <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
+              <div className="flex items-center gap-3">
+                <h4 className="text-sm font-semibold text-slate-800">月度生产量及直通率趋势 (按机型)</h4>
+                {/* 视图切换 */}
+                <div className="flex border border-slate-200 rounded-sm overflow-hidden">
+                  <button
+                    onClick={() => setViewMode('heatmap')}
+                    className={`px-3 py-1 text-xs ${viewMode === 'heatmap' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    热力图
+                  </button>
+                  <button
+                    onClick={() => setViewMode('chart')}
+                    className={`px-3 py-1 text-xs border-l border-slate-200 ${viewMode === 'chart' ? 'bg-blue-600 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    趋势图
+                  </button>
+                </div>
+              </div>
+              <div className="flex flex-wrap items-center gap-3">
+                {/* 机型筛选 */}
+                <div className="relative">
+                  <button 
+                    onClick={() => setShowModelFilter(!showModelFilter)}
+                    className={`flex items-center gap-1.5 px-3 py-1 text-xs rounded-sm border ${showModelFilter || selectedModels !== null ? 'bg-blue-50 border-blue-200 text-blue-700 font-medium' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    <Filter className="w-3 h-3" />
+                    机型筛选
+                    {selectedModels !== null && (
+                      <span className="ml-1 px-1.5 py-0.5 bg-blue-600 text-white rounded text-[10px]">
+                        {selectedModels.size}
+                      </span>
+                    )}
+                  </button>
+                  
+                  {showModelFilter && (
+                    <div className="absolute top-full right-0 mt-1 bg-white border border-slate-200 rounded-sm shadow-lg z-10 p-3 min-w-48">
+                      <div className="flex gap-2 mb-2 pb-2 border-b border-slate-100">
+                        <button 
+                          onClick={selectAllModels}
+                          className="text-xs text-blue-600 hover:text-blue-800"
+                        >
+                          全选
+                        </button>
+                        <button 
+                          onClick={clearAllModels}
+                          className="text-xs text-slate-500 hover:text-slate-700"
+                        >
+                          清空
+                        </button>
+                      </div>
+                      <div className="max-h-40 overflow-y-auto space-y-1">
+                        {trendModels.map(model => {
+                          const isSelected = selectedModels === null || selectedModels.has(model);
+                          return (
+                            <label key={model} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 px-1 py-0.5 rounded">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => toggleModel(model)}
+                                className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600"
+                              />
+                              <span className="text-xs text-slate-700 truncate" title={model}>{model}</span>
+                            </label>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+                </div>
+                
+                <div className="flex space-x-2">
+                  <button 
+                    onClick={() => setTimeFilter('6')}
+                    className={`px-3 py-1 text-xs rounded-sm border ${timeFilter === '6' ? 'bg-blue-50 border-blue-200 text-blue-700 font-medium' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    近半年
+                  </button>
+                  <button 
+                    onClick={() => setTimeFilter('12')}
+                    className={`px-3 py-1 text-xs rounded-sm border ${timeFilter === '12' ? 'bg-blue-50 border-blue-200 text-blue-700 font-medium' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    近一年
+                  </button>
+                </div>
+                
+                {/* 自定义日期选择器 */}
+                <div className="flex items-center space-x-2 border border-slate-300 rounded-sm bg-white px-2 py-1">
+                  <input 
+                    type="month" 
+                    className="text-xs text-slate-700 outline-none bg-transparent"
+                    value={customStart}
+                    onChange={(e) => { setCustomStart(e.target.value); setTimeFilter('custom'); }}
+                  />
+                  <span className="text-slate-400 text-xs">~</span>
+                  <input 
+                    type="month" 
+                    className="text-xs text-slate-700 outline-none bg-transparent"
+                    value={customEnd}
+                    onChange={(e) => { setCustomEnd(e.target.value); setTimeFilter('custom'); }}
+                  />
+                  <Calendar className="w-3.5 h-3.5 text-slate-400 ml-1" />
+                </div>
+              </div>
+            </div>
+
+            {trendData && trendData.length > 0 && viewMode === 'chart' && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+                {/* 左侧：投入量柱状图 */}
+                <div className="border border-slate-200 rounded-sm p-4 bg-white">
+                  <div className="flex justify-between items-center mb-3">
+                    <h5 className="text-xs font-semibold text-slate-700">投入数量趋势</h5>
+                    <span className="text-[10px] text-slate-400">单位: 台</span>
+                  </div>
+                  <div className="h-56 text-xs">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart
+                        data={trendData}
+                        margin={{ top: 5, right: 5, left: -15, bottom: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                        <XAxis 
+                          dataKey="time" 
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fill: '#64748b', fontSize: 10 }}
+                          dy={8}
+                        />
+                        <YAxis 
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fill: '#64748b', fontSize: 10 }}
+                        />
+                        <Tooltip 
+                          contentStyle={{ borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '11px' }}
+                          formatter={(value) => Number(value).toLocaleString()}
+                        />
+                        <Legend wrapperStyle={{ paddingTop: '8px', fontSize: '10px' }} />
+                        {displayModels.map((model, index) => (
+                          <Bar 
+                            key={`bar-${model}`}
+                            dataKey={`${model}_input`}
+                            name={model} 
+                            fill={COLORS[index % COLORS.length]} 
+                            radius={[2, 2, 0, 0]}
+                            maxBarSize={24}
+                          />
+                        ))}
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+                
+                {/* 右侧：RTY趋势折线图 */}
+                <div className="border border-slate-200 rounded-sm p-4 bg-white">
+                  <div className="flex justify-between items-center mb-3">
+                    <h5 className="text-xs font-semibold text-slate-700">直通率(RTY)趋势</h5>
+                    <span className="text-[10px] text-slate-400">单位: %</span>
+                  </div>
+                  <div className="h-56 text-xs">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <LineChart
+                        data={trendData}
+                        margin={{ top: 5, right: 5, left: -15, bottom: 0 }}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                        <XAxis 
+                          dataKey="time" 
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fill: '#64748b', fontSize: 10 }}
+                          dy={8}
+                        />
+                        <YAxis 
+                          domain={['dataMin - 2', 100]}
+                          axisLine={false}
+                          tickLine={false}
+                          tick={{ fill: '#64748b', fontSize: 10 }}
+                          tickFormatter={(value) => `${value}%`}
+                        />
+                        <Tooltip 
+                          contentStyle={{ borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '11px' }}
+                          formatter={(value) => `${Number(value).toFixed(3)}%`}
+                        />
+                        <Legend wrapperStyle={{ paddingTop: '8px', fontSize: '10px' }} />
+                        {displayModels.map((model, index) => (
+                          <Line 
+                            key={`line-${model}`}
+                            type="monotone" 
+                            dataKey={`${model}_rty`} 
+                            name={model} 
+                            stroke={COLORS[index % COLORS.length]} 
+                            strokeWidth={2}
+                            dot={{ r: 3, strokeWidth: 1 }}
+                            activeDot={{ r: 5 }}
+                            connectNulls={true}
+                          />
+                        ))}
+                      </LineChart>
+                    </ResponsiveContainer>
+                  </div>
+                </div>
+              </div>
+            )}
+            
+            {/* 热力图模式 */}
+            {trendData && trendData.length > 0 && viewMode === 'heatmap' && (
+              <div className="mb-8">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="flex items-center gap-4">
+                    <h5 className="text-xs font-semibold text-slate-700">RTY 热力图</h5>
+                    <div className="flex items-center gap-2 text-[10px] text-slate-500">
+                      <span>低</span>
+                      <div className="flex h-3">
+                        <div className="w-6 bg-red-500"></div>
+                        <div className="w-6 bg-orange-400"></div>
+                        <div className="w-6 bg-yellow-400"></div>
+                        <div className="w-6 bg-lime-400"></div>
+                        <div className="w-6 bg-green-500"></div>
+                      </div>
+                      <span>高</span>
+                    </div>
+                  </div>
+                  <p className="text-[10px] text-slate-400">颜色越深表示直通率越低，红色标注低于目标值</p>
+                </div>
+                <div className="overflow-x-auto border border-slate-200 rounded-sm">
+                  <table className="w-full text-left border-collapse">
+                    <thead className="bg-[#f8fafc] border-b border-slate-200">
+                      <tr>
+                        <th className="px-3 py-2 border-r border-slate-100 text-[11px] font-semibold text-slate-600 whitespace-nowrap sticky left-0 bg-[#f8fafc] z-10">机型</th>
+                        {allMonths.map(month => (
+                          <th key={month} className="px-2 py-2 border-r border-slate-100 text-[10px] text-slate-500 text-center min-w-[60px]">{month}</th>
+                        ))}
+                        <th className="px-2 py-2 border-r border-slate-100 text-[10px] font-semibold text-slate-500 text-center bg-slate-100">平均</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tableData
+                        .filter(row => displayModels.includes(row.model))
+                        .map((row, idx) => {
+                        const validMonths = allMonths.filter(m => row[m]?.text && row[m].text !== '-');
+                        const avgRty = validMonths.length > 0 
+                          ? validMonths.reduce((sum, m) => {
+                              const match = row[m]?.text?.match(/^([\d.]+)%/);
+                              return sum + (match ? parseFloat(match[1]) : 0);
+                            }, 0) / validMonths.length
+                          : 0;
+                        
+                        return (
+                          <tr key={idx} className="border-b border-slate-100 last:border-none hover:bg-slate-50/50">
+                            <td className="px-3 py-2 border-r border-slate-100 text-[11px] font-medium text-slate-700 whitespace-nowrap sticky left-0 bg-white z-10">
+                              {row.model}
+                            </td>
+                            {allMonths.map(month => {
+                              const cell = row[month];
+                              const hasData = cell?.text && cell?.text !== '-';
+                              const rtyMatch = cell?.text?.match(/^([\d.]+)%/);
+                              const rty = rtyMatch ? parseFloat(rtyMatch[1]) : null;
+                              
+                              let bgClass = 'bg-slate-50';
+                              let textClass = 'text-slate-400';
+                              let fontClass = '';
+                              
+                              if (hasData && rty !== null) {
+                                if (cell.belowTarget) {
+                                  bgClass = 'bg-red-100';
+                                  textClass = 'text-red-700';
+                                  fontClass = 'font-semibold';
+                                } else if (rty >= 99.9) {
+                                  bgClass = 'bg-green-100';
+                                  textClass = 'text-green-700';
+                                } else if (rty >= 99.5) {
+                                  bgClass = 'bg-lime-50';
+                                  textClass = 'text-lime-700';
+                                } else if (rty >= 99.0) {
+                                  bgClass = 'bg-yellow-50';
+                                  textClass = 'text-yellow-700';
+                                } else if (rty >= 98.0) {
+                                  bgClass = 'bg-orange-50';
+                                  textClass = 'text-orange-600';
+                                } else {
+                                  bgClass = 'bg-red-50';
+                                  textClass = 'text-red-600';
+                                }
+                              }
+                              
+                              return (
+                                <td 
+                                  key={month} 
+                                  className={`px-2 py-2 border-r border-slate-100 text-center text-[10px] ${bgClass} ${textClass} ${fontClass}`}
+                                  title={cell?.text || ''}
+                                >
+                                  {hasData ? `${rty?.toFixed(2)}%` : '-'}
+                                </td>
+                              );
+                            })}
+                            <td className={`px-2 py-2 border-r border-slate-100 text-center text-[10px] font-semibold bg-slate-100 ${avgRty >= 99.5 ? 'text-green-700' : avgRty >= 99.0 ? 'text-yellow-700' : 'text-red-600'}`}>
+                              {avgRty > 0 ? `${avgRty.toFixed(2)}%` : '-'}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+                
+                {/* 热力图下方：缺陷明细 */}
+                <div className="mt-4 overflow-x-auto border border-slate-200 rounded-sm">
+                  <table className="w-full text-left border-collapse">
+                    <thead className="bg-[#f8fafc] border-b border-slate-200">
+                      <tr>
+                        <th className="px-3 py-2 border-r border-slate-100 text-[11px] font-semibold text-slate-600 whitespace-nowrap sticky left-0 bg-[#f8fafc] z-10">机型</th>
+                        {allMonths.map(month => (
+                          <th key={month} className="px-2 py-2 border-r border-slate-100 text-[10px] text-slate-500 text-center min-w-[60px]">{month}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tableData
+                        .filter(row => displayModels.includes(row.model))
+                        .map((row, idx) => (
+                          <tr key={idx} className="border-b border-slate-100 last:border-none hover:bg-slate-50/50">
+                            <td className="px-3 py-2 border-r border-slate-100 text-[11px] font-medium text-slate-700 whitespace-nowrap sticky left-0 bg-white z-10">
+                              {row.model}
+                            </td>
+                            {allMonths.map(month => {
+                              const cell = row[month];
+                              const hasData = cell?.text && cell?.text !== '-';
+                              return (
+                                <td 
+                                  key={month} 
+                                  className={`px-2 py-2 border-r border-slate-100 text-center text-[10px] ${cell?.belowTarget ? 'text-red-600 font-medium' : 'text-slate-600'}`}
+                                >
+                                  {hasData ? cell.text.split('(')[1]?.replace(')', '') || '-' : '-'}
+                                </td>
+                              );
+                            })}
+                          </tr>
+                        ))
+                      }
+                    </tbody>
+                  </table>
+                </div>
+                <p className="text-[10px] text-slate-400 mt-2">下方表格：故障数/投入数</p>
+              </div>
+            )}
+          </div>
+        </div>
+        
+        <div className="px-5 py-3 border-t border-slate-200 bg-[#f8fafc] flex justify-end mt-auto">
+          <button 
+            onClick={onClose}
+            className="px-6 py-1.5 bg-[#1e40af] hover:bg-[#1e3a8a] text-white rounded-sm text-sm font-medium transition-colors shadow-sm"
+          >
+            关闭
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}

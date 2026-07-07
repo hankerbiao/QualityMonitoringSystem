@@ -2,79 +2,132 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
-## Project Overview
+Enterprise-grade quality data integration platform consolidating four quality modules:
+- **RTY**: 整机综合直通率 (Overall First Pass Yield) - **Fully implemented**
+- **LRR**: 部件故障率 (Part Failure Rate) - Planned
+- **DOA**: 开箱报修率 (Out-of-Box Failure Rate) - Planned
+- **MFR**: 月化故障率 (Monthly Field Failure Rate) - Planned
 
-Quality Monitoring System (QMS) - A React-based frontend for integrating four quality data subsystems:
-- **RTY**: Overall First Pass Yield (整机综合直通率)
-- **LRR**: Factory Part Failure Rate (部件故障率)
-- **DOA**: Out-of-Box Failure Rate (开箱报修率)
-- **MFR**: Monthly Field Failure Rate (月化故障率)
+## Repository Structure
 
-Currently, only the RTY module is fully implemented.
+```
+QualiBoard/
+├── frontend/          # Main development area (React + Vite + TypeScript)
+├── backend/           # Reserved for future backend services
+├── docker/            # Reserved for containerization
+└── .claude/           # Claude Code configuration
+```
 
 ## Commands
 
-See AGENTS.md for the full command reference. Quick reference:
+All commands run from the `frontend/` directory:
 
 ```bash
-npm run dev      # Start dev server on port 3000
-npm run build    # Production build
-npm run lint     # TypeScript type check only (no linter installed)
+cd frontend
+
+npm run dev      # Start dev server on port 3000 with HTTPS
+npm run build    # Production build to dist/
+npm run lint     # TypeScript type check only (no linter/formatter)
 npm run preview  # Preview production build
+npm run clean    # Remove dist/ and server.js
 ```
 
-## Tech Stack
+## Tech Stack (frontend)
 
 - **React 19** + **TypeScript 5.8**
-- **Vite 6** - Build tool
-- **Tailwind CSS v4** - Using `@tailwindcss/vite` plugin (no tailwind.config.js)
+- **Vite 6** - Build tool with HTTPS enabled (self-signed cert)
+- **Tailwind CSS v4** - Uses `@tailwindcss/vite` plugin (no tailwind.config.js)
 - **React Router DOM v7** - Client-side routing
-- **Recharts** - Charts (ComposedChart, Bar, Line)
+- **Recharts** - Charts (ComposedChart with Bar + Line dual-axis)
 - **Lucide React** - Icons
-
-> Note: `components.json` exists as shadcn/ui schema config, but no components have been installed. All UI components are custom-built.
+- **xlsx** - Excel export functionality
+- **Voice Recognition** - FunASR WebSocket integration (see VoiceInput.tsx)
 
 ## Architecture
 
+### Source Structure
+
 ```
-src/
-├── api/           # Data layer - currently mock data, ready for real backend
-│   ├── rtyApi.ts  # API methods with 500ms simulated delay
-│   └── mockData.ts
-├── components/    # Modal components (DefectModal, InputModal, AlertConfigModal, etc.)
+frontend/src/
+├── api/
+│   ├── rtyApi.ts       # Mock API with delay() wrapper (500ms simulated latency)
+│   └── mockData.ts     # Generated mock data
+├── components/
+│   ├── AIAssistant.tsx      # Floating AI assistant (rule-based mock responses)
+│   ├── AlertConfigModal.tsx # Email alert configuration
+│   ├── DefectModal.tsx      # Defect detail modal
+│   ├── DetailModal.tsx      # Common detail modal
+│   ├── InputModal.tsx       # Input detail modal
+│   ├── SettingsModal.tsx    # System configuration (MES, RTY targets, alerts)
+│   └── VoiceInput.tsx       # Voice input with FunASR WebSocket
+├── context/
+│   ├── ModelTargetsContext.tsx  # RTY target rates per model
+│   └── SettingsContext.tsx      # System settings state
+├── hooks/
+│   └── useVoiceRecognition.ts   # WebSocket audio streaming to FunASR
 ├── pages/
-│   ├── Home.tsx   # Dashboard with 4 module cards (Bento Grid layout)
-│   └── RTYPage.tsx
-├── types.ts       # Shared TypeScript interfaces (RTYData, DefectDetail, InputDetail)
-├── lib/utils.ts   # Utility functions (cn for class merging)
-├── App.tsx        # Router setup with routes: /, /rty, /lrr, /doa, /mfr
-└── index.css      # Tailwind v4 imports, Inter + JetBrains Mono fonts
+│   ├── Home.tsx    # Dashboard with 4 module cards (Bento Grid layout)
+│   └── RTYPage.tsx # RTY data table + charts + modals (~580 lines)
+├── types.ts        # Shared interfaces: RTYData, DefectDetail, InputDetail
+├── App.tsx         # Router setup with /, /rty, /lrr, /doa, /mfr routes
+└── index.css       # Tailwind v4 imports + Inter/JetBrains Mono fonts
 ```
 
-## Key Patterns
+### Key Patterns
 
-- **Path aliases**: `@/*` maps to project root for imports
-- **Mock API structure**: All API calls return Promises, simulating async with `delay()`
-- **Modal pattern**: State-driven modal visibility with `recordId` prop for data fetching
-- **Filter state**: Centralized `RTYFilterParams` state in RTYPage
-- **Chart integration**: Recharts `ResponsiveContainer` with `ComposedChart` (Bar + Line dual-axis)
+- **Path alias**: `@/*` maps to frontend root (vite.config.ts + tsconfig.json)
+- **Mock API pattern**: All API calls return Promises with `delay()`. Ready for real backend replacement.
+- **Modal pattern**: Parent manages visibility state, passes `recordId` for data fetching
+- **Voice recognition**: WebSocket connection → AudioContext (16kHz) → ScriptProcessor → PCM16 streaming → FunASR backend
+- **Chart integration**: Recharts `ComposedChart` with dual Y-axes for production volume + RTY rate
 
-## Configuration Files
+### Routes
 
-- `vite.config.ts` - Vite with Tailwind v4 plugin, `@/` alias, HMR control via `DISABLE_HMR`
-- `tsconfig.json` - ES2022 target, bundler module resolution, `paths` for `@/*`
-- `components.json` - shadcn/ui schema config placeholder (style: base-nova, prefix: "")
+| Path | Component | Status |
+|------|-----------|--------|
+| `/` | Home | ✅ |
+| `/rty` | RTYPage | ✅ |
+| `/lrr` | Home (redirect) | Planned |
+| `/doa` | Home (redirect) | Planned |
+| `/mfr` | Home (redirect) | Planned |
 
-## Environment Variables
+## Configuration
 
-Create `.env` from `.env.example`:
+### Vite (vite.config.ts)
+- HTTPS enabled with self-signed certificates (`key.pem`, `cert.pem`)
+- WebSocket proxy: `/ws-voice` → `ws://10.17.150.235:10095` (FunASR service)
+- HMR can be disabled via `DISABLE_HMR=true` environment variable
+
+### TypeScript (tsconfig.json)
+- Target: ES2022, Module: ESNext
+- Strict mode enabled
+- Path alias: `@/*` → `./`
+
+### Environment Variables
+
+Create `frontend/.env` from `frontend/.env.example`:
 ```
-GEMINI_API_KEY=your_key  # Not currently used (AI features planned)
+GEMINI_API_KEY=your_key  # For future AI features
+APP_URL=your_app_url     # For self-referential links
 ```
+
+## Voice Input Feature
+
+Located in `src/hooks/useVoiceRecognition.ts`:
+- Connects to FunASR WebSocket service
+- Audio pipeline: `getUserMedia` → `AudioContext(16kHz)` → `ScriptProcessor(4096)` → `PCM16` → WebSocket
+- Protocol: Send `{ type: 'end' }` to stop, receive `is_final`/`complete` for final results
 
 ## Future Work (per docs/design.md)
 
-- Implement LRR, DOA, MFR module pages
-- Add authentication (Auth)
-- Replace mock APIs with real backend integration
-- Add email alerting system
+- [ ] Implement LRR, DOA, MFR module pages
+- [ ] Add unified authentication (Auth)
+- [ ] Replace mock APIs with real backend integration
+- [ ] Integrate Gemini AI for AI Assistant (requires GEMINI_API_KEY)
+- [ ] Email alerting system
+
+## Notes
+
+- `components.json` exists as shadcn/ui schema config but no components installed - all UI is custom
+- Design documentation in `frontend/docs/design.md` (Chinese) describes full system spec
+- Mock data can be regenerated via root scripts `generate_mock.cjs` and `update_modal.cjs`

@@ -1,0 +1,20 @@
+MES RTY 数据字段分析报告
+生成时间: 2026-07-07 10:41:03
+
+数据总量: 226 条
+
+字段列表:
+  - base_name
+  - factoryname
+  - mfgordername
+  - ordertypename
+  - plannedstartdate
+  - productfamilyname
+  - qty
+  - rate_bz
+  - rate_real
+  - rate_status
+  - s_MFGLINENAME
+  - s_Mes_Planendtime
+  - s_NGCNT
+  - s_SALENO

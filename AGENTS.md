@@ -1,44 +1,45 @@
 # AGENTS.md
 
+## Project Structure
+
+```
+QualityMonitoringSystem/
+├── frontend/           # React + Vite + TypeScript (main dev area)
+├── backend/            # FastAPI (in progress)
+└── docker/             # Reserved for containerization
+```
+
 ## Commands
 
+All frontend commands run from `frontend/` directory:
+
 ```bash
-npm run dev      # Vite dev server on port 3000 (0.0.0.0)
+cd frontend
+npm run dev      # Vite dev server on port 3000 (0.0.0.0, HTTPS enabled)
 npm run build    # Production build to dist/
 npm run lint     # TypeScript type check only (no ESLint/Prettier)
-npm run preview  # Preview production build locally
+npm run preview  # Preview production build
 npm run clean    # Remove dist/ and server.js
 ```
 
 ## Architecture
 
-React 19 + TypeScript 5.8 + Vite 6 + Tailwind CSS v4 (no tailwind.config.js).
-
-Only RTY module is implemented. LRR/DOA/MFR routes redirect to home.
-
-```
-src/
-├── api/rtyApi.ts      # Mock API with 500ms delay() wrapper
-├── api/mockData.ts    # Generated data (run node generate_mock.cjs to regenerate)
-├── pages/RTYPage.tsx  # Main page (~394 lines, handles filters + charts + modals)
-├── pages/Home.tsx     # Dashboard with 4 module cards
-├── components/        # Modals: DefectModal, InputModal, AlertConfigModal, etc.
-├── types.ts           # RTYData, DefectDetail, InputDetail interfaces
-├── lib/utils.ts       # cn() for Tailwind class merging
-```
+- **Monorepo**: Frontend (React/Vite) + Backend (FastAPI, work-in-progress)
+- **Only RTY module is implemented**; LRR/DOA/MFR routes redirect to Home
+- **Path alias**: `@/*` maps to `frontend/` root
 
 ## Key Conventions
 
-- **Path alias**: `@/*` maps to project root (vite.config.ts + tsconfig.json)
-- **No linter/formatter**: `npm run lint` runs `tsc --noEmit` only
-- **Tailwind v4**: Uses `@tailwindcss/vite` plugin, no config file, CSS-first config in index.css
-- **Mock API**: All API calls return Promises with `delay()`. Replace with real backend later.
-- **Modal pattern**: State-driven visibility in parent, passes `recordId` for data fetching
-- **Utility scripts**: Root `generate_mock.cjs` regenerates mockData.ts, `update_modal.cjs` updates AlertConfigModal
+- **Tailwind v4**: Uses `@tailwindcss/vite` plugin, no config file, CSS-first in `index.css`
+- **Mock API**: All API calls use `delay()` wrapper (500ms). Ready for real backend replacement.
+- **Voice input**: WebSocket to FunASR at `ws://10.17.150.235:10095`, audio pipeline: `getUserMedia` → `AudioContext(16kHz)` → `ScriptProcessor(4096)` → PCM16 → WebSocket
+- **HMR disabled** when `DISABLE_HMR=true` env var set (AI Studio editing mode)
 
-## Gotchas
+## Testing / Verification
 
-- HMR disabled when `DISABLE_HMR=true` env var set (AI Studio editing mode)
-- `src/index.css` has Tailwind v4 imports + Inter/JetBrains Mono fonts
-- Chart components use Recharts `ComposedChart` with dual Y-axes (Bar + Line)
-- Design doc in `docs/design.md` is in Chinese, describes full system spec
+- No test suite; verify with `npm run lint`
+- Mock data: regenerate via `node generate_mock.cjs` at project root
+
+## Design Doc
+
+`frontend/docs/design.md` (Chinese) describes full system spec.

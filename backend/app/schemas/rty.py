@@ -1,0 +1,163 @@
+"""
+RTY (整机综合直通率) 相关 Pydantic 模型
+"""
+from datetime import datetime
+from typing import Optional, List, Dict
+from pydantic import BaseModel, Field
+
+
+# ============== RTY 数据模型 ==============
+
+class RTYDataBase(BaseModel):
+    """RTY 数据基础模型"""
+    time: str = Field(..., description="统计时间 (YYYY-MM-DD)")
+    model: str = Field(..., description="计算方法: 普通机型/复合机型/Qiandaohu一拖多机型")
+    productModel: str = Field(..., description="生产机型")
+    customer: str = Field("", description="客户名称 (MES无此字段,留空)")
+    base: str = Field(..., description="基地: 天津/昆山/桐乡/大同")
+    defectCount: int = Field(..., ge=0, description="故障数量")
+    inputCount: int = Field(..., ge=0, description="投入数量")
+    rtyRate: float = Field(..., ge=0, le=100, description="直通率百分比, 如 98.5")
+    targetRate: float = Field(..., ge=0, le=100, description="目标直通率百分比")
+    # 以下为 MES 额外字段
+    salesOrder: str = Field("", description="销售单号 (s_SALENO)")
+    productionOrder: str = Field("", description="生产订单号 (mfgordername)")
+    productLine: str = Field("", description="产线名称 (s_MFGLINENAME)")
+    orderType: str = Field("", description="订单类型 (ordertypename)")
+    planStartDate: str = Field("", description="计划开始日期 (plannedstartdate)")
+    planEndDate: str = Field("", description="计划结束时间 (s_Mes_Planendtime)")
+    status: str = Field("", description="达成状态 (rate_status): 已达成/未达成")
+
+
+class RTYDataCreate(RTYDataBase):
+    """创建 RTY 数据"""
+    pass
+
+
+class RTYData(RTYDataBase):
+    """RTY 数据响应模型"""
+    id: str = Field(..., description="记录ID")
+
+    class Config:
+        from_attributes = True
+
+
+class RTYDataInDB(RTYDataBase):
+    """存储在数据库中的 RTY 数据"""
+    id: str = Field(..., alias="_id")
+    createdAt: Optional[datetime] = None
+    updatedAt: Optional[datetime] = None
+    # MES 额外字段
+    salesOrder: str = Field("", description="销售单号 (s_SALENO)")
+    productionOrder: str = Field("", description="生产订单号 (mfgordername)")
+    productLine: str = Field("", description="产线名称 (s_MFGLINENAME)")
+    orderType: str = Field("", description="订单类型 (ordertypename)")
+    planStartDate: str = Field("", description="计划开始日期 (plannedstartdate)")
+    planEndDate: str = Field("", description="计划结束时间 (s_Mes_Planendtime)")
+    status: str = Field("", description="达成状态 (rate_status): 已达成/未达成")
+
+
+class RTYFilterParams(BaseModel):
+    """RTY 查询过滤参数"""
+    statMethod: Optional[str] = Field(None, description="统计方式: 整体直通率/过站直通率")
+    dateRange: Optional[Dict[str, Optional[datetime]]] = Field(
+        None,
+        description="日期范围: {from: datetime, to: datetime}"
+    )
+    model: Optional[str] = Field(None, description="计算方法筛选")
+    productModel: Optional[str] = Field(None, description="生产机型筛选")
+    customer: Optional[str] = Field(None, description="客户名称筛选")
+    base: Optional[str] = Field(None, description="基地筛选")
+    salesOrder: Optional[str] = Field(None, description="销售订单号筛选")
+    productionOrder: Optional[str] = Field(None, description="生产订单号筛选")
+    serialNumber: Optional[str] = Field(None, description="整机序列号筛选")
+
+
+class RTYListResponse(BaseModel):
+    """RTY 列表响应"""
+    items: List[RTYData]
+    total: int
+    page: int = 1
+    limit: int = 100
+
+
+# ============== 故障明细模型 ==============
+
+class DefectDetailBase(BaseModel):
+    """故障明细基础模型"""
+    defectCode: str = Field(..., description="故障代码, 如 E001")
+    description: str = Field(..., description="故障描述")
+    count: int = Field(..., ge=0, description="故障数量")
+
+
+class DefectDetailCreate(DefectDetailBase):
+    """创建故障明细"""
+    pass
+
+
+class DefectDetail(DefectDetailBase):
+    """故障明细响应模型"""
+    id: str = Field(..., description="明细ID")
+
+    class Config:
+        from_attributes = True
+
+
+class DefectDetailInDB(DefectDetailBase):
+    """存储在数据库中的故障明细"""
+    id: str = Field(..., alias="_id")
+    recordId: str = Field(..., description="关联的 RTY 记录ID")
+
+
+class DefectDetailListResponse(BaseModel):
+    """故障明细列表响应"""
+    items: List[DefectDetail]
+    total: int
+
+
+# ============== 投入明细模型 ==============
+
+class InputDetailBase(BaseModel):
+    """投入明细基础模型"""
+    workOrder: str = Field(..., description="工单号, 如 WO-001-01")
+    productLine: str = Field(..., description="产线, 如 L1/L2/L3")
+    count: int = Field(..., ge=0, description="投入数量")
+
+
+class InputDetailCreate(InputDetailBase):
+    """创建投入明细"""
+    pass
+
+
+class InputDetail(InputDetailBase):
+    """投入明细响应模型"""
+    id: str = Field(..., description="明细ID")
+
+    class Config:
+        from_attributes = True
+
+
+class InputDetailInDB(InputDetailBase):
+    """存储在数据库中的投入明细"""
+    id: str = Field(..., alias="_id")
+    recordId: str = Field(..., description="关联的 RTY 记录ID")
+
+
+class InputDetailListResponse(BaseModel):
+    """投入明细列表响应"""
+    items: List[InputDetail]
+    total: int
+
+
+# ============== 周期统计数据模型 ==============
+
+class CycleStatsResponse(BaseModel):
+    """周期统计响应"""
+    totalInput: int = Field(..., description="周期内累计投入")
+    totalDefect: int = Field(..., description="周期内总故障数")
+    avgRty: float = Field(..., description="综合平均直通率")
+    maxInputMonth: str = Field(..., description="产量最高月份")
+    highestRiskModel: str = Field(..., description="高风险机型 (故障率最高)")
+    bestModel: str = Field(..., description="最佳表现机型 (RTY最高)")
+    trendData: List[Dict] = Field(default_factory=list, description="趋势数据")
+    heatmapData: List[Dict] = Field(default_factory=list, description="热力图数据")

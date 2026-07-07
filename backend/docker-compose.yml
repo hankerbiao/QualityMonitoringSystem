@@ -1,0 +1,19 @@
+# Docker Compose for QualiBoard Backend
+
+version: '3.8'
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: qms-backend
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - MONGODB_URL=mongodb://10.17.154.252:27019
+      - MONGODB_DB_NAME=quality_monitoring
+      - DEBUG=true
+    volumes:
+      - ./app:/app/app
