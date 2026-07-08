@@ -18,6 +18,7 @@ interface UserProfile {
 interface AuthContextType {
   user: UserProfile | null;
   isAuthenticated: boolean;
+  isAuthLoaded: boolean;
   logout: () => void;
 }
 
@@ -29,16 +30,7 @@ const OA_LOGIN_BASE_URL = 'http://tl.cooacloud.com/springboard_v3/login_proxy';
 function InnerAuthProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
   const [user, setUser] = useState<UserProfile | null>(null);
-
-  const finish = useCallback(
-    (accessToken: string, refreshToken: string, expiresIn: number, userProfile?: UserProfile) => {
-      setAccessToken(accessToken, expiresIn);
-      setRefreshToken(refreshToken);
-      setUser(userProfile ?? null);
-      navigate('/', { replace: true });
-    },
-    [navigate]
-  );
+  const [isAuthLoaded, setIsAuthLoaded] = useState(false);
 
   const showLoginSuccess = useCallback((name?: string) => {
     const el = document.createElement('div');
@@ -96,13 +88,16 @@ function InnerAuthProvider({ children }: { children: ReactNode }) {
     window.history.replaceState(null, '', url.toString());
 
     if (payload) {
+      setUser({ itcode: 'logging_in' });
       submitOALogin({ status, payload, next: null })
         .then(async (result) => {
           if (result.access_token && result.refresh_token) {
+            setAccessToken(result.access_token, result.expires_in ?? 900);
+            setRefreshToken(result.refresh_token);
             const current = await getCurrentUser();
-            const profile = current.user as UserProfile;
-            showLoginSuccess(profile.姓名 || profile.真实姓名);
-            finish(result.access_token, result.refresh_token, result.expires_in ?? 900, profile);
+            setUser(current.user as UserProfile);
+            showLoginSuccess((current.user as UserProfile)?.姓名 || (current.user as UserProfile)?.真实姓名);
+            navigate('/', { replace: true });
           } else {
             throw new Error('No token in response');
           }
@@ -114,11 +109,14 @@ function InnerAuthProvider({ children }: { children: ReactNode }) {
         });
     } else if (accessToken && refreshToken) {
       const exp = expiresIn ? parseInt(expiresIn, 10) : 900;
+      setAccessToken(accessToken, exp);
+      setRefreshToken(refreshToken);
+      setUser({ itcode: 'logging_in' });
       getCurrentUser()
         .then((current) => {
-          const profile = current.user as UserProfile;
-          showLoginSuccess(profile.姓名 || profile.真实姓名);
-          finish(accessToken, refreshToken, exp, profile);
+          setUser(current.user as UserProfile);
+          showLoginSuccess((current.user as UserProfile)?.姓名 || (current.user as UserProfile)?.真实姓名);
+          navigate('/', { replace: true });
         })
         .catch((err) => {
           console.error('OA login failed', err);
@@ -126,20 +124,25 @@ function InnerAuthProvider({ children }: { children: ReactNode }) {
           setUser(null);
         });
     }
-  }, [finish, showLoginSuccess]);
+  }, [navigate, showLoginSuccess]);
 
   useEffect(() => {
-    if (!getAccessToken()) return;
+    if (!getAccessToken()) {
+      setUser(null);
+      setIsAuthLoaded(true);
+      return;
+    }
     getCurrentUser()
       .then((current) => setUser(current.user as UserProfile))
       .catch(() => {
         clearTokens();
         setUser(null);
-      });
+      })
+      .finally(() => setIsAuthLoaded(true));
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated: !!user, logout }}>
+    <AuthContext.Provider value={{ user, isAuthenticated: !!user, isAuthLoaded, logout }}>
       {children}
     </AuthContext.Provider>
   );

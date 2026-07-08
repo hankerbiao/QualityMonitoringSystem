@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useEffect, useCallback, type ReactNode } from 'react';
 import { settingsApi, type AIConfig } from '../api/settingsApi';
+import { useAuth } from './AuthContext';
 
 interface SettingsContextType {
   ai: AIConfig;
@@ -17,10 +18,12 @@ const DEFAULT_AI: AIConfig = {
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
+  const { isAuthLoaded } = useAuth();
   const [ai, setAI] = useState<AIConfig>(DEFAULT_AI);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    if (!isAuthLoaded) return;
     settingsApi.getAll()
       .then((data) => {
         setAI(data.ai || DEFAULT_AI);
@@ -29,7 +32,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         console.error('[Settings] Failed to load from backend:', err);
       })
       .finally(() => setLoading(false));
-  }, []);
+  }, [isAuthLoaded]);
 
   const updateAI = useCallback(async (config: Partial<AIConfig>) => {
     const updated = { ...ai, ...config };
