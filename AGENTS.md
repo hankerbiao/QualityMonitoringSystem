@@ -4,63 +4,79 @@
 
 ```
 QualityMonitoringSystem/
-├── frontend/           # React + Vite + TypeScript
-├── backend/            # FastAPI (已实现 RTY + Settings + OA 登录)
-└── docker/             # Reserved for containerization
+├── frontend/           # React + Vite + TypeScript + Tailwind v4
+├── backend/            # FastAPI (RTY + Settings + OA 登录 + AI)
+└── docker/             # Reserved
+```
+
+## Quick Start
+
+**Frontend:**
+```bash
+cd frontend && npm run dev      # http://localhost:3000
+```
+
+**Backend:**
+```bash
+cd backend && uv sync
+uv run python init_default_settings.py  # 首次必执行
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ```
 
 ## Commands
 
-Frontend (from `frontend/` directory):
-
-```bash
-npm run dev      # Vite dev server on port 3000
-npm run build    # Production build to dist/
-npm run lint     # TypeScript type check only (no ESLint/Prettier)
-npm run preview  # Preview production build
-npm run clean    # Remove dist/ and server.js
-```
-
-Backend (from `backend/` directory):
-
-```bash
-uv sync                                           # 安装依赖
-uv run uvicorn app.main:app --reload --port 8000  # 启动服务
-uv run python init_default_settings.py             # 初始化配置
-```
+| Direction | Command | 说明 |
+|-----------|---------|------|
+| FE | `npm run lint` | TypeScript 类型检查 |
+| FE | `npm run build` | 打包到 dist/ |
+| BE | `uv run ruff check .` | Python 代码检查 |
+| BE | `uv run ruff format .` | Python 格式化 |
 
 ## Architecture
 
-- **Monorepo**: Frontend (React/Vite) + Backend (FastAPI)
-- **Only RTY module is implemented**; LRR/DOA/MFR routes redirect to Home
-- **Path alias**: `@/*` maps to `frontend/` root
-- **Backend connected**: Frontend proxies `/api/*` to `http://localhost:8000`
+- **Monorepo** 前端 + 后端独立运行
+- **API 代理**: 前端 Vite proxy `/api/*` → `http://localhost:8000`
+- **Path alias**: `@/*` → `frontend/` 根目录
+- **MongoDB**: 端口 **27019**
 
-## Key Conventions
+## Database
 
-- **Tailwind v4**: Uses `@tailwindcss/vite` plugin, no config file, CSS-first in `index.css`
-- **Mock API**: All API calls use `delay()` wrapper (500ms). Ready for real backend replacement.
-- **OA Login**: ProtectedLayout checks localStorage.token, redirects to /login if missing
-- **Settings**: SettingsModal saves all configs via `PUT /api/settings`, RTYPage listens for `settings-saved` event
-- **MES Password**: Returned in plaintext from backend, toggle with eye icon
-- **MongoDB port**: **27019** (not default 27017)
-- **HMR disabled** when `DISABLE_HMR=true` env var set (AI Studio editing mode)
+**MongoDB 连接**:
+- Host: `10.17.154.252:27019`
+- Database: `quality_monitoring`
 
-## Testing / Verification
+**集合信息**:
 
-- No test suite; verify with `npm run lint`
-- Mock data: regenerate via `node generate_mock.cjs` at project root
+| 集合名 | 说明 | 关键字段 |
+|--------|------|----------|
+| `machine_info` | 机器信息 | `sn`(序列号), `sale_no`(销售订单号), `mfg_order`(生产订单号), `factory`(基地), `product_family`(生产机型) |
+| `fault_info` | 故障信息 | `sn`(关联机器), `fault_category`(故障分类), `repair_time`(维修时间) |
+| `configs` | 配置信息 | `key`: model_targets/mes_config/email_alert_config/ai_config |
+| `sessions` | Session存储 | TTL索引30天 |
 
-## Design Doc
+**字段映射** (machine_info 集合):
+| RTY字段 | MongoDB字段 |
+|---------|-------------|
+| serialNumber | sn |
+| salesOrder | sale_no |
+| productionOrder | mfg_order |
+| base | factory |
+| productModel | product_family |
+| productLine | s_MFGLINENAME |
 
-`frontend/docs/design.md` (Chinese) describes full system spec.
+## Key Gotchas
+
+- **Auth Flow**: `ProtectedLayout` 必须在 `isAuthLoaded` 为 true 后才检查登录状态
+- **Backend host**: OA callback 从外部 IP 访问后端，必须加 `--host 0.0.0.0`
+- **AI apiKey 安全**: 存储在 MongoDB，从不返回前端；前端用 `hasApiKey` 字段判断
+- **Tailwind v4**: CSS-first 配置，在 `index.css` 中使用 `@import "tailwindcss"`
+- **HMR**: `DISABLE_HMR=true` 时禁用热更新
 
 ## API Integration Status
 
-- ✅ RTY data (list, defects, inputs, cycle-stats)
-- ✅ Settings management (MES, model targets, email alert, AI)
-- ✅ OA login (JWT verification, dual token issuance)
-- ✅ Dual Token auth (access_token 15min + refresh_token 30day with auto-refresh)
-- ✅ AI analyze endpoint
-- 🚧 LRR/DOA/MFR pages
-- 🚧 Email sending
+- ✅ RTY 数据 + 图表 + Excel 导出
+- ✅ Settings 管理 (MES/机型指标/邮件预警/AI)
+- ✅ OA 登录 + 双 Token 自动刷新
+- ✅ AI 分析 + Markdown 对话 + 思考过程折叠展示
+- 🚧 LRR/DOA/MFR 页面
+- 🚧 邮件发送

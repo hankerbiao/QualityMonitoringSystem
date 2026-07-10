@@ -2,9 +2,8 @@
 RTY (整机综合直通率) 相关 Pydantic 模型
 """
 from datetime import datetime
-from typing import Optional, List, Dict
-from pydantic import BaseModel, Field
 
+from pydantic import BaseModel, Field
 
 # ============== RTY 数据模型 ==============
 
@@ -37,6 +36,7 @@ class RTYDataCreate(RTYDataBase):
 class RTYData(RTYDataBase):
     """RTY 数据响应模型"""
     id: str = Field(..., description="记录ID")
+    serialNumbers: list[str] = Field(default_factory=list, description="整机序列号列表")
 
     class Config:
         from_attributes = True
@@ -45,8 +45,8 @@ class RTYData(RTYDataBase):
 class RTYDataInDB(RTYDataBase):
     """存储在数据库中的 RTY 数据"""
     id: str = Field(..., alias="_id")
-    createdAt: Optional[datetime] = None
-    updatedAt: Optional[datetime] = None
+    createdAt: datetime | None = None
+    updatedAt: datetime | None = None
     # MES 额外字段
     salesOrder: str = Field("", description="销售单号 (s_SALENO)")
     productionOrder: str = Field("", description="生产订单号 (mfgordername)")
@@ -59,23 +59,23 @@ class RTYDataInDB(RTYDataBase):
 
 class RTYFilterParams(BaseModel):
     """RTY 查询过滤参数"""
-    statMethod: Optional[str] = Field(None, description="统计方式: 整体直通率/过站直通率")
-    dateRange: Optional[Dict[str, Optional[datetime]]] = Field(
+    statMethod: str | None = Field(None, description="统计方式: 整体直通率/过站直通率")
+    dateRange: dict[str, datetime | None] | None = Field(
         None,
         description="日期范围: {from: datetime, to: datetime}"
     )
-    model: Optional[str] = Field(None, description="计算方法筛选")
-    productModel: Optional[str] = Field(None, description="生产机型筛选")
-    customer: Optional[str] = Field(None, description="客户名称筛选")
-    base: Optional[str] = Field(None, description="基地筛选")
-    salesOrder: Optional[str] = Field(None, description="销售订单号筛选")
-    productionOrder: Optional[str] = Field(None, description="生产订单号筛选")
-    serialNumber: Optional[str] = Field(None, description="整机序列号筛选")
+    model: str | None = Field(None, description="计算方法筛选")
+    productModel: str | None = Field(None, description="生产机型筛选")
+    customer: str | None = Field(None, description="客户名称筛选")
+    base: str | None = Field(None, description="基地筛选")
+    salesOrder: str | None = Field(None, description="销售订单号筛选")
+    productionOrder: str | None = Field(None, description="生产订单号筛选")
+    serialNumber: str | None = Field(None, description="整机序列号筛选")
 
 
 class RTYListResponse(BaseModel):
     """RTY 列表响应"""
-    items: List[RTYData]
+    items: list[RTYData]
     total: int
     page: int = 1
     limit: int = 100
@@ -85,34 +85,20 @@ class RTYListResponse(BaseModel):
 
 class DefectDetailBase(BaseModel):
     """故障明细基础模型"""
-    defectCode: str = Field(..., description="故障代码, 如 E001")
+    defectCode: str = Field(..., description="故障代码")
     description: str = Field(..., description="故障描述")
     count: int = Field(..., ge=0, description="故障数量")
-
-
-class DefectDetailCreate(DefectDetailBase):
-    """创建故障明细"""
-    pass
+    sn: str = Field("", description="机器序列号")
+    repairTime: str = Field("", description="维修时间")
+    repairPerson: str = Field("", description="维修人")
 
 
 class DefectDetail(DefectDetailBase):
-    """故障明细响应模型"""
+    """故障明细响应模型 (数据取自 fault_info 集合)"""
     id: str = Field(..., description="明细ID")
 
     class Config:
         from_attributes = True
-
-
-class DefectDetailInDB(DefectDetailBase):
-    """存储在数据库中的故障明细"""
-    id: str = Field(..., alias="_id")
-    recordId: str = Field(..., description="关联的 RTY 记录ID")
-
-
-class DefectDetailListResponse(BaseModel):
-    """故障明细列表响应"""
-    items: List[DefectDetail]
-    total: int
 
 
 # ============== 投入明细模型 ==============
@@ -145,7 +131,7 @@ class InputDetailInDB(InputDetailBase):
 
 class InputDetailListResponse(BaseModel):
     """投入明细列表响应"""
-    items: List[InputDetail]
+    items: list[InputDetail]
     total: int
 
 
@@ -159,5 +145,15 @@ class CycleStatsResponse(BaseModel):
     maxInputMonth: str = Field(..., description="产量最高月份")
     highestRiskModel: str = Field(..., description="高风险机型 (故障率最高)")
     bestModel: str = Field(..., description="最佳表现机型 (RTY最高)")
-    trendData: List[Dict] = Field(default_factory=list, description="趋势数据")
-    heatmapData: List[Dict] = Field(default_factory=list, description="热力图数据")
+    trendData: list[dict] = Field(default_factory=list, description="趋势数据")
+    heatmapData: list[dict] = Field(default_factory=list, description="热力图数据")
+
+
+# ============== 销售订单汇总模型 ==============
+
+class SalesOrderSummary(BaseModel):
+    """销售订单汇总数据"""
+    salesOrder: str = Field(..., description="销售订单号")
+    inputCount: int = Field(..., ge=0, description="投入数量（机器总数）")
+    defectCount: int = Field(..., ge=0, description="故障数量（去重SN后）")
+    rtyRate: float = Field(..., ge=0, le=100, description="直通率百分比")

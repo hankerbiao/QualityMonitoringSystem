@@ -1,7 +1,6 @@
-import os
-from typing import Any
 import httpx
-from app.schemas.ai import AIMessage, AIConfig, RTYContext
+
+from app.schemas.ai import AIConfig, AIMessage, RTYContext
 
 
 def _estimate_tokens(text: str) -> int:
@@ -81,8 +80,9 @@ async def chat(config: AIConfig, messages: list[AIMessage], context: RTYContext)
     )
 
     async with httpx.AsyncClient(timeout=60.0) as client:
+        base_url = config.apiUrl.rstrip('/').removesuffix('/chat/completions').removesuffix('/v1/chat/completions')
         response = await client.post(
-            config.apiUrl.rstrip('/') + '/chat/completions',
+            base_url + '/chat/completions',
             headers={
                 'Authorization': f'Bearer {config.apiKey}',
                 'Content-Type': 'application/json',
@@ -95,8 +95,8 @@ async def chat(config: AIConfig, messages: list[AIMessage], context: RTYContext)
             },
         )
         if response.status_code != 200:
-            detail = response.text
-            raise Exception(f'AI API error {response.status_code}: {detail}')
+            raise Exception(f'AI API error {response.status_code}: {response.text}')
 
         data = response.json()
         return data['choices'][0]['message']['content']
+

@@ -7,7 +7,8 @@ import { SettingsProvider } from './context/SettingsContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 function ProtectedLayout() {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isAuthLoaded } = useAuth();
+  if (!isAuthLoaded) return null;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   return <Outlet />;
 }

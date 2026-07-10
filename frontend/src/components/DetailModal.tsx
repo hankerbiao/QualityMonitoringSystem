@@ -32,7 +32,7 @@ export default function DetailModal<T extends { id: string }>({
       setLoading(true);
       setError(null);
       try {
-        const details = await fetchData(recordId);
+        const details = await fetchData(recordId!);
         setData(details);
       } catch (err) {
         console.error(`Failed to fetch ${title}`, err);
@@ -69,7 +69,7 @@ export default function DetailModal<T extends { id: string }>({
             <div className="text-center py-10">
               <p className="text-red-500 text-sm mb-2">{error}</p>
               <button
-                onClick={() => { setLoading(true); setError(null); fetchData(recordId).then(setData).catch(e => { setError('数据加载失败'); console.error(e); }).finally(() => setLoading(false)); }}
+                onClick={() => { setLoading(true); setError(null); fetchData(recordId!).then(setData).catch(e => { setError('数据加载失败'); console.error(e); }).finally(() => setLoading(false)); }}
                 className="text-xs text-blue-600 hover:underline"
               >
                 点击重试
@@ -88,8 +88,8 @@ export default function DetailModal<T extends { id: string }>({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
-                  {data.map((item) => (
-                    <tr key={item.id} className="hover:bg-slate-50">
+                  {data.map((item, idx) => (
+                    <tr key={`${item.id}-${idx}`} className="hover:bg-slate-50">
                       {columns.map(col => (
                         <td key={col.key} className="px-4 py-2.5">{col.render(item)}</td>
                       ))}

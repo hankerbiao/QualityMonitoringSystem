@@ -4,10 +4,9 @@ MongoDB Document 模型定义
 定义各 Collection 的文档结构
 """
 
-from typing import Optional, List
 from datetime import datetime
-from pydantic import BaseModel, Field
 
+from pydantic import BaseModel, Field
 
 # ============== RTY 数据文档 ==============
 
@@ -50,32 +49,11 @@ class RTYDocument(BaseModel):
     planStartDate: str = ""  # 计划开始日期
     planEndDate: str = ""  # 计划结束时间
     status: str = ""  # 达成状态: 已达成/未达成
-    createdAt: Optional[datetime] = None
-    updatedAt: Optional[datetime] = None
+    createdAt: datetime | None = None
+    updatedAt: datetime | None = None
 
     class Config:
         populate_by_name = True
-
-
-# ============== 故障明细文档 ==============
-
-class DefectDetailItem(BaseModel):
-    """故障明细项"""
-    id: str
-    defectCode: str  # 如 E001
-    description: str  # 如 屏幕划痕
-    count: int  # 故障数量
-
-
-class DefectDetailDocument(BaseModel):
-    """
-    故障明细文档
-
-    Collection: defect_details
-    结构: {recordId: "xxx", details: [{defectCode, description, count}, ...]}
-    """
-    recordId: str  # 关联的 RTY 记录 ID
-    details: List[DefectDetailItem] = []
 
 
 # ============== 投入明细文档 ==============
@@ -96,7 +74,7 @@ class InputDetailDocument(BaseModel):
     结构: {recordId: "xxx", details: [{workOrder, productLine, count}, ...]}
     """
     recordId: str  # 关联的 RTY 记录 ID
-    details: List[InputDetailItem] = []
+    details: list[InputDetailItem] = []
 
 
 # ============== MES 配置文档 ==============
@@ -112,7 +90,7 @@ class MESConfigDocument(BaseModel):
     username: str
     # 密码应加密存储，这里仅做占位
     password: str
-    updatedAt: Optional[datetime] = None
+    updatedAt: datetime | None = None
 
 
 # ============== 机型指标文档 ==============
@@ -126,7 +104,7 @@ class ModelTargetsDocument(BaseModel):
     """
     key: str = "model_targets"
     targets: dict[str, float] = {}  # {机型名: 目标直通率}
-    updatedAt: Optional[datetime] = None
+    updatedAt: datetime | None = None
 
 
 # ============== 邮件预警配置文档 ==============
@@ -142,7 +120,7 @@ class EmailAlertDocument(BaseModel):
     enabled: bool = True
     emails: str = ""  # 分号分隔的邮箱列表
     attachReport: bool = True
-    updatedAt: Optional[datetime] = None
+    updatedAt: datetime | None = None
 
 
 # ============== 功能开关文档 ==============
@@ -156,7 +134,7 @@ class FeatureFlagsDocument(BaseModel):
     """
     key: str = "feature_flags"
     voiceInputEnabled: bool = False
-    updatedAt: Optional[datetime] = None
+    updatedAt: datetime | None = None
 
 
 # ============== MongoDB Collections ==============
@@ -164,7 +142,8 @@ class FeatureFlagsDocument(BaseModel):
 class Collections:
     """MongoDB Collection 名称常量"""
     RTY_DATA = "rty_data"
-    DEFECT_DETAILS = "defect_details"
     INPUT_DETAILS = "input_details"
+    MACHINE_INFO = "machine_info"
+    FAULT_INFO = "fault_info"
     CONFIGS = "configs"
-    USERS = "users"  # 预留用于未来认证
+    USERS = "users"

@@ -1,83 +1,67 @@
-import { RTYData, DefectDetail, InputDetail } from '../types';
-import { mockRtyData, mockDefectDetails, mockInputDetails } from './mockData';
-
-export interface RTYFilterParams {
-  statMethod: string;
-  dateRange: { from: Date | undefined; to: Date | undefined };
-  model: string;
-  productModel: string;
-  customer: string;
-  base: string;
-  salesOrder: string;
-  productionOrder: string;
-  serialNumber: string;
-}
-
-// 模拟网络延迟
-const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+import { RTYData, DefectDetail, InputDetail, RTYFilterParams, SalesOrderSummary } from '../types';
+import { apiFetch } from './authApi';
 
 export const rtyApi = {
-  /**
-   * 获取 RTY 列表数据
-   */
   async getRTYData(params: RTYFilterParams): Promise<RTYData[]> {
-    // 真实情况：
-    // return axios.post('/api/rty/list', params).then(res => res.data);
-    
-    await delay(500); // 模拟延迟
-    
-    let result = [...mockRtyData];
-    
-    // 计算方法
-    if (params.model && params.model !== 'all') {
-      result = result.filter(item => item.model === params.model);
-    }
-    // 生产机型
-    if (params.productModel && params.productModel !== 'all') {
-      result = result.filter(item => item.productModel === params.productModel);
-    }
-    // 基地
-    if (params.base && params.base !== 'all') {
-      result = result.filter(item => item.base === params.base);
-    }
-    // 客户
-    if (params.customer && params.customer.trim()) {
-      result = result.filter(item => item.customer.includes(params.customer.trim()));
-    }
-    // 时间范围
-    if (params.dateRange.from) {
-      const fromStr = params.dateRange.from.toISOString().split('T')[0];
-      result = result.filter(item => item.time >= fromStr);
-    }
-    if (params.dateRange.to) {
-      const toStr = params.dateRange.to.toISOString().split('T')[0];
-      result = result.filter(item => item.time <= toStr);
-    }
-    // 销售订单 / 生产订单 / 序列号 — mock 数据中无对应字段，
-    // 接入真实后端后这些筛选条件由服务端处理
-    
-    return result;
+    const qs = new URLSearchParams();
+    if (params.statMethod) qs.set('stat_method', params.statMethod);
+    if (params.dateRange.from) qs.set('date_from', params.dateRange.from.toISOString().split('T')[0]);
+    if (params.dateRange.to) qs.set('date_to', params.dateRange.to.toISOString().split('T')[0]);
+    if (params.model && params.model !== 'all') qs.set('model', params.model);
+    if (params.productModel && params.productModel !== 'all') qs.set('productModel', params.productModel);
+    if (params.customer) qs.set('customer', params.customer);
+    if (params.base && params.base !== 'all') qs.set('base', params.base);
+    if (params.salesOrder) qs.set('salesOrder', params.salesOrder);
+    if (params.productionOrder) qs.set('productionOrder', params.productionOrder);
+    if (params.serialNumber) qs.set('serialNumber', params.serialNumber);
+    if (params.aggregateBy) qs.set('aggregateBy', params.aggregateBy);
+
+    const res = await apiFetch(`/api/rty/list?${qs}`);
+    const json = await res.json();
+    return json.success ? json.data : [];
   },
 
-  /**
-   * 获取故障详情数据
-   */
-  async getDefectDetails(recordId: string): Promise<DefectDetail[]> {
-    // 真实情况：
-    // return axios.get(`/api/rty/defect-details/${recordId}`).then(res => res.data);
-    
-    await delay(300);
-    return mockDefectDetails[recordId] || [];
+  async getDefectDetails(serialNumbers: string[]): Promise<DefectDetail[]> {
+    if (!serialNumbers.length) return [];
+    const qs = new URLSearchParams({ sns: serialNumbers.join(',') });
+    const res = await apiFetch(`/api/rty/defects?${qs}`);
+    const json = await res.json();
+    return json.success ? json.data : [];
   },
 
-  /**
-   * 获取投入明细数据
-   */
-  async getInputDetails(recordId: string): Promise<InputDetail[]> {
-    // 真实情况：
-    // return axios.get(`/api/rty/input-details/${recordId}`).then(res => res.data);
-    
-    await delay(300);
-    return mockInputDetails[recordId] || [];
-  }
+  async getDefectDetailsByOrder(productionOrder: string): Promise<DefectDetail[]> {
+    const qs = new URLSearchParams({ productionOrder });
+    const res = await apiFetch(`/api/rty/defects/by-order?${qs}`);
+    const json = await res.json();
+    return json.success ? json.data : [];
+  },
+
+  async getInputDetails(serialNumbers: string[]): Promise<InputDetail[]> {
+    if (!serialNumbers.length) return [];
+    const qs = new URLSearchParams({ sns: serialNumbers.join(',') });
+    const res = await apiFetch(`/api/rty/inputs?${qs}`);
+    const json = await res.json();
+    return json.success ? json.data : [];
+  },
+
+  async getSalesOrderSummary(salesOrders: string[]): Promise<SalesOrderSummary[]> {
+    if (!salesOrders.length) return [];
+    const qs = new URLSearchParams({ salesOrders: salesOrders.join(',') });
+    const res = await apiFetch(`/api/rty/sales-order-summary?${qs}`);
+    const json = await res.json();
+    return json.success ? json.data : [];
+  },
+
+  async getProductionOrdersBySalesOrder(salesOrder: string): Promise<string[]> {
+    const qs = new URLSearchParams({ salesOrder });
+    const res = await apiFetch(`/api/rty/production-orders/by-sales-order?${qs}`);
+    const json = await res.json();
+    return json.success ? json.data : [];
+  },
+
+  async getProductModels(): Promise<{ model: string; count: number }[]> {
+    const res = await apiFetch('/api/rty/product-models');
+    const json = await res.json();
+    return json.success ? json.data : [];
+  },
 };

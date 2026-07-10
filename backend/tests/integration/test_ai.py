@@ -1,18 +1,33 @@
 """
 Integration tests for AI chat API endpoint
 """
+from unittest.mock import MagicMock, patch
+
 import pytest
-from unittest.mock import AsyncMock, patch, MagicMock
 
 
 @pytest.mark.integration
 class TestAIChat:
     """Tests for POST /api/ai/chat"""
 
-    async def test_missing_api_url_returns_400(self, client):
+    def _auth(self, make_test_access_token, itcode: str = "testuser") -> dict:
+        """构造 Authorization 头（/api/ai/chat 现已要求鉴权）"""
+        token = make_test_access_token(itcode)
+        return {"Authorization": f"Bearer {token}"}
+
+    def _make_mock_response(self, status_code: int, json_data: dict, text: str = ""):
+        """Build a mock httpx response that works as an async context manager."""
+        mock_resp = MagicMock()
+        mock_resp.status_code = status_code
+        mock_resp.json.return_value = json_data
+        mock_resp.text = text
+        return mock_resp
+
+    async def test_missing_api_url_returns_400(self, client, make_test_access_token):
         """apiUrl is required."""
         response = await client.post(
             "/api/ai/chat",
+            headers=self._auth(make_test_access_token),
             json={
                 "config": {
                     "apiUrl": "",
@@ -26,10 +41,11 @@ class TestAIChat:
         )
         assert response.status_code == 400
 
-    async def test_missing_model_id_returns_400(self, client):
+    async def test_missing_model_id_returns_400(self, client, make_test_access_token):
         """modelId is required."""
         response = await client.post(
             "/api/ai/chat",
+            headers=self._auth(make_test_access_token),
             json={
                 "config": {
                     "apiUrl": "https://api.example.com/v1/chat/completions",
@@ -43,10 +59,11 @@ class TestAIChat:
         )
         assert response.status_code == 400
 
-    async def test_missing_api_key_returns_400(self, client):
+    async def test_missing_api_key_returns_400(self, client, make_test_access_token):
         """apiKey is required."""
         response = await client.post(
             "/api/ai/chat",
+            headers=self._auth(make_test_access_token),
             json={
                 "config": {
                     "apiUrl": "https://api.example.com/v1/chat/completions",
@@ -60,15 +77,7 @@ class TestAIChat:
         )
         assert response.status_code == 400
 
-    def _make_mock_response(self, status_code: int, json_data: dict, text: str = ""):
-        """Build a mock httpx response that works as an async context manager."""
-        mock_resp = MagicMock()
-        mock_resp.status_code = status_code
-        mock_resp.json.return_value = json_data
-        mock_resp.text = text
-        return mock_resp
-
-    async def test_valid_request_with_mocked_ai(self, client):
+    async def test_valid_request_with_mocked_ai(self, client, make_test_access_token):
         """Valid config should call AI API and return response (mocked)."""
         mock_response_data = {
             "choices": [
@@ -91,6 +100,7 @@ class TestAIChat:
         with patch("app.services.ai_service.httpx.AsyncClient", return_value=MockAsyncClient()):
             response = await client.post(
                 "/api/ai/chat",
+                headers=self._auth(make_test_access_token),
                 json={
                     "config": {
                         "apiUrl": "https://api.example.com",
@@ -112,7 +122,7 @@ class TestAIChat:
         assert "answer" in data
         assert len(data["answer"]) > 0
 
-    async def test_ai_api_error_returns_500(self, client):
+    async def test_ai_api_error_returns_500(self, client, make_test_access_token):
         """AI API returning non-200 should return 500."""
         mock_resp = self._make_mock_response(500, {}, "Internal server error")
 
@@ -129,6 +139,7 @@ class TestAIChat:
         with patch("app.services.ai_service.httpx.AsyncClient", return_value=MockAsyncClient()):
             response = await client.post(
                 "/api/ai/chat",
+                headers=self._auth(make_test_access_token),
                 json={
                     "config": {
                         "apiUrl": "https://api.example.com",
@@ -143,7 +154,7 @@ class TestAIChat:
 
         assert response.status_code == 500
 
-    async def test_system_prompt_includes_rty_context(self, client):
+    async def test_system_prompt_includes_rty_context(self, client, make_test_access_token):
         """Verify system prompt contains RTY data when provided."""
         captured_json = {}
 
@@ -163,6 +174,7 @@ class TestAIChat:
         with patch("app.services.ai_service.httpx.AsyncClient", return_value=MockAsyncClient()):
             response = await client.post(
                 "/api/ai/chat",
+                headers=self._auth(make_test_access_token),
                 json={
                     "config": {
                         "apiUrl": "https://api.example.com",

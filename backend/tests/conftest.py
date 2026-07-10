@@ -1,17 +1,19 @@
 """
-Pytest configuration and shared fixtures
+Pytest configuration and shared fixtures.
+
+All async work happens inside async test functions using `await`.  Fixtures are
+pure sync and return plain Python objects.  This avoids pytest-asyncio's
+fixture event-loop scoping issues entirely.
 """
-import pytest
-import pytest_asyncio
 import base64
 import hashlib
 import hmac
 import json
-import asyncio
-from datetime import datetime, timezone, timedelta
-from contextlib import asynccontextmanager
+from datetime import datetime, timedelta, timezone
 
-from tests.mock_motor import MockMotorClient, MockMotorDatabase
+import pytest
+
+from tests.mock_motor import MockMotorClient
 
 
 def _make_jwt(payload: dict, secret: str) -> str:
@@ -28,10 +30,7 @@ def _make_jwt(payload: dict, secret: str) -> str:
 def _make_access_token(itcode: str, secret: str, minutes: int = 15) -> str:
     now = datetime.now(timezone.utc)
     exp = now + timedelta(minutes=minutes)
-    payload = {
-        "sub": itcode, "type": "access",
-        "iat": int(now.timestamp()), "exp": int(exp.timestamp()),
-    }
+    payload = {"sub": itcode, "type": "access", "iat": int(now.timestamp()), "exp": int(exp.timestamp())}
     h_b64 = base64.urlsafe_b64encode(json.dumps({"alg": "HS256", "typ": "JWT"}).encode()).rstrip(b"=").decode()
     p_b64 = base64.urlsafe_b64encode(json.dumps(payload, ensure_ascii=False).encode()).rstrip(b"=").decode()
     sig = hmac.new(secret.encode(), f"{h_b64}.{p_b64}".encode(), hashlib.sha256).digest()
@@ -39,10 +38,10 @@ def _make_access_token(itcode: str, secret: str, minutes: int = 15) -> str:
     return f"{h_b64}.{p_b64}.{s_b64}"
 
 
-# ─── Fixtures ────────────────────────────────────────────────────────────────
+# ─── Session-scoped settings ─────────────────────────────────────────────────
 
 @pytest.fixture(scope="session")
-def mock_settings():
+def _mock_settings():
     from app.core.config import Settings
     return Settings(
         DEBUG=True,
@@ -62,188 +61,81 @@ def mock_settings():
     )
 
 
-@pytest_asyncio.fixture
-async def mock_db(mock_settings):
-    """In-memory async MongoDB mock, isolated per test."""
+# Aliases so tests can use either name
+mock_settings = _mock_settings
+
+
+# ─── Session-scoped mock DB ──────────────────────────────────────────────────
+
+@pytest.fixture(scope="session")
+def _mock_db(_mock_settings):
+    """Session-scoped in-memory mock DB, patched once per session."""
     client = MockMotorClient()
-    db: MockMotorDatabase = client["test_quality_monitoring"]
+    db = client["test_quality_monitoring"]
 
     from app.db import mongodb as mongodb_module
-    original_get_db = mongodb_module.get_database
-
     mongodb_module.get_database = lambda: db
     mongodb_module.mongodb.db = db
     mongodb_module.mongodb.client = client
 
     from app.core import config as config_module
-    original_get_settings = config_module.get_settings
-    config_module.get_settings = lambda: mock_settings
+    config_module.get_settings = lambda: _mock_settings
 
-    yield db
+    from app import auth_service as auth_svc_module
+    auth_svc_module.get_settings = lambda: _mock_settings
 
-    mongodb_module.get_database = original_get_db
-    mongodb_module.mongodb.db = None
-    mongodb_module.mongodb.client = None
-    config_module.get_settings = original_get_settings
+    return db
 
 
-# ─── RTY Test Data ───────────────────────────────────────────────────────────
+mock_db = _mock_db
+
+
+# ─── Per-test DB cleanup ─────────────────────────────────────────────────────
 
 @pytest.fixture
-def sample_rty_data():
-    now = datetime.now(tz=timezone.utc)
-    return [
-        {
-            "time": "2026-06-01",
-            "model": "普通机型",
-            "productModel": "6210 C21",
-            "customer": "客户A",
-            "base": "天津",
-            "defectCount": 10,
-            "inputCount": 1000,
-            "rtyRate": 99.0,
-            "targetRate": 99.0,
-            "salesOrder": "SO001",
-            "productionOrder": "PO001",
-            "productLine": "Line1",
-            "orderType": "普通",
-            "planStartDate": "2026-06-01",
-            "planEndDate": "2026-06-30",
-            "status": "已达成",
-            "createdAt": now,
-            "updatedAt": now,
-        },
-        {
-            "time": "2026-06-02",
-            "model": "普通机型",
-            "productModel": "6210 C21",
-            "customer": "客户A",
-            "base": "昆山",
-            "defectCount": 15,
-            "inputCount": 1000,
-            "rtyRate": 98.5,
-            "targetRate": 99.0,
-            "salesOrder": "SO002",
-            "productionOrder": "PO002",
-            "productLine": "Line2",
-            "orderType": "普通",
-            "planStartDate": "2026-06-02",
-            "planEndDate": "2026-06-30",
-            "status": "未达成",
-            "createdAt": now,
-            "updatedAt": now,
-        },
-        {
-            "time": "2026-06-03",
-            "model": "复合机型",
-            "productModel": "6410 X21",
-            "customer": "客户B",
-            "base": "天津",
-            "defectCount": 5,
-            "inputCount": 500,
-            "rtyRate": 99.0,
-            "targetRate": 98.5,
-            "salesOrder": "SO003",
-            "productionOrder": "PO003",
-            "productLine": "Line3",
-            "orderType": "复合",
-            "planStartDate": "2026-06-03",
-            "planEndDate": "2026-06-30",
-            "status": "已达成",
-            "createdAt": now,
-            "updatedAt": now,
-        },
-    ]
+def db_clean(_mock_db):
+    """Fixture that provides _mock_db AND clears all collections after each test."""
+    yield _mock_db
+    # Clear all collections after each test
+    for coll in list(_mock_db._collections.values()):
+        coll._docs.clear()
 
 
-@pytest_asyncio.fixture
-async def rty_collection(mock_db, sample_rty_data):
-    """Insert sample RTY data and return the collection."""
-    await mock_db.rty_data.insert_many(sample_rty_data)
-    return mock_db.rty_data
-
-
-# ─── App + Client ────────────────────────────────────────────────────────────
+# ─── App ─────────────────────────────────────────────────────────────────────
 
 @pytest.fixture
 def app():
     """FastAPI app for testing with lifespan disabled."""
+    from contextlib import asynccontextmanager
+
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
-    from app.api import rty, settings, ai, auth
+
+    from app.api import ai, auth, rty, settings
 
     @asynccontextmanager
     async def noop_lifespan(app):
         yield
 
-    test_app = FastAPI(
-        title="QualiBoard API",
-        version="1.0.0",
-        lifespan=noop_lifespan,
-    )
+    test_app = FastAPI(title="QualiBoard API", version="1.0.0", lifespan=noop_lifespan)
     test_app.add_middleware(
-        CORSMiddleware,
-        allow_origins=["*"],
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
+        CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"]
     )
     test_app.include_router(rty.router, prefix="/api/rty", tags=["RTY"])
     test_app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
     test_app.include_router(ai.router, prefix="/api/ai", tags=["AI"])
     test_app.include_router(auth.router, prefix="/api", tags=["Auth"])
-
     return test_app
 
 
-@pytest_asyncio.fixture
-async def client(mock_db, app):
-    """Async httpx client wired to the test app with mock DB."""
-    from httpx import AsyncClient, ASGITransport
+# ─── Client (depends on db_clean, shares the same _mock_db) ─────────────────
 
+@pytest.fixture
+def client(db_clean, app):
+    """Sync fixture: creates AsyncClient using the same db_clean instance."""
+    from httpx import ASGITransport, AsyncClient
     transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
-
-
-# ─── RTY Client (depends on rty_collection to seed data) ────────────────────
-
-@pytest_asyncio.fixture
-async def rty_client(mock_db, app):
-    """Async httpx client with RTY test data pre-seeded."""
-    now = datetime.now(tz=timezone.utc)
-    seed_data = [
-        {
-            "time": "2026-06-01", "model": "普通机型", "productModel": "6210 C21",
-            "customer": "客户A", "base": "天津", "defectCount": 10, "inputCount": 1000,
-            "rtyRate": 99.0, "targetRate": 99.0, "salesOrder": "SO001",
-            "productionOrder": "PO001", "productLine": "Line1", "orderType": "普通",
-            "planStartDate": "2026-06-01", "planEndDate": "2026-06-30", "status": "已达成",
-            "createdAt": now, "updatedAt": now,
-        },
-        {
-            "time": "2026-06-02", "model": "普通机型", "productModel": "6210 C21",
-            "customer": "客户A", "base": "昆山", "defectCount": 15, "inputCount": 1000,
-            "rtyRate": 98.5, "targetRate": 99.0, "salesOrder": "SO002",
-            "productionOrder": "PO002", "productLine": "Line2", "orderType": "普通",
-            "planStartDate": "2026-06-02", "planEndDate": "2026-06-30", "status": "未达成",
-            "createdAt": now, "updatedAt": now,
-        },
-        {
-            "time": "2026-06-03", "model": "复合机型", "productModel": "6410 X21",
-            "customer": "客户B", "base": "天津", "defectCount": 5, "inputCount": 500,
-            "rtyRate": 99.0, "targetRate": 98.5, "salesOrder": "SO003",
-            "productionOrder": "PO003", "productLine": "Line3", "orderType": "复合",
-            "planStartDate": "2026-06-03", "planEndDate": "2026-06-30", "status": "已达成",
-            "createdAt": now, "updatedAt": now,
-        },
-    ]
-    await mock_db.rty_data.insert_many(seed_data)
-
-    from httpx import AsyncClient, ASGITransport
-    transport = ASGITransport(app=app)
-    async with AsyncClient(transport=transport, base_url="http://test") as ac:
-        yield ac
+    return AsyncClient(transport=transport, base_url="http://test")
 
 
 # ─── Token Factories ─────────────────────────────────────────────────────────
@@ -277,7 +169,7 @@ def expired_jwt():
 
 
 @pytest.fixture
-def make_test_access_token(mock_settings):
+def make_test_access_token(_mock_settings):
     def _make(itcode: str, minutes: int = 15) -> str:
-        return _make_access_token(itcode, mock_settings.JWT_SECRET, minutes)
+        return _make_access_token(itcode, _mock_settings.JWT_SECRET, minutes)
     return _make

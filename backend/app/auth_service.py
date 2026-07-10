@@ -3,8 +3,8 @@ import hashlib
 import hmac
 import json
 import time
-from datetime import datetime, timezone, timedelta
-from typing import Any, Optional
+from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from fastapi import HTTPException, status
 
@@ -163,7 +163,6 @@ class AuthService:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Refresh token not found")
 
         new_access_token = self.create_access_token(itcode)
-        new_refresh_token = self.create_refresh_token(itcode)
 
         now = datetime.now(timezone.utc)
         settings = get_settings()
@@ -172,21 +171,19 @@ class AuthService:
             {
                 "$set": {
                     "accessToken": new_access_token,
-                    "refreshToken": new_refresh_token,
                     "updatedAt": now.isoformat(),
-                    "expiresAt": (now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)).isoformat(),
                 }
             },
         )
 
         return {
             "access_token": new_access_token,
-            "refresh_token": new_refresh_token,
+            "refresh_token": refresh_token,
             "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         }
 
     async def handle_oa_callback(
-        self, status_value: str, payload_token: str, next_url: Optional[str] = None
+        self, status_value: str, payload_token: str, next_url: str | None = None
     ) -> dict:
         if status_value != "success":
             raise HTTPException(
@@ -259,7 +256,7 @@ class AuthService:
             "refresh_token": refresh_token,
         }
 
-    async def require_login(self, token: Optional[str]) -> dict:
+    async def require_login(self, token: str | None) -> dict:
         if not token:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,

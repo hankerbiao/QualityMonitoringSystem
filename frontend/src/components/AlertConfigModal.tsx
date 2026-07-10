@@ -142,7 +142,7 @@ export default function AlertConfigModal({ onClose, rawData = [], modelTargets =
         const monthData = map.get(month);
         if (monthData && monthData[model] && monthData[model].inputCount > 0) {
           const rty = ((monthData[model].inputCount - monthData[model].defectCount) / monthData[model].inputCount) * 100;
-          const target = modelTargets[model] || 99.0;
+          const target = modelTargets[model] || 100;
           rowData[month] = {
             text: `${rty.toFixed(3)}% (${monthData[model].defectCount}/${monthData[model].inputCount})`,
             belowTarget: rty < target

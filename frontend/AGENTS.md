@@ -3,57 +3,44 @@
 ## Project Structure
 
 ```
-QualityMonitoringSystem/
-├── frontend/           # React + Vite + TypeScript (main dev area)
-├── backend/            # FastAPI (in progress)
-└── docker/             # Reserved for containerization
+frontend/
+├── src/
+│   ├── pages/           # LoginPage, RTYPage, Home
+│   ├── context/         # AuthContext, SettingsContext, ModelTargetsContext
+│   ├── api/             # authApi, rtyApi, settingsApi, aiApi
+│   ├── components/      # AIChatWindow, SettingsModal, DefectModal, etc.
+│   └── index.css        # Tailwind v4 CSS-first
+├── docs/design.md       # 设计系统文档
+└── vite.config.ts       # Vite + API proxy
 ```
 
 ## Commands
 
-All frontend commands run from `frontend/` directory:
-
 ```bash
-npm run dev      # Vite dev server on port 3000 (0.0.0.0, HTTPS enabled)
+npm run dev      # Vite dev server port 3000 (binds 0.0.0.0)
 npm run build    # Production build to dist/
-npm run lint     # TypeScript type check only (no ESLint/Prettier)
+npm run lint     # TypeScript 类型检查 (无 ESLint/Prettier)
 npm run preview  # Preview production build
 npm run clean    # Remove dist/ and server.js
 ```
 
-## Architecture
-
-- **Monorepo**: Frontend (React/Vite) + Backend (FastAPI)
-- **Only RTY module is implemented**; LRR/DOA/MFR routes redirect to Home
-- **Path alias**: `@/*` maps to `frontend/` root
-- **Backend connected**: All API calls proxied to `http://localhost:8000`
-
 ## Key Conventions
 
-- **Tailwind v4**: Uses `@tailwindcss/vite` plugin, no config file, CSS-first in `index.css`
-- **Mock API**: All API calls use `delay()` wrapper (500ms). Ready for real backend replacement.
-- **Dual Token Auth**: access_token (15min, localStorage) + refresh_token (30day, sessionStorage) + auto-refresh
-- **Settings**: SettingsModal saves all configs via `PUT /api/settings`, RTYPage listens for `settings-saved` event
-- **MES Password**: Returned in plaintext from backend, toggle with eye icon
-- **Table sorting**: RTYPage supports sorting by time, defectCount, inputCount, rtyRate
-- **Excel export**: Uses `xlsx` library, supports column selection
+- **双 Token 认证**: access_token localStorage (15min) + refresh_token sessionStorage (30day)
+- **AuthContext**: 暴露 `isAuthLoaded` 状态，ProtectedLayout 和子 Context 必须等其 true 后才发 API
+- **Settings**: `PUT /api/settings` 保存，监听 `settings-saved` 事件刷新
+- **AI 配置判断**: 前端用 `hasApiKey` 而非 `apiKey`（后端不返回明文）
+- **AIChatWindow**: 右下角悬浮组件，支持 Markdown 渲染、`<think>...</think>` 折叠展示
+- **Excel 导出**: `xlsx` 库，支持列选择
+- **Tailwind v4**: CSS-first，`@import "tailwindcss"` + `@plugin "@tailwindcss/typography"`（用于 AI Markdown 样式）
 
-## Gotchas
+## Critical Gotchas
 
-- HMR disabled when `DISABLE_HMR=true` env var set (AI Studio editing mode)
-- `src/index.css` has Tailwind v4 imports + Inter/JetBrains Mono fonts
-- Chart components use Recharts `ComposedChart` with dual Y-axes (Bar + Line)
-- Design doc in `frontend/docs/design.md` (Chinese) describes full system spec
-- RTYPage includes quick navigation tabs to switch between modules (RTY/LRR/DOA/MFR)
-- MongoDB port is **27019** (not default 27017)
+- **刷新后重新登录 bug**: `ProtectedLayout` 必须等 `isAuthLoaded` 为 true 后才检查 `isAuthenticated`
+- **HMR**: `DISABLE_HMR=true` 环境变量禁用热更新
+- **MongoDB**: 后端端口 **27019**
+- **`<think>` 折叠**: AI 回复中 `<think>...</think>` 内容自动渲染为可折叠的 `<details>` 区块
 
-## Testing / Verification
+## Testing
 
-- No test suite; verify with `npm run lint`
-- Mock data: regenerate via `node generate_mock.cjs` at project root
-
-## Design Doc
-
-`frontend/docs/design.md` (Chinese) describes full system spec.
-Skills provide specialized instructions and workflows for specific tasks.
-Use the skill tool to load a skill when a task matches its description.
+- 无测试套件，用 `npm run lint` 验证

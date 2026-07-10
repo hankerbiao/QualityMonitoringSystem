@@ -1,29 +1,9 @@
-import type { RTYData } from '../types';
+import type { RTYData, AIMessage, RTYContext, AIConfig } from '../types';
 import { apiFetch } from './authApi';
 
-export interface AIMessage {
-  role: 'user' | 'assistant' | 'system';
-  content: string;
-}
+export { type AIMessage } from '../types';
 
-export interface AIConfig {
-  apiUrl: string;
-  modelId: string;
-  apiKey: string;
-  maxTokens: number;
-}
-
-export interface RTYContext {
-  totalInput: number;
-  totalDefect: number;
-  avgRty: number;
-  byBase: { base: string; input: number; defect: number; rty: number }[];
-  byModel: { model: string; input: number; defect: number; rty: number }[];
-  topDefectModels: { model: string; defectCount: number }[];
-  recentTrend: { time: string; rty: number }[];
-}
-
-function buildContext(data: RTYData[]): RTYContext {
+export function buildContext(data: RTYData[]): RTYContext {
   const totalInput = data.reduce((s, d) => s + d.inputCount, 0);
   const totalDefect = data.reduce((s, d) => s + d.defectCount, 0);
   const avgRty = data.length > 0 ? data.reduce((s, d) => s + d.rtyRate, 0) / data.length : 0;

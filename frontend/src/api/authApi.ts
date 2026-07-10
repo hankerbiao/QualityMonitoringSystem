@@ -1,12 +1,9 @@
+import { API_BASE_URL, TOKEN_KEYS } from '../constants';
 import { sessionStore } from './sessionStore';
-
-const API_BASE_URL = '/api';
-const ACCESS_TOKEN_KEY = 'qualiboard-access-token';
-const TOKEN_EXPIRY_KEY = 'qualiboard-token-expiry';
 
 export function getAccessToken(): string | null {
   try {
-    return localStorage.getItem(ACCESS_TOKEN_KEY);
+    return localStorage.getItem(TOKEN_KEYS.ACCESS);
   } catch {
     return null;
   }
@@ -14,9 +11,9 @@ export function getAccessToken(): string | null {
 
 export function setAccessToken(token: string, expiresIn: number) {
   try {
-    localStorage.setItem(ACCESS_TOKEN_KEY, token);
+    localStorage.setItem(TOKEN_KEYS.ACCESS, token);
     const expiry = Date.now() + expiresIn * 1000;
-    localStorage.setItem(TOKEN_EXPIRY_KEY, String(expiry));
+    localStorage.setItem(TOKEN_KEYS.EXPIRY, String(expiry));
   } catch {
     // ignore
   }
@@ -24,7 +21,7 @@ export function setAccessToken(token: string, expiresIn: number) {
 
 export function getTokenExpiry(): number | null {
   try {
-    const expiry = localStorage.getItem(TOKEN_EXPIRY_KEY);
+    const expiry = localStorage.getItem(TOKEN_KEYS.EXPIRY);
     return expiry ? parseInt(expiry, 10) : null;
   } catch {
     return null;
@@ -47,8 +44,8 @@ export function setRefreshToken(token: string) {
 
 export function clearTokens() {
   try {
-    localStorage.removeItem(ACCESS_TOKEN_KEY);
-    localStorage.removeItem(TOKEN_EXPIRY_KEY);
+    localStorage.removeItem(TOKEN_KEYS.ACCESS);
+    localStorage.removeItem(TOKEN_KEYS.EXPIRY);
     sessionStore.clear();
   } catch {
     // ignore
@@ -94,11 +91,9 @@ async function refreshAccessToken(): Promise<string | null> {
 
     const data = await response.json();
     const newAccessToken = data.access_token;
-    const newRefreshToken = data.refresh_token;
     const expiresIn = data.expires_in;
 
     setAccessToken(newAccessToken, expiresIn);
-    setRefreshToken(newRefreshToken);
 
     refreshQueue.forEach((resolve) => resolve(newAccessToken));
     refreshQueue = [];

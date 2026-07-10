@@ -9,23 +9,10 @@ import {
   clearTokens,
   getAccessToken,
 } from '../api/authApi';
-
-interface UserProfile {
-  itcode: string;
-  [key: string]: string | undefined;
-}
-
-interface AuthContextType {
-  user: UserProfile | null;
-  isAuthenticated: boolean;
-  isAuthLoaded: boolean;
-  logout: () => void;
-}
+import { OA_LOGIN_BASE_URL, OA_APP_NAME } from '../constants';
+import type { UserProfile, AuthContextType } from '../types';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
-
-const OA_APP_NAME = 'buqualiboard';
-const OA_LOGIN_BASE_URL = 'http://tl.cooacloud.com/springboard_v3/login_proxy';
 
 function InnerAuthProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate();
@@ -127,7 +114,8 @@ function InnerAuthProvider({ children }: { children: ReactNode }) {
   }, [navigate, showLoginSuccess]);
 
   useEffect(() => {
-    if (!getAccessToken()) {
+    const token = getAccessToken();
+    if (!token) {
       setUser(null);
       setIsAuthLoaded(true);
       return;

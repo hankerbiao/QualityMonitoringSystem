@@ -1,9 +1,8 @@
 """
 系统配置相关 Pydantic 模型
 """
-from typing import Optional, Dict
-from pydantic import BaseModel, Field, EmailStr
 
+from pydantic import BaseModel, Field
 
 # ============== MES 系统配置 ==============
 
@@ -19,9 +18,9 @@ class MESConfigCreate(MESConfigBase):
 
 
 class MESConfig(BaseModel):
-    """MES 配置响应模型"""
+    """MES 配置响应模型（出于安全，密码永不返回明文）"""
     username: str
-    password: str
+    hasPassword: bool = Field(False, description="是否已配置密码（不返回明文）")
 
     class Config:
         from_attributes = True
@@ -29,8 +28,8 @@ class MESConfig(BaseModel):
 
 class MESConfigUpdate(BaseModel):
     """更新 MES 配置"""
-    username: Optional[str] = None
-    password: Optional[str] = None
+    username: str | None = None
+    password: str | None = None
 
 
 # ============== 机型指标配置 ==============
@@ -55,7 +54,7 @@ class ModelTarget(ModelTargetBase):
 
 class ModelTargetsResponse(BaseModel):
     """机型指标列表响应"""
-    items: Dict[str, float] = Field(
+    items: dict[str, float] = Field(
         default_factory=dict,
         description="机型名称 -> 目标直通率 的映射"
     )
@@ -84,9 +83,9 @@ class EmailAlertConfig(EmailAlertConfigBase):
 
 class EmailAlertConfigUpdate(BaseModel):
     """更新邮件预警配置"""
-    enabled: Optional[bool] = None
-    emails: Optional[str] = None
-    attachReport: Optional[bool] = None
+    enabled: bool | None = None
+    emails: str | None = None
+    attachReport: bool | None = None
 
 
 # ============== AI 模型配置 ==============
@@ -94,15 +93,16 @@ class EmailAlertConfigUpdate(BaseModel):
 class AIConfigSchema(BaseModel):
     apiUrl: str = Field("", description="AI API 地址")
     modelId: str = Field("", description="模型 ID")
-    apiKey: str = Field("", description="API Key")
+    apiKey: str = Field("", description="API Key (仅写入，不返回)")
+    hasApiKey: bool = Field(False, description="API Key 是否已配置")
     maxTokens: int = Field(4096, ge=1, le=32768, description="最大 Token 数")
 
 
 class AIConfigUpdate(BaseModel):
-    apiUrl: Optional[str] = None
-    modelId: Optional[str] = None
-    apiKey: Optional[str] = None
-    maxTokens: Optional[int] = None
+    apiUrl: str | None = None
+    modelId: str | None = None
+    apiKey: str | None = None
+    maxTokens: int | None = None
 
 
 # ============== 功能开关配置 ==============
@@ -126,15 +126,15 @@ class FeatureFlags(FeatureFlagsBase):
 
 class FeatureFlagsUpdate(BaseModel):
     """更新功能开关配置"""
-    voiceInputEnabled: Optional[bool] = None
+    voiceInputEnabled: bool | None = None
 
 
 # ============== 统一设置响应 ==============
 
 class SettingsResponse(BaseModel):
     """统一设置响应"""
-    mes: Optional[MESConfig] = None
-    modelTargets: Dict[str, float] = Field(default_factory=dict)
+    mes: MESConfig | None = None
+    modelTargets: dict[str, float] = Field(default_factory=dict)
     emailAlert: EmailAlertConfig
     featureFlags: FeatureFlags
     ai: AIConfigSchema
@@ -142,8 +142,8 @@ class SettingsResponse(BaseModel):
 
 class SettingsUpdateRequest(BaseModel):
     """设置更新请求"""
-    mes: Optional[MESConfigUpdate] = None
-    modelTargets: Optional[Dict[str, float]] = None
-    emailAlert: Optional[EmailAlertConfigUpdate] = None
-    featureFlags: Optional[FeatureFlagsUpdate] = None
-    ai: Optional[AIConfigUpdate] = None
+    mes: MESConfigUpdate | None = None
+    modelTargets: dict[str, float] | None = None
+    emailAlert: EmailAlertConfigUpdate | None = None
+    featureFlags: FeatureFlagsUpdate | None = None
+    ai: AIConfigUpdate | None = None

@@ -4,22 +4,19 @@ Unit tests for Pydantic schema validation
 import pytest
 from pydantic import ValidationError
 
+from app.schemas.ai import AIConfig, AIMessage, ChatRequest, RTYContext
+from app.schemas.rty import RTYData
 from app.schemas.settings import (
-    ModelTarget,
-    ModelTargetCreate,
-    ModelTargetsResponse,
+    AIConfigSchema,
+    AIConfigUpdate,
     EmailAlertConfig,
     EmailAlertConfigUpdate,
     FeatureFlags,
     FeatureFlagsUpdate,
-    AIConfigSchema,
-    AIConfigUpdate,
+    ModelTargetCreate,
+    ModelTargetsResponse,
     SettingsUpdateRequest,
-    MESConfigUpdate,
 )
-from app.schemas.rty import RTYData
-from app.schemas.ai import ChatRequest, AIConfig, AIMessage, RTYContext
-
 
 # ─── RTY Schemas ─────────────────────────────────────────────────────────────
 

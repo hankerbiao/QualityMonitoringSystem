@@ -78,22 +78,22 @@ class TestAuthMeEndpoint:
         data = response.json()
         assert data["itcode"] == "alice"
 
-    async def test_me_returns_user_from_db(self, client, make_test_access_token, mock_db):
-        """GET /auth/me with a valid token returns the user's profile from DB."""
+    async def test_callback_then_me_returns_user_profile(self, client):
+        """After OA callback, /auth/me with the session token should return profile."""
         from tests.conftest import _make_jwt
 
-        # Create user first via OA callback
         jwt = _make_jwt({"itcode": "alice", "name": "Alice"}, "bc3868bfa47ef87440a9e874afaad77c706c6229d08e5bb74f51ab726d072fc4")
-        await client.post("/api/auth/oa/callback", json={"status": "success", "payload": jwt, "next": None})
+        callback_resp = await client.post(
+            "/api/auth/oa/callback",
+            json={"status": "success", "payload": jwt, "next": None},
+        )
+        assert callback_resp.status_code == 200
+        session_token = callback_resp.json()["access_token"]
 
-        # Now call /auth/me with the session token
-        user = await mock_db.users.find_one({"itcode": "alice"})
-        session = await mock_db.sessions.find_one({"itcode": "alice"})
-        response = await client.get("/api/auth/me", headers={"Authorization": f"Bearer {session['accessToken']}"})
-
-        assert response.status_code == 200
-        assert response.json()["itcode"] == "alice"
-        assert response.json()["user"]["name"] == "Alice"
+        me_resp = await client.get("/api/auth/me", headers={"Authorization": f"Bearer {session_token}"})
+        assert me_resp.status_code == 200
+        assert me_resp.json()["itcode"] == "alice"
+        assert me_resp.json()["user"]["name"] == "Alice"
 
 
 @pytest.mark.integration
@@ -104,31 +104,23 @@ class TestLogoutEndpoint:
         """Logout should return ok even without a valid token."""
         response = await client.post("/api/auth/logout")
         assert response.status_code == 200
-        data = response.json()
-        assert data["ok"] is True
+        assert response.json()["ok"] is True
 
-    async def test_logout_revokes_session(self, client, make_test_access_token, mock_db):
-        """Logout should delete the session from DB."""
+    async def test_logout_revokes_refresh_token(self, client):
+        """Logout should delete the session, invalidating the refresh token."""
         from tests.conftest import _make_jwt
 
-        # Create user + session via OA callback
         jwt = _make_jwt({"itcode": "logout_user", "name": "Logout Test"}, "bc3868bfa47ef87440a9e874afaad77c706c6229d08e5bb74f51ab726d072fc4")
         callback_resp = await client.post(
             "/api/auth/oa/callback",
             json={"status": "success", "payload": jwt, "next": None},
         )
         assert callback_resp.status_code == 200
-        session_token = callback_resp.json()["access_token"]
+        refresh_token = callback_resp.json()["refresh_token"]
 
-        # Verify session exists
-        session = await mock_db.sessions.find_one({"itcode": "logout_user"})
-        assert session is not None
-        assert session["accessToken"] == session_token
+        logout_resp = await client.post("/api/auth/logout", headers={"Authorization": f"Bearer {callback_resp.json()['access_token']}"})
+        assert logout_resp.status_code == 200
 
-        # Logout
-        response = await client.post("/api/auth/logout", headers={"Authorization": f"Bearer {session_token}"})
-        assert response.status_code == 200
-
-        # Session should be deleted
-        session = await mock_db.sessions.find_one({"itcode": "logout_user"})
-        assert session is None
+        # Refresh should now fail - session is deleted
+        refresh_resp = await client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
+        assert refresh_resp.status_code == 401

@@ -9,16 +9,13 @@ Loguru Logger Module - 企业级日志系统
 - 分类输出 (普通日志 + 审计日志)
 """
 import sys
-import os
-from datetime import datetime
-from pathlib import Path
-from typing import Optional
-from functools import wraps
 from contextlib import contextmanager
+from datetime import datetime
+from functools import wraps
+from pathlib import Path
 
-from loguru import logger
 from fastapi import Request
-import json
+from loguru import logger
 
 
 class AuditLogger:
@@ -50,6 +47,7 @@ class AuditLogger:
         # 配置审计日志格式 - 结构化输出便于分析
         audit_format = (
             "{time:YYYY-MM-DD HH:mm:ss.SSS} | "
+            "{extra[request_id]:<12} | "
             "{extra[user_id]:<20} | "
             "{extra[username]:<15} | "
             "{extra[client_ip]:<15} | "
@@ -62,9 +60,9 @@ class AuditLogger:
         )
 
         logger.configure(
-            extra={"user_id": "-", "username": "-", "client_ip": "-",
-                   "action": "-", "resource": "-", "method": "-",
-                   "status": "-", "duration_ms": "-"}
+            extra={"request_id": "-", "user_id": "-", "username": "-",
+                   "client_ip": "-", "action": "-", "resource": "-",
+                   "method": "-", "status": "-", "duration_ms": "-"}
         )
 
         # 添加审计日志专用sink
@@ -80,13 +78,13 @@ class AuditLogger:
         self,
         action: str,
         resource: str,
-        user_id: Optional[str] = None,
-        username: Optional[str] = "-",
-        client_ip: Optional[str] = None,
+        user_id: str | None = None,
+        username: str | None = "-",
+        client_ip: str | None = None,
         method: str = "HTTP",
         status: str = "SUCCESS",
-        duration_ms: Optional[float] = None,
-        details: Optional[str] = None,
+        duration_ms: float | None = None,
+        details: str | None = None,
     ):
         """
         记录审计日志
@@ -126,9 +124,9 @@ class AuditLogger:
         self,
         action: str,
         resource: str,
-        user_id: Optional[str] = None,
-        username: Optional[str] = "-",
-        client_ip: Optional[str] = None,
+        user_id: str | None = None,
+        username: str | None = "-",
+        client_ip: str | None = None,
         method: str = "HTTP",
     ):
         """
@@ -167,9 +165,9 @@ class AuditContext:
         audit_logger: AuditLogger,
         action: str,
         resource: str,
-        user_id: Optional[str],
+        user_id: str | None,
         username: str,
-        client_ip: Optional[str],
+        client_ip: str | None,
         method: str,
     ):
         self.audit_logger = audit_logger
@@ -184,7 +182,7 @@ class AuditContext:
         self._status = "SUCCESS"
         self._details = None
 
-    def mark_success(self, details: Optional[str] = None):
+    def mark_success(self, details: str | None = None):
         """标记操作成功"""
         self._completed = True
         self._status = "SUCCESS"
@@ -260,6 +258,7 @@ def setup_logger(
         log_format = (
             "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
             "<level>{level: <8}</level> | "
+            "<magenta>{extra[request_id]:<12}</magenta> | "
             "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
             "<level>{message}</level>"
         )
@@ -348,67 +347,48 @@ def audit_log(
             # 尝试从参数中获取 Request
             request = kwargs.get('request')
             if not request:
-                # 尝试从 args 中获取 (self, request, ...)
                 for arg in args:
                     if isinstance(arg, Request):
                         request = arg
                         break
 
-            # 提取用户信息 (根据实际认证系统调整)
-            user_id = None
-            username = "anonymous"
-            if request:
-                # TODO: 从 JWT token 或 session 中提取用户信息
-                # 这里先从 header 中尝试获取 (方便测试)
-                user_id = request.headers.get("X-User-ID")
-                username = request.headers.get("X-Username", "anonymous")
-
+            # 用户取自请求级上下文（由认证依赖写入），不再依赖测试用 Header
+            from app.core.context import get_user
+            user_id = get_user()
             client_ip = get_client_ip(request) if request else "unknown"
 
-            # 记录开始
+            # 让审计日志行也带上 request_id，便于与业务日志串联
+            # 使用 get_audit_logger() 而非直接读全局变量：未初始化时安全降级为 NoOp，
+            # 避免在测试/脚本/冷启动阶段触发 AttributeError('NoneType' has no attribute 'log')
+            audit_logger = get_audit_logger()
             start_time = datetime.now()
 
             try:
-                # 执行原函数
                 result = await func(*args, **kwargs)
-
-                # 计算耗时
                 duration_ms = (datetime.now() - start_time).total_seconds() * 1000
-
-                # 记录成功日志
-                from app.core.logger import audit_logger
                 audit_logger.log(
                     action=action,
                     resource=resource,
                     user_id=user_id,
-                    username=username,
                     client_ip=client_ip,
                     method=method,
                     status="SUCCESS",
                     duration_ms=duration_ms,
-                    details=f"Completed successfully"
+                    details="Completed successfully",
                 )
-
                 return result
-
             except Exception as e:
-                # 计算耗时
                 duration_ms = (datetime.now() - start_time).total_seconds() * 1000
-
-                # 记录失败日志
-                from app.core.logger import audit_logger
                 audit_logger.log(
                     action=action,
                     resource=resource,
                     user_id=user_id,
-                    username=username,
                     client_ip=client_ip,
                     method=method,
                     status="FAILED",
                     duration_ms=duration_ms,
-                    details=f"Error: {str(e)}"
+                    details=f"Error: {str(e)}",
                 )
-
                 raise
 
         return wrapper
@@ -445,12 +425,12 @@ def log_critical(message: str, **kwargs):
 
 
 def get_audit_logger() -> AuditLogger:
-    """获取审计日志器，如果未初始化则返回空操作日志器"""
-    return audit_logger
+    """获取审计日志器；未初始化时返回空操作实现，避免 AttributeError"""
+    return audit_logger or NoOpAuditLogger()
 
 
 # 模块级别的审计日志器 (由 main.py 初始化)
-audit_logger: Optional[AuditLogger] = None
+audit_logger: AuditLogger | None = None
 
 
 class NoOpAuditLogger:

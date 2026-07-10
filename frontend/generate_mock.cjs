@@ -24,7 +24,7 @@ months.forEach(month => {
     defectCount: ${defectCount},
     inputCount: ${inputCount},
     rtyRate: ${rtyRate},
-    targetRate: 99.0,
+    targetRate: 100,
   }`);
   });
 });

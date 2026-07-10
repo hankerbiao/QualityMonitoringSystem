@@ -1,8 +1,8 @@
 """
 MongoDB connection management using Motor (async MongoDB driver)
 """
+
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
-from typing import Optional
 
 from app.core.config import get_settings
 
@@ -10,8 +10,8 @@ from app.core.config import get_settings
 class MongoDB:
     """MongoDB 连接管理器"""
 
-    client: Optional[AsyncIOMotorClient] = None
-    db: Optional[AsyncIOMotorDatabase] = None
+    client: AsyncIOMotorClient | None = None
+    db: AsyncIOMotorDatabase | None = None
 
 
 mongodb = MongoDB()
@@ -54,8 +54,8 @@ async def create_indexes() -> None:
         ("base", 1)
     ])
 
-    # 故障明细索引
-    await mongodb.db.defect_details.create_index([("recordId", 1)])
+    # 故障明细索引 (fault_info 为故障数据唯一真源，按 sn 批量查询)
+    await mongodb.db.fault_info.create_index([("sn", 1)])
 
     # 投入明细索引
     await mongodb.db.input_details.create_index([("recordId", 1)])

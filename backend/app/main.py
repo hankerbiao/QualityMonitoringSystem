@@ -3,13 +3,15 @@ QualiBoard 品质看板 Backend - FastAPI Application
 """
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
-from app.api import rty, settings, ai, auth
+from app.api import ai, auth, rty, settings
 from app.core.config import get_settings
-from app.core.logger import setup_logger, log_info, log_warning, log_error
-from app.db.mongodb import connect_to_mongo, close_mongo_connection
+from app.core.logger import log_error, log_info, setup_logger
+from app.core.middleware import RequestContextMiddleware
+from app.db.mongodb import close_mongo_connection, connect_to_mongo
 
 
 @asynccontextmanager
@@ -32,7 +34,7 @@ async def lifespan(app: FastAPI):
     logger_module.audit_logger = audit_logger
 
     log_info("=" * 60)
-    log_info(f"QualiBoard API 启动中...")
+    log_info("QualiBoard API 启动中...")
     log_info(f"调试模式: {app_settings.DEBUG}")
     log_info(f"日志级别: {app_settings.LOG_LEVEL}")
     log_info(f"日志目录: {app_settings.LOG_DIR}")
@@ -58,14 +60,21 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS 配置
+# 提前解析 CORS 白名单，供中间件使用
+def settings_cors_origins() -> list[str]:
+    return get_settings().CORS_ORIGINS
+
+# CORS 配置（白名单，禁止 "*" + credentials 的危险组合）
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 生产环境应限制具体域名
+    allow_origins=settings_cors_origins(),
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# 请求上下文中间件：为每行日志自动绑定 request_id（及后续用户上下文）
+app.add_middleware(RequestContextMiddleware)
 
 
 # 注册路由
@@ -81,10 +90,31 @@ async def health_check():
     return {"status": "healthy", "version": "1.0.0"}
 
 
-# 全局审计日志器
-audit_logger = None
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request: Request, exc: HTTPException):
+    """全局异常处理：把错误信息连同请求上下文一起记录，保证每行错误日志都有上下文"""
+    log_error(
+        f"HTTP {exc.status_code}: {exc.detail}",
+        status_code=exc.status_code,
+        path=request.url.path,
+    )
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"success": False, "error": str(exc.detail)},
+    )
 
 
+@app.exception_handler(Exception)
+async def unhandled_exception_handler(request: Request, exc: Exception):
+    """未捕获异常：记录完整堆栈与上下文，避免敏感信息直接外泄到响应"""
+    log_error(f"Unhandled error: {exc}", path=request.url.path, exc_info=exc)
+    return JSONResponse(
+        status_code=500,
+        content={"success": False, "error": "Internal Server Error"},
+    )
+
+
+# 全局审计日志器（由 lifespan 在 logger.py 模块内初始化，见 logger_module.audit_logger）
 def run():
     """运行服务器"""
     import uvicorn

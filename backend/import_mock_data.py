@@ -86,48 +86,10 @@ def generate_mock_data():
                         "defectCount": defect_count,
                         "inputCount": input_count,
                         "rtyRate": rty_rate,
-                        "targetRate": 99.0,
+                        "targetRate": 100,
                     })
 
     return mock_rty_data
-
-
-def generate_defect_details():
-    """生成故障明细数据"""
-    defect_templates = [
-        {"code": "E001", "desc": "屏幕划痕"},
-        {"code": "E002", "desc": "无法开机"},
-        {"code": "E003", "desc": "按键失灵"},
-        {"code": "E004", "desc": "WiFi 连接异常"},
-        {"code": "E005", "desc": "电池续航不足"},
-        {"code": "E006", "desc": "摄像头模糊"},
-        {"code": "E007", "desc": "扬声器杂音"},
-        {"code": "E008", "desc": "充电口松动"},
-        {"code": "E009", "desc": "系统卡顿"},
-        {"code": "E010", "desc": "蓝牙断连"},
-    ]
-
-    defect_details = {}
-    for i in range(1, 433):  # 12 months * 4 bases * 3 customers * 3 models = 432
-        key = str(i)
-        num_defects = rand(1, 5)
-        details = []
-        used_codes = set()
-
-        for d in range(num_defects):
-            tmpl = defect_templates[d % len(defect_templates)]
-            if tmpl["code"] not in used_codes:
-                used_codes.add(tmpl["code"])
-                details.append({
-                    "id": f"d{key}-{d}",
-                    "defectCode": tmpl["code"],
-                    "description": tmpl["desc"],
-                    "count": rand(1, 15),
-                })
-
-        defect_details[key] = details
-
-    return defect_details
 
 
 def generate_input_details():
@@ -166,7 +128,6 @@ async def import_data():
     # 清空现有数据 (可选)
     print("正在清空现有 RTY 数据...")
     await db[Collections.RTY_DATA].delete_many({})
-    await db[Collections.DEFECT_DETAILS].delete_many({})
     await db[Collections.INPUT_DETAILS].delete_many({})
 
     # 生成并导入 RTY 数据
@@ -191,19 +152,6 @@ async def import_data():
 
     result = await db[Collections.RTY_DATA].insert_many(documents)
     print(f"✓ 已导入 {len(result.inserted_ids)} 条 RTY 数据")
-
-    # 导入故障明细
-    print("正在导入故障明细...")
-    defect_details = generate_defect_details()
-
-    defect_docs = [
-        {"recordId": key, "details": details, "updatedAt": datetime.utcnow()}
-        for key, details in defect_details.items()
-    ]
-
-    if defect_docs:
-        await db[Collections.DEFECT_DETAILS].insert_many(defect_docs)
-        print(f"✓ 已导入 {len(defect_docs)} 条故障明细")
 
     # 导入投入明细
     print("正在导入投入明细...")

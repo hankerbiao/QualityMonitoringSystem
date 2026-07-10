@@ -6,185 +6,160 @@
 - 机型指标配置
 - 邮件预警规则配置
 - 功能开关配置
+
+说明:
+- GET 接口一律不返回明文密码；MES 密码以 hasPassword 标志表示。
+- PUT 接口对可选字段使用 Pydantic 的 model_dump(exclude_none=True) 自动生成 $set，
+  避免逐字段 `if x is not None` 的重复样板。
+- MES 密码为安全敏感字段：仅当传入非空密码时才写入，空字符串会被忽略，
+  防止前端回填空值导致已存密码被误清空。
 """
 from datetime import datetime
-from typing import Dict
+
 from fastapi import APIRouter, HTTPException
 
 from app.db.mongodb import get_database
+from app.models.documents import Collections
+from app.schemas.common import Response
 from app.schemas.settings import (
-    MESConfig,
-    MESConfigUpdate,
-    ModelTarget,
-    ModelTargetsResponse,
+    AIConfigSchema,
+    AIConfigUpdate,
     EmailAlertConfig,
     EmailAlertConfigUpdate,
     FeatureFlags,
     FeatureFlagsUpdate,
+    MESConfig,
+    MESConfigUpdate,
+    ModelTargetsResponse,
     SettingsResponse,
     SettingsUpdateRequest,
-    AIConfigSchema,
-    AIConfigUpdate,
 )
-from app.schemas.common import Response
-from app.models.documents import Collections
 
 router = APIRouter()
+
+CONFIGS = Collections.CONFIGS
+EMAIL_DEFAULT = "manager@company.com; quality-team@company.com"
+
+
+# ============== 通用助手 ==============
+
+async def _read_doc(key: str) -> dict | None:
+    """读取单个配置文档"""
+    return await get_database()[CONFIGS].find_one({"key": key})
+
+
+async def _save_section(key: str, update: object) -> dict:
+    """
+    将 Pydantic 更新模型（已设字段）写入对应配置文档并返回最新文档。
+
+    - 仅写入非 None 字段（exclude_none=True），消除重复的 if 判断。
+    - 空字典视为无字段可更新，返回 400。
+    """
+    data = update.model_dump(exclude_none=True)
+    if not data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    data["updatedAt"] = datetime.utcnow()
+    await get_database()[CONFIGS].update_one({"key": key}, {"$set": data}, upsert=True)
+    return await _read_doc(key)
+
+
+def _mes_from_doc(doc: dict | None) -> MESConfig:
+    if not doc:
+        return MESConfig(username="", hasPassword=False)
+    return MESConfig(username=doc.get("username", ""), hasPassword=bool(doc.get("password")))
+
+
+def _email_from_doc(doc: dict | None) -> EmailAlertConfig:
+    if not doc:
+        return EmailAlertConfig(enabled=True, emails=EMAIL_DEFAULT, attachReport=True)
+    return EmailAlertConfig(
+        enabled=doc.get("enabled", True),
+        emails=doc.get("emails", ""),
+        attachReport=doc.get("attachReport", True),
+    )
+
+
+def _ai_from_doc(doc: dict | None) -> AIConfigSchema:
+    if not doc:
+        return AIConfigSchema()
+    return AIConfigSchema(
+        apiUrl=doc.get("apiUrl", ""),
+        modelId=doc.get("modelId", ""),
+        apiKey="",
+        hasApiKey=bool(doc.get("apiKey")),
+        maxTokens=doc.get("maxTokens", 4096),
+    )
 
 
 # ============== 统一设置接口 ==============
 
 @router.get("", response_model=Response[SettingsResponse])
 async def get_all_settings():
-    """
-    获取所有系统配置
-    """
-    db = get_database()
-
-    # 获取 MES 配置
-    mes_config = await db[Collections.CONFIGS].find_one({"key": "mes_config"})
-    mes = None
-    if mes_config:
-        mes = MESConfig(
-            username=mes_config.get("username", ""),
-            password=mes_config.get("password", ""),
-        )
-
-    # 获取机型指标配置
-    model_targets_doc = await db[Collections.CONFIGS].find_one({"key": "model_targets"})
-    model_targets: Dict[str, float] = model_targets_doc.get("targets", {}) if model_targets_doc else {}
-
-    # 获取邮件预警配置
-    email_alert_doc = await db[Collections.CONFIGS].find_one({"key": "email_alert_config"})
-    if email_alert_doc:
-        email_alert = EmailAlertConfig(
-            enabled=email_alert_doc.get("enabled", True),
-            emails=email_alert_doc.get("emails", ""),
-            attachReport=email_alert_doc.get("attachReport", True),
-        )
-    else:
-        # 默认配置
-        email_alert = EmailAlertConfig(
-            enabled=True,
-            emails="manager@company.com; quality-team@company.com",
-            attachReport=True,
-        )
-
-    # 获取功能开关配置
-    feature_flags_doc = await db[Collections.CONFIGS].find_one({"key": "feature_flags"})
-    if feature_flags_doc:
-        feature_flags = FeatureFlags(
-            voiceInputEnabled=feature_flags_doc.get("voiceInputEnabled", False),
-        )
-    else:
-        feature_flags = FeatureFlags(voiceInputEnabled=False)
-
-    # 获取 AI 模型配置
-    ai_config_doc = await db[Collections.CONFIGS].find_one({"key": "ai_config"})
-    if ai_config_doc:
-        ai = AIConfigSchema(
-            apiUrl=ai_config_doc.get("apiUrl", ""),
-            modelId=ai_config_doc.get("modelId", ""),
-            apiKey="",  # 不返回明文
-            maxTokens=ai_config_doc.get("maxTokens", 4096),
-        )
-    else:
-        ai = AIConfigSchema()
+    """获取所有系统配置"""
+    mes_doc = await _read_doc("mes_config")
+    model_doc = await _read_doc("model_targets")
+    email_doc = await _read_doc("email_alert_config")
+    flags_doc = await _read_doc("feature_flags")
+    ai_doc = await _read_doc("ai_config")
 
     return Response(
         success=True,
         data=SettingsResponse(
-            mes=mes,
-            modelTargets=model_targets,
-            emailAlert=email_alert,
-            featureFlags=feature_flags,
-            ai=ai,
-        )
+            mes=_mes_from_doc(mes_doc),
+            modelTargets=model_doc.get("targets", {}) if model_doc else {},
+            emailAlert=_email_from_doc(email_doc),
+            featureFlags=FeatureFlags(
+                voiceInputEnabled=(flags_doc or {}).get("voiceInputEnabled", False)
+            ),
+            ai=_ai_from_doc(ai_doc),
+        ),
     )
 
 
 @router.put("", response_model=Response[SettingsResponse])
 async def update_all_settings(request: SettingsUpdateRequest):
-    """
-    批量更新系统配置
-    """
+    """批量更新系统配置"""
     db = get_database()
-    updated_at = datetime.utcnow()
+    now = datetime.utcnow()
 
-    # 更新 MES 配置
     if request.mes is not None:
-        mes_update = {}
-        if request.mes.username is not None:
-            mes_update["username"] = request.mes.username
-        if request.mes.password is not None:
-            # TODO: 生产环境应加密存储
-            mes_update["password"] = request.mes.password
-        if mes_update:
-            mes_update["updatedAt"] = updated_at
-            await db[Collections.CONFIGS].update_one(
-                {"key": "mes_config"},
-                {"$set": mes_update},
-                upsert=True
-            )
+        mes_set = request.mes.model_dump(exclude_none=True)
+        # 安全护栏：忽略空密码，避免误清空已存密码
+        if not mes_set.get("password"):
+            mes_set.pop("password", None)
+        if mes_set:
+            mes_set["updatedAt"] = now
+            await db[CONFIGS].update_one({"key": "mes_config"}, {"$set": mes_set}, upsert=True)
 
-    # 更新机型指标配置
     if request.modelTargets is not None:
-        await db[Collections.CONFIGS].update_one(
+        await db[CONFIGS].update_one(
             {"key": "model_targets"},
-            {"$set": {"targets": request.modelTargets, "updatedAt": updated_at}},
-            upsert=True
+            {"$set": {"targets": request.modelTargets, "updatedAt": now}},
+            upsert=True,
         )
 
-    # 更新邮件预警配置
     if request.emailAlert is not None:
-        email_update = {}
-        if request.emailAlert.enabled is not None:
-            email_update["enabled"] = request.emailAlert.enabled
-        if request.emailAlert.emails is not None:
-            email_update["emails"] = request.emailAlert.emails
-        if request.emailAlert.attachReport is not None:
-            email_update["attachReport"] = request.emailAlert.attachReport
-        if email_update:
-            email_update["updatedAt"] = updated_at
-            await db[Collections.CONFIGS].update_one(
-                {"key": "email_alert_config"},
-                {"$set": email_update},
-                upsert=True
+        email_set = request.emailAlert.model_dump(exclude_none=True)
+        if email_set:
+            email_set["updatedAt"] = now
+            await db[CONFIGS].update_one(
+                {"key": "email_alert_config"}, {"$set": email_set}, upsert=True
             )
 
-    # 更新功能开关配置
     if request.featureFlags is not None:
-        flags_update = {}
-        if request.featureFlags.voiceInputEnabled is not None:
-            flags_update["voiceInputEnabled"] = request.featureFlags.voiceInputEnabled
-        if flags_update:
-            flags_update["updatedAt"] = updated_at
-            await db[Collections.CONFIGS].update_one(
-                {"key": "feature_flags"},
-                {"$set": flags_update},
-                upsert=True
+        flags_set = request.featureFlags.model_dump(exclude_none=True)
+        if flags_set:
+            flags_set["updatedAt"] = now
+            await db[CONFIGS].update_one(
+                {"key": "feature_flags"}, {"$set": flags_set}, upsert=True
             )
 
-    # 更新 AI 模型配置
     if request.ai is not None:
-        ai_update = {}
-        if request.ai.apiUrl is not None:
-            ai_update["apiUrl"] = request.ai.apiUrl
-        if request.ai.modelId is not None:
-            ai_update["modelId"] = request.ai.modelId
-        if request.ai.apiKey is not None:
-            ai_update["apiKey"] = request.ai.apiKey
-        if request.ai.maxTokens is not None:
-            ai_update["maxTokens"] = request.ai.maxTokens
-        if ai_update:
-            ai_update["updatedAt"] = updated_at
-            await db[Collections.CONFIGS].update_one(
-                {"key": "ai_config"},
-                {"$set": ai_update},
-                upsert=True
-            )
+        ai_set = request.ai.model_dump(exclude_none=True)
+        if ai_set:
+            ai_set["updatedAt"] = now
+            await db[CONFIGS].update_one({"key": "ai_config"}, {"$set": ai_set}, upsert=True)
 
-    # 返回更新后的配置
     return await get_all_settings()
 
 
@@ -192,293 +167,121 @@ async def update_all_settings(request: SettingsUpdateRequest):
 
 @router.get("/mes", response_model=Response[MESConfig])
 async def get_mes_config():
-    """
-    获取 MES 系统接入配置
-    """
-    db = get_database()
-
-    doc = await db[Collections.CONFIGS].find_one({"key": "mes_config"})
-
-    if not doc:
-        return Response(success=True, data=MESConfig(username="", password=""))
-
-    return Response(
-        success=True,
-        data=MESConfig(
-            username=doc.get("username", ""),
-            password=doc.get("password", "")
-        )
-    )
+    """获取 MES 系统接入配置（不返回明文密码）"""
+    return Response(success=True, data=_mes_from_doc(await _read_doc("mes_config")))
 
 
 @router.put("/mes", response_model=Response[MESConfig])
 async def update_mes_config(config: MESConfigUpdate):
-    """
-    更新 MES 系统接入配置
-    """
-    db = get_database()
-    updated_at = datetime.utcnow()
-
-    update_data = {"updatedAt": updated_at}
-    if config.username is not None:
-        update_data["username"] = config.username
-    if config.password is not None:
-        # TODO: 生产环境应加密存储
-        update_data["password"] = config.password
-
-    await db[Collections.CONFIGS].update_one(
-        {"key": "mes_config"},
-        {"$set": update_data},
-        upsert=True
-    )
-
-    # 获取更新后的配置
-    doc = await db[Collections.CONFIGS].find_one({"key": "mes_config"})
-
-    return Response(
-        success=True,
-        data=MESConfig(
-            username=doc.get("username", ""),
-            password=doc.get("password", "")
-        ),
-        message="MES 配置已更新"
-    )
+    """更新 MES 系统接入配置"""
+    # 忽略空密码，保护已存凭证
+    if not config.password:
+        config.password = None
+    doc = await _save_section("mes_config", config)
+    return Response(success=True, data=_mes_from_doc(doc), message="MES 配置已更新")
 
 
 # ============== 机型指标接口 ==============
 
 @router.get("/model-targets", response_model=Response[ModelTargetsResponse])
 async def get_model_targets():
-    """
-    获取所有机型的目标直通率配置
-    """
-    db = get_database()
-
-    doc = await db[Collections.CONFIGS].find_one({"key": "model_targets"})
-
-    targets: Dict[str, float] = doc.get("targets", {}) if doc else {}
-
-    return Response(
-        success=True,
-        data=ModelTargetsResponse(items=targets)
-    )
+    """获取所有机型的目标直通率配置"""
+    doc = await _read_doc("model_targets")
+    return Response(success=True, data=ModelTargetsResponse(items=doc.get("targets", {}) if doc else {}))
 
 
 @router.put("/model-targets", response_model=Response[ModelTargetsResponse])
-async def update_model_targets(targets: Dict[str, float]):
-    """
-    批量更新机型目标直通率
-
-    请求体: {"6210 C21 BOX": 99.5, "6210 C21": 99.0}
-    """
-    db = get_database()
-
-    # 验证数据
+async def update_model_targets(targets: dict[str, float]):
+    """批量更新机型目标直通率"""
     for model, rate in targets.items():
         if not isinstance(model, str) or not model.strip():
             raise HTTPException(status_code=400, detail=f"Invalid model name: {model}")
-        if not isinstance(rate, (int, float)) or rate < 0 or rate > 100:
+        if not isinstance(rate, int | float) or rate < 0 or rate > 100:
             raise HTTPException(status_code=400, detail=f"Invalid target rate for {model}: {rate}")
 
-    await db[Collections.CONFIGS].update_one(
+    await get_database()[CONFIGS].update_one(
         {"key": "model_targets"},
         {"$set": {"targets": targets, "updatedAt": datetime.utcnow()}},
-        upsert=True
+        upsert=True,
     )
-
-    return Response(
-        success=True,
-        data=ModelTargetsResponse(items=targets),
-        message="机型指标配置已更新"
-    )
+    return Response(success=True, data=ModelTargetsResponse(items=targets), message="机型指标配置已更新")
 
 
 @router.post("/model-targets/{model}", response_model=Response[ModelTargetsResponse])
 async def add_model_target(model: str, targetRate: float):
-    """
-    添加或更新单个机型的目标直通率
-
-    - model: 机型名称
-    - targetRate: 目标直通率 (0-100)
-    """
-    db = get_database()
-
-    # 获取现有配置
-    doc = await db[Collections.CONFIGS].find_one({"key": "model_targets"})
-    targets: Dict[str, float] = doc.get("targets", {}).copy() if doc else {}
-
-    # 更新目标值
+    """添加或更新单个机型的目标直通率"""
+    doc = await _read_doc("model_targets")
+    targets: dict[str, float] = doc.get("targets", {}).copy() if doc else {}
     targets[model] = targetRate
-
-    await db[Collections.CONFIGS].update_one(
+    await get_database()[CONFIGS].update_one(
         {"key": "model_targets"},
         {"$set": {"targets": targets, "updatedAt": datetime.utcnow()}},
-        upsert=True
+        upsert=True,
     )
-
     return Response(
         success=True,
         data=ModelTargetsResponse(items=targets),
-        message=f"机型 {model} 的目标直通率已设置为 {targetRate}%"
+        message=f"机型 {model} 的目标直通率已设置为 {targetRate}%",
     )
 
 
 @router.delete("/model-targets/{model}", response_model=Response[ModelTargetsResponse])
 async def delete_model_target(model: str):
-    """
-    删除指定机型的目标直通率配置
-    """
-    db = get_database()
-
-    # 获取现有配置
-    doc = await db[Collections.CONFIGS].find_one({"key": "model_targets"})
-    targets: Dict[str, float] = doc.get("targets", {}).copy() if doc else {}
-
+    """删除指定机型的目标直通率配置"""
+    doc = await _read_doc("model_targets")
+    targets: dict[str, float] = doc.get("targets", {}).copy() if doc else {}
     if model not in targets:
         raise HTTPException(status_code=404, detail=f"机型 {model} 不存在")
-
     del targets[model]
-
-    await db[Collections.CONFIGS].update_one(
+    await get_database()[CONFIGS].update_one(
         {"key": "model_targets"},
         {"$set": {"targets": targets, "updatedAt": datetime.utcnow()}},
-        upsert=True
+        upsert=True,
     )
-
-    return Response(
-        success=True,
-        data=ModelTargetsResponse(items=targets),
-        message=f"机型 {model} 的配置已删除"
-    )
+    return Response(success=True, data=ModelTargetsResponse(items=targets), message=f"机型 {model} 的配置已删除")
 
 
 # ============== 邮件预警配置接口 ==============
 
 @router.get("/email-alert", response_model=Response[EmailAlertConfig])
 async def get_email_alert_config():
-    """
-    获取邮件预警配置
-    """
-    db = get_database()
-
-    doc = await db[Collections.CONFIGS].find_one({"key": "email_alert_config"})
-
-    if not doc:
-        # 返回默认配置
-        config = EmailAlertConfig(
-            enabled=True,
-            emails="manager@company.com; quality-team@company.com",
-            attachReport=True,
-        )
-    else:
-        config = EmailAlertConfig(
-            enabled=doc.get("enabled", True),
-            emails=doc.get("emails", ""),
-            attachReport=doc.get("attachReport", True),
-        )
-
-    return Response(success=True, data=config)
+    """获取邮件预警配置"""
+    return Response(success=True, data=_email_from_doc(await _read_doc("email_alert_config")))
 
 
 @router.put("/email-alert", response_model=Response[EmailAlertConfig])
 async def update_email_alert_config(config: EmailAlertConfigUpdate):
-    """
-    更新邮件预警配置
-    """
-    db = get_database()
-    updated_at = datetime.utcnow()
-
-    update_data = {}
-    if config.enabled is not None:
-        update_data["enabled"] = config.enabled
+    """更新邮件预警配置"""
     if config.emails is not None:
-        # 验证邮箱格式 (简单验证)
         emails = [e.strip() for e in config.emails.split(";") if e.strip()]
         for email in emails:
             if "@" not in email:
                 raise HTTPException(status_code=400, detail=f"Invalid email format: {email}")
-        update_data["emails"] = "; ".join(emails)
-    if config.attachReport is not None:
-        update_data["attachReport"] = config.attachReport
-
-    if not update_data:
-        raise HTTPException(status_code=400, detail="No fields to update")
-
-    update_data["updatedAt"] = updated_at
-
-    await db[Collections.CONFIGS].update_one(
-        {"key": "email_alert_config"},
-        {"$set": update_data},
-        upsert=True
-    )
-
-    # 获取更新后的配置
-    doc = await db[Collections.CONFIGS].find_one({"key": "email_alert_config"})
-
-    return Response(
-        success=True,
-        data=EmailAlertConfig(
-            enabled=doc.get("enabled", True),
-            emails=doc.get("emails", ""),
-            attachReport=doc.get("attachReport", True),
-        ),
-        message="邮件预警配置已更新"
-    )
+        config.emails = "; ".join(emails)
+    doc = await _save_section("email_alert_config", config)
+    return Response(success=True, data=_email_from_doc(doc), message="邮件预警配置已更新")
 
 
 # ============== 功能开关接口 ==============
 
 @router.get("/feature-flags", response_model=Response[FeatureFlags])
 async def get_feature_flags():
-    """
-    获取功能开关配置
-    """
-    db = get_database()
-
-    doc = await db[Collections.CONFIGS].find_one({"key": "feature_flags"})
-
-    if not doc:
-        flags = FeatureFlags(voiceInputEnabled=False)
-    else:
-        flags = FeatureFlags(
-            voiceInputEnabled=doc.get("voiceInputEnabled", False),
-        )
-
-    return Response(success=True, data=flags)
+    """获取功能开关配置"""
+    doc = await _read_doc("feature_flags")
+    return Response(
+        success=True,
+        data=FeatureFlags(voiceInputEnabled=(doc or {}).get("voiceInputEnabled", False)),
+    )
 
 
 @router.put("/feature-flags", response_model=Response[FeatureFlags])
 async def update_feature_flags(flags: FeatureFlagsUpdate):
-    """
-    更新功能开关配置
-    """
-    db = get_database()
-    updated_at = datetime.utcnow()
-
-    update_data = {}
-    if flags.voiceInputEnabled is not None:
-        update_data["voiceInputEnabled"] = flags.voiceInputEnabled
-
-    if not update_data:
-        raise HTTPException(status_code=400, detail="No fields to update")
-
-    update_data["updatedAt"] = updated_at
-
-    await db[Collections.CONFIGS].update_one(
-        {"key": "feature_flags"},
-        {"$set": update_data},
-        upsert=True
-    )
-
-    # 获取更新后的配置
-    doc = await db[Collections.CONFIGS].find_one({"key": "feature_flags"})
-
+    """更新功能开关配置"""
+    doc = await _save_section("feature_flags", flags)
     return Response(
         success=True,
-        data=FeatureFlags(
-            voiceInputEnabled=doc.get("voiceInputEnabled", False),
-        ),
-        message="功能开关配置已更新"
+        data=FeatureFlags(voiceInputEnabled=(doc or {}).get("voiceInputEnabled", False)),
+        message="功能开关配置已更新",
     )
 
 
@@ -486,65 +289,12 @@ async def update_feature_flags(flags: FeatureFlagsUpdate):
 
 @router.get("/ai", response_model=Response[AIConfigSchema])
 async def get_ai_config():
-    """
-    获取 AI 模型配置
-    """
-    db = get_database()
-
-    doc = await db[Collections.CONFIGS].find_one({"key": "ai_config"})
-
-    if not doc:
-        return Response(success=True, data=AIConfigSchema())
-
-    return Response(
-        success=True,
-        data=AIConfigSchema(
-            apiUrl=doc.get("apiUrl", ""),
-            modelId=doc.get("modelId", ""),
-            apiKey="",
-            maxTokens=doc.get("maxTokens", 4096),
-        )
-    )
+    """获取 AI 模型配置（不返回明文 apiKey）"""
+    return Response(success=True, data=_ai_from_doc(await _read_doc("ai_config")))
 
 
 @router.put("/ai", response_model=Response[AIConfigSchema])
 async def update_ai_config(config: AIConfigUpdate):
-    """
-    更新 AI 模型配置
-    """
-    db = get_database()
-    updated_at = datetime.utcnow()
-
-    update_data = {}
-    if config.apiUrl is not None:
-        update_data["apiUrl"] = config.apiUrl
-    if config.modelId is not None:
-        update_data["modelId"] = config.modelId
-    if config.apiKey is not None:
-        update_data["apiKey"] = config.apiKey
-    if config.maxTokens is not None:
-        update_data["maxTokens"] = config.maxTokens
-
-    if not update_data:
-        raise HTTPException(status_code=400, detail="No fields to update")
-
-    update_data["updatedAt"] = updated_at
-
-    await db[Collections.CONFIGS].update_one(
-        {"key": "ai_config"},
-        {"$set": update_data},
-        upsert=True
-    )
-
-    doc = await db[Collections.CONFIGS].find_one({"key": "ai_config"})
-
-    return Response(
-        success=True,
-        data=AIConfigSchema(
-            apiUrl=doc.get("apiUrl", ""),
-            modelId=doc.get("modelId", ""),
-            apiKey="",
-            maxTokens=doc.get("maxTokens", 4096),
-        ),
-        message="AI 模型配置已更新"
-    )
+    """更新 AI 模型配置"""
+    doc = await _save_section("ai_config", config)
+    return Response(success=True, data=_ai_from_doc(doc), message="AI 模型配置已更新")

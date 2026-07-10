@@ -1,37 +1,6 @@
+import { API_BASE_URL } from '../constants';
 import { apiFetch } from './authApi';
-
-const API_BASE_URL = '/api';
-
-export interface MESConfig {
-  username: string;
-  password: string;
-  hasPassword?: boolean;
-}
-
-export interface ModelTargets {
-  [model: string]: number;
-}
-
-export interface EmailAlertConfig {
-  enabled: boolean;
-  emails: string;
-  attachReport: boolean;
-}
-
-export interface AIConfig {
-  apiUrl: string;
-  modelId: string;
-  apiKey: string;
-  maxTokens: number;
-}
-
-export interface SettingsResponse {
-  mes: MESConfig | null;
-  modelTargets: ModelTargets;
-  emailAlert: EmailAlertConfig;
-  featureFlags: { voiceInputEnabled: boolean };
-  ai: AIConfig;
-}
+import type { MESConfig, ModelTargets, EmailAlertConfig, AIConfig, SettingsResponse } from '../types';
 
 interface ApiResponse<T> {
   success: boolean;

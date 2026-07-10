@@ -1,15 +1,15 @@
 """
 Unit tests for AuthService - JWT handling, OA callback, session management
 """
-import pytest
 import base64
 import hashlib
 import hmac
 import json
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta, timezone
+
+import pytest
 
 from app.auth_service import AuthService
-
 
 # ─── JWT Sign/Verify Helpers ─────────────────────────────────────────────────
 
@@ -30,10 +30,12 @@ def _make_jwt(payload: dict, secret: str = SECRET) -> str:
 # ─── Fixtures ────────────────────────────────────────────────────────────────
 
 @pytest.fixture
-def auth_service(mock_db, mock_settings, monkeypatch):
+def auth_service(_mock_db, _mock_settings, monkeypatch):
     from app.core import config as config_module
-    monkeypatch.setattr(config_module, "get_settings", lambda: mock_settings)
-    yield AuthService(mock_db)
+    monkeypatch.setattr(config_module, "get_settings", lambda: _mock_settings)
+    from app import auth_service as auth_svc_module
+    monkeypatch.setattr(auth_svc_module, "get_settings", lambda: _mock_settings)
+    yield AuthService(_mock_db)
 
 
 # ─── JWT Decoding Tests ──────────────────────────────────────────────────────
@@ -106,7 +108,7 @@ class TestJWTExpiration:
 class TestOACallback:
     """Tests for OA login callback handling."""
 
-    async def test_success_callback_creates_user_and_session(self, auth_service, mock_db):
+    async def test_success_callback_creates_user_and_session(self, auth_service, _mock_db):
         token = _make_jwt({"itcode": "newuser", "name": "New User"})
         result = await auth_service.handle_oa_callback("success", token, "http://localhost:3000")
 
@@ -115,12 +117,12 @@ class TestOACallback:
         assert "access_token" in result
         assert "refresh_token" in result
 
-        user = await mock_db.users.find_one({"itcode": "newuser"})
+        user = await _mock_db.users.find_one({"itcode": "newuser"})
         assert user is not None
         assert user["profile"]["itcode"] == "newuser"
         assert user["profile"]["name"] == "New User"
 
-        session = await mock_db.sessions.find_one({"itcode": "newuser"})
+        session = await _mock_db.sessions.find_one({"itcode": "newuser"})
         assert session is not None
         assert "accessToken" in session
         assert "refreshToken" in session
@@ -137,7 +139,7 @@ class TestOACallback:
             await auth_service.handle_oa_callback("success", token, None)
         assert "itcode" in str(exc_info.value).lower()
 
-    async def test_callback_updates_existing_user(self, auth_service, mock_db):
+    async def test_callback_updates_existing_user(self, auth_service, _mock_db):
         """Second login for same itcode should update profile, not duplicate."""
         token1 = _make_jwt({"itcode": "alice", "name": "Alice V1"})
         token2 = _make_jwt({"itcode": "alice", "name": "Alice V2"})
@@ -145,7 +147,7 @@ class TestOACallback:
         await auth_service.handle_oa_callback("success", token1, None)
         await auth_service.handle_oa_callback("success", token2, None)
 
-        users = await mock_db.users.find_one({"itcode": "alice"})
+        users = await _mock_db.users.find_one({"itcode": "alice"})
         assert users is not None
         assert users["profile"]["name"] == "Alice V2"
 
@@ -156,11 +158,11 @@ class TestOACallback:
 class TestRequireLogin:
     """Tests for session validation in require_login."""
 
-    async def test_valid_access_token_returns_user(self, auth_service, mock_db):
+    async def test_valid_access_token_returns_user(self, auth_service, _mock_db):
         token = _make_jwt({"itcode": "bob"})
         await auth_service.handle_oa_callback("success", token, None)
 
-        session = await mock_db.sessions.find_one({"itcode": "bob"})
+        session = await _mock_db.sessions.find_one({"itcode": "bob"})
         access_token = session["accessToken"]
 
         result = await auth_service.require_login(access_token)
@@ -178,13 +180,13 @@ class TestRequireLogin:
             await auth_service.require_login("not-a-real-token")
         assert "401" in str(exc_info.value)
 
-    async def test_revoked_session_cannot_be_used_via_refresh_token(self, auth_service, mock_db):
+    async def test_revoked_session_cannot_be_used_via_refresh_token(self, auth_service, _mock_db):
         """Revoking session invalidates the refresh token (not access token, which is stateless JWT)."""
         token = _make_jwt({"itcode": "charlie"})
         result = await auth_service.handle_oa_callback("success", token, None)
         refresh_token = result["refresh_token"]
 
-        session = await mock_db.sessions.find_one({"itcode": "charlie"})
+        session = await _mock_db.sessions.find_one({"itcode": "charlie"})
         await auth_service.revoke_session(session["sessionId"])
 
         # Refresh token should now be invalid

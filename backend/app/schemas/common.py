@@ -1,7 +1,8 @@
 """
 通用响应模型
 """
-from typing import TypeVar, Generic, Optional, Any
+from typing import Generic, TypeVar
+
 from pydantic import BaseModel
 
 T = TypeVar("T")
@@ -10,9 +11,9 @@ T = TypeVar("T")
 class Response(BaseModel, Generic[T]):
     """统一 API 响应格式"""
     success: bool = True
-    message: Optional[str] = None
-    data: Optional[T] = None
-    error: Optional[str] = None
+    message: str | None = None
+    data: T | None = None
+    error: str | None = None
 
 
 class PaginatedResponse(BaseModel, Generic[T]):
@@ -28,4 +29,4 @@ class ErrorResponse(BaseModel):
     """错误响应"""
     success: bool = False
     error: str
-    detail: Optional[str] = None
+    detail: str | None = None

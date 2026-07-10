@@ -1,11 +1,10 @@
 """
 Unit tests for AI service - token estimation, message truncation, context building
 """
-import pytest
 from app.services.ai_service import (
+    _build_system_prompt,
     _estimate_tokens,
     _format_context,
-    _build_system_prompt,
     _truncate_messages,
 )
 

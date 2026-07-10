@@ -83,6 +83,14 @@ months.forEach(time => {
           inputCount,
           rtyRate,
           targetRate: 99.0,
+          salesOrder: '',
+          productionOrder: '',
+          serialNumbers: [],
+          productLine: '',
+          orderType: '',
+          planStartDate: '',
+          planEndDate: '',
+          status: '',
         });
       });
     });
@@ -122,6 +130,9 @@ for (let i = 1; i <= id; i++) {
         defectCode: tmpl.code,
         description: tmpl.desc,
         count: rand(1, 15),
+        sn: '',
+        repairTime: '',
+        repairPerson: '',
       });
     }
   }

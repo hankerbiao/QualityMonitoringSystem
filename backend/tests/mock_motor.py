@@ -2,9 +2,8 @@
 Async Motor-compatible in-memory mock for testing.
 Provides Motor-like async interface backed by plain Python dicts.
 """
-import asyncio
 import re
-from typing import Any, Optional, Dict, List, Union
+from typing import Any
 
 
 class MockAsyncCursor:
@@ -13,10 +12,10 @@ class MockAsyncCursor:
     def __init__(
         self,
         collection: "MockMotorCollection",
-        filter_spec: Dict[str, Any],
-        sort_spec: Optional[List] = None,
+        filter_spec: dict[str, Any],
+        sort_spec: list | None = None,
         skip_val: int = 0,
-        limit_val: Optional[int] = None,
+        limit_val: int | None = None,
     ):
         self._coll = collection
         self._filter = filter_spec
@@ -42,7 +41,7 @@ class MockAsyncCursor:
         self._limit = n
         return self
 
-    async def to_list(self, length: Optional[int] = None) -> List[Dict]:
+    async def to_list(self, length: int | None = None) -> list[dict]:
         docs = list(self._coll._query(self._filter))
         if self._sort:
             docs = self._coll._apply_sort(docs, self._sort)
@@ -70,12 +69,12 @@ class MockAsyncCursor:
 class MockAsyncAggregateCursor:
     """Async cursor for aggregation pipelines."""
 
-    def __init__(self, collection: "MockMotorCollection", pipeline: List[Dict]):
+    def __init__(self, collection: "MockMotorCollection", pipeline: list[dict]):
         self._coll = collection
         self._pipeline = pipeline
-        self._results: Optional[List[Dict]] = None
+        self._results: list[dict] | None = None
 
-    async def to_list(self, length: Optional[int] = None) -> List[Dict]:
+    async def to_list(self, length: int | None = None) -> list[dict]:
         if self._results is None:
             self._results = self._coll._aggregate(self._pipeline)
         result = self._results
@@ -95,7 +94,7 @@ class MockInsertOneResult:
 
 
 class MockInsertManyResult:
-    def __init__(self, inserted_ids: List[Any]):
+    def __init__(self, inserted_ids: list[Any]):
         self.inserted_ids = inserted_ids
         self.inserted_count = len(inserted_ids)
 
@@ -118,11 +117,20 @@ class MockMotorCollection:
     def __init__(self, name: str, db: "MockMotorDatabase"):
         self._name = name
         self._db = db
-        self._docs: Dict[str, Dict] = {}  # _id (str) -> doc
+        self._docs: dict[str, dict] = {}  # _id (str) -> doc
 
     # ── Query helpers ───────────────────────────────────────────────────────
 
-    def _match(self, doc: Dict, filter_spec: Dict) -> bool:
+    DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+    def _cmp(self, left, right) -> int:
+        """Compare two values: date strings chronologically, otherwise lexically."""
+        lv, rv = str(left), str(right)
+        if self.DATE_RE.match(lv) and self.DATE_RE.match(rv):
+            return (lv > rv) - (lv < rv)
+        return (lv > rv) - (lv < rv)
+
+    def _match(self, doc: dict, filter_spec: dict) -> bool:
         for key, val in filter_spec.items():
             if key == "$regex":
                 flags = filter_spec.get("$options", "")
@@ -130,31 +138,25 @@ class MockMotorCollection:
                 if not pattern.search(str(doc.get(key, ""))):
                     return False
             elif isinstance(val, dict):
-                op = next(iter(val.keys()))
-                dv = val[op]
-                if op == "$gte" and not (doc.get(key, "") >= dv):
-                    return False
-                elif op == "$lte" and not (doc.get(key, "") <= dv):
-                    return False
-                elif op == "$gt" and not (doc.get(key, "") > dv):
-                    return False
-                elif op == "$lt" and not (doc.get(key, "") < dv):
-                    return False
-                elif op == "$in":
-                    if doc.get(key) not in dv:
+                doc_val = doc.get(key, "")
+                for op, dv in val.items():
+                    if op == "$gte" and self._cmp(doc_val, dv) < 0 or op == "$lte" and self._cmp(doc_val, dv) > 0 or op == "$gt" and self._cmp(doc_val, dv) <= 0 or op == "$lt" and self._cmp(doc_val, dv) >= 0:
                         return False
+                    elif op == "$in":
+                        if doc_val not in dv:
+                            return False
             else:
                 if doc.get(key) != val:
                     return False
         return True
 
-    def _query(self, filter_spec: Dict) -> List[Dict]:
+    def _query(self, filter_spec: dict) -> list[dict]:
         if not filter_spec:
             return list(self._docs.values())
         return [doc for doc in self._docs.values() if self._match(doc, filter_spec)]
 
-    def _apply_sort(self, docs: List[Dict], sort_spec: List) -> List[Dict]:
-        def sort_key(doc: Dict):
+    def _apply_sort(self, docs: list[dict], sort_spec: list) -> list[dict]:
+        def sort_key(doc: dict):
             key, direction = sort_spec[0]
             val = doc.get(key, "")
             return val
@@ -162,14 +164,14 @@ class MockMotorCollection:
         # Stable sort
         return sorted(docs, key=sort_key)
 
-    def _aggregate(self, pipeline: List[Dict]) -> List[Dict]:
+    def _aggregate(self, pipeline: list[dict]) -> list[dict]:
         docs = list(self._docs.values())
         for stage in pipeline:
             if "$match" in stage:
                 docs = [d for d in docs if self._match(d, stage["$match"])]
             elif "$group" in stage:
                 group_spec = stage["$group"]
-                groups: Dict[str, Dict] = {}
+                groups: dict[str, dict] = {}
                 for doc in docs:
                     g_key = doc.get(group_spec["_id"].lstrip("$"), "_missing")
                     if g_key not in groups:
@@ -191,14 +193,14 @@ class MockMotorCollection:
 
     # ── Async Motor API ─────────────────────────────────────────────────────
 
-    async def find_one(self, filter_spec: Optional[Dict] = None, **kwargs) -> Optional[Dict]:
+    async def find_one(self, filter_spec: dict | None = None, **kwargs) -> dict | None:
         docs = self._query(filter_spec or {})
         return docs[0] if docs else None
 
-    def find(self, filter_spec: Optional[Dict] = None, *args, **kwargs) -> MockAsyncCursor:
+    def find(self, filter_spec: dict | None = None, *args, **kwargs) -> MockAsyncCursor:
         return MockAsyncCursor(self, filter_spec or {})
 
-    async def insert_one(self, doc: Dict) -> MockInsertOneResult:
+    async def insert_one(self, doc: dict) -> MockInsertOneResult:
         from bson import ObjectId
 
         doc = dict(doc)
@@ -207,7 +209,7 @@ class MockMotorCollection:
         self._docs[doc["_id"]] = doc
         return MockInsertOneResult(doc["_id"])
 
-    async def insert_many(self, docs: List[Dict]) -> MockInsertManyResult:
+    async def insert_many(self, docs: list[dict]) -> MockInsertManyResult:
         from bson import ObjectId
 
         ids = []
@@ -221,8 +223,8 @@ class MockMotorCollection:
 
     async def update_one(
         self,
-        filter_spec: Dict,
-        update: Dict,
+        filter_spec: dict,
+        update: dict,
         upsert: bool = False,
     ) -> MockUpdateResult:
         docs = self._query(filter_spec)
@@ -247,7 +249,7 @@ class MockMotorCollection:
         self._docs[doc["_id"]] = doc
         return MockUpdateResult(matched_count=1, modified_count=1)
 
-    async def delete_one(self, filter_spec: Dict) -> MockDeleteResult:
+    async def delete_one(self, filter_spec: dict) -> MockDeleteResult:
         docs = self._query(filter_spec)
         if not docs:
             return MockDeleteResult()
@@ -255,20 +257,20 @@ class MockMotorCollection:
         del self._docs[doc["_id"]]
         return MockDeleteResult(deleted_count=1)
 
-    async def delete_many(self, filter_spec: Dict) -> MockDeleteResult:
+    async def delete_many(self, filter_spec: dict) -> MockDeleteResult:
         docs = self._query(filter_spec)
         count = len(docs)
         for doc in docs:
             del self._docs[doc["_id"]]
         return MockDeleteResult(deleted_count=count)
 
-    async def count_documents(self, filter_spec: Dict) -> int:
+    async def count_documents(self, filter_spec: dict) -> int:
         return len(self._query(filter_spec))
 
-    def aggregate(self, pipeline: List[Dict]) -> MockAsyncAggregateCursor:
+    def aggregate(self, pipeline: list[dict]) -> MockAsyncAggregateCursor:
         return MockAsyncAggregateCursor(self, pipeline)
 
-    async def create_index(self, keys: List, **kwargs) -> str:
+    async def create_index(self, keys: list, **kwargs) -> str:
         return "ok"  # No-op for mock
 
 
@@ -277,7 +279,7 @@ class MockMotorDatabase:
 
     def __init__(self, name: str):
         self._name = name
-        self._collections: Dict[str, MockMotorCollection] = {}
+        self._collections: dict[str, MockMotorCollection] = {}
 
     def __getitem__(self, name: str) -> MockMotorCollection:
         if name not in self._collections:
@@ -287,7 +289,7 @@ class MockMotorDatabase:
     def __getattr__(self, name: str) -> MockMotorCollection:
         return self[name]
 
-    def collection_names(self) -> List[str]:
+    def collection_names(self) -> list[str]:
         return list(self._collections.keys())
 
 
@@ -295,7 +297,7 @@ class MockMotorClient:
     """In-memory async client mimicking Motor's AsyncIOMotorClient."""
 
     def __init__(self, host: str = None, **kwargs):
-        self._databases: Dict[str, MockMotorDatabase] = {}
+        self._databases: dict[str, MockMotorDatabase] = {}
 
     def __getitem__(self, name: str) -> MockMotorDatabase:
         if name not in self._databases:

@@ -6,30 +6,11 @@ from datetime import datetime
 
 
 async def init_default_configs(db):
-    """初始化默认配置数据"""
+    """初始化默认配置数据
 
-    # 默认机型指标
-    default_targets = {
-        "6210 C21 BOX": 99.5,
-        "6210 C21": 99.0,
-        "6210 C31": 98.5,
-        "普通机型": 99.0,
-        "复合机型": 98.5,
-        "Qiandaohu 一拖多机型": 98.0,
-    }
-
-    await db.configs.update_one(
-        {"key": "model_targets"},
-        {
-            "$set": {
-                "key": "model_targets",
-                "targets": default_targets,
-                "updatedAt": datetime.utcnow(),
-            }
-        },
-        upsert=True
-    )
-    print("✓ 已初始化默认机型指标配置")
+    注意：机型目标直通率不再在此写入假值。目标率由用户在设置页配置，
+    未配置时后端按 100 处理，避免把假数据当真实指标。
+    """
 
     # 默认邮件预警配置
     await db.configs.update_one(
