@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-
 import Home from './pages/Home';
 import RTYPage from './pages/RTYPage';
 import LoginPage from './pages/LoginPage';
+import AlertReportPage from './pages/AlertReportPage';
 import { ModelTargetsProvider } from './context/ModelTargetsContext';
 import { SettingsProvider } from './context/SettingsContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
@@ -17,6 +18,7 @@ function AppContent() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
+      <Route path="/alert-report/:token" element={<AlertReportPage />} />
       <Route element={<ProtectedLayout />}>
         <Route path="/" element={<Home />} />
         <Route path="/rty" element={<RTYPage />} />

@@ -5,14 +5,14 @@ MES 平台数据获取客户端
 
 import requests
 
-from app.libs.mes_client import (
+from app.libs.mes_client.const import ALL_BASES
+from app.libs.mes_client.models import (
     CompletionRateItem,
     OrderDataItem,
     OrderSNDetail,
     QMSFaultItem,
     SerialNumberItem,
 )
-from app.libs.mes_client.const import ALL_BASES
 
 
 class MesClient:
@@ -100,7 +100,7 @@ class MesClient:
         """
         return self._request("/api/ReportDBTest/getBase")["data"]
 
-    def get_customer_id(self, base: str, sale_no: str) -> str:
+    def get_customer_id(self, base: str="1000','2000','3000','7000','8000','9000", sale_no: str="") -> str:
         """
         根据销售订单号获取客户 ID
 
@@ -181,7 +181,7 @@ class MesClient:
     def get_order_sn_details(
         self,
         sale_no: str,
-        base: str = "1000",
+        base: str = "1000','2000','3000','7000','8000','9000",
         issue_time1: str = "2025-01-01 00:00:00",
         issue_time2: str = "2030-12-31 23:59:59",
     ) -> list[OrderSNDetail]:
@@ -223,7 +223,7 @@ class MesClient:
                 )
         return results
 
-    def get_fault_info(self, sn: str, base: str = "1000", key_type: str = "k1") -> list[QMSFaultItem]:
+    def get_fault_info(self, sn: str, base: str = "1000','2000','3000','7000','8000','9000", key_type: str = "k1") -> list[QMSFaultItem]:
         """
         通过SN码获取故障信息
 
@@ -266,7 +266,7 @@ class MesClient:
     def collect_order_data(
         self,
         sale_no: str,
-        base: str = "1000",
+        base: str = "1000','2000','3000','7000','8000','9000",
         issue_time1: str = "2025-01-01 00:00:00",
         issue_time2: str = "2030-12-31 23:59:59",
     ) -> list[OrderDataItem]:

@@ -1,4 +1,6 @@
-import { Mail } from 'lucide-react';
+import { Mail, Send, Loader2, CheckCircle2, XCircle } from 'lucide-react';
+import { useState } from 'react';
+import { settingsApi } from '../../api/settingsApi';
 
 interface EmailAlertTabProps {
   config: { enabled: boolean; emails: string; attachReport: boolean };
@@ -6,6 +8,35 @@ interface EmailAlertTabProps {
 }
 
 export function EmailAlertTab({ config, onChange }: EmailAlertTabProps) {
+  const [testing, setTesting] = useState(false);
+  const [testMsg, setTestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  const handleTest = async () => {
+    if (!config.emails.trim()) {
+      setTestMsg({ type: 'error', text: '请先填写接收人邮箱' });
+      return;
+    }
+    setTesting(true);
+    setTestMsg(null);
+    try {
+      const data = await settingsApi.testEmail(config.emails);
+      if (data.sent) {
+        setTestMsg({
+          type: 'success',
+          text: `测试邮件已发送至 ${data.recipients?.join(', ') || '配置邮箱'}`,
+        });
+      } else {
+        const reason = data.reason === 'no_recipients' ? '收件人邮箱无效' : '发送失败，请检查邮件服务';
+        setTestMsg({ type: 'error', text: reason });
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '测试邮件发送失败';
+      setTestMsg({ type: 'error', text: message });
+    } finally {
+      setTesting(false);
+    }
+  };
+
   return (
     <div className="space-y-6 max-w-2xl">
       <div>
@@ -52,6 +83,29 @@ export function EmailAlertTab({ config, onChange }: EmailAlertTabProps) {
             />
             <span className="text-sm text-slate-700">在告警邮件中附带故障明细数据及报表链接</span>
           </label>
+        </div>
+
+        <div className="pt-6 border-t border-slate-100">
+          <div className="flex items-center gap-3 flex-wrap">
+            <button
+              type="button"
+              onClick={handleTest}
+              disabled={testing}
+              className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white rounded-md text-sm font-medium transition-colors shadow-sm"
+            >
+              {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              {testing ? '发送中...' : '发送测试邮件'}
+            </button>
+            {testMsg && (
+              <span className={`inline-flex items-center gap-1.5 text-sm font-medium ${testMsg.type === 'success' ? 'text-emerald-600' : 'text-red-600'}`}>
+                {testMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                {testMsg.text}
+              </span>
+            )}
+          </div>
+          <p className="text-xs text-slate-500 mt-2">
+            点击向当前配置的接收人邮箱发送一封测试邮件，验证邮件服务与收件人配置是否正确。
+          </p>
         </div>
       </div>
     </div>

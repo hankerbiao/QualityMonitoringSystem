@@ -7,7 +7,7 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import ai, auth, rty, settings
+from app.api import ai, alert_report, auth, rty, settings
 from app.core.config import get_settings
 from app.core.logger import log_error, log_info, setup_logger
 from app.core.middleware import RequestContextMiddleware
@@ -79,6 +79,7 @@ app.add_middleware(RequestContextMiddleware)
 
 # 注册路由
 app.include_router(rty.router, prefix="/api/rty", tags=["RTY"])
+app.include_router(alert_report.router, prefix="/api/alert-report", tags=["AlertReport"])
 app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
 app.include_router(ai.router, prefix="/api/ai", tags=["AI"])
 app.include_router(auth.router, prefix="/api", tags=["Auth"])

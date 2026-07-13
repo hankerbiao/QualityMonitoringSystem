@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ArrowUp, ArrowDown, ArrowUpDown, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { rtyApi } from '../api/rtyApi';
@@ -31,7 +31,25 @@ function SortIcon({ field, activeField, direction }: { field: SortField; activeF
 
 export default function RTYPage() {
   const navigate = useNavigate();
-  const [filters, setFilters] = useState<RTYFilterParams>(DEFAULT_FILTERS);
+  const [searchParams] = useSearchParams();
+
+  // 支持从告警报表链接 /rty?base=...&productModel=... 深链预填筛选条件
+  const initialFilters = useMemo<RTYFilterParams>(() => {
+    const df: RTYFilterParams = { ...DEFAULT_FILTERS };
+    if (searchParams.get('base')) df.base = searchParams.get('base')!;
+    if (searchParams.get('productModel')) df.productModel = searchParams.get('productModel')!;
+    if (searchParams.get('customer')) df.customer = searchParams.get('customer')!;
+    if (searchParams.get('salesOrder')) df.salesOrder = searchParams.get('salesOrder')!;
+    if (searchParams.get('productionOrder')) df.productionOrder = searchParams.get('productionOrder')!;
+    if (searchParams.get('serialNumber')) df.serialNumber = searchParams.get('serialNumber')!;
+    const from = searchParams.get('dateFrom');
+    const to = searchParams.get('dateTo');
+    if (from) df.dateRange = { ...df.dateRange, from: new Date(from) };
+    if (to) df.dateRange = { ...df.dateRange, to: new Date(to) };
+    return df;
+  }, [searchParams]);
+
+  const [filters, setFilters] = useState<RTYFilterParams>(initialFilters);
 
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<RTYData[]>([]);
@@ -44,6 +62,15 @@ export default function RTYPage() {
   // 机器SN弹窗状态
   const [snModalOpen, setSnModalOpen] = useState(false);
   const [snModalData, setSnModalData] = useState<{ title: string; sns: string[] }>({ title: '', sns: [] });
+  const [snPage, setSnPage] = useState(1);
+  const SN_PAGE_SIZE = 100;
+
+  // 订单列表弹窗状态
+  const [orderListOpen, setOrderListOpen] = useState(false);
+  const [orderListData, setOrderListData] = useState<{ title: string; orders: string[]; filterKey: 'salesOrder' | 'productionOrder' }>({ title: '', orders: [], filterKey: 'salesOrder' });
+
+  const snTotalPages = Math.ceil(snModalData.sns.length / SN_PAGE_SIZE);
+  const snPaginatedData = snModalData.sns.slice((snPage - 1) * SN_PAGE_SIZE, snPage * SN_PAGE_SIZE);
 
   const { modelTargets } = useModelTargets();
 
@@ -211,6 +238,8 @@ export default function RTYPage() {
                   <th className="px-3 py-2 border-r border-slate-100 last:border-none">生产机型</th>
                   <th className="px-3 py-2 border-r border-slate-100 last:border-none">客户</th>
                   <th className="px-3 py-2 border-r border-slate-100 last:border-none">基地</th>
+                  <th className="px-3 py-2 border-r border-slate-100 last:border-none">销售订单</th>
+                  <th className="px-3 py-2 border-r border-slate-100 last:border-none">生产订单</th>
                   <th 
                     className="px-3 py-2 border-r border-slate-100 last:border-none cursor-pointer hover:bg-slate-100 select-none"
                     onClick={() => handleSort('defectCount')}
@@ -245,7 +274,7 @@ export default function RTYPage() {
               <tbody className="divide-y divide-slate-100 text-slate-700 text-xs">
                 {loading ? (
                   <tr>
-                    <td colSpan={9} className="px-3 py-12 text-center text-slate-500">
+                    <td colSpan={11} className="px-3 py-12 text-center text-slate-500">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <div className="w-6 h-6 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
                         <span className="text-xs text-slate-400">正在加载数据...</span>
@@ -254,7 +283,7 @@ export default function RTYPage() {
                   </tr>
                 ) : data.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-3 py-8 text-center text-slate-500">
+                    <td colSpan={11} className="px-3 py-8 text-center text-slate-500">
                       暂无符合条件的数据
                     </td>
                   </tr>
@@ -266,8 +295,52 @@ export default function RTYPage() {
                       <td className="px-3 py-2">{row.customer}</td>
                       <td className="px-3 py-2">{row.base}</td>
                       <td className="px-3 py-2">
+                        {row.salesOrders.length === 1 ? (
+                          <span className="text-slate-600 font-mono text-xs">{row.salesOrders[0]}</span>
+                        ) : row.salesOrders.length > 1 ? (
+                          <button
+                            onClick={() => {
+                              setOrderListData({ title: '销售订单列表', orders: row.salesOrders, filterKey: 'salesOrder' });
+                              setOrderListOpen(true);
+                            }}
+                            className="text-blue-600 hover:text-blue-800 hover:underline text-xs font-semibold"
+                          >
+                            {row.salesOrders.length} 个销售订单
+                          </button>
+                        ) : (
+                          <span className="text-slate-400">-</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        {row.productionOrders.length === 1 ? (
+                          <span className="text-slate-600 font-mono text-xs">{row.productionOrders[0]}</span>
+                        ) : row.productionOrders.length > 1 ? (
+                          <button
+                            onClick={() => {
+                              setOrderListData({ title: '生产订单列表', orders: row.productionOrders, filterKey: 'productionOrder' });
+                              setOrderListOpen(true);
+                            }}
+                            className="text-blue-600 hover:text-blue-800 hover:underline text-xs font-semibold"
+                          >
+                            {row.productionOrders.length} 个生产订单
+                          </button>
+                        ) : (
+                          <span className="text-slate-400">-</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
                         <button
-                          onClick={() => row.defectCount > 0 && row.productionOrder && setActiveDefectOrder(row.productionOrder)}
+                          onClick={() => {
+                            if (row.defectCount > 0) {
+                              const orders = row.productionOrders.length > 0 ? row.productionOrders : (row.productionOrder ? [row.productionOrder] : []);
+                              if (orders.length === 1) {
+                                setActiveDefectOrder(orders[0]);
+                              } else if (orders.length > 1) {
+                                setOrderListData({ title: '选择生产订单查看故障明细', orders, filterKey: 'productionOrder' });
+                                setOrderListOpen(true);
+                              }
+                            }
+                          }}
                           className={`font-semibold focus:outline-none ${row.defectCount > 0 ? 'text-[#dc2626] hover:text-[#b91c1c] hover:underline cursor-pointer' : 'text-slate-400 cursor-default'}`}
                         >
                           {row.defectCount}
@@ -323,28 +396,87 @@ export default function RTYPage() {
       {/* 机器SN列表 */}
       {snModalOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-[500px] max-h-[70vh] flex flex-col">
+          <div className="bg-white rounded-lg shadow-xl w-[600px] max-h-[80vh] flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
               <h3 className="text-base font-semibold text-slate-800">机器SN列表 - {snModalData.title}</h3>
-              <button onClick={() => setSnModalOpen(false)} className="p-1 hover:bg-slate-100 rounded transition-colors">
+              <button onClick={() => { setSnModalOpen(false); setSnPage(1); }} className="p-1 hover:bg-slate-100 rounded transition-colors">
                 <X className="w-4 h-4 text-slate-500" />
               </button>
             </div>
             <div className="flex-1 overflow-auto p-4">
               {snModalData.sns.length > 0 ? (
-                <div className="grid grid-cols-2 gap-2">
-                  {snModalData.sns.map((sn, idx) => (
-                    <div key={idx} className="px-2 py-1.5 bg-slate-50 rounded text-xs text-slate-600 font-mono truncate" title={sn}>
-                      {sn}
+                <>
+                  <div className="grid grid-cols-3 gap-2">
+                    {snPaginatedData.map((sn, idx) => (
+                      <div key={idx} className="px-2 py-1.5 bg-slate-50 rounded text-xs text-slate-600 font-mono truncate" title={sn}>
+                        {sn}
+                      </div>
+                    ))}
+                  </div>
+                  {snTotalPages > 1 && (
+                    <div className="flex items-center justify-center gap-2 mt-4 pt-4 border-t border-slate-100">
+                      <button
+                        onClick={() => setSnPage(p => Math.max(1, p - 1))}
+                        disabled={snPage === 1}
+                        className="px-2 py-1 text-xs border border-slate-300 rounded bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50"
+                      >
+                        上一页
+                      </button>
+                      <span className="text-xs text-slate-500">
+                        第 {snPage}/{snTotalPages} 页，共 {snModalData.sns.length} 条
+                      </span>
+                      <button
+                        onClick={() => setSnPage(p => Math.min(snTotalPages, p + 1))}
+                        disabled={snPage === snTotalPages}
+                        className="px-2 py-1 text-xs border border-slate-300 rounded bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50"
+                      >
+                        下一页
+                      </button>
                     </div>
-                  ))}
-                </div>
+                  )}
+                </>
               ) : (
                 <div className="text-center text-slate-400 py-8">暂无数据</div>
               )}
             </div>
+          </div>
+        </div>
+      )}
+
+      {/* 订单列表弹窗 */}
+      {orderListOpen && (
+        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg shadow-xl w-[450px] max-h-[60vh] flex flex-col">
+            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
+              <h3 className="text-base font-semibold text-slate-800">{orderListData.title}</h3>
+              <button onClick={() => setOrderListOpen(false)} className="p-1 hover:bg-slate-100 rounded transition-colors">
+                <X className="w-4 h-4 text-slate-500" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto p-4">
+              <div className="space-y-2">
+                {orderListData.orders.map((order, idx) => (
+                  <div
+                    key={idx}
+                    className="px-3 py-2 bg-slate-50 rounded text-sm text-slate-700 font-mono cursor-pointer hover:bg-blue-50 hover:text-blue-700 transition-colors"
+                    onClick={() => {
+                      if (orderListData.title.includes('故障明细')) {
+                        setActiveDefectOrder(order);
+                      } else {
+                        setFilters({ ...filters, [orderListData.filterKey]: order });
+                        fetchData();
+                      }
+                      setOrderListOpen(false);
+                    }}
+                    title={orderListData.title.includes('故障明细') ? '点击查看故障明细' : '点击筛选此订单'}
+                  >
+                    {order}
+                  </div>
+                ))}
+              </div>
+            </div>
             <div className="px-4 py-3 border-t border-slate-200 text-xs text-slate-500 text-center">
-              共 {snModalData.sns.length} 台机器
+              共 {orderListData.orders.length} 个订单，点击可筛选
             </div>
           </div>
         </div>
@@ -353,7 +485,6 @@ export default function RTYPage() {
       {isAlertModalOpen && (
         <AlertConfigModal 
           onClose={() => setIsAlertModalOpen(false)} 
-          rawData={data}
           modelTargets={modelTargets}
         />
       )}

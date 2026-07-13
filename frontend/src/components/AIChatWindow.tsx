@@ -114,7 +114,7 @@ export function AIChatPanel({ rtyData, onClose }: { rtyData: RTYData[]; onClose:
         {messages.map((msg, i) => (
           <div key={i} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
             {msg.role === 'user' ? (
-              <div className="max-w-[85%] px-3.5 py-2.5 rounded-2xl rounded-br-md text-xs leading-relaxed whitespace-pre-wrap bg-violet-600 text-white">
+              <div className="max-w-[85%] px-3.5 py-2.5 rounded-2xl rounded-br-md text-[11px] leading-relaxed whitespace-pre-wrap break-words bg-violet-600 text-white">
                 {msg.content}
               </div>
             ) : (() => {
@@ -128,10 +128,32 @@ export function AIChatPanel({ rtyData, onClose }: { rtyData: RTYData[]; onClose:
                           <span className="ml-auto text-[10px] text-violet-400 group-open:hidden">点击展开</span>
                           <span className="ml-auto text-[10px] text-violet-400 hidden group-open:block">点击收起</span>
                         </summary>
-                        <div className="px-3 pb-2 text-[10px] text-slate-500 leading-relaxed whitespace-pre-wrap">{thinking}</div>
+                        <div className="px-3 pb-2 text-[10px] text-slate-500 leading-relaxed whitespace-pre-wrap break-words overflow-x-auto">{thinking}</div>
                       </details>
                     )}
-                    {body && <div className="prose-xs prose-slate max-w-none"><ReactMarkdown remarkPlugins={[remarkGfm]}>{body}</ReactMarkdown></div>}
+                    {body && (
+                      <div className="prose-xs prose-slate max-w-none text-xs leading-relaxed overflow-x-auto">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            p: ({ children }) => <p className="mb-1 last:mb-0">{children}</p>,
+                            ul: ({ children }) => <ul className="mb-1 pl-4 space-y-0.5">{children}</ul>,
+                            ol: ({ children }) => <ol className="mb-1 pl-4 space-y-0.5 list-decimal">{children}</ol>,
+                            li: ({ children }) => <li className="break-words">{children}</li>,
+                            table: ({ children }) => <table className="w-full text-[10px] border-collapse my-1">{children}</table>,
+                            thead: ({ children }) => <thead className="bg-slate-200">{children}</thead>,
+                            th: ({ children }) => <th className="px-1.5 py-1 border border-slate-300 text-left font-medium whitespace-nowrap">{children}</th>,
+                            td: ({ children }) => <td className="px-1.5 py-1 border border-slate-300 whitespace-nowrap break-words">{children}</td>,
+                            code: ({ children }) => <code className="px-1 py-0.5 bg-slate-200 rounded text-[10px] break-all">{children}</code>,
+                            pre: ({ children }) => <pre className="overflow-x-auto text-[10px]">{children}</pre>,
+                            h1: ({ children }) => <h1 className="text-xs font-bold mt-2 mb-1">{children}</h1>,
+                            h2: ({ children }) => <h2 className="text-xs font-bold mt-2 mb-1">{children}</h2>,
+                            h3: ({ children }) => <h3 className="text-[11px] font-semibold mt-1.5 mb-0.5">{children}</h3>,
+                            strong: ({ children }) => <strong className="font-semibold">{children}</strong>,
+                          }}
+                        >{body}</ReactMarkdown>
+                      </div>
+                    )}
                   </div>
                 );
               })()}

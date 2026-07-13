@@ -15,7 +15,12 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     if (!isAuthLoaded) return;
     settingsApi.getAll()
       .then((data) => {
-        setAI(data.ai || DEFAULT_AI_CONFIG);
+        const aiConfig = data.ai || DEFAULT_AI_CONFIG;
+        if (aiConfig.hasApiKey && !aiConfig.apiKey) {
+          const cached = localStorage.getItem('ai_api_key');
+          if (cached) aiConfig.apiKey = cached;
+        }
+        setAI(aiConfig);
       })
       .catch((err) => {
         console.error('[Settings] Failed to load from backend:', err);
@@ -26,6 +31,9 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
   const updateAI = useCallback(async (config: Partial<AIConfig>) => {
     const updated = { ...ai, ...config };
     setAI(updated);
+    if (config.apiKey) {
+      localStorage.setItem('ai_api_key', config.apiKey);
+    }
     await settingsApi.updateAI(config);
   }, [ai]);
 

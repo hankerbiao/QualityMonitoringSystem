@@ -85,6 +85,8 @@ months.forEach(time => {
           targetRate: 99.0,
           salesOrder: '',
           productionOrder: '',
+          salesOrders: [],
+          productionOrders: [],
           serialNumbers: [],
           productLine: '',
           orderType: '',

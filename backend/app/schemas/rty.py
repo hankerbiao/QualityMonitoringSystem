@@ -37,6 +37,8 @@ class RTYData(RTYDataBase):
     """RTY 数据响应模型"""
     id: str = Field(..., description="记录ID")
     serialNumbers: list[str] = Field(default_factory=list, description="整机序列号列表")
+    salesOrders: list[str] = Field(default_factory=list, description="销售订单号列表（聚合时返回）")
+    productionOrders: list[str] = Field(default_factory=list, description="生产订单号列表（聚合时返回）")
 
     class Config:
         from_attributes = True

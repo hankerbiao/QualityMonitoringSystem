@@ -5,8 +5,8 @@ export const rtyApi = {
   async getRTYData(params: RTYFilterParams): Promise<RTYData[]> {
     const qs = new URLSearchParams();
     if (params.statMethod) qs.set('stat_method', params.statMethod);
-    if (params.dateRange.from) qs.set('date_from', params.dateRange.from.toISOString().split('T')[0]);
-    if (params.dateRange.to) qs.set('date_to', params.dateRange.to.toISOString().split('T')[0]);
+    if (params.dateRange.from) qs.set('dateFrom', params.dateRange.from.toISOString().split('T')[0]);
+    if (params.dateRange.to) qs.set('dateTo', params.dateRange.to.toISOString().split('T')[0]);
     if (params.model && params.model !== 'all') qs.set('model', params.model);
     if (params.productModel && params.productModel !== 'all') qs.set('productModel', params.productModel);
     if (params.customer) qs.set('customer', params.customer);
@@ -14,7 +14,6 @@ export const rtyApi = {
     if (params.salesOrder) qs.set('salesOrder', params.salesOrder);
     if (params.productionOrder) qs.set('productionOrder', params.productionOrder);
     if (params.serialNumber) qs.set('serialNumber', params.serialNumber);
-    if (params.aggregateBy) qs.set('aggregateBy', params.aggregateBy);
 
     const res = await apiFetch(`/api/rty/list?${qs}`);
     const json = await res.json();

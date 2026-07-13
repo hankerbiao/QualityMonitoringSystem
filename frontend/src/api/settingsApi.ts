@@ -60,4 +60,15 @@ export const settingsApi = {
     if (!json.success) throw new Error('Failed to update model targets');
     return json.data.items;
   },
+
+  async testEmail(emails: string): Promise<{ sent: boolean; recipients?: string[]; reason?: string }> {
+    const res = await apiFetch(`${API_BASE_URL}/alert-report/test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emails }),
+    });
+    const json: ApiResponse<{ sent: boolean; recipients?: string[]; reason?: string }> = await res.json();
+    if (!json.success) throw new Error(json.message || '测试邮件发送失败');
+    return json.data;
+  },
 };

@@ -1,6 +1,15 @@
+"""
+MES 数据持久化层
+
+复用项目统一的 MongoDB 连接（app.db.mongodb），不再单独维护 MongoClient / 索引。
+所有集合的索引统一在 app.db.mongodb.create_indexes() 中定义。
+"""
+
 
 from pydantic import BaseModel
-from pymongo import ASCENDING, MongoClient
+
+from app.db.mongodb import get_database
+from app.models.documents import Collections
 
 
 class MachineInfo(BaseModel):
@@ -28,84 +37,75 @@ class FaultInfo(BaseModel):
 
 
 class MongoDBClient:
-    DB_NAME = "quality_monitoring"
-    MACHINE_COLLECTION = "machine_info"
-    FAULT_COLLECTION = "fault_info"
+    """MES 数据持久化客户端
 
-    def __init__(self, mongo_url: str = "mongodb://10.17.154.252:27019"):
-        self._client = MongoClient(mongo_url)
-        self._db = self._client[self.DB_NAME]
-        self._ensure_indexes()
+    复用项目统一连接（app.db.mongodb.get_database()），不单独持有 MongoClient。
+    索引统一在 app.db.mongodb.create_indexes() 创建，本类不再建索引。
+    """
 
-    def _ensure_indexes(self):
-        self._db[self.MACHINE_COLLECTION].create_index([("sn", ASCENDING)], unique=True)
-        self._db[self.MACHINE_COLLECTION].create_index([("sale_no", ASCENDING)])
-        self._db[self.MACHINE_COLLECTION].create_index([("mfg_order", ASCENDING)])
-        self._db[self.MACHINE_COLLECTION].create_index([("customer_id", ASCENDING)])
-        self._db[self.FAULT_COLLECTION].create_index([("sn", ASCENDING)])
-        self._db[self.FAULT_COLLECTION].create_index([("fault_category", ASCENDING)])
+    MACHINE_COLLECTION = Collections.MACHINE_INFO
+    FAULT_COLLECTION = Collections.FAULT_INFO
 
     @property
     def machine_collection(self):
-        return self._db[self.MACHINE_COLLECTION]
+        return get_database()[self.MACHINE_COLLECTION]
 
     @property
     def fault_collection(self):
-        return self._db[self.FAULT_COLLECTION]
+        return get_database()[self.FAULT_COLLECTION]
 
-    def save_machine(self, machine: MachineInfo) -> str:
-        self.machine_collection.update_one(
+    async def save_machine(self, machine: MachineInfo) -> str:
+        await self.machine_collection.update_one(
             {"sn": machine.sn},
             {"$set": machine.model_dump()},
-            upsert=True
+            upsert=True,
         )
         return machine.sn
 
-    def save_machines(self, machines: list[MachineInfo]) -> int:
+    async def save_machines(self, machines: list[MachineInfo]) -> int:
         count = 0
         for machine in machines:
-            self.save_machine(machine)
+            await self.save_machine(machine)
             count += 1
         return count
 
-    def save_fault(self, fault: FaultInfo) -> str:
-        self.fault_collection.update_one(
+    async def save_fault(self, fault: FaultInfo) -> str:
+        await self.fault_collection.update_one(
             {"sn": fault.sn, "fault_desc": fault.fault_desc},
             {"$set": fault.model_dump()},
-            upsert=True
+            upsert=True,
         )
         return fault.sn
 
-    def save_faults(self, faults: list[FaultInfo]) -> int:
+    async def save_faults(self, faults: list[FaultInfo]) -> int:
         count = 0
         for fault in faults:
-            self.save_fault(fault)
+            await self.save_fault(fault)
             count += 1
         return count
 
-    def get_machine(self, sn: str) -> dict | None:
-        return self.machine_collection.find_one({"sn": sn})
+    async def get_machine(self, sn: str) -> dict | None:
+        return await self.machine_collection.find_one({"sn": sn})
 
-    def get_machines_by_sale_no(self, sale_no: str) -> list[dict]:
-        return list(self.machine_collection.find({"sale_no": sale_no}))
+    async def get_machines_by_sale_no(self, sale_no: str) -> list[dict]:
+        return await self.machine_collection.find({"sale_no": sale_no}).to_list(length=None)
 
-    def get_faults_by_sn(self, sn: str) -> list[dict]:
-        return list(self.fault_collection.find({"sn": sn}))
+    async def get_faults_by_sn(self, sn: str) -> list[dict]:
+        return await self.fault_collection.find({"sn": sn}).to_list(length=None)
 
-    def get_machine_with_faults(self, sn: str) -> dict:
-        machine = self.get_machine(sn)
+    async def get_machine_with_faults(self, sn: str) -> dict | None:
+        machine = await self.get_machine(sn)
         if machine:
-            machine["faults"] = self.get_faults_by_sn(sn)
+            machine["faults"] = await self.get_faults_by_sn(sn)
         return machine
 
-    def delete_machine(self, sn: str) -> int:
-        result = self.machine_collection.delete_one({"sn": sn})
-        self.fault_collection.delete_many({"sn": sn})
+    async def delete_machine(self, sn: str) -> int:
+        result = await self.machine_collection.delete_one({"sn": sn})
+        await self.fault_collection.delete_many({"sn": sn})
         return result.deleted_count
 
-    def count_machines(self) -> int:
-        return self.machine_collection.count_documents({})
+    async def count_machines(self) -> int:
+        return await self.machine_collection.count_documents({})
 
-    def count_faults(self) -> int:
-        return self.fault_collection.count_documents({})
-
+    async def count_faults(self) -> int:
+        return await self.fault_collection.count_documents({})

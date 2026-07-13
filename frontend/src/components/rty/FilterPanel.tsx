@@ -87,7 +87,7 @@ export function FilterPanel({
   }, []);
 
   useEffect(() => {
-    const salesOrders = filters.salesOrder.split(/[,，]/).map(o => o.trim()).filter(Boolean);
+    const salesOrders = filters.salesOrder.split(/[,，\n]/).map(o => o.trim()).filter(Boolean);
     const validOrders = salesOrders.filter(o => o.length >= 2);
 
     if (validOrders.length === 0) {
@@ -122,7 +122,16 @@ export function FilterPanel({
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex-1 min-w-[200px] max-w-xs">
-            <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">时间范围</label>
+            <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+              时间范围
+              <button
+                type="button"
+                className="ml-1 text-slate-400 hover:text-slate-600 cursor-help"
+                title="实际开始时间（首台机器装配时间）"
+              >
+                ?
+              </button>
+            </label>
             <div className="flex items-center space-x-1">
               <input
                 type="date"
@@ -183,30 +192,19 @@ export function FilterPanel({
               ))}
             </select>
           </div>
-
-          <div className="flex-1 min-w-[80px] max-w-[120px]">
-            <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">聚合方式</label>
-            <select
-              className="w-full border border-slate-300 rounded-sm px-2 py-1.5 text-xs text-slate-700 focus:ring-1 focus:ring-blue-600 focus:border-blue-600 outline-none transition-all bg-white"
-              value={filters.aggregateBy || 'mfg_order'}
-              onChange={e => update({ aggregateBy: e.target.value as RTYFilterParams['aggregateBy'] })}
-            >
-              <option value="mfg_order">按生产订单</option>
-              <option value="product_model">按生产机型</option>
-              <option value="base">按基地</option>
-            </select>
-          </div>
         </div>
 
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex-1 min-w-[140px] max-w-[180px] relative">
             <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">销售订单</label>
-            <input
-              type="text"
+            <textarea
+              rows={1}
               placeholder="输入后显示生产订单建议"
-              className="w-full border border-slate-300 rounded-sm px-2 py-1.5 text-xs text-slate-700 focus:ring-1 focus:ring-blue-600 focus:border-blue-600 outline-none transition-all bg-white"
+              className="w-full border border-slate-300 rounded-sm px-2 py-1.5 text-xs text-slate-700 focus:ring-1 focus:ring-blue-600 focus:border-blue-600 outline-none transition-all bg-white resize-none leading-[1.4]"
               value={filters.salesOrder}
               onChange={e => {
+                e.target.style.height = 'auto';
+                e.target.style.height = e.target.scrollHeight + 'px';
                 update({ salesOrder: e.target.value });
                 if (soSuggestions.length > 0) setShowSoSuggestions(true);
               }}
@@ -226,12 +224,16 @@ export function FilterPanel({
 
           <div className="flex-1 min-w-[140px] max-w-[180px] relative">
             <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">生产订单</label>
-            <input
-              type="text"
+            <textarea
+              rows={1}
               placeholder={filters.salesOrder ? "点击显示对应生产订单" : "输入后显示建议"}
-              className="w-full border border-slate-300 rounded-sm px-2 py-1.5 text-xs text-slate-700 focus:ring-1 focus:ring-blue-600 focus:border-blue-600 outline-none transition-all bg-white"
+              className="w-full border border-slate-300 rounded-sm px-2 py-1.5 text-xs text-slate-700 focus:ring-1 focus:ring-blue-600 focus:border-blue-600 outline-none transition-all bg-white resize-none leading-[1.4]"
               value={filters.productionOrder}
-              onChange={e => update({ productionOrder: e.target.value })}
+              onChange={e => {
+                e.target.style.height = 'auto';
+                e.target.style.height = e.target.scrollHeight + 'px';
+                update({ productionOrder: e.target.value });
+              }}
               onFocus={() => { if (soSuggestions.length > 0) setShowSoSuggestions(true); }}
               onBlur={() => setTimeout(() => setShowSoSuggestions(false), 200)}
             />

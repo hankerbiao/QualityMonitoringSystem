@@ -54,8 +54,15 @@ async def create_indexes() -> None:
         ("base", 1)
     ])
 
-    # 故障明细索引 (fault_info 为故障数据唯一真源，按 sn 批量查询)
+    # 机器信息索引 (machine_info 为 MES 录入机器数据，按 sn 唯一、按销售订单/生产订单批量查询)
+    await mongodb.db.machine_info.create_index([("sn", 1)], unique=True)
+    await mongodb.db.machine_info.create_index([("sale_no", 1)])
+    await mongodb.db.machine_info.create_index([("mfg_order", 1)])
+    await mongodb.db.machine_info.create_index([("customer_id", 1)])
+
+    # 故障明细索引 (fault_info 为故障数据唯一真源，按 sn 批量查询、按分类聚合)
     await mongodb.db.fault_info.create_index([("sn", 1)])
+    await mongodb.db.fault_info.create_index([("fault_category", 1)])
 
     # 投入明细索引
     await mongodb.db.input_details.create_index([("recordId", 1)])

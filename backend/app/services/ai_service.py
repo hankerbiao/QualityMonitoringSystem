@@ -79,7 +79,7 @@ async def chat(config: AIConfig, messages: list[AIMessage], context: RTYContext)
         config.maxTokens,
     )
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
+    async with httpx.AsyncClient(timeout=60.0, trust_env=False) as client:
         base_url = config.apiUrl.rstrip('/').removesuffix('/chat/completions').removesuffix('/v1/chat/completions')
         response = await client.post(
             base_url + '/chat/completions',

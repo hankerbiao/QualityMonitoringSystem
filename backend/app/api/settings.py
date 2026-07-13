@@ -85,7 +85,7 @@ def _ai_from_doc(doc: dict | None) -> AIConfigSchema:
     return AIConfigSchema(
         apiUrl=doc.get("apiUrl", ""),
         modelId=doc.get("modelId", ""),
-        apiKey="",
+        apiKey=doc.get("apiKey", ""),
         hasApiKey=bool(doc.get("apiKey")),
         maxTokens=doc.get("maxTokens", 4096),
     )

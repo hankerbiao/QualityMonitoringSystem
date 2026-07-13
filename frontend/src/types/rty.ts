@@ -11,6 +11,8 @@ export interface RTYData {
   targetRate: number;
   salesOrder: string;
   productionOrder: string;
+  salesOrders: string[];
+  productionOrders: string[];
   serialNumbers: string[];
   productLine: string;
   orderType: string;
@@ -46,7 +48,6 @@ export interface RTYFilterParams {
   salesOrder: string;
   productionOrder: string;
   serialNumber: string;
-  aggregateBy?: 'mfg_order' | 'product_model' | 'base';
 }
 
 export type SortField = 'time' | 'defectCount' | 'inputCount' | 'rtyRate';

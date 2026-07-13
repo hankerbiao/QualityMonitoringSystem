@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { X, Bell, Calendar, Filter } from 'lucide-react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import { X, Bell, Calendar, Filter, Loader2 } from 'lucide-react';
 import {
   LineChart,
   BarChart,
@@ -13,10 +13,11 @@ import {
   ResponsiveContainer
 } from 'recharts';
 import { RTYData } from '../types';
+import { rtyApi } from '../api/rtyApi';
+import type { RTYFilterParams } from '../types';
 
 interface AlertConfigModalProps {
   onClose: () => void;
-  rawData: RTYData[];
   modelTargets?: Record<string, number>;
 }
 
@@ -52,7 +53,7 @@ function getCurrentCycle(): string {
   return `${formatDate(cycleStart)} (${WEEKDAY_NAMES[cycleStart.getDay()]}) - ${formatDate(cycleEnd)} (${WEEKDAY_NAMES[cycleEnd.getDay()]})`;
 }
 
-export default function AlertConfigModal({ onClose, rawData = [], modelTargets = {} }: AlertConfigModalProps) {
+export default function AlertConfigModal({ onClose, modelTargets = {} }: AlertConfigModalProps) {
   const currentCycle = getCurrentCycle();
 
   // 时间范围快捷键：6 = 近半年, 12 = 近一年, custom = 自定义
@@ -73,10 +74,41 @@ export default function AlertConfigModal({ onClose, rawData = [], modelTargets =
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
   });
   
+  // 独立数据拉取（不受主表单影响）
+  const [allRawData, setAllRawData] = useState<RTYData[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  const fetchAllData = useCallback(async () => {
+    setLoading(true);
+    try {
+      const filters: RTYFilterParams = {
+        statMethod: '整体直通率',
+        dateRange: { from: undefined, to: undefined },
+        model: '普通机型',
+        productModel: 'all',
+        customer: '',
+        base: 'all',
+        salesOrder: '',
+        productionOrder: '',
+        serialNumber: ''
+      };
+      const result = await rtyApi.getRTYData(filters);
+      setAllRawData(result);
+    } catch (error) {
+      console.error('Failed to fetch cycle stats data', error);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    fetchAllData();
+  }, [fetchAllData]);
+
   const baseDate = new Date();
   
   const filteredData = useMemo(() => {
-    let result = rawData;
+    let result = allRawData;
     if (timeFilter !== 'custom') {
       const monthsToSubtract = parseInt(timeFilter);
       const startDate = new Date(baseDate);
@@ -91,7 +123,7 @@ export default function AlertConfigModal({ onClose, rawData = [], modelTargets =
       }
     }
     return result;
-  }, [rawData, timeFilter, customStart, customEnd]);
+  }, [allRawData, timeFilter, customStart, customEnd]);
 
   const { trendData, trendModels, tableData, allMonths } = useMemo(() => {
     const map = new Map<string, any>();
@@ -265,8 +297,12 @@ export default function AlertConfigModal({ onClose, rawData = [], modelTargets =
           </div>
         </div>
         
-        <div className="p-6 overflow-y-auto bg-white flex flex-col gap-6">
-          {/* 上方：统计概览，占据全宽 */}
+        <div className="p-6 overflow-y-auto bg-white flex flex-col gap-6 relative">
+          {loading && (
+            <div className="absolute inset-0 z-20 bg-white/70 flex items-center justify-center">
+              <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
+            </div>
+          )}
           <div className="flex flex-col gap-4">
             <h4 className="text-sm font-semibold text-slate-800 border-b border-slate-100 pb-2">当前周期统计概览</h4>
             

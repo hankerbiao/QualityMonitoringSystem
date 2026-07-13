@@ -6,14 +6,17 @@ MES 平台数据获取客户端，提供订单、序列号、故障等生产数�
 
 - Python >= 3.10
 - `requests`
-- `pymongo`
 - `pydantic`
+
+> MongoDB 读写复用项目统一的 `motor` 异步连接（`app.db.mongodb`），无需在本包单独安装/配置。
 
 ## 数据库配置
 
-使用系统统一的 MongoDB（`app.core.config.Settings`），无需单独配置。
+复用项目统一的 MongoDB 连接（`app.db.mongodb.get_database()`，异步 Motor 驱动），
+**不再单独维护 MongoClient 与索引**。索引统一在 `app.db.mongodb.create_indexes()` 中定义。
 
-默认连接：`mongodb://10.17.154.252:27019`，数据库：`quality_monitoring`
+使用前需确保已建立连接（应用启动时由 `connect_to_mongo()` 完成；脚本中需先 `await connect_to_mongo()`）。
+数据库名来自 `app.core.config.Settings.MONGODB_DB_NAME`（默认 `quality_monitoring`）。
 
 ## 基地编码
 
@@ -57,29 +60,28 @@ faults = client.get_fault_info(sn="SN12345678", base="1000")
 
 ### 2. MongoDB 本地缓存
 
-将 MES 数据缓存到本地 MongoDB，支持去重写入：
+将 MES 数据缓存到项目统一的本地 MongoDB（异步写入，需运行在 async 上下文中）：
 
 ```python
 from mes_client import MesClient, MongoDBClient, MachineInfo, FaultInfo
+from app.db.mongodb import connect_to_mongo
 
-# 使用系统 MongoDB（默认配置）
-mongo = MongoDBClient()
+await connect_to_mongo()  # 脚本中需先建立连接；应用内由 lifespan 自动完成
 
-# 或显式指定连接
-mongo = MongoDBClient(mongo_url="mongodb://10.17.154.252:27019")
+mongo = MongoDBClient()  # 复用项目连接，无需传 mongo_url
 
-# 写入机器数据（upsert，去重）
-mongo.save_machine(MachineInfo(sn="SN123", sale_no="XNC2602190", ...))
-mongo.save_machines([MachineInfo(...), ...])
+# 写入机器数据（upsert，按 sn 去重）
+await mongo.save_machine(MachineInfo(sn="SN123", sale_no="XNC2602190", ...))
+await mongo.save_machines([MachineInfo(...), ...])
 
 # 写入故障数据（按 sn + fault_desc 去重）
-mongo.save_fault(FaultInfo(sn="SN123", fault_desc="卡纸", ...))
+await mongo.save_fault(FaultInfo(sn="SN123", fault_desc="卡纸", ...))
 
 # 查询
-machine = mongo.get_machine("SN123")
-machines = mongo.get_machines_by_sale_no("XNC2602190")
-faults = mongo.get_faults_by_sn("SN123")
-machine_with_faults = mongo.get_machine_with_faults("SN123")
+machine = await mongo.get_machine("SN123")
+machines = await mongo.get_machines_by_sale_no("XNC2602190")
+faults = await mongo.get_faults_by_sn("SN123")
+machine_with_faults = await mongo.get_machine_with_faults("SN123")
 ```
 
 ## API 速查
