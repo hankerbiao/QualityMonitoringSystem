@@ -56,27 +56,6 @@ class RTYDocument(BaseModel):
         populate_by_name = True
 
 
-# ============== 投入明细文档 ==============
-
-class InputDetailItem(BaseModel):
-    """投入明细项"""
-    id: str
-    workOrder: str  # 如 WO-001-01
-    productLine: str  # 如 L1 / L2 / L3
-    count: int  # 投入数量
-
-
-class InputDetailDocument(BaseModel):
-    """
-    投入明细文档
-
-    Collection: input_details
-    结构: {recordId: "xxx", details: [{workOrder, productLine, count}, ...]}
-    """
-    recordId: str  # 关联的 RTY 记录 ID
-    details: list[InputDetailItem] = []
-
-
 # ============== MES 配置文档 ==============
 
 class MESConfigDocument(BaseModel):
@@ -119,7 +98,6 @@ class EmailAlertDocument(BaseModel):
     key: str = "email_alert_config"
     enabled: bool = True
     emails: str = ""  # 分号分隔的邮箱列表
-    attachReport: bool = True
     updatedAt: datetime | None = None
 
 
@@ -142,8 +120,11 @@ class FeatureFlagsDocument(BaseModel):
 class Collections:
     """MongoDB Collection 名称常量"""
     RTY_DATA = "rty_data"
-    INPUT_DETAILS = "input_details"
     MACHINE_INFO = "machine_info"
     FAULT_INFO = "fault_info"
     CONFIGS = "configs"
     USERS = "users"
+    NO_DATA_ORDERS = "no_data_orders"
+    SALES_ORDERS = "sales_orders"
+    ASSEMBLY_RECORDS = "assembly_records"
+    SALES_ORDER_BOM = "sales_order_bom"

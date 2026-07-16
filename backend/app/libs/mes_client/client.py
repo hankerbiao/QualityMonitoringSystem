@@ -7,9 +7,12 @@ import requests
 
 from app.libs.mes_client.const import ALL_BASES
 from app.libs.mes_client.models import (
+    AssemblyRecordItem,
     CompletionRateItem,
+    OrderBomItem,
     OrderDataItem,
     OrderSNDetail,
+    OrderSumItem,
     QMSFaultItem,
     SerialNumberItem,
 )
@@ -51,7 +54,12 @@ class MesClient:
         )
         r.raise_for_status()
         data = r.json()
-        token = data["data"]["token"]
+        token_data = data.get("data") if isinstance(data, dict) else None
+        if not token_data or not isinstance(token_data, dict):
+            raise RuntimeError(f"MES 登录失败：响应中缺少 data.token（响应: {data}）")
+        token = token_data.get("token")
+        if not token:
+            raise RuntimeError(f"MES 登录失败：响应中 token 为空（响应: {data}）")
         self._session.headers["Authorization"] = f"Bearer {token}"
         return data
 
@@ -122,7 +130,10 @@ class MesClient:
                 "keyValue": sale_no,
             },
         )
-        return result["data"][0]["s_USERFIELD04"]
+        data = result.get("data") or []
+        if not data:
+            return ""
+        return data[0].get("s_USERFIELD04", "")
 
     def get_completion_rate(
         self,
@@ -165,6 +176,7 @@ class MesClient:
                 "StatusName": status_name,
             },
         )
+        print(result)
         return [
             CompletionRateItem(
                 sale_no=r["s_SALENO"],
@@ -245,7 +257,7 @@ class MesClient:
                 "secondappear": "null",
                 "FromLot": "null",
             },
-        )["data"]
+        ).get("data") or []
         return [
             QMSFaultItem(
                 sn=r.get("s_CHASSISNO") or sn,
@@ -259,6 +271,42 @@ class MesClient:
                 repair_person=r.get("r_FULLNAME"),
                 repair_time=r.get("r_TXNDATE"),
                 repair_effectiveness=r.get("repaiR_EFFECTIVENESS"),
+                # 全量字段
+                wms_location=r.get("s_WMSLOCATIONNAME"),
+                ng_spec_name=r.get("nG_SPECNAME"),
+                ng_full_name=r.get("nG_FULLNAME"),
+                ng_txn_date=r.get("nG_TXNDATE"),
+                d_full_name=r.get("d_FULLNAME"),
+                loss_code_name=r.get("s_3RDLOSSCODENAME"),
+                twice_defect_flag=r.get("s_TWICEDEFECTFLAGNAME"),
+                involved_component=r.get("s_INVOLVEDCOMPONENTNAME"),
+                reinsert_lot=r.get("s_REINSERTLOT"),
+                slot_no=r.get("s_SLOTNO"),
+                s_description=r.get("s_DESCRIPTION"),
+                product_name=r.get("productname"),
+                component_desc=r.get("description"),
+                component_scan_type=r.get("s_COMPONENTSCANTYPE"),
+                b_sg=r.get("b_SG"),
+                b_material=r.get("b_MATERIAL"),
+                a_bg=r.get("a_BG"),
+                a_material=r.get("a_MATERIAL"),
+                record01_repair=r.get("s_RECORD01REPAIRM"),
+                rejudge=r.get("s_ReJudge"),
+                rejudge_result=r.get("s_ReJudgeResult"),
+                rejudge_problem_desc=r.get("s_ReJudgeProblemDesc"),
+                rejudge_note=r.get("s_ReJudgeNote"),
+                user_field_03=r.get("s_USERFIELD03"),
+                oem_no=r.get("s_OEMNO"),
+                oem_desc=r.get("s_OEMDESC"),
+                nd_fault_category=r.get("s_NDFAULTCATEGORY"),
+                rd_fault_category=r.get("s_RDFAULTCATEGORY"),
+                th_fault_category=r.get("s_THFAULTCATEGORY"),
+                rma_rejudge=r.get("s_RMAReJudge"),
+                rma_rejudge_result=r.get("s_RMAReJudgeResult"),
+                slot_info=r.get("slot"),
+                ram_filter_flag=r.get("s_RAMFILTERFLAG"),
+                chassis_no_cust=r.get("s_CHASSISNOCUST"),
+                asset_number_list=r.get("s_ASSETNUMBERLIST"),
             )
             for r in data
         ]
@@ -337,7 +385,7 @@ class MesClient:
         data = self._request(
             "/api/SerialNumber/getSerialNumber",
             params={"radio": radio, "textarea": order_no},
-        )["data"]
+        ).get("data") or []
         return [
             SerialNumberItem(
                 mfg_order=r["mfgordername"],
@@ -350,3 +398,65 @@ class MesClient:
             for r in data
         ]
 
+    def get_assembly_records(self, mfg_order: str) -> list[AssemblyRecordItem]:
+        """
+        根据生产工单号获取装配记录
+
+        Args:
+            mfg_order: 生产工单号，如 30231157
+
+        Returns:
+            该工单下所有装配记录（每行代表一个组件的装配信息）
+        """
+        data = self._request(
+            "/api/QueryAssemble/getQueryAssemble",
+            params={
+                "keyType": "MfgOrder",
+                "seriesNo": mfg_order,
+            },
+        ).get("data") or []
+        return [
+            AssemblyRecordItem(
+                mfg_order=r.get("s_MFGORDERNAME", mfg_order),
+                chassis_no=r.get("s_CHASSISNO", ""),
+                chassis_no_cust=r.get("s_CHASSISNOCUST"),
+                product_no=r.get("s_PRODUCTNO", ""),
+                product_desc=r.get("s_PRODUCTDESC", ""),
+                name=r.get("s_NAME", ""),
+                issued_material_name=r.get("s_ISSUEDMATERIALNAME", ""),
+                oem_no=r.get("s_OEMNO"),
+                oem_desc=r.get("s_OEMDESC"),
+                notes=r.get("s_NOTES"),
+            )
+            for r in data
+        ]
+
+    def get_order_sum(self, mfg_order: str) -> list[OrderSumItem]:
+        """根据生产工单号获取订单级物料汇总（getOrderSum）
+
+        Args:
+            mfg_order: 生产工单号，如 30231157
+
+        Returns:
+            该工单的汇总记录（含 qty 等订单级信息）
+        """
+        data = self._request(
+            "/api/OrderBOM/getOrderSum",
+            params={"MFGOrderNo": mfg_order},
+        ).get("data") or []
+        return [OrderSumItem(**r) for r in data]
+
+    def get_order_bom(self, mfg_order: str) -> list[OrderBomItem]:
+        """根据生产工单号获取 BOM 物料明细（getOrderBOM）
+
+        Args:
+            mfg_order: 生产工单号，如 30231157
+
+        Returns:
+            该工单下所有 BOM 行项
+        """
+        data = self._request(
+            "/api/OrderBOM/getOrderBOM",
+            params={"MFGOrderNo": mfg_order},
+        ).get("data") or []
+        return [OrderBomItem(**r) for r in data]

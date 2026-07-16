@@ -63,9 +63,7 @@ async def create_indexes() -> None:
     # 故障明细索引 (fault_info 为故障数据唯一真源，按 sn 批量查询、按分类聚合)
     await mongodb.db.fault_info.create_index([("sn", 1)])
     await mongodb.db.fault_info.create_index([("fault_category", 1)])
-
-    # 投入明细索引
-    await mongodb.db.input_details.create_index([("recordId", 1)])
+    await mongodb.db.fault_info.create_index([("reinsert_lot", 1)])  # LRR 故障聚合
 
     # 用户索引
     await mongodb.db.users.create_index("itcode", unique=True)
@@ -73,6 +71,26 @@ async def create_indexes() -> None:
     # 会话索引
     await mongodb.db.sessions.create_index("sessionId", unique=True)
     await mongodb.db.sessions.create_index("expiresAt")
+
+    # 无数据订单索引（按 sale_no 唯一，避免重复插入）
+    await mongodb.db.no_data_orders.create_index("sale_no", unique=True)
+
+    # 销售订单索引（按 sales_order_sn 唯一，用于采集模块）
+    await mongodb.db.sales_orders.create_index("sales_order_sn", unique=True)
+    await mongodb.db.sales_orders.create_index("import_status", sparse=True)
+
+    # 装配记录索引（按 mfg_order 批量查询、chassis_no 查重）
+    await mongodb.db.assembly_records.create_index([
+        ("mfg_order", 1), ("chassis_no", 1)
+    ], unique=True)
+    await mongodb.db.assembly_records.create_index("chassis_no")
+
+    # 销售订单 BOM 索引（按销售单号查、按 (销售单+工单+物料) 去重）
+    await mongodb.db.sales_order_bom.create_index([
+        ("sale_no", 1), ("mfg_order", 1), ("bom_product_name", 1)
+    ], unique=True)
+    await mongodb.db.sales_order_bom.create_index("sale_no")
+    await mongodb.db.sales_order_bom.create_index("mfg_order")
 
 
 def get_database() -> AsyncIOMotorDatabase:

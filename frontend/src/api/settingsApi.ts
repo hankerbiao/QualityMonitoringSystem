@@ -1,6 +1,6 @@
 import { API_BASE_URL } from '../constants';
 import { apiFetch } from './authApi';
-import type { MESConfig, ModelTargets, EmailAlertConfig, AIConfig, SettingsResponse } from '../types';
+import type { MESConfig, ModelTargets, EmailAlertConfig, AIConfig, SettingsResponse, RTYDataDictionary, DimensionValues, CycleStatsConfig, DataSummary } from '../types';
 
 interface ApiResponse<T> {
   success: boolean;
@@ -69,6 +69,51 @@ export const settingsApi = {
     });
     const json: ApiResponse<{ sent: boolean; recipients?: string[]; reason?: string }> = await res.json();
     if (!json.success) throw new Error(json.message || '测试邮件发送失败');
+    return json.data;
+  },
+
+  async getRTYDataDictionary(): Promise<RTYDataDictionary> {
+    const res = await apiFetch(`${API_BASE_URL}/settings/rty-dictionary`);
+    const json: ApiResponse<RTYDataDictionary> = await res.json();
+    if (!json.success) throw new Error(json.message || 'Failed to fetch RTY data dictionary');
+    return json.data;
+  },
+
+  async getRTYDimensionValues(
+    field: string,
+    search = '',
+    page = 1,
+    pageSize = 50,
+  ): Promise<DimensionValues> {
+    const params = new URLSearchParams({ field, search, page: String(page), pageSize: String(pageSize) });
+    const res = await apiFetch(`${API_BASE_URL}/settings/rty-dictionary/dimension?${params.toString()}`);
+    const json: ApiResponse<DimensionValues> = await res.json();
+    if (!json.success) throw new Error(json.message || 'Failed to fetch dimension values');
+    return json.data;
+  },
+
+  async getCycleStatsConfig(): Promise<CycleStatsConfig> {
+    const res = await apiFetch(`${API_BASE_URL}/settings/cycle-stats-config`);
+    const json: ApiResponse<CycleStatsConfig> = await res.json();
+    if (!json.success) throw new Error(json.message || 'Failed to fetch cycle stats config');
+    return json.data;
+  },
+
+  async saveCycleStatsConfig(config: CycleStatsConfig): Promise<CycleStatsConfig> {
+    const res = await apiFetch(`${API_BASE_URL}/settings/cycle-stats-config`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    });
+    const json: ApiResponse<CycleStatsConfig> = await res.json();
+    if (!json.success) throw new Error(json.message || 'Failed to save cycle stats config');
+    return json.data;
+  },
+
+  async getDataSummary(): Promise<DataSummary> {
+    const res = await apiFetch(`${API_BASE_URL}/settings/summary`);
+    const json: ApiResponse<DataSummary> = await res.json();
+    if (!json.success) throw new Error(json.message || 'Failed to fetch data summary');
     return json.data;
   },
 };

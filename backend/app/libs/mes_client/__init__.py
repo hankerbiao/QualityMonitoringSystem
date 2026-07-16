@@ -11,13 +11,14 @@ MES 平台数据获取客户端
 from .client import MesClient
 from .const import ALL_BASES, BASE_ID_TO_CODE, BASE_ID_TO_NAME, BASE_MAP
 from .models import (
+    AssemblyRecordItem,
     CompletionRateItem,
     OrderDataItem,
     OrderSNDetail,
     QMSFaultItem,
     SerialNumberItem,
 )
-from .mongo import FaultInfo, MachineInfo, MongoDBClient
+from .mongo import AssemblyRecord, FaultInfo, MachineInfo, MongoDBClient
 
 __all__ = [
     "MesClient",
@@ -31,8 +32,10 @@ __all__ = [
     "OrderSNDetail",
     "QMSFaultItem",
     "OrderDataItem",
+    "AssemblyRecordItem",
     "MachineInfo",
     "FaultInfo",
+    "AssemblyRecord",
 ]
 
 __version__ = "0.1.0"

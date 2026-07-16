@@ -112,7 +112,7 @@ backend/
 |-----|------|
 | `mes_config` | MES 系统接入 (username, password) |
 | `model_targets` | 机型指标 (targets: {机型: 目标值}) |
-| `email_alert_config` | 邮件预警 (enabled, emails, attachReport) |
+| `email_alert_config` | 邮件预警 (enabled, emails, triggerCondition, weeklyProductionThreshold) |
 | `ai_config` | AI 模型配置 (apiUrl, modelId, apiKey, maxTokens) |
 
 ### Session 存储

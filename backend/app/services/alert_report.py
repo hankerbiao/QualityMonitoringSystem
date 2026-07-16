@@ -97,8 +97,14 @@ async def build_alert_report(context: AlertContext) -> AlertReportData:
                 description=it.get("fault_desc") or "",
                 count=1,
                 sn=it.get("sn") or "",
+                sale_no=it.get("sale_no") or "",
+                mfg_order=it.get("mfg_order") or "",
+                product_family=it.get("product_family") or "",
+                fault_2nd_appear=it.get("fault_2nd_appear") or "",
+                fault_3rd_appear=it.get("fault_3rd_appear") or "",
                 repairTime=it.get("repair_time") or "",
                 repairPerson=it.get("repair_person") or "",
+                repair_effectiveness=it.get("repair_effectiveness") or "",
             )
             for it in items
         ]

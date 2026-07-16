@@ -11,7 +11,9 @@ export interface ModelTargets {
 export interface EmailAlertConfig {
   enabled: boolean;
   emails: string;
-  attachReport: boolean;
+  triggerCondition: string;
+  weeklyProductionThreshold: number;
+  lrrAlertThreshold: number;
 }
 
 export interface AIConfig {
@@ -52,4 +54,62 @@ export interface ModelTargetsContextType {
   modelTargets: ModelTargets;
   setModelTargets: (targets: ModelTargets) => void;
   loading: boolean;
+}
+
+export interface DataDictionaryField {
+  name: string;
+  type: string;
+  fillRate: number;
+  nonNullCount: number;
+  distinctCount: number;
+  sampleValue: string;
+  rtyField: string;
+  description: string;
+}
+
+export interface RTYDataDictionary {
+  collection: string;
+  totalCount: number;
+  fieldCount: number;
+  sampleSize: number;
+  fields: DataDictionaryField[];
+  dimensions: DimensionSummary[];
+}
+
+export interface ValueCount {
+  value: string;
+  count: number;
+}
+
+export interface DimensionSummary {
+  key: string;
+  label: string;
+  total: number;
+  topValues: ValueCount[];
+}
+
+export interface DimensionValues {
+  field: string;
+  label: string;
+  total: number;
+  filteredTotal: number;
+  page: number;
+  pageSize: number;
+  values: ValueCount[];
+}
+
+export interface CycleStatsConfig {
+  selectedModels: string[];
+}
+
+export interface DataSummary {
+  totalOrders: number;
+  validOrders: number;
+  totalMachines: number;
+  totalModelTypes: number;
+  totalMaterials: number;
+  totalFaults: number;
+  totalFaultMaterials: number;
+  factories: string[];
+  customers: string[];
 }

@@ -2,6 +2,9 @@
 """
 初始化默认配置数据到 MongoDB
 
+合并了原 init_db.py 的全部功能（feature_flags），该文件已删除。
+保持独立无依赖（直接使用 pymongo，不依赖 FastAPI/Motor 项目包）。
+
 用法: python init_default_settings.py
 """
 import os
@@ -48,7 +51,9 @@ def main():
         "key": "email_alert_config",
         "enabled": True,
         "emails": "manager@company.com; quality-team@company.com",
-        "attachReport": True,
+        "triggerCondition": "当某机型周生产量达到设定阈值（默认 50 台），且实际 RTY 低于目标直通率时，系统将在每天 17:00 自动发送预警邮件。",
+        "weeklyProductionThreshold": 50,
+        "lrrAlertThreshold": 5.0,
         "updatedAt": now,
     }
     configs.update_one({"key": "email_alert_config"}, {"$set": email_config}, upsert=True)
@@ -68,6 +73,15 @@ def main():
     print("  - API: http://10.41.101.220:8000/v1/chat/completions")
     print("  - Model: /models/coder/minimax/MiniMax-M2")
 
+    # 4. 功能开关（原 init_db.py）
+    feature_flags = {
+        "key": "feature_flags",
+        "voiceInputEnabled": False,
+        "updatedAt": now,
+    }
+    configs.update_one({"key": "feature_flags"}, {"$set": feature_flags}, upsert=True)
+    print("✓ 功能开关配置已写入（voiceInputEnabled: false）")
+
     # 验证写入
     print("\n当前 configs 集合中的数据:")
     for doc in configs.find():
@@ -80,6 +94,7 @@ def main():
 
     client.close()
     print("\n初始化完成！")
+    print("注：已合并原 init_db.py 的全部配置，该文件已删除。")
 
 
 if __name__ == "__main__":

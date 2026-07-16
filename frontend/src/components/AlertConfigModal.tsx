@@ -14,7 +14,8 @@ import {
 } from 'recharts';
 import { RTYData } from '../types';
 import { rtyApi } from '../api/rtyApi';
-import type { RTYFilterParams } from '../types';
+import { settingsApi } from '../api/settingsApi';
+import type { RTYFilterParams, CycleStatsConfig } from '../types';
 
 interface AlertConfigModalProps {
   onClose: () => void;
@@ -24,37 +25,7 @@ interface AlertConfigModalProps {
 // 预定义一些颜色，用于图表中的不同机型
 const COLORS = ['#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444', '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16'];
 
-const WEEKDAY_NAMES = ['周日', '周一', '周二', '周三', '周四', '周五', '周六'];
-
-function formatDate(d: Date): string {
-  const y = d.getFullYear();
-  const m = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${y}-${m}-${day}`;
-}
-
-/** 获取当前追踪周期（周六→下周五） */
-function getCurrentCycle(): string {
-  const now = new Date();
-  const dayOfWeek = now.getDay(); // 0=周日, 6=周六
-  // 本周六距离今天的天数
-  const daysToSaturday = (6 - dayOfWeek + 7) % 7;
-  const thisSaturday = new Date(now);
-  thisSaturday.setDate(now.getDate() - (dayOfWeek === 6 ? 0 : daysToSaturday));
-  
-  // 如果今天 < 周六，则周期起始是上一个周六
-  const cycleStart = new Date(thisSaturday);
-  if (dayOfWeek !== 6) {
-    cycleStart.setDate(thisSaturday.getDate() - 7);
-  }
-  const cycleEnd = new Date(cycleStart);
-  cycleEnd.setDate(cycleStart.getDate() + 6);
-  
-  return `${formatDate(cycleStart)} (${WEEKDAY_NAMES[cycleStart.getDay()]}) - ${formatDate(cycleEnd)} (${WEEKDAY_NAMES[cycleEnd.getDay()]})`;
-}
-
 export default function AlertConfigModal({ onClose, modelTargets = {} }: AlertConfigModalProps) {
-  const currentCycle = getCurrentCycle();
 
   // 时间范围快捷键：6 = 近半年, 12 = 近一年, custom = 自定义
   const [timeFilter, setTimeFilter] = useState<'6' | '12' | 'custom'>('6');
@@ -62,6 +33,7 @@ export default function AlertConfigModal({ onClose, modelTargets = {} }: AlertCo
   // 机型筛选状态
   const [selectedModels, setSelectedModels] = useState<Set<string> | null>(null);
   const [showModelFilter, setShowModelFilter] = useState(false);
+  const [filterSaved, setFilterSaved] = useState(false);
   
   // 视图模式：chart = 双图表，heatmap = 热力图
   const [viewMode, setViewMode] = useState<'chart' | 'heatmap'>('heatmap');
@@ -93,7 +65,7 @@ export default function AlertConfigModal({ onClose, modelTargets = {} }: AlertCo
         serialNumber: ''
       };
       const result = await rtyApi.getRTYData(filters);
-      setAllRawData(result);
+      setAllRawData(result.items);
     } catch (error) {
       console.error('Failed to fetch cycle stats data', error);
     } finally {
@@ -104,6 +76,21 @@ export default function AlertConfigModal({ onClose, modelTargets = {} }: AlertCo
   useEffect(() => {
     fetchAllData();
   }, [fetchAllData]);
+
+  // 加载保存的机型筛选配置
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const saved = await settingsApi.getCycleStatsConfig();
+        if (saved.selectedModels.length > 0) {
+          setSelectedModels(new Set(saved.selectedModels));
+        }
+      } catch {
+        // 忽略加载失败
+      }
+    };
+    load();
+  }, []);
 
   const baseDate = new Date();
   
@@ -213,6 +200,19 @@ export default function AlertConfigModal({ onClose, modelTargets = {} }: AlertCo
   const selectAllModels = () => setSelectedModels(null);
   const clearAllModels = () => setSelectedModels(new Set());
 
+  const handleSaveFilter = async () => {
+    try {
+      const config: CycleStatsConfig = {
+        selectedModels: selectedModels ? Array.from(selectedModels) : [],
+      };
+      await settingsApi.saveCycleStatsConfig(config);
+      setFilterSaved(true);
+      setTimeout(() => setFilterSaved(false), 2000);
+    } catch {
+      console.error('Failed to save cycle stats config');
+    }
+  };
+
   // 计算一下总投入和平均RTY等统计数据
   const { totalInput, totalDefect, avgRty, highestRiskModel, bestModel, maxInputMonth } = useMemo(() => {
     let totalIn = 0;
@@ -305,14 +305,6 @@ export default function AlertConfigModal({ onClose, modelTargets = {} }: AlertCo
           )}
           <div className="flex flex-col gap-4">
             <h4 className="text-sm font-semibold text-slate-800 border-b border-slate-100 pb-2">当前周期统计概览</h4>
-            
-            <div className="bg-blue-50/50 p-3 rounded-sm border border-blue-100 flex items-start gap-2 w-fit">
-              <Calendar className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
-              <div>
-                <p className="text-xs font-medium text-blue-800">监控周期定义 (周六至下周五)</p>
-                <p className="text-[11px] text-blue-600 mt-0.5">当前追踪：{currentCycle}</p>
-              </div>
-            </div>
 
             <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
               <div className="p-3 border border-slate-200 rounded-sm bg-slate-50">
@@ -410,6 +402,17 @@ export default function AlertConfigModal({ onClose, modelTargets = {} }: AlertCo
                             </label>
                           );
                         })}
+                      </div>
+                      <div className="mt-2 pt-2 border-t border-slate-100">
+                        <button
+                          onClick={handleSaveFilter}
+                          className="w-full px-2 py-1 text-xs bg-blue-600 text-white rounded-sm hover:bg-blue-700 transition-colors font-medium"
+                        >
+                          保存筛选
+                        </button>
+                        {filterSaved && (
+                          <p className="text-[10px] text-emerald-600 mt-1 text-center font-medium">✓ 已保存</p>
+                        )}
                       </div>
                     </div>
                   )}

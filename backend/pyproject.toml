@@ -30,6 +30,7 @@ dependencies = [
     "httpx>=0.25.0",
     "loguru>=0.7.0",
     "requests>=2.34.2",
+    "apscheduler>=3.10.0",
 ]
 
 [project.optional-dependencies]

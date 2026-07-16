@@ -133,8 +133,14 @@ for (let i = 1; i <= id; i++) {
         description: tmpl.desc,
         count: rand(1, 15),
         sn: '',
+        sale_no: '',
+        mfg_order: '',
+        product_family: '',
+        fault_2nd_appear: '',
+        fault_3rd_appear: '',
         repairTime: '',
         repairPerson: '',
+        repair_effectiveness: '',
       });
     }
   }

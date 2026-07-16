@@ -1,21 +1,23 @@
 import { useState, useEffect } from 'react';
-import { Settings, Save, Database, BellRing, Target, X, CheckCircle, Bot, Loader2 } from 'lucide-react';
+import { Settings, Save, Database, BellRing, Target, X, CheckCircle, Bot, Loader2, BookOpen, BarChart3 } from 'lucide-react';
 import { settingsApi } from '../api/settingsApi';
 import { useModelTargets } from '../context/ModelTargetsContext';
-import { MesConfigTab, ModelTargetsTab, EmailAlertTab, AIConfigTab } from './settings';
+import { MesConfigTab, ModelTargetsTab, EmailAlertTab, AIConfigTab, RTYDataDictionaryTab, DataOverviewTab } from './settings';
 
 interface SettingsModalProps {
   onClose: () => void;
   onSaved: () => void;
 }
 
-type TabKey = 'mes' | 'rty' | 'email' | 'ai';
+type TabKey = 'overview' | 'mes' | 'rty' | 'email' | 'ai' | 'dict';
 
 const TABS: { key: TabKey; label: string; icon: typeof Database }[] = [
+  { key: 'overview', label: '数据概览', icon: BarChart3 },
   { key: 'mes', label: 'MES 系统接入', icon: Database },
   { key: 'rty', label: '机型指标配置', icon: Target },
   { key: 'email', label: '邮件预警规则', icon: BellRing },
   { key: 'ai', label: 'AI 配置', icon: Bot },
+  { key: 'dict', label: 'RTY 数据字典', icon: BookOpen },
 ];
 
 export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) {
@@ -32,7 +34,7 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
   const { setModelTargets: setTargets } = useModelTargets();
 
   const [mesConfig, setMesConfig] = useState({ username: '', password: '' });
-  const [emailConfig, setEmailConfig] = useState({ enabled: true, emails: '', attachReport: true });
+  const [emailConfig, setEmailConfig] = useState({ enabled: true, emails: '', triggerCondition: '', weeklyProductionThreshold: 50, lrrAlertThreshold: 5.0 });
   const [aiConfig, setAiConfig] = useState({ apiUrl: '', modelId: '', apiKey: '', maxTokens: 4096, hasApiKey: false });
   const [modelTargets, setModelTargets] = useState<Record<string, number>>({});
 
@@ -41,7 +43,7 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
       .then((data) => {
         if (data.mes) setMesConfig({ username: data.mes.username, password: data.mes.password || '' });
         if (data.modelTargets) setModelTargets(data.modelTargets);
-        if (data.emailAlert) setEmailConfig({ enabled: data.emailAlert.enabled, emails: data.emailAlert.emails, attachReport: data.emailAlert.attachReport });
+        if (data.emailAlert) setEmailConfig({ enabled: data.emailAlert.enabled, emails: data.emailAlert.emails, triggerCondition: data.emailAlert.triggerCondition ?? '', weeklyProductionThreshold: data.emailAlert.weeklyProductionThreshold ?? 50, lrrAlertThreshold: data.emailAlert.lrrAlertThreshold ?? 5.0 });
         if (data.ai) setAiConfig(data.ai);
       })
       .catch((err) => console.error('Failed to load settings:', err))
@@ -96,14 +98,16 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
             </div>
           </div>
           <div className="flex items-center gap-3">
-            <button
-              onClick={handleSave}
-              disabled={saving}
-              className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 shadow-sm"
-            >
-              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-              {saving ? '保存中...' : '保存配置'}
-            </button>
+            {activeTab !== 'dict' && activeTab !== 'overview' && (
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 shadow-sm"
+              >
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {saving ? '保存中...' : '保存配置'}
+              </button>
+            )}
             <button
               onClick={onClose}
               className="p-1.5 rounded-md hover:bg-slate-200 text-slate-500 transition-colors"
@@ -128,6 +132,9 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
           </nav>
 
           <div className="flex-1 overflow-y-auto p-6">
+            {activeTab === 'overview' && (
+              <DataOverviewTab />
+            )}
             {activeTab === 'mes' && (
               <MesConfigTab config={mesConfig} onChange={setMesConfig} showPassword={showPassword} onTogglePassword={() => setShowPassword(!showPassword)} />
             )}
@@ -139,6 +146,9 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
             )}
             {activeTab === 'ai' && (
               <AIConfigTab config={aiConfig} onChange={setAiConfig} />
+            )}
+            {activeTab === 'dict' && (
+              <RTYDataDictionaryTab />
             )}
           </div>
         </div>

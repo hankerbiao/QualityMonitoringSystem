@@ -1,10 +1,9 @@
 import { useState, useEffect } from 'react';
-import { BarChart3, Download, Search } from 'lucide-react';
+import { BarChart3, Download, RotateCcw, Search } from 'lucide-react';
 import { rtyApi } from '../../api/rtyApi';
 import type { RTYFilterParams } from '../../types';
-import { SuggestionDropdown, ExportPanel } from './index';
+import { ExportPanel } from './index';
 
-const BASES = ['all', '天津', '昆山', '桐乡', '大同'];
 const EXPORT_COLUMNS: Record<string, string> = {
   time: '时间',
   productModel: '生产机型',
@@ -22,6 +21,18 @@ const EXPORT_COLUMNS: Record<string, string> = {
   orderType: '订单类型',
   planStartDate: '计划开始日期',
   planEndDate: '计划结束时间',
+};
+
+const EMPTY_FILTERS: RTYFilterParams = {
+  statMethod: '整体直通率',
+  dateRange: { from: undefined, to: undefined },
+  model: '普通机型',
+  productModel: 'all',
+  customer: '',
+  base: 'all',
+  salesOrder: '',
+  productionOrder: '',
+  serialNumber: ''
 };
 
 interface FilterPanelProps {
@@ -43,8 +54,8 @@ export function FilterPanel({
 }: FilterPanelProps) {
   const [filters, setFilters] = useState<RTYFilterParams>(initialFilters);
   const [productModelList, setProductModelList] = useState<{ model: string; count: number }[]>([]);
-  const [soSuggestions, setSoSuggestions] = useState<{ salesOrder: string; productionOrders: string[] }[]>([]);
-  const [showSoSuggestions, setShowSoSuggestions] = useState(false);
+  const [baseList, setBaseList] = useState<{ base: string; count: number }[]>([]);
+  const [showModelSuggestions, setShowModelSuggestions] = useState(false);
   const [showExportPanel, setShowExportPanel] = useState(false);
   const [exportColumns, setExportColumns] = useState<Record<string, boolean>>({
     time: true,
@@ -78,43 +89,28 @@ export function FilterPanel({
   useEffect(() => {
     const load = async () => {
       try {
-        setProductModelList(await rtyApi.getProductModels());
+        const [models, bases] = await Promise.all([
+          rtyApi.getProductModels(),
+          rtyApi.getBases(),
+        ]);
+        setProductModelList(models);
+        setBaseList(bases);
       } catch (error) {
-        console.error('Failed to fetch product models', error);
+        console.error('Failed to fetch filters data', error);
       }
     };
     load();
   }, []);
 
-  useEffect(() => {
-    const salesOrders = filters.salesOrder.split(/[,，\n]/).map(o => o.trim()).filter(Boolean);
-    const validOrders = salesOrders.filter(o => o.length >= 2);
-
-    if (validOrders.length === 0) {
-      setSoSuggestions([]);
-      return;
-    }
-
-    const timer = setTimeout(async () => {
-      try {
-        const results = await Promise.all(
-          validOrders.map(async (so) => {
-            const pos = await rtyApi.getProductionOrdersBySalesOrder(so);
-            return { salesOrder: so, productionOrders: pos };
-          })
-        );
-        setSoSuggestions(results);
-        setShowSoSuggestions(true);
-      } catch {
-        setSoSuggestions([]);
-      }
-    }, 300);
-    return () => clearTimeout(timer);
-  }, [filters.salesOrder]);
-
   const handleExportConfirm = () => {
     onExportConfirm(exportColumns);
     setShowExportPanel(false);
+  };
+
+  const handleClear = () => {
+    setFilters({ ...EMPTY_FILTERS });
+    onFiltersChange({ ...EMPTY_FILTERS });
+    onSearch();
   };
 
   return (
@@ -165,18 +161,42 @@ export function FilterPanel({
             </select>
           </div>
 
-          <div className="flex-1 min-w-[120px] max-w-[180px]">
+          <div className="flex-1 min-w-[120px] max-w-[220px] relative">
             <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">生产机型</label>
-            <select
+            <input
+              type="text"
+              placeholder="输入机型名称搜索..."
               className="w-full border border-slate-300 rounded-sm px-2 py-1.5 text-xs text-slate-700 focus:ring-1 focus:ring-blue-600 focus:border-blue-600 outline-none transition-all bg-white"
-              value={filters.productModel}
-              onChange={e => update({ productModel: e.target.value })}
-            >
-              <option value="all">全部机型</option>
-              {productModelList.map(item => (
-                <option key={item.model} value={item.model}>{item.model} ({item.count})</option>
-              ))}
-            </select>
+              value={filters.productModel === 'all' ? '' : filters.productModel}
+              onChange={e => {
+                update({ productModel: e.target.value || 'all' });
+                setShowModelSuggestions(true);
+              }}
+              onFocus={() => setShowModelSuggestions(true)}
+              onBlur={() => setTimeout(() => setShowModelSuggestions(false), 200)}
+            />
+            {showModelSuggestions && (
+              <div className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-sm shadow-lg max-h-48 overflow-auto">
+                <button
+                  className={`w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50 transition-colors ${filters.productModel === 'all' ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-600'}`}
+                  onMouseDown={() => { update({ productModel: 'all' }); setShowModelSuggestions(false); }}
+                >
+                  全部机型
+                </button>
+                {productModelList
+                  .filter(item => !filters.productModel || filters.productModel === 'all' || item.model.toLowerCase().includes(filters.productModel.toLowerCase()))
+                  .map(item => (
+                    <button
+                      key={item.model}
+                      className={`w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50 transition-colors flex justify-between items-center ${filters.productModel === item.model ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-600'}`}
+                      onMouseDown={() => { update({ productModel: item.model }); setShowModelSuggestions(false); }}
+                    >
+                      <span>{item.model}</span>
+                      <span className="text-[10px] text-slate-400">{item.count}</span>
+                    </button>
+                  ))}
+              </div>
+            )}
           </div>
 
           <div className="flex-1 min-w-[80px] max-w-[120px]">
@@ -187,65 +207,34 @@ export function FilterPanel({
               onChange={e => update({ base: e.target.value })}
             >
               <option value="all">全部基地</option>
-              {BASES.filter(b => b !== 'all').map(b => (
-                <option key={b} value={b}>{b}</option>
+              {baseList.map(item => (
+                <option key={item.base} value={item.base}>{item.base} ({item.count})</option>
               ))}
             </select>
           </div>
         </div>
 
         <div className="flex flex-wrap items-end gap-3">
-          <div className="flex-1 min-w-[140px] max-w-[180px] relative">
+          <div className="flex-1 min-w-[140px] max-w-[180px]">
             <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">销售订单</label>
-            <textarea
-              rows={1}
-              placeholder="输入后显示生产订单建议"
-              className="w-full border border-slate-300 rounded-sm px-2 py-1.5 text-xs text-slate-700 focus:ring-1 focus:ring-blue-600 focus:border-blue-600 outline-none transition-all bg-white resize-none leading-[1.4]"
+            <input
+              type="text"
+              placeholder="请输入销售订单（支持逗号分隔多个）"
+              className="w-full border border-slate-300 rounded-sm px-2 py-1.5 text-xs text-slate-700 focus:ring-1 focus:ring-blue-600 focus:border-blue-600 outline-none transition-all bg-white"
               value={filters.salesOrder}
-              onChange={e => {
-                e.target.style.height = 'auto';
-                e.target.style.height = e.target.scrollHeight + 'px';
-                update({ salesOrder: e.target.value });
-                if (soSuggestions.length > 0) setShowSoSuggestions(true);
-              }}
-              onFocus={() => { if (soSuggestions.length > 0) setShowSoSuggestions(true); }}
-              onBlur={() => setTimeout(() => setShowSoSuggestions(false), 200)}
+              onChange={e => update({ salesOrder: e.target.value })}
             />
-            {showSoSuggestions && soSuggestions.length > 0 && (
-              <SuggestionDropdown
-                suggestions={soSuggestions}
-                onSelect={(so, po) => {
-                  update({ salesOrder: so, productionOrder: po });
-                  setShowSoSuggestions(false);
-                }}
-              />
-            )}
           </div>
 
-          <div className="flex-1 min-w-[140px] max-w-[180px] relative">
+          <div className="flex-1 min-w-[140px] max-w-[180px]">
             <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">生产订单</label>
-            <textarea
-              rows={1}
-              placeholder={filters.salesOrder ? "点击显示对应生产订单" : "输入后显示建议"}
-              className="w-full border border-slate-300 rounded-sm px-2 py-1.5 text-xs text-slate-700 focus:ring-1 focus:ring-blue-600 focus:border-blue-600 outline-none transition-all bg-white resize-none leading-[1.4]"
+            <input
+              type="text"
+              placeholder="请输入生产订单"
+              className="w-full border border-slate-300 rounded-sm px-2 py-1.5 text-xs text-slate-700 focus:ring-1 focus:ring-blue-600 focus:border-blue-600 outline-none transition-all bg-white"
               value={filters.productionOrder}
-              onChange={e => {
-                e.target.style.height = 'auto';
-                e.target.style.height = e.target.scrollHeight + 'px';
-                update({ productionOrder: e.target.value });
-              }}
-              onFocus={() => { if (soSuggestions.length > 0) setShowSoSuggestions(true); }}
-              onBlur={() => setTimeout(() => setShowSoSuggestions(false), 200)}
+              onChange={e => update({ productionOrder: e.target.value })}
             />
-            {showSoSuggestions && soSuggestions.length > 0 && (
-              <SuggestionDropdown
-                suggestions={soSuggestions}
-                onSelect={(so, po) => {
-                  update({ salesOrder: so, productionOrder: po });
-                  setShowSoSuggestions(false);
-                }}
-              />
-            )}
           </div>
 
           <div className="flex-1 min-w-[100px] max-w-[140px]">
@@ -268,6 +257,23 @@ export function FilterPanel({
               value={filters.customer}
               onChange={e => update({ customer: e.target.value })}
             />
+          </div>
+
+          <div className="flex-shrink-0 flex items-center gap-2">
+            <button
+              onClick={handleClear}
+              className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-3 py-1.5 rounded-sm text-xs font-medium transition-colors flex items-center shadow-sm"
+            >
+              <RotateCcw className="w-3 h-3 mr-1 text-slate-500" />
+              清空
+            </button>
+            <button
+              onClick={onSearch}
+              className="bg-[#1e40af] hover:bg-[#1e3a8a] text-white px-4 py-1.5 rounded-sm text-xs font-medium transition-colors flex items-center shadow-sm"
+            >
+              <Search className="w-3.5 h-3.5 mr-1.5" />
+              查询
+            </button>
           </div>
 
           <div className="flex-shrink-0 ml-auto flex items-center gap-2 relative">
@@ -302,13 +308,6 @@ export function FilterPanel({
             >
               <span className="mr-1.5 text-purple-500 font-bold">AI</span>
               智能分析
-            </button>
-            <button
-              onClick={onSearch}
-              className="bg-[#1e40af] hover:bg-[#1e3a8a] text-white px-4 py-1.5 rounded-sm text-xs font-medium transition-colors flex items-center shadow-sm"
-            >
-              <Search className="w-3.5 h-3.5 mr-1.5" />
-              查询
             </button>
           </div>
         </div>

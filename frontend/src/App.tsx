@@ -1,6 +1,7 @@
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
 import Home from './pages/Home';
 import RTYPage from './pages/RTYPage';
+import LRRPage from './pages/LRRPage';
 import LoginPage from './pages/LoginPage';
 import AlertReportPage from './pages/AlertReportPage';
 import { ModelTargetsProvider } from './context/ModelTargetsContext';
@@ -22,7 +23,7 @@ function AppContent() {
       <Route element={<ProtectedLayout />}>
         <Route path="/" element={<Home />} />
         <Route path="/rty" element={<RTYPage />} />
-        <Route path="/lrr" element={<Navigate to="/" />} />
+        <Route path="/lrr" element={<LRRPage />} />
         <Route path="/doa" element={<Navigate to="/" />} />
         <Route path="/mfr" element={<Navigate to="/" />} />
       </Route>

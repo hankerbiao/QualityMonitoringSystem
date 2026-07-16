@@ -91,8 +91,14 @@ class DefectDetailBase(BaseModel):
     description: str = Field(..., description="故障描述")
     count: int = Field(..., ge=0, description="故障数量")
     sn: str = Field("", description="机器序列号")
+    sale_no: str = Field("", description="销售订单号")
+    mfg_order: str = Field("", description="生产订单号")
+    product_family: str = Field("", description="产品机型")
+    fault_2nd_appear: str = Field("", description="二次故障现象")
+    fault_3rd_appear: str = Field("", description="三次故障现象")
     repairTime: str = Field("", description="维修时间")
     repairPerson: str = Field("", description="维修人")
+    repair_effectiveness: str = Field("", description="维修有效性")
 
 
 class DefectDetail(DefectDetailBase):
@@ -101,40 +107,6 @@ class DefectDetail(DefectDetailBase):
 
     class Config:
         from_attributes = True
-
-
-# ============== 投入明细模型 ==============
-
-class InputDetailBase(BaseModel):
-    """投入明细基础模型"""
-    workOrder: str = Field(..., description="工单号, 如 WO-001-01")
-    productLine: str = Field(..., description="产线, 如 L1/L2/L3")
-    count: int = Field(..., ge=0, description="投入数量")
-
-
-class InputDetailCreate(InputDetailBase):
-    """创建投入明细"""
-    pass
-
-
-class InputDetail(InputDetailBase):
-    """投入明细响应模型"""
-    id: str = Field(..., description="明细ID")
-
-    class Config:
-        from_attributes = True
-
-
-class InputDetailInDB(InputDetailBase):
-    """存储在数据库中的投入明细"""
-    id: str = Field(..., alias="_id")
-    recordId: str = Field(..., description="关联的 RTY 记录ID")
-
-
-class InputDetailListResponse(BaseModel):
-    """投入明细列表响应"""
-    items: list[InputDetail]
-    total: int
 
 
 # ============== 周期统计数据模型 ==============

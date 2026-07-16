@@ -7,11 +7,13 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import ai, alert_report, auth, rty, settings
+from app.api import ai, alert_report, auth, faults, lrr, mes, rty, settings
 from app.core.config import get_settings
 from app.core.logger import log_error, log_info, setup_logger
 from app.core.middleware import RequestContextMiddleware
 from app.db.mongodb import close_mongo_connection, connect_to_mongo
+from app.services.lrr_alert import run_daily_lrr_check
+from app.services.weekly_alert import run_weekly_production_check
 
 
 @asynccontextmanager
@@ -42,9 +44,47 @@ async def lifespan(app: FastAPI):
     await connect_to_mongo()
     log_info("MongoDB 连接成功")
 
+    # 启动定时调度器：每天 17:00 执行每周生产量预警统计
+    scheduler = None
+    try:
+        from apscheduler.schedulers.asyncio import AsyncIOScheduler
+
+        scheduler = AsyncIOScheduler()
+        scheduler.add_job(
+            run_weekly_production_check,
+            "cron",
+            hour=17,
+            minute=0,
+            id="weekly_production_alert",
+            replace_existing=True,
+        )
+        scheduler.start()
+        log_info("APScheduler 已启动：每周生产量预警任务计划于每天 17:00 执行")
+
+        # 每天 17:30 执行每日物料故障率(LRR)预警统计（与周生产量预警错开）
+        scheduler.add_job(
+            run_daily_lrr_check,
+            "cron",
+            hour=17,
+            minute=30,
+            id="daily_lrr_alert",
+            replace_existing=True,
+        )
+        log_info("APScheduler 已启动：物料故障率(LRR)预警任务计划于每天 17:30 执行")
+    except Exception as exc:  # 调度器启动失败不应阻断主服务
+        log_error(f"APScheduler 启动失败，定时预警将不会自动执行: {exc}")
+        scheduler = None
+
     yield
 
     # 关闭阶段
+    if scheduler is not None:
+        try:
+            scheduler.shutdown(wait=False)
+            log_info("APScheduler 已关闭")
+        except Exception as exc:
+            log_error(f"APScheduler 关闭异常: {exc}")
+
     log_info("关闭 MongoDB 连接...")
     await close_mongo_connection()
     log_info("QualiBoard API 已关闭")
@@ -79,8 +119,11 @@ app.add_middleware(RequestContextMiddleware)
 
 # 注册路由
 app.include_router(rty.router, prefix="/api/rty", tags=["RTY"])
+app.include_router(lrr.router, prefix="/api/lrr", tags=["LRR"])
+app.include_router(faults.router, prefix="/api", tags=["Faults"])
 app.include_router(alert_report.router, prefix="/api/alert-report", tags=["AlertReport"])
 app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
+app.include_router(mes.router, prefix="/api/mes", tags=["MES"])
 app.include_router(ai.router, prefix="/api/ai", tags=["AI"])
 app.include_router(auth.router, prefix="/api", tags=["Auth"])
 

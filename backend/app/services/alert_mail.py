@@ -224,7 +224,7 @@ async def send_rty_alert_email(context: AlertContext) -> dict:
 
     读取 email_alert_config：
     - 未启用 / 无有效收件人 → 跳过并记录日志，返回 sent=False。
-    - attachReport 控制邮件是否附带故障明细表。
+    - 始终附带故障明细表及报表链接。
     - 实时聚合报表数据并生成签名报表链接，拼入邮件正文后发出。
 
     Returns:
@@ -233,15 +233,14 @@ async def send_rty_alert_email(context: AlertContext) -> dict:
     db = get_database()
     cfg_doc = await db[Collections.CONFIGS].find_one({"key": "email_alert_config"})
 
-    # 与前端设置页(_email_from_doc)保持一致：文档缺失时回落到默认值
+    # 始终附带故障明细（去掉可配置选项）
     if cfg_doc is None:
         enabled = True
         emails_raw = EMAIL_DEFAULT
-        attach_report = True
     else:
         enabled = (cfg_doc or {}).get("enabled", True)
         emails_raw = (cfg_doc or {}).get("emails", "")
-        attach_report = (cfg_doc or {}).get("attachReport", True)
+    attach_report = True
 
     if not enabled:
         log_info("邮件预警未启用，跳过告警邮件发送")
@@ -273,6 +272,187 @@ async def send_rty_alert_email(context: AlertContext) -> dict:
         "subject": subject,
         "reportUrl": report_url,
         "attachReport": attach_report,
+        "proxy": proxy_resp,
+    }
+
+
+def build_lrr_alert_email_html(
+    materials: list[dict],
+    threshold: float,
+    generated_at: str = "",
+) -> str:
+    """
+    构建物料故障率(LRR)超标预警邮件 HTML 正文（内联样式，兼容主流邮件客户端）。
+
+    Args:
+        materials: 超标物料列表，每项含 materialNo / materialDesc / totalCount / faultCount / lrrRate
+        threshold: LRR 阈值(%)
+        generated_at: 统计时间字符串
+    """
+    if not generated_at:
+        generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+
+    # 超标物料表格（最多展示前 50 条，避免邮件过长）
+    rows_html = ""
+    for m in materials[:50]:
+        no = m.get("materialNo", "")
+        desc = m.get("materialDesc", "") or "-"
+        total = m.get("totalCount", 0)
+        fault = m.get("faultCount", 0)
+        rate = float(m.get("lrrRate", 0.0) or 0.0)
+        rate_color = "#dc2626" if rate >= threshold else "#0f172a"
+        rows_html += (
+            "<tr>"
+            + _cell(no)
+            + _cell(desc)
+            + _cell(str(total))
+            + _cell(str(fault))
+            + f'<td style="padding:8px 10px;border-bottom:1px solid #eef2f7;'
+              f'font-size:13px;font-weight:600;color:{rate_color};">{_esc(f"{rate}%")}</td>'
+            + _cell(f"{threshold}%")
+            + "</tr>"
+        )
+    body = rows_html or (
+        '<tr><td colspan="6" style="padding:14px;text-align:center;'
+        'font-size:13px;color:#94a3b8;">无超标物料</td></tr>'
+    )
+    table_html = (
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        'style="border:1px solid #e2e8f0;border-radius:10px;overflow:hidden;border-collapse:collapse;">'
+        '<thead><tr style="background:#f8fafc;">'
+        '<th style="padding:10px;text-align:left;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0;">物料编号</th>'
+        '<th style="padding:10px;text-align:left;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0;">物料描述</th>'
+        '<th style="padding:10px;text-align:left;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0;">总装配数</th>'
+        '<th style="padding:10px;text-align:left;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0;">故障数</th>'
+        '<th style="padding:10px;text-align:left;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0;">LRR</th>'
+        '<th style="padding:10px;text-align:left;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0;">阈值</th>'
+        "</tr></thead><tbody>"
+        f"{body}"
+        "</tbody></table>"
+    )
+    more_html = (
+        f'<p style="font-size:12px;color:#94a3b8;margin:8px 0 0;">'
+        f'仅展示前 50 条，共 {len(materials)} 种超标物料。</p>'
+        if len(materials) > 50
+        else ""
+    )
+
+    def kpi(label: str, value: str, value_color: str = "#0f172a") -> str:
+        return (
+            '<div style="flex:1;min-width:120px;background:#f8fafc;border:1px solid #e2e8f0;'
+            'border-radius:10px;padding:12px 14px;">'
+            f'<div style="font-size:12px;color:#64748b;margin-bottom:4px;">{label}</div>'
+            f'<div style="font-size:20px;font-weight:700;color:{value_color};">{value}</div>'
+            "</div>"
+        )
+
+    kpis = "".join([
+        kpi("超标物料数", str(len(materials)), "#dc2626"),
+        kpi("LRR 阈值", f"{threshold}%"),
+        kpi("统计范围", "有装配扫号"),
+        kpi("统计时间", generated_at),
+    ])
+
+    return f"""
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
+<body style="margin:0;padding:0;background:#f1f5f9;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,'PingFang SC','Microsoft YaHei',sans-serif;">
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#f1f5f9;padding:24px 0;">
+    <tr><td align="center">
+      <table role="presentation" width="640" cellpadding="0" cellspacing="0" style="width:640px;max-width:100%;background:#ffffff;border:1px solid #e2e8f0;border-radius:14px;overflow:hidden;">
+        <!-- 头部 -->
+        <tr>
+          <td style="padding:18px 24px;background:#0f172a;color:#ffffff;display:flex;align-items:center;justify-content:space-between;">
+            <span style="font-size:16px;font-weight:700;">QualiBoard · 物料故障率预警</span>
+            <span style="display:inline-block;background:#fef2f2;color:#dc2626;border-radius:9999px;padding:4px 12px;font-size:13px;font-weight:600;">预警</span>
+          </td>
+        </tr>
+        <!-- 内容 -->
+        <tr>
+          <td style="padding:24px;">
+            <h2 style="margin:0 0 4px;font-size:18px;color:#0f172a;">物料故障率 (LRR) 超标预警</h2>
+            <p style="margin:0 0 16px;font-size:13px;color:#64748b;">告警类型：物料故障率 (LRR) 超标　|　生成时间：{_esc(generated_at)}</p>
+
+            <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:16px;">{kpis}</div>
+
+            <p style="font-size:13px;color:#334155;line-height:1.7;margin:0 0 14px;">
+              以下物料的故障率 (LRR) 已达到或超过设定阈值 <strong>{_esc(str(threshold))}%</strong>
+              （仅统计「有装配扫号」物料，无装配扫号物料无分母、不参与判定）。请关注相关批次质量。
+            </p>
+
+            {table_html}
+
+            {more_html}
+
+            <p style="font-size:12px;color:#94a3b8;margin:18px 0 0;line-height:1.6;">
+              本邮件由 QualiBoard 品质看板每日自动统计发出。<br/>
+              如非本人关注事项，请勿转发本邮件。
+            </p>
+          </td>
+        </tr>
+        <!-- 页脚 -->
+        <tr>
+          <td style="padding:14px 24px;background:#f8fafc;border-top:1px solid #e2e8f0;font-size:12px;color:#94a3b8;">
+            QualiBoard 品质看板 · 数据截至 {_esc(generated_at)}
+          </td>
+        </tr>
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>
+""".strip()
+
+
+async def send_lrr_alert_email(materials: list[dict], threshold: float) -> dict:
+    """
+    发送物料故障率(LRR)超标汇总预警邮件。
+
+    读取 email_alert_config：未启用 / 无有效收件人 → 跳过并记录日志。
+    仅统计「有装配扫号」物料（有分母），无装配扫号物料不参与判定。
+
+    Returns:
+        dict: {"sent": bool, ...}
+    """
+    db = get_database()
+    cfg_doc = await db[Collections.CONFIGS].find_one({"key": "email_alert_config"})
+
+    if cfg_doc is None:
+        enabled = True
+        emails_raw = EMAIL_DEFAULT
+    else:
+        enabled = (cfg_doc or {}).get("enabled", True)
+        emails_raw = (cfg_doc or {}).get("emails", "")
+
+    if not enabled:
+        log_info("邮件预警未启用，跳过 LRR 故障率预警邮件发送")
+        return {"sent": False, "reason": "disabled"}
+
+    recipients = _parse_emails(emails_raw)
+    if not recipients:
+        log_warning("邮件预警已启用但无有效收件人，跳过 LRR 预警邮件发送")
+        return {"sent": False, "reason": "no_recipients"}
+
+    generated_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    subject = f"【预警】物料故障率(LRR)超标 · 共 {len(materials)} 种物料超过 {threshold}%"
+    html_content = build_lrr_alert_email_html(materials, threshold, generated_at=generated_at)
+
+    try:
+        proxy_resp = await send_email(subject=subject, html_content=html_content, to=recipients)
+    except MailSendError as exc:
+        log_error(f"LRR 故障率预警邮件发送失败: {exc}")
+        return {"sent": False, "reason": "send_error", "error": str(exc)}
+
+    log_info(
+        f"LRR 故障率预警邮件发送成功: to={recipients} | 超标物料={len(materials)} | 阈值={threshold}%"
+    )
+    return {
+        "sent": True,
+        "recipients": recipients,
+        "subject": subject,
+        "exceededCount": len(materials),
+        "threshold": threshold,
         "proxy": proxy_resp,
     }
 

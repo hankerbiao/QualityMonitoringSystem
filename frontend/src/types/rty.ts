@@ -27,8 +27,14 @@ export interface DefectDetail {
   description: string;
   count: number;
   sn: string;
+  sale_no: string;
+  mfg_order: string;
+  product_family: string;
+  fault_2nd_appear: string;
+  fault_3rd_appear: string;
   repairTime: string;
   repairPerson: string;
+  repair_effectiveness: string;
 }
 
 export interface InputDetail {
@@ -57,4 +63,12 @@ export interface SalesOrderSummary {
   inputCount: number;
   defectCount: number;
   rtyRate: number;
+}
+
+export interface PaginatedRTYResponse {
+  items: RTYData[];
+  total: number;
+  page: number;
+  limit: number;
+  has_more: boolean;
 }

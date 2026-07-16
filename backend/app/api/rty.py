@@ -8,18 +8,18 @@ from fastapi import APIRouter, Query, Request
 from app.core.logger import audit_log, log_info
 from app.db.mongodb import get_database
 from app.models.documents import Collections
-from app.schemas.common import Response
+from app.schemas.common import PaginatedResponse, Response
 from app.schemas.rty import DefectDetail, RTYData, SalesOrderSummary
 
 router = APIRouter()
 
 
-@router.get("/list", response_model=Response[list[RTYData]])
+@router.get("/list", response_model=PaginatedResponse[RTYData])
 @audit_log("QUERY", "rty_list")
 async def get_rty_list(
     request: Request,
     page: int = Query(1, ge=1, description="页码"),
-    limit: int = Query(100, ge=1, le=500, description="每页数量"),
+    limit: int = Query(50, ge=1, le=500, description="每页数量"),
     salesOrder: str | None = Query(None, description="销售订单号 (sale_no)"),
     productionOrder: str | None = Query(None, description="生产订单号 (mfg_order)"),
     serialNumber: str | None = Query(None, description="整机序列号 (sn)"),
@@ -77,7 +77,7 @@ async def get_rty_list(
     do_aggregate = (has_order_filter or has_product_model_filter or has_customer_filter or is_empty_filter) and not has_detail_filter
 
     if do_aggregate:
-        group_by = "$mfg_order" if has_order_filter or is_empty_filter else "$product_family"
+        group_by = "$sale_no" if is_empty_filter else ("$mfg_order" if has_order_filter else "$product_family")
 
         pipeline: list[dict] = []
         if query_filter:
@@ -91,12 +91,22 @@ async def get_rty_list(
                 "sales_orders": {"$addToSet": "$sale_no"},
                 "mfg_orders": {"$addToSet": "$mfg_order"},
             }},
-            {"$match": {"_id": {"$ne": None}, "_id": {"$ne": ""}}},
-            {"$sort": {"_id": 1}},
+            {"$match": {"_id": {"$nin": [None, ""]}}},
+            {"$facet": {
+                "metadata": [{"$count": "total"}],
+                "data": [
+                    {"$sort": {"_id": 1}},
+                    {"$skip": (page - 1) * limit},
+                    {"$limit": limit},
+                ],
+            }},
         ])
 
         cursor = db[Collections.MACHINE_INFO].aggregate(pipeline)
-        group_docs = await cursor.to_list(length=10000)
+        result = await cursor.to_list(length=1)
+        facet_result = result[0] if result else {"metadata": [], "data": []}
+        total = facet_result["metadata"][0]["total"] if facet_result.get("metadata") else 0
+        group_docs = facet_result.get("data", [])
 
         rty_list: list[RTYData] = []
         for doc in group_docs:
@@ -142,8 +152,14 @@ async def get_rty_list(
                 status="",
             ))
 
-        log_info(f"聚合模式: 共 {len(rty_list)} 条")
-        return Response(success=True, data=rty_list, message=f"共 {len(rty_list)} 条")
+        log_info(f"聚合模式: 共 {total} 条，本页返回 {len(rty_list)} 条")
+        return PaginatedResponse(
+            items=rty_list,
+            total=total,
+            page=page,
+            limit=limit,
+            has_more=(page * limit) < total,
+        )
 
     total = await db[Collections.MACHINE_INFO].count_documents(query_filter)
     skip = (page - 1) * limit
@@ -194,7 +210,102 @@ async def get_rty_list(
         ))
 
     log_info(f"查询到 {total} 台机器，本页返回 {len(rty_list)} 条")
-    return Response(success=True, data=rty_list, message=f"查询到 {total} 台机器")
+    return PaginatedResponse(
+        items=rty_list,
+        total=total,
+        page=page,
+        limit=limit,
+        has_more=(page * limit) < total,
+    )
+
+
+@router.get("/defects/by-filters", response_model=Response[list[DefectDetail]])
+@audit_log("QUERY", "defect_by_filters")
+async def get_defect_details_by_filters(
+    request: Request,
+    salesOrder: str | None = Query(None, description="销售订单号 (sale_no)"),
+    productionOrder: str | None = Query(None, description="生产订单号 (mfg_order)"),
+    serialNumber: str | None = Query(None, description="整机序列号 (sn)"),
+    base: str | None = Query(None, description="基地 (factory)"),
+    productModel: str | None = Query(None, description="生产机型 (product_family)"),
+    customer: str | None = Query(None, description="客户 (customer_id)"),
+    dateFrom: str | None = Query(None, description="开始时间 (actual_start_time)"),
+    dateTo: str | None = Query(None, description="结束时间 (actual_start_time)"),
+):
+    """
+    根据筛选条件查询所有故障明细
+    - 先按筛选条件从 machine_info 找出匹配的 SN 列表
+    - 再根据 SN 列表从 fault_info 查出所有故障记录
+    """
+    db = get_database()
+
+    def _split_orders(s: str) -> list[str]:
+        return [o.strip() for o in re.split(r"[,，\n]+", s) if o.strip()]
+
+    query_filter: dict = {}
+    if salesOrder:
+        so_list = _split_orders(salesOrder)
+        query_filter["sale_no"] = {"$in": so_list} if len(so_list) > 1 else so_list[0]
+    if productionOrder:
+        po_list = _split_orders(productionOrder)
+        query_filter["mfg_order"] = {"$in": po_list} if len(po_list) > 1 else po_list[0]
+    if serialNumber:
+        query_filter["sn"] = serialNumber
+    if base:
+        query_filter["factory"] = base
+    if productModel:
+        query_filter["product_family"] = productModel
+    if customer:
+        query_filter["customer_id"] = customer
+    if dateFrom:
+        query_filter["actual_start_time"] = {"$gte": dateFrom}
+    if dateTo:
+        if "actual_start_time" in query_filter:
+            query_filter["actual_start_time"]["$lte"] = dateTo
+        else:
+            query_filter["actual_start_time"] = {"$lte": dateTo}
+
+    # 从 machine_info 找出匹配的 SN
+    sn_pipeline = [
+        {"$match": query_filter},
+        {"$group": {"_id": "$sn"}},
+    ]
+    cursor = db[Collections.MACHINE_INFO].aggregate(sn_pipeline)
+    sn_docs = await cursor.to_list(length=50000)
+    sn_list = [doc["_id"] for doc in sn_docs if doc.get("_id")]
+
+    if not sn_list:
+        return Response(success=True, data=[], message="未找到匹配的机器数据")
+
+    # 从 fault_info 查出所有故障记录
+    defect_pipeline = [
+        {"$match": {"sn": {"$in": sn_list}}},
+        {"$sort": {"repair_time": -1}},
+    ]
+    cursor = db[Collections.FAULT_INFO].aggregate(defect_pipeline)
+    items = await cursor.to_list(length=50000)
+
+    defect_list = [
+        DefectDetail(
+            id=str(item["_id"]),
+            defectCode=item.get("fault_category") or "未知",
+            description=item.get("fault_desc") or "",
+            count=1,
+            sn=item.get("sn") or "",
+            sale_no=item.get("sale_no") or "",
+            mfg_order=item.get("mfg_order") or "",
+            product_family=item.get("product_family") or "",
+            fault_2nd_appear=item.get("fault_2nd_appear") or "",
+            fault_3rd_appear=item.get("fault_3rd_appear") or "",
+            repairTime=item.get("repair_time") or "",
+            repairPerson=item.get("repair_person") or "",
+            repair_effectiveness=item.get("repair_effectiveness") or "",
+        )
+        for item in items
+    ]
+
+    log_info(f"按筛选条件查询故障明细: 匹配 {len(sn_list)} 台机器, 查出 {len(defect_list)} 条故障")
+    return Response(success=True, data=defect_list, message=f"查询到 {len(defect_list)} 条故障记录")
 
 
 @router.get("/defects", response_model=Response[list[DefectDetail]])
@@ -223,8 +334,14 @@ async def get_defect_details(
             description=item.get("fault_desc") or "",
             count=1,
             sn=item.get("sn") or "",
+            sale_no=item.get("sale_no") or "",
+            mfg_order=item.get("mfg_order") or "",
+            product_family=item.get("product_family") or "",
+            fault_2nd_appear=item.get("fault_2nd_appear") or "",
+            fault_3rd_appear=item.get("fault_3rd_appear") or "",
             repairTime=item.get("repair_time") or "",
             repairPerson=item.get("repair_person") or "",
+            repair_effectiveness=item.get("repair_effectiveness") or "",
         )
         for item in items
     ]
@@ -268,8 +385,14 @@ async def get_defect_details_by_order(
             description=item.get("fault_desc") or "",
             count=1,
             sn=item.get("sn") or "",
+            sale_no=item.get("sale_no") or "",
+            mfg_order=item.get("mfg_order") or "",
+            product_family=item.get("product_family") or "",
+            fault_2nd_appear=item.get("fault_2nd_appear") or "",
+            fault_3rd_appear=item.get("fault_3rd_appear") or "",
             repairTime=item.get("repair_time") or "",
             repairPerson=item.get("repair_person") or "",
+            repair_effectiveness=item.get("repair_effectiveness") or "",
         )
         for item in items
     ]
@@ -370,6 +493,24 @@ async def get_product_models():
     return Response(success=True, data=result, message=f"查询到 {len(result)} 个生产机型")
 
 
+@router.get("/bases", response_model=Response[list[dict]])
+async def get_bases():
+    """
+    获取所有基地列表及其机器数量
+    """
+    db = get_database()
+    pipeline = [
+        {"$group": {"_id": "$factory", "count": {"$sum": 1}}},
+        {"$match": {"_id": {"$ne": None}}},
+        {"$sort": {"_id": 1}},
+    ]
+    cursor = db[Collections.MACHINE_INFO].aggregate(pipeline)
+    docs = await cursor.to_list(length=100)
+
+    result = [{"base": doc["_id"], "count": doc["count"]} for doc in docs]
+    return Response(success=True, data=result, message=f"查询到 {len(result)} 个基地")
+
+
 @router.get("/sales-orders", response_model=Response[list[str]])
 async def get_sales_orders(
     q: str = Query("", description="搜索关键词"),
@@ -381,7 +522,7 @@ async def get_sales_orders(
     db = get_database()
     pipeline = [
         {"$group": {"_id": "$sale_no"}},
-        {"$match": {"_id": {"$ne": None}, "_id": {"$ne": ""}}},
+        {"$match": {"_id": {"$nin": [None, ""]}}},
         {"$sort": {"_id": -1}},
         {"$limit": 500},
     ]

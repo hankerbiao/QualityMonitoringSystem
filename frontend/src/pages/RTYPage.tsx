@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, ArrowUp, ArrowDown, ArrowUpDown, X } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { rtyApi } from '../api/rtyApi';
 import type { RTYData, RTYFilterParams } from '../types';
@@ -9,6 +9,7 @@ import DefectModal from '../components/DefectModal';
 import AlertConfigModal from '../components/AlertConfigModal';
 import { AIChatPanel } from '../components/AIChatWindow';
 import { FilterPanel } from '../components/rty';
+import { SortIcon } from '../components/shared/SortIcon';
 
 const DEFAULT_FILTERS: RTYFilterParams = {
   statMethod: '整体直通率',
@@ -23,11 +24,6 @@ const DEFAULT_FILTERS: RTYFilterParams = {
 };
 
 type SortField = 'time' | 'defectCount' | 'inputCount' | 'rtyRate';
-
-function SortIcon({ field, activeField, direction }: { field: SortField; activeField: SortField | null; direction: 'asc' | 'desc' }) {
-  if (activeField !== field) return <ArrowUpDown className="w-3 h-3 opacity-40" />;
-  return direction === 'asc' ? <ArrowUp className="w-3 h-3" /> : <ArrowDown className="w-3 h-3" />;
-}
 
 export default function RTYPage() {
   const navigate = useNavigate();
@@ -53,9 +49,13 @@ export default function RTYPage() {
 
   const [loading, setLoading] = useState(false);
   const [data, setData] = useState<RTYData[]>([]);
-  const [sortField, setSortField] = useState<'time' | 'defectCount' | 'inputCount' | 'rtyRate' | null>(null);
+  const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
+  const pageSize = 50;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
-  const [activeDefectOrder, setActiveDefectOrder] = useState<string>('');
+  const [defectModalData, setDefectModalData] = useState<{ filters: RTYFilterParams; label: string } | null>(null);
   const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
   const [aiChatOpen, setAiChatOpen] = useState(false);
 
@@ -75,11 +75,13 @@ export default function RTYPage() {
   const { modelTargets } = useModelTargets();
 
   // 获取数据
-  const fetchData = async () => {
+  const fetchData = async (targetPage = page) => {
     setLoading(true);
     try {
-      const result = await rtyApi.getRTYData(filters);
-      setData(result);
+      const result = await rtyApi.getRTYData(filters, targetPage, pageSize);
+      setData(result.items);
+      setTotal(result.total);
+      setPage(result.page);
     } catch (error) {
       console.error("Failed to fetch data", error);
     } finally {
@@ -91,7 +93,10 @@ export default function RTYPage() {
     const load = async () => {
       setLoading(true);
       try {
-        setData(await rtyApi.getRTYData(filters));
+        const result = await rtyApi.getRTYData(filters, 1, pageSize);
+        setData(result.items);
+        setTotal(result.total);
+        setPage(1);
       } catch (error) {
         console.error("Failed to fetch data", error);
       } finally {
@@ -107,7 +112,7 @@ export default function RTYPage() {
     return () => window.removeEventListener('settings-saved', handler);
   }, [fetchData]);
 
-  const handleSort = (field: 'time' | 'defectCount' | 'inputCount' | 'rtyRate') => {
+  const handleSort = (field: SortField) => {
     if (sortField === field) {
       setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
     } else {
@@ -214,7 +219,7 @@ export default function RTYPage() {
         <FilterPanel
           initialFilters={filters}
           onFiltersChange={setFilters}
-          onSearch={fetchData}
+          onSearch={() => fetchData(1)}
           onAlertModalOpen={() => setIsAlertModalOpen(true)}
           onAiChatOpen={() => setAiChatOpen(true)}
           onExportConfirm={handleExport}
@@ -332,13 +337,21 @@ export default function RTYPage() {
                         <button
                           onClick={() => {
                             if (row.defectCount > 0) {
-                              const orders = row.productionOrders.length > 0 ? row.productionOrders : (row.productionOrder ? [row.productionOrder] : []);
-                              if (orders.length === 1) {
-                                setActiveDefectOrder(orders[0]);
-                              } else if (orders.length > 1) {
-                                setOrderListData({ title: '选择生产订单查看故障明细', orders, filterKey: 'productionOrder' });
-                                setOrderListOpen(true);
-                              }
+                              const label = [row.salesOrder || '', row.productModel, row.base].filter(Boolean).join(' · ');
+                              const so = row.salesOrder || row.salesOrders.join(',');
+                              const po = row.productionOrder || row.productionOrders.join(',');
+                              const defectFilters: RTYFilterParams = {
+                                statMethod: '整体直通率',
+                                dateRange: { from: undefined, to: undefined },
+                                model: '普通机型',
+                                productModel: row.productModel || 'all',
+                                customer: row.customer || '',
+                                base: row.base || 'all',
+                                salesOrder: so || '',
+                                productionOrder: po || '',
+                                serialNumber: ''
+                              };
+                              setDefectModalData({ filters: defectFilters, label });
                             }
                           }}
                           className={`font-semibold focus:outline-none ${row.defectCount > 0 ? 'text-[#dc2626] hover:text-[#b91c1c] hover:underline cursor-pointer' : 'text-slate-400 cursor-default'}`}
@@ -381,15 +394,77 @@ export default function RTYPage() {
             </table>
           </div>
         </div>
+
+        {/* 分页 */}
+        {data.length > 0 && (
+          <div className="flex items-center justify-between px-2 py-2 bg-white rounded-md border border-slate-200 shadow-sm">
+            <span className="text-xs text-slate-500">
+              共 {total} 条记录，第 {page}/{totalPages} 页
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => fetchData(1)}
+                disabled={page === 1}
+                className="px-2 py-1 text-xs border border-slate-300 rounded bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors"
+              >
+                首页
+              </button>
+              <button
+                onClick={() => fetchData(page - 1)}
+                disabled={page <= 1}
+                className="px-2 py-1 text-xs border border-slate-300 rounded bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors flex items-center gap-0.5"
+              >
+                <ChevronLeft className="w-3 h-3" />
+                上一页
+              </button>
+              <div className="flex items-center gap-1 mx-1">
+                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                  const startPage = Math.max(1, Math.min(page - 2, totalPages - 4));
+                  const p = startPage + i;
+                  if (p > totalPages) return null;
+                  return (
+                    <button
+                      key={p}
+                      onClick={() => fetchData(p)}
+                      className={`min-w-[28px] px-1.5 py-1 text-xs rounded transition-colors ${
+                        p === page
+                          ? 'bg-blue-600 text-white'
+                          : 'border border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                      }`}
+                    >
+                      {p}
+                    </button>
+                  );
+                })}
+              </div>
+              <button
+                onClick={() => fetchData(page + 1)}
+                disabled={page >= totalPages}
+                className="px-2 py-1 text-xs border border-slate-300 rounded bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors flex items-center gap-0.5"
+              >
+                下一页
+                <ChevronRight className="w-3 h-3" />
+              </button>
+              <button
+                onClick={() => fetchData(totalPages)}
+                disabled={page >= totalPages}
+                className="px-2 py-1 text-xs border border-slate-300 rounded bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors"
+              >
+                末页
+              </button>
+            </div>
+          </div>
+        )}
       </main>
 
       {aiChatOpen && <AIChatPanel rtyData={data} onClose={() => setAiChatOpen(false)} />}
 
       {/* 故障明细 */}
-      {activeDefectOrder && (
+      {defectModalData && (
         <DefectModal
-          productionOrder={activeDefectOrder}
-          onClose={() => setActiveDefectOrder("")}
+          filters={defectModalData.filters}
+          filterLabel={defectModalData.label}
+          onClose={() => setDefectModalData(null)}
         />
       )}
 
@@ -446,7 +521,7 @@ export default function RTYPage() {
       {/* 订单列表弹窗 */}
       {orderListOpen && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-[450px] max-h-[60vh] flex flex-col">
+          <div className="bg-white rounded-lg shadow-xl w-[580px] max-h-[65vh] flex flex-col">
             <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
               <h3 className="text-base font-semibold text-slate-800">{orderListData.title}</h3>
               <button onClick={() => setOrderListOpen(false)} className="p-1 hover:bg-slate-100 rounded transition-colors">
@@ -454,14 +529,25 @@ export default function RTYPage() {
               </button>
             </div>
             <div className="flex-1 overflow-auto p-4">
-              <div className="space-y-2">
+              <div className="grid grid-cols-3 gap-2">
                 {orderListData.orders.map((order, idx) => (
                   <div
                     key={idx}
                     className="px-3 py-2 bg-slate-50 rounded text-sm text-slate-700 font-mono cursor-pointer hover:bg-blue-50 hover:text-blue-700 transition-colors"
                     onClick={() => {
                       if (orderListData.title.includes('故障明细')) {
-                        setActiveDefectOrder(order);
+                        const detailFilters: RTYFilterParams = {
+                          statMethod: '整体直通率',
+                          dateRange: { from: undefined, to: undefined },
+                          model: '普通机型',
+                          productModel: 'all',
+                          customer: '',
+                          base: 'all',
+                          salesOrder: '',
+                          productionOrder: order,
+                          serialNumber: ''
+                        };
+                        setDefectModalData({ filters: detailFilters, label: order });
                       } else {
                         setFilters({ ...filters, [orderListData.filterKey]: order });
                         fetchData();
