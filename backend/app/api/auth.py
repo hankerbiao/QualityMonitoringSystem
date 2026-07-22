@@ -25,6 +25,11 @@ class OALoginRequest(BaseModel):
     next: str | None = None
 
 
+class LocalLoginRequest(BaseModel):
+    username: str
+    password: str
+
+
 class RefreshRequest(BaseModel):
     refresh_token: str
 
@@ -40,14 +45,19 @@ async def get_current_user(request: Request) -> dict:
     return user
 
 
-def _safe_redirect_target(next_url: str | None) -> str:
+def _safe_redirect_target(next_url: str | None, request: Request | None = None) -> str:
     """校验 OA 回跳地址，防止开放重定向（open redirect）。
 
-    仅允许：相对路径，或 origin 命中 CORS 白名单的地址。
-    其他情况回退到默认前端首页。
+    优先级：
+    1. `next` 为相对路径 → 直接用；
+    2. `next` 的 origin 命中 CORS 白名单或部署公网地址(APP_PUBLIC_BASE_URL) → 用；
+    3. 回退到 APP_PUBLIC_BASE_URL（部署的前端地址），不再写死 localhost:3000。
     """
-    default = "http://localhost:3000"
+    settings = get_settings()
+    default = settings.APP_PUBLIC_BASE_URL or "http://localhost:3000"
     if not next_url:
+        # 没有 next 时回退到部署的前端公网地址（注意：不能用 request.url.origin，
+        # 因为回调请求打在后端端口上，其 origin 是后端而非前端）
         return default
     if next_url.startswith("/"):
         return next_url
@@ -55,10 +65,22 @@ def _safe_redirect_target(next_url: str | None) -> str:
         parsed = urlparse(next_url)
     except ValueError:
         return default
-    allowed = set(get_settings().CORS_ORIGINS)
+    allowed = set(settings.CORS_ORIGINS)
+    allowed.add(default)
     if parsed.scheme in ("http", "https") and parsed.netloc in allowed:
         return next_url
     return default
+
+
+@router.post("/auth/login")
+@audit_log("LOCAL_LOGIN", "/auth/login")
+async def local_login(payload: LocalLoginRequest):
+    """使用本地用户名和密码登录。"""
+    service = get_auth_service()
+    return await service.authenticate_local(
+        username=payload.username.strip(),
+        password=payload.password,
+    )
 
 
 @router.post("/auth/oa/callback")
@@ -94,7 +116,7 @@ async def oa_login_callback_get(
             next_url=next,
         )
 
-        frontend_base = _safe_redirect_target(next)
+        frontend_base = _safe_redirect_target(next, request)
         access_token = result.get("access_token", "")
         refresh_token = result.get("refresh_token", "")
 
@@ -130,8 +152,16 @@ async def oa_login_callback_get(
 
     except HTTPException as e:
         error_msg = e.detail or "Login failed"
-        frontend_base = _safe_redirect_target(next)
+        frontend_base = _safe_redirect_target(next, request)
         redirect_url = f"{frontend_base}/login?status=error&error={error_msg}"
+        return RedirectResponse(url=redirect_url, status_code=302)
+    except Exception as e:  # 兜底：任何未预期异常都不要暴露裸 500，重定向到前端错误页并记录完整堆栈
+        from app.core.logger import log_error
+
+        log_error(f"OA 回调未预期异常: {e}", path=str(request.url), exc_info=e)
+        frontend_base = _safe_redirect_target(next, request)
+        safe_msg = "login_failed"
+        redirect_url = f"{frontend_base}/login?status=error&error={safe_msg}"
         return RedirectResponse(url=redirect_url, status_code=302)
 
 

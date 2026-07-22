@@ -18,6 +18,8 @@ class TestGetAllSettings:
         assert data["data"]["mes"] is not None
         assert data["data"]["mes"]["username"] == ""
         assert data["data"]["mes"]["hasPassword"] is False
+        assert data["data"]["processRecords"]["username"] == ""
+        assert data["data"]["processRecords"]["hasPassword"] is False
         assert data["data"]["modelTargets"] == {}
         assert data["data"]["emailAlert"]["enabled"] is True
         assert data["data"]["featureFlags"]["voiceInputEnabled"] is False
@@ -57,6 +59,40 @@ class TestMESConfig:
         assert response.json()["data"]["username"] == "new"
         # 部分更新只改 username，密码被后端安全护栏忽略，hasPassword 仍为真
         assert response.json()["data"]["hasPassword"] is True
+
+
+@pytest.mark.integration
+class TestProcessRecordConfig:
+    """Tests for the shared realtime source credentials."""
+
+    async def test_get_default(self, client, db_clean):
+        response = await client.get("/api/settings/process-records")
+        assert response.status_code == 200
+        assert response.json()["data"] == {"username": "", "hasPassword": False}
+
+    async def test_update_never_returns_password(self, client, db_clean):
+        response = await client.put(
+            "/api/settings/process-records",
+            json={"username": "caokp", "password": "123456"},
+        )
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert data == {"username": "caokp", "hasPassword": True}
+        assert "password" not in data
+        stored = await db_clean.configs.find_one({"key": "process_record_config"})
+        assert "password" not in stored
+        assert stored["passwordCiphertext"] != "123456"
+
+    async def test_empty_password_preserves_stored_password(self, client, db_clean):
+        await client.put(
+            "/api/settings/process-records",
+            json={"username": "caokp", "password": "123456"},
+        )
+        response = await client.put(
+            "/api/settings/process-records",
+            json={"username": "new-user", "password": ""},
+        )
+        assert response.json()["data"] == {"username": "new-user", "hasPassword": True}
 
 
 @pytest.mark.integration

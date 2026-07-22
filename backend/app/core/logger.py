@@ -258,10 +258,11 @@ def setup_logger(
         log_format = (
             "<green>{time:YYYY-MM-DD HH:mm:ss.SSS}</green> | "
             "<level>{level: <8}</level> | "
-            "<magenta>{extra[request_id]:<12}</magenta> | "
-            "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
-            "<level>{message}</level>"
-        )
+        "<magenta>{extra[request_id]:<12}</magenta> | "
+        "<cyan>{name}</cyan>:<cyan>{function}</cyan>:<cyan>{line}</cyan> | "
+        "<level>{message}</level>"
+        "<level>\n{exception}</level>"
+    )
 
     # 控制台输出 - 带颜色
     logger.add(

@@ -182,6 +182,47 @@ class AuthService:
             "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         }
 
+    async def authenticate_local(self, username: str, password: str) -> dict:
+        settings = get_settings()
+        username_matches = hmac.compare_digest(username, settings.DEFAULT_ADMIN_USERNAME)
+        password_matches = hmac.compare_digest(password, settings.DEFAULT_ADMIN_PASSWORD)
+
+        if not (username_matches and password_matches):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="用户名或密码错误",
+            )
+
+        now = datetime.now(timezone.utc)
+        profile = {
+            "itcode": username,
+            "name": "系统管理员",
+            "姓名": "管理员",
+            "role": "admin",
+            "auth_type": "local",
+        }
+        await self.db.users.update_one(
+            {"itcode": username},
+            {
+                "$set": {
+                    "itcode": username,
+                    "profile": profile,
+                    "updatedAt": now.isoformat(),
+                },
+                "$setOnInsert": {"createdAt": now.isoformat()},
+            },
+            upsert=True,
+        )
+
+        session_data = await self._create_session(username, now)
+        return {
+            "ok": True,
+            "user": profile,
+            "access_token": session_data["access_token"],
+            "refresh_token": session_data["refresh_token"],
+            "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
+        }
+
     async def handle_oa_callback(
         self, status_value: str, payload_token: str, next_url: str | None = None
     ) -> dict:

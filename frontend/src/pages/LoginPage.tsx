@@ -4,6 +4,7 @@ import {
   AlertCircle,
   ArrowRight,
   Boxes,
+  Building2,
   CheckCircle2,
   Eye,
   EyeOff,
@@ -12,7 +13,7 @@ import {
   ShieldCheck,
   UserRound,
 } from 'lucide-react';
-import { useAuth } from '../context/AuthContext';
+import { getOALoginUrl, useAuth } from '../context/AuthContext';
 
 const qualityModules = [
   { icon: Gauge, code: 'RTY', label: '整机直通率', status: '在线' },
@@ -26,6 +27,7 @@ export default function LoginPage() {
   const [password, setPassword] = useState('admin123');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [oaLoading, setOaLoading] = useState(false);
   const [error, setError] = useState('');
 
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
@@ -41,6 +43,12 @@ export default function LoginPage() {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleOALogin = () => {
+    setOaLoading(true);
+    setError('');
+    window.location.href = getOALoginUrl();
   };
 
   return (
@@ -206,7 +214,7 @@ export default function LoginPage() {
 
             <button
               type="submit"
-              disabled={loading || !username.trim() || !password}
+              disabled={loading || oaLoading || !username.trim() || !password}
               className="group flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#19766f] px-4 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(25,118,111,0.18)] transition hover:bg-[#135f59] focus:outline-none focus:ring-4 focus:ring-[#19766f]/20 active:translate-y-px disabled:cursor-not-allowed disabled:bg-[#9aacaa] disabled:shadow-none"
             >
               {loading ? (
@@ -222,6 +230,31 @@ export default function LoginPage() {
               )}
             </button>
           </form>
+
+          <div className="my-5 flex items-center gap-3">
+            <div className="h-px flex-1 bg-[#dfe6e8]" />
+            <span className="text-xs text-[#7b888c]">或</span>
+            <div className="h-px flex-1 bg-[#dfe6e8]" />
+          </div>
+
+          <button
+            type="button"
+            onClick={handleOALogin}
+            disabled={loading || oaLoading}
+            className="flex h-12 w-full items-center justify-center gap-2 rounded-lg border border-[#cfd8da] bg-white px-4 text-sm font-semibold text-[#25383d] transition hover:border-[#19766f] hover:bg-[#f7fbfa] focus:outline-none focus:ring-4 focus:ring-[#19766f]/10 active:translate-y-px disabled:cursor-not-allowed disabled:opacity-70"
+          >
+            {oaLoading ? (
+              <>
+                <span className="h-4 w-4 animate-spin rounded-full border-2 border-[#19766f]/25 border-t-[#19766f]" />
+                正在跳转
+              </>
+            ) : (
+              <>
+                <Building2 className="h-4 w-4 text-[#19766f]" strokeWidth={1.8} />
+                OA 登录
+              </>
+            )}
+          </button>
 
           <div className="mt-6 rounded-lg border border-[#e6dfb8] bg-[#fffceb] px-4 py-3.5">
             <div className="flex items-start gap-3">

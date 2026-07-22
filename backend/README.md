@@ -13,6 +13,26 @@ QualiBoard 品质看板后端 API，使用 FastAPI + MongoDB 构建。
 
 ## 快速开始
 
+### 一键部署（推荐）
+
+```bash
+cd backend
+chmod +x deploy.sh
+./deploy.sh
+```
+
+脚本会自动创建 `.venv`、安装/更新运行依赖、从 `.env.example` 创建 `.env`、生成本地加密与签名密钥、启动后端并检查 `/health`。重复执行 `./deploy.sh` 即可更新并重启。
+
+```bash
+./deploy.sh status            # 进程与健康状态
+./deploy.sh logs              # 查看 uvicorn 输出
+./deploy.sh restart           # 重启
+./deploy.sh stop              # 停止
+PORT=8010 ./deploy.sh deploy  # 指定端口
+```
+
+生产部署前必须在 `.env` 中填写与 OA 系统一致的 `OA_JWT_SECRET`。脚本不会自动运行 `init_default_settings.py`，避免覆盖已有业务配置；首次确需初始化时显式执行 `./deploy.sh init-config`。
+
 ### 1. 安装依赖
 
 ```bash

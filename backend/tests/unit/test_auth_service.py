@@ -102,6 +102,37 @@ class TestJWTExpiration:
         assert "exp" in str(exc_info.value).lower()
 
 
+# ─── Local Login Tests ──────────────────────────────────────────────────────
+
+@pytest.mark.asyncio
+class TestLocalLogin:
+    """Tests for local username/password authentication."""
+
+    async def test_default_admin_creates_user_and_session(self, auth_service, _mock_db):
+        result = await auth_service.authenticate_local("admin", "admin123")
+
+        assert result["ok"] is True
+        assert result["user"]["itcode"] == "admin"
+        assert "access_token" in result
+        assert "refresh_token" in result
+
+        user = await _mock_db.users.find_one({"itcode": "admin"})
+        assert user["profile"]["auth_type"] == "local"
+        assert "password" not in user["profile"]
+
+        session = await _mock_db.sessions.find_one({"itcode": "admin"})
+        assert session is not None
+
+    async def test_wrong_password_does_not_create_session(self, auth_service, _mock_db):
+        session_count = await _mock_db.sessions.count_documents({})
+
+        with pytest.raises(Exception) as exc_info:
+            await auth_service.authenticate_local("admin", "wrong-password")
+
+        assert "401" in str(exc_info.value)
+        assert await _mock_db.sessions.count_documents({}) == session_count
+
+
 # ─── OA Callback Tests ───────────────────────────────────────────────────────
 
 @pytest.mark.asyncio

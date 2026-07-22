@@ -14,6 +14,7 @@
 - MES 密码为安全敏感字段：仅当传入非空密码时才写入，空字符串会被忽略，
   防止前端回填空值导致已存密码被误清空。
 """
+
 from collections import Counter
 from datetime import date, datetime
 
@@ -22,6 +23,7 @@ from fastapi import APIRouter, HTTPException, Query
 from app.db.mongodb import get_database
 from app.models.documents import Collections
 from app.schemas.common import Response
+from app.schemas.process_records import ProcessRecordConnectionTest
 from app.schemas.settings import (
     AIConfigSchema,
     AIConfigUpdate,
@@ -37,12 +39,16 @@ from app.schemas.settings import (
     MESConfig,
     MESConfigUpdate,
     ModelTargetsResponse,
+    ProcessRecordConfig,
+    ProcessRecordConfigUpdate,
     RTYDataDictionary,
     SettingsResponse,
     SettingsUpdateRequest,
     ValueCount,
 )
+from app.services.credential_crypto import decrypt_credential, encrypt_credential
 from app.services.lrr_alert import run_daily_lrr_check
+from app.services.process_record_service import process_record_gateway
 from app.services.weekly_alert import run_weekly_production_check
 
 router = APIRouter()
@@ -52,6 +58,7 @@ EMAIL_DEFAULT = "manager@company.com; quality-team@company.com"
 
 
 # ============== 通用助手 ==============
+
 
 async def _read_doc(key: str) -> dict | None:
     """读取单个配置文档"""
@@ -77,6 +84,15 @@ def _mes_from_doc(doc: dict | None) -> MESConfig:
     if not doc:
         return MESConfig(username="", hasPassword=False)
     return MESConfig(username=doc.get("username", ""), hasPassword=bool(doc.get("password")))
+
+
+def _process_records_from_doc(doc: dict | None) -> ProcessRecordConfig:
+    if not doc:
+        return ProcessRecordConfig()
+    return ProcessRecordConfig(
+        username=doc.get("username", ""),
+        hasPassword=bool(doc.get("passwordCiphertext")),
+    )
 
 
 def _email_from_doc(doc: dict | None) -> EmailAlertConfig:
@@ -105,10 +121,12 @@ def _ai_from_doc(doc: dict | None) -> AIConfigSchema:
 
 # ============== 统一设置接口 ==============
 
+
 @router.get("", response_model=Response[SettingsResponse])
 async def get_all_settings():
     """获取所有系统配置"""
     mes_doc = await _read_doc("mes_config")
+    process_records_doc = await _read_doc("process_record_config")
     model_doc = await _read_doc("model_targets")
     email_doc = await _read_doc("email_alert_config")
     flags_doc = await _read_doc("feature_flags")
@@ -118,6 +136,7 @@ async def get_all_settings():
         success=True,
         data=SettingsResponse(
             mes=_mes_from_doc(mes_doc),
+            processRecords=_process_records_from_doc(process_records_doc),
             modelTargets=model_doc.get("targets", {}) if model_doc else {},
             emailAlert=_email_from_doc(email_doc),
             featureFlags=FeatureFlags(
@@ -143,6 +162,19 @@ async def update_all_settings(request: SettingsUpdateRequest):
             mes_set["updatedAt"] = now
             await db[CONFIGS].update_one({"key": "mes_config"}, {"$set": mes_set}, upsert=True)
 
+    if request.processRecords is not None:
+        process_set = request.processRecords.model_dump(exclude_none=True)
+        password = process_set.pop("password", None)
+        if password:
+            process_set["passwordCiphertext"] = encrypt_credential(password)
+        if process_set:
+            process_set["updatedAt"] = now
+            await db[CONFIGS].update_one(
+                {"key": "process_record_config"},
+                {"$set": process_set},
+                upsert=True,
+            )
+
     if request.modelTargets is not None:
         await db[CONFIGS].update_one(
             {"key": "model_targets"},
@@ -162,9 +194,7 @@ async def update_all_settings(request: SettingsUpdateRequest):
         flags_set = request.featureFlags.model_dump(exclude_none=True)
         if flags_set:
             flags_set["updatedAt"] = now
-            await db[CONFIGS].update_one(
-                {"key": "feature_flags"}, {"$set": flags_set}, upsert=True
-            )
+            await db[CONFIGS].update_one({"key": "feature_flags"}, {"$set": flags_set}, upsert=True)
 
     if request.ai is not None:
         ai_set = request.ai.model_dump(exclude_none=True)
@@ -176,6 +206,7 @@ async def update_all_settings(request: SettingsUpdateRequest):
 
 
 # ============== MES 配置接口 ==============
+
 
 @router.get("/mes", response_model=Response[MESConfig])
 async def get_mes_config():
@@ -193,13 +224,68 @@ async def update_mes_config(config: MESConfigUpdate):
     return Response(success=True, data=_mes_from_doc(doc), message="MES 配置已更新")
 
 
+# ============== 关键工位影像追溯配置接口 ==============
+
+
+@router.get("/process-records", response_model=Response[ProcessRecordConfig])
+async def get_process_record_config():
+    """读取两个实时影像数据源共用的凭据状态。"""
+    doc = await _read_doc("process_record_config")
+    return Response(success=True, data=_process_records_from_doc(doc))
+
+
+@router.put("/process-records", response_model=Response[ProcessRecordConfig])
+async def update_process_record_config(config: ProcessRecordConfigUpdate):
+    """更新共享凭据；空密码表示保留当前值。"""
+    data = config.model_dump(exclude_none=True)
+    password = data.pop("password", None)
+    if password:
+        data["passwordCiphertext"] = encrypt_credential(password)
+    if not data:
+        raise HTTPException(status_code=400, detail="No fields to update")
+    data["updatedAt"] = datetime.utcnow()
+    await get_database()[CONFIGS].update_one(
+        {"key": "process_record_config"}, {"$set": data}, upsert=True
+    )
+    doc = await _read_doc("process_record_config")
+    return Response(
+        success=True,
+        data=_process_records_from_doc(doc),
+        message="关键工位影像追溯凭据已更新",
+    )
+
+
+@router.post(
+    "/process-records/test",
+    response_model=Response[ProcessRecordConnectionTest],
+)
+async def test_process_record_config(config: ProcessRecordConfigUpdate | None = None):
+    """并行测试两个系统；可测试尚未保存的新账号密码。"""
+    stored = await _read_doc("process_record_config") or {}
+    username = ((config.username if config else None) or stored.get("username") or "").strip()
+    password = config.password if config else None
+    if not password and stored.get("passwordCiphertext"):
+        password = decrypt_credential(stored["passwordCiphertext"])
+    if not username or not password:
+        raise HTTPException(status_code=400, detail="请先填写账号和密码")
+    result = await process_record_gateway.test_credentials(username, password)
+    return Response(
+        success=result.success,
+        data=result,
+        message="两个数据源均连接成功" if result.success else "部分数据源连接失败",
+    )
+
+
 # ============== 机型指标接口 ==============
+
 
 @router.get("/model-targets", response_model=Response[ModelTargetsResponse])
 async def get_model_targets():
     """获取所有机型的目标直通率配置"""
     doc = await _read_doc("model_targets")
-    return Response(success=True, data=ModelTargetsResponse(items=doc.get("targets", {}) if doc else {}))
+    return Response(
+        success=True, data=ModelTargetsResponse(items=doc.get("targets", {}) if doc else {})
+    )
 
 
 @router.put("/model-targets", response_model=Response[ModelTargetsResponse])
@@ -216,7 +302,9 @@ async def update_model_targets(targets: dict[str, float]):
         {"$set": {"targets": targets, "updatedAt": datetime.utcnow()}},
         upsert=True,
     )
-    return Response(success=True, data=ModelTargetsResponse(items=targets), message="机型指标配置已更新")
+    return Response(
+        success=True, data=ModelTargetsResponse(items=targets), message="机型指标配置已更新"
+    )
 
 
 @router.post("/model-targets/{model}", response_model=Response[ModelTargetsResponse])
@@ -250,10 +338,13 @@ async def delete_model_target(model: str):
         {"$set": {"targets": targets, "updatedAt": datetime.utcnow()}},
         upsert=True,
     )
-    return Response(success=True, data=ModelTargetsResponse(items=targets), message=f"机型 {model} 的配置已删除")
+    return Response(
+        success=True, data=ModelTargetsResponse(items=targets), message=f"机型 {model} 的配置已删除"
+    )
 
 
 # ============== 邮件预警配置接口 ==============
+
 
 @router.get("/email-alert", response_model=Response[EmailAlertConfig])
 async def get_email_alert_config():
@@ -302,6 +393,7 @@ async def run_lrr_check():
 
 # ============== 功能开关接口 ==============
 
+
 @router.get("/feature-flags", response_model=Response[FeatureFlags])
 async def get_feature_flags():
     """获取功能开关配置"""
@@ -324,6 +416,7 @@ async def update_feature_flags(flags: FeatureFlagsUpdate):
 
 
 # ============== AI 模型配置接口 ==============
+
 
 @router.get("/ai", response_model=Response[AIConfigSchema])
 async def get_ai_config():
@@ -429,7 +522,9 @@ async def get_rty_data_dictionary():
         for key, val in doc.items():
             if key == "_id":
                 continue
-            s = stats.setdefault(key, {"types": Counter(), "non_null": 0, "distinct": set(), "sample": None})
+            s = stats.setdefault(
+                key, {"types": Counter(), "non_null": 0, "distinct": set(), "sample": None}
+            )
             if val is None:
                 continue
             s["non_null"] += 1
@@ -465,7 +560,9 @@ async def get_rty_data_dictionary():
         if facet_res:
             fr = facet_res[0]
             for f in _MACHINE_KEY_FIELDS:
-                distinct_map[f] = fr.get(f"dist_{f}", [{}])[0].get("c", 0) if fr.get(f"dist_{f}") else 0
+                distinct_map[f] = (
+                    fr.get(f"dist_{f}", [{}])[0].get("c", 0) if fr.get(f"dist_{f}") else 0
+                )
             for f in _MACHINE_DIMENSIONS:
                 # 仅展示全集合中确实存在的维度（distinct > 0）
                 if distinct_map.get(f, 0) <= 0:
@@ -548,18 +645,18 @@ async def get_rty_dimension_values(
 
     db = get_database()
     coll = db[Collections.MACHINE_INFO]
-    cursor = coll.aggregate([
-        {"$group": {"_id": f"${field}", "count": {"$sum": 1}}},
-        {"$match": {"_id": {"$ne": None}}},
-    ])
+    cursor = coll.aggregate(
+        [
+            {"$group": {"_id": f"${field}", "count": {"$sum": 1}}},
+            {"$match": {"_id": {"$ne": None}}},
+        ]
+    )
     rows = await cursor.to_list(length=None)
     total = len(rows)
 
     kw = search.strip().lower()
     filtered = [
-        (str(r["_id"]), r["count"])
-        for r in rows
-        if (not kw) or (kw in str(r["_id"]).lower())
+        (str(r["_id"]), r["count"]) for r in rows if (not kw) or (kw in str(r["_id"]).lower())
     ]
     filtered.sort(key=lambda x: x[1], reverse=True)
     filtered_total = len(filtered)
@@ -584,6 +681,7 @@ async def get_rty_dimension_values(
 
 
 # ============== 周期统计看板配置接口 ==============
+
 
 @router.get("/cycle-stats-config", response_model=Response[CycleStatsConfig])
 async def get_cycle_stats_config():
@@ -624,14 +722,17 @@ async def get_data_summary():
     total_faults = await db[Collections.FAULT_INFO].count_documents({})
     fault_materials = len(await db[Collections.FAULT_INFO].distinct("product_name"))
 
-    return Response(success=True, data=DataSummaryResponse(
-        totalOrders=total_orders,
-        validOrders=valid_orders,
-        totalMachines=total_machines,
-        totalModelTypes=len(model_types),
-        totalMaterials=total_materials,
-        totalFaults=total_faults,
-        totalFaultMaterials=fault_materials,
-        factories=sorted(factories),
-        customers=sorted(customers),
-    ))
+    return Response(
+        success=True,
+        data=DataSummaryResponse(
+            totalOrders=total_orders,
+            validOrders=valid_orders,
+            totalMachines=total_machines,
+            totalModelTypes=len(model_types),
+            totalMaterials=total_materials,
+            totalFaults=total_faults,
+            totalFaultMaterials=fault_materials,
+            factories=sorted(factories),
+            customers=sorted(customers),
+        ),
+    )

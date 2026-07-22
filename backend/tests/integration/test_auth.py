@@ -5,6 +5,40 @@ import pytest
 
 
 @pytest.mark.integration
+class TestLocalLoginEndpoint:
+    """Tests for POST /api/auth/login."""
+
+    async def test_default_credentials_return_tokens(self, client):
+        response = await client.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": "admin123"},
+        )
+
+        assert response.status_code == 200
+        data = response.json()
+        assert data["ok"] is True
+        assert data["user"]["itcode"] == "admin"
+        assert data["user"]["role"] == "admin"
+        assert "access_token" in data
+        assert "refresh_token" in data
+
+        me_response = await client.get(
+            "/api/auth/me",
+            headers={"Authorization": f"Bearer {data['access_token']}"},
+        )
+        assert me_response.status_code == 200
+        assert me_response.json()["user"]["auth_type"] == "local"
+
+    async def test_invalid_credentials_return_401(self, client):
+        response = await client.post(
+            "/api/auth/login",
+            json={"username": "admin", "password": "wrong-password"},
+        )
+
+        assert response.status_code == 401
+
+
+@pytest.mark.integration
 class TestOACallbackEndpoint:
     """Tests for POST /api/auth/oa/callback"""
 

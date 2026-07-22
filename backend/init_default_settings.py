@@ -7,6 +7,7 @@
 
 用法: python init_default_settings.py
 """
+
 import os
 from datetime import datetime, timezone
 
@@ -26,7 +27,7 @@ def main():
     print(f"正在连接 MongoDB: {MONGODB_URL}...")
     try:
         client = MongoClient(MONGODB_URL, serverSelectionTimeoutMS=CONNECT_TIMEOUT_MS)
-        client.admin.command('ping')
+        client.admin.command("ping")
     except Exception as e:
         print(f"✗ MongoDB 连接失败: {e}")
         print("请确保后端服务已启动，或通过环境变量指定正确的 MONGODB_URL")
@@ -46,7 +47,16 @@ def main():
     configs.update_one({"key": "mes_config"}, {"$set": mes_config}, upsert=True)
     print("✓ MES 配置已写入: liushy2 / ********")
 
-    # 2. 邮件预警配置
+    # 2. 关键工位影像追溯（两个实时数据源共用凭据）
+    process_record_config = {"key": "process_record_config", "username": "caokp"}
+    configs.update_one(
+        {"key": "process_record_config"},
+        {"$setOnInsert": process_record_config},
+        upsert=True,
+    )
+    print("✓ 关键工位影像追溯默认账号已初始化（密码请在系统设置中保存）")
+
+    # 3. 邮件预警配置
     email_config = {
         "key": "email_alert_config",
         "enabled": True,
@@ -59,7 +69,7 @@ def main():
     configs.update_one({"key": "email_alert_config"}, {"$set": email_config}, upsert=True)
     print("✓ 邮件预警配置已写入（默认启用）")
 
-    # 3. AI 模型配置
+    # 4. AI 模型配置
     ai_config = {
         "key": "ai_config",
         "apiUrl": "http://10.41.101.220:8000/v1/chat/completions",
@@ -73,7 +83,7 @@ def main():
     print("  - API: http://10.41.101.220:8000/v1/chat/completions")
     print("  - Model: /models/coder/minimax/MiniMax-M2")
 
-    # 4. 功能开关（原 init_db.py）
+    # 5. 功能开关（原 init_db.py）
     feature_flags = {
         "key": "feature_flags",
         "voiceInputEnabled": False,

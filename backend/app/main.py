@@ -1,18 +1,20 @@
 """
 QualiBoard 品质看板 Backend - FastAPI Application
 """
+
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import ai, alert_report, auth, faults, lrr, mes, rty, settings
+from app.api import ai, alert_report, auth, faults, lrr, mes, process_records, rty, settings
 from app.core.config import get_settings
 from app.core.logger import log_error, log_info, setup_logger
 from app.core.middleware import RequestContextMiddleware
 from app.db.mongodb import close_mongo_connection, connect_to_mongo
 from app.services.lrr_alert import run_daily_lrr_check
+from app.services.process_record_service import process_record_gateway
 from app.services.weekly_alert import run_weekly_production_check
 
 
@@ -33,6 +35,7 @@ async def lifespan(app: FastAPI):
 
     # 导入审计日志器供其他模块使用
     from app.core import logger as logger_module
+
     logger_module.audit_logger = audit_logger
 
     log_info("=" * 60)
@@ -86,6 +89,7 @@ async def lifespan(app: FastAPI):
             log_error(f"APScheduler 关闭异常: {exc}")
 
     log_info("关闭 MongoDB 连接...")
+    await process_record_gateway.close()
     await close_mongo_connection()
     log_info("QualiBoard API 已关闭")
     log_info("=" * 60)
@@ -100,9 +104,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+
 # 提前解析 CORS 白名单，供中间件使用
 def settings_cors_origins() -> list[str]:
     return get_settings().CORS_ORIGINS
+
 
 # CORS 配置（白名单，禁止 "*" + credentials 的危险组合）
 app.add_middleware(
@@ -125,6 +131,11 @@ app.include_router(alert_report.router, prefix="/api/alert-report", tags=["Alert
 app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
 app.include_router(mes.router, prefix="/api/mes", tags=["MES"])
 app.include_router(ai.router, prefix="/api/ai", tags=["AI"])
+app.include_router(
+    process_records.router,
+    prefix="/api/process-records",
+    tags=["Process Records"],
+)
 app.include_router(auth.router, prefix="/api", tags=["Auth"])
 
 
@@ -162,6 +173,7 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
 def run():
     """运行服务器"""
     import uvicorn
+
     uvicorn.run(
         "app.main:app",
         host="0.0.0.0",

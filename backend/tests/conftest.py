@@ -47,6 +47,7 @@ def _mock_settings():
         DEBUG=True,
         MONGODB_URL="mongodb://localhost:27017",
         MONGODB_DB_NAME="test_quality_monitoring",
+        PROCESS_RECORD_CREDENTIAL_KEY="-Y1CqTw8-WDwRbbkyZ8wAEZbs4uT29bW-U7zQZd4eG4=",
         OA_JWT_SECRET="bc3868bfa47ef87440a9e874afaad77c706c6229d08e5bb74f51ab726d072fc4",
         SESSION_EXPIRE_DAYS=30,
         ACCESS_TOKEN_EXPIRE_MINUTES=15,
