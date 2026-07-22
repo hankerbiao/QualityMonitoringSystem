@@ -21,6 +21,10 @@ class SourceDefinition:
     sort_field: str
     sn_field: str
     sn_display_type: str
+    base_field: str
+    base_display_type: str
+    station_field: str
+    station_display_type: str | None = None
 
 
 class PhotoSourceClient:
@@ -110,8 +114,31 @@ class PhotoSourceClient:
         payload = response.json()
         return payload if isinstance(payload, dict) else {"loggedIn": True}
 
-    async def fetch_page(self, page: int, rows: int, sn: str = "") -> dict[str, Any]:
+    async def fetch_page(
+        self,
+        page: int,
+        rows: int,
+        sn: str = "",
+        base: str = "",
+        station: str = "",
+    ) -> dict[str, Any]:
         wheres: list[dict[str, str]] = []
+        if base:
+            wheres.append(
+                {
+                    "name": self.definition.base_field,
+                    "value": base,
+                    "displayType": self.definition.base_display_type,
+                }
+            )
+        if station:
+            station_filter = {
+                "name": self.definition.station_field,
+                "value": station,
+            }
+            if self.definition.station_display_type:
+                station_filter["displayType"] = self.definition.station_display_type
+            wheres.append(station_filter)
         if sn:
             wheres.append(
                 {

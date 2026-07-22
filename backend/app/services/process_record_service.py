@@ -8,7 +8,9 @@ from typing import Any
 from app.db.mongodb import get_database
 from app.libs.photo_sources import PhotoSourceClient, SourceDefinition
 from app.schemas.process_records import (
+    ProcessRecordBaseOption,
     ProcessRecordConnectionTest,
+    ProcessRecordFilterOptions,
     ProcessRecordItem,
     ProcessRecordPhoto,
     ProcessRecordRealtimeData,
@@ -30,6 +32,10 @@ SOURCE_DEFINITIONS = {
         sort_field="id",
         sn_field="scan_code",
         sn_display_type="text",
+        base_field="base_code",
+        base_display_type="select",
+        station_field="process",
+        station_display_type="select",
     ),
     "system2": SourceDefinition(
         key="system2",
@@ -40,8 +46,55 @@ SOURCE_DEFINITIONS = {
         sort_field="Id",
         sn_field="Barcode",
         sn_display_type="like",
+        base_field="Base",
+        base_display_type="select",
+        station_field="StationName",
     ),
 }
+
+BASE_FILTER_VALUES: dict[str, dict[str, str]] = {
+    "天津": {"system1": "TJ", "system2": "1000"},
+    "昆山": {"system1": "KS", "system2": "3000"},
+    "太原": {"system1": "TY", "system2": "7000"},
+    "安阳": {"system1": "AY", "system2": "8000"},
+    "桐乡": {"system1": "TX", "system2": "9000"},
+    "盘锦": {"system1": "PJ", "system2": "2000"},
+    "大同": {"system1": "DT", "system2": "D000"},
+    "青岛": {"system1": "QD"},
+    "马来": {"system1": "ML"},
+}
+
+SYSTEM1_PROCESS_OPTIONS = [
+    "TJM-OP20",
+    "TJM-OP10",
+    "TJM-OP160",
+    "TJM-OP190",
+    "TJM-OP200",
+    "TJM-OP320",
+    "TJM-OP310",
+    "TJM-OP300",
+    "TJM-OP250",
+    "TJM-OP230",
+    "TJM-OP222",
+    "TJM-OP221",
+    "TJM-OP220",
+    "TJM-OP215",
+    "TJM-OP210",
+    "TJM-OP240",
+    "TJM-OP205",
+    "DTM-OP310",
+    "DTM-OP180",
+]
+
+
+def get_filter_options() -> ProcessRecordFilterOptions:
+    return ProcessRecordFilterOptions(
+        bases=[
+            ProcessRecordBaseOption(name=name, sources=list(values))
+            for name, values in BASE_FILTER_VALUES.items()
+        ],
+        system1Processes=SYSTEM1_PROCESS_OPTIONS,
+    )
 
 
 class CredentialsNotConfiguredError(RuntimeError):
@@ -66,6 +119,14 @@ def _photo_paths(value: Any) -> list[str]:
     return [str(item).strip() for item in values if str(item).strip()]
 
 
+def _display_base(source: str, value: Any) -> str:
+    source_value = _text(value).strip()
+    for name, mappings in BASE_FILTER_VALUES.items():
+        if mappings.get(source) == source_value:
+            return name
+    return source_value
+
+
 def normalize_record(source: str, row: dict[str, Any]) -> ProcessRecordItem:
     if source == "system1":
         record_id = _first(row, "id", "Id")
@@ -81,7 +142,10 @@ def normalize_record(source: str, row: dict[str, Any]) -> ProcessRecordItem:
             sourceName=SOURCE_DEFINITIONS[source].name,
             recordId=record_id,
             sn=_first(row, "scan_code", "ScanCode"),
-            base=_first(row, "base_code", "base", "Base", "factory", "Factory"),
+            base=_display_base(
+                "system1",
+                _first(row, "base_code", "base", "Base", "factory", "Factory"),
+            ),
             station=_first(row, "process", "Process"),
             submittedAt=_first(
                 row,
@@ -107,7 +171,7 @@ def normalize_record(source: str, row: dict[str, Any]) -> ProcessRecordItem:
         sourceName=SOURCE_DEFINITIONS[source].name,
         recordId=record_id,
         sn=_first(row, "Barcode"),
-        base=_first(row, "Base"),
+        base=_display_base("system2", _first(row, "Base")),
         station=_first(row, "StationName"),
         submittedAt=_first(row, "SubmitTime"),
         order=_first(row, "Order"),
@@ -169,11 +233,26 @@ class ProcessRecordGateway:
             return self._clients
 
     async def _query_source(
-        self, source: str, page: int, page_size: int, sn: str
+        self,
+        source: str,
+        page: int,
+        page_size: int,
+        sn: str,
+        base: str,
+        station: str,
     ) -> ProcessRecordSourceResult:
         clients = await self._ensure_clients()
+        source_base = BASE_FILTER_VALUES.get(base, {}).get(source) if base else ""
+        if base and not source_base:
+            return ProcessRecordSourceResult(online=True)
         try:
-            payload = await clients[source].fetch_page(page, page_size, sn)
+            payload = await clients[source].fetch_page(
+                page,
+                page_size,
+                sn=sn,
+                base=source_base,
+                station=station,
+            )
             rows = [normalize_record(source, row) for row in payload.get("rows", [])]
             return ProcessRecordSourceResult(
                 online=True,
@@ -189,11 +268,18 @@ class ProcessRecordGateway:
         page: int,
         page_size: int,
         sn: str,
+        base: str = "",
+        station: str = "",
     ) -> ProcessRecordRealtimeData:
+        if base and base not in BASE_FILTER_VALUES:
+            raise ValueError(f"不支持的基地筛选值: {base}")
         selected = ["system1", "system2"] if source == "all" else [source]
         source_page = 1 if source == "all" else page
         results = await asyncio.gather(
-            *(self._query_source(key, source_page, page_size, sn) for key in selected)
+            *(
+                self._query_source(key, source_page, page_size, sn, base, station)
+                for key in selected
+            )
         )
         sources = dict(zip(selected, results, strict=True))
         rows = [item for result in results for item in result.rows]

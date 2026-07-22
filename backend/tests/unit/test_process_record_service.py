@@ -4,8 +4,11 @@ import pytest
 
 from app.libs.photo_sources import PhotoSourceClient
 from app.services.process_record_service import (
+    BASE_FILTER_VALUES,
     SOURCE_DEFINITIONS,
+    ProcessRecordGateway,
     _record_sort_key,
+    get_filter_options,
     normalize_record,
 )
 
@@ -24,6 +27,7 @@ def test_normalize_system1_collects_three_photo_slots():
         {
             "id": 9,
             "scan_code": "6102292204461634",
+            "base_code": "TJ",
             "process": "TJM-OP320",
             "photo_url_one": "Upload/Tables/Tb_process_scan_photo/one.jpg",
             "photo_url_two": "Upload/Tables/Tb_process_scan_photo/two.jpg",
@@ -33,6 +37,7 @@ def test_normalize_system1_collects_three_photo_slots():
     )
     assert item.key == "system1:9"
     assert item.sn == "6102292204461634"
+    assert item.base == "天津"
     assert item.station == "TJM-OP320"
     assert [photo.path for photo in item.photos] == [
         "Upload/Tables/Tb_process_scan_photo/one.jpg",
@@ -76,7 +81,7 @@ def test_normalize_system2_preserves_all_display_fields():
             "Remarks": "ok",
         },
     )
-    assert item.base == "3000"
+    assert item.base == "昆山"
     assert item.station == "机箱封盖前检查"
     assert item.order == "SO-1"
     assert item.files == "file.txt"
@@ -110,6 +115,90 @@ async def test_fetch_page_builds_source_specific_sn_filter(monkeypatch):
     ]
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("source", "base", "station", "expected_wheres"),
+    [
+        (
+            "system1",
+            "TJ",
+            "TJM-OP320",
+            [
+                {"name": "base_code", "value": "TJ", "displayType": "select"},
+                {"name": "process", "value": "TJM-OP320", "displayType": "select"},
+                {"name": "scan_code", "value": "SN-1", "displayType": "text"},
+            ],
+        ),
+        (
+            "system2",
+            "1000",
+            "封箱检查",
+            [
+                {"name": "Base", "value": "1000", "displayType": "select"},
+                {"name": "StationName", "value": "封箱检查"},
+                {"name": "Barcode", "value": "SN-1", "displayType": "like"},
+            ],
+        ),
+    ],
+)
+async def test_fetch_page_builds_source_specific_filter_payload(
+    monkeypatch, source, base, station, expected_wheres
+):
+    client = PhotoSourceClient(SOURCE_DEFINITIONS[source], "user", "password")
+    captured = {}
+
+    async def fake_request(method, url, **kwargs):
+        captured.update({"method": method, "url": url, **kwargs})
+        return FakeResponse({"status": 0, "total": 0, "rows": []})
+
+    monkeypatch.setattr(client, "_request", fake_request)
+    try:
+        await client.fetch_page(1, 30, sn="SN-1", base=base, station=station)
+    finally:
+        await client.close()
+
+    assert json.loads(captured["json"]["wheres"]) == expected_wheres
+
+
+@pytest.mark.asyncio
+async def test_gateway_maps_one_base_name_for_each_source(monkeypatch):
+    captured = {}
+
+    class FakeClient:
+        def __init__(self, source):
+            self.source = source
+
+        async def fetch_page(self, page, rows, **kwargs):
+            captured[self.source] = kwargs
+            return {"status": 0, "total": 0, "rows": []}
+
+    gateway = ProcessRecordGateway()
+
+    async def fake_ensure_clients():
+        return {"system1": FakeClient("system1"), "system2": FakeClient("system2")}
+
+    monkeypatch.setattr(gateway, "_ensure_clients", fake_ensure_clients)
+    result = await gateway.query("all", 1, 30, "SN-1", "天津", "封箱检查")
+
+    assert captured["system1"] == {"sn": "SN-1", "base": "TJ", "station": "封箱检查"}
+    assert captured["system2"] == {
+        "sn": "SN-1",
+        "base": "1000",
+        "station": "封箱检查",
+    }
+    assert result.total == 0
+
+
+def test_filter_options_expose_supported_sources_without_upstream_codes():
+    options = get_filter_options()
+    bases = {option.name: option.sources for option in options.bases}
+
+    assert BASE_FILTER_VALUES["大同"] == {"system1": "DT", "system2": "D000"}
+    assert bases["天津"] == ["system1", "system2"]
+    assert bases["青岛"] == ["system1"]
+    assert "TJM-OP320" in options.system1Processes
+
+
 def test_image_path_validation_blocks_upstream_escape():
     assert (
         PhotoSourceClient.validate_image_path("Upload/Tables/tb_assembly_image/image.jpg")
@@ -122,11 +211,7 @@ def test_image_path_validation_blocks_upstream_escape():
 
 
 def test_cross_source_times_sort_chronologically():
-    later_system1 = normalize_record(
-        "system1", {"id": 2, "CreateDate": "2026-07-22 15:50:00"}
-    )
-    earlier_system2 = normalize_record(
-        "system2", {"Id": 1, "SubmitTime": "2026-07-22T15:37:00"}
-    )
+    later_system1 = normalize_record("system1", {"id": 2, "CreateDate": "2026-07-22 15:50:00"})
+    earlier_system2 = normalize_record("system2", {"Id": 1, "SubmitTime": "2026-07-22T15:37:00"})
     rows = sorted([earlier_system2, later_system1], key=_record_sort_key, reverse=True)
     assert rows[0] is later_system1

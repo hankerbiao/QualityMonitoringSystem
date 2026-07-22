@@ -44,6 +44,16 @@ class ProcessRecordRealtimeData(BaseModel):
     sources: dict[str, ProcessRecordSourceResult]
 
 
+class ProcessRecordBaseOption(BaseModel):
+    name: str
+    sources: list[Literal["system1", "system2"]]
+
+
+class ProcessRecordFilterOptions(BaseModel):
+    bases: list[ProcessRecordBaseOption]
+    system1Processes: list[str]
+
+
 class SourceConnectionResult(BaseModel):
     source: Literal["system1", "system2"]
     name: str
