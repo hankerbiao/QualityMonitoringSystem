@@ -2,14 +2,13 @@ import { createContext, useContext, useState, useEffect, useCallback, type React
 import { useNavigate } from 'react-router-dom';
 import {
   getCurrentUser,
+  loginWithPassword,
   registerUnauthorizedHandler,
-  submitOALogin,
   setAccessToken,
   setRefreshToken,
   clearTokens,
   getAccessToken,
 } from '../api/authApi';
-import { OA_LOGIN_BASE_URL, OA_APP_NAME } from '../constants';
 import type { UserProfile, AuthContextType } from '../types';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -56,61 +55,18 @@ function InnerAuthProvider({ children }: { children: ReactNode }) {
     registerUnauthorizedHandler(logout);
   }, [logout]);
 
-  useEffect(() => {
-    const url = new URL(window.location.href);
-    const status = url.searchParams.get('status');
-    const payload = url.searchParams.get('payload');
-    const accessToken = url.searchParams.get('access_token');
-    const refreshToken = url.searchParams.get('refresh_token');
-    const expiresIn = url.searchParams.get('expires_in');
-
-    if (!status) return;
-
-    url.searchParams.delete('status');
-    url.searchParams.delete('payload');
-    url.searchParams.delete('access_token');
-    url.searchParams.delete('refresh_token');
-    url.searchParams.delete('expires_in');
-    url.searchParams.delete('next');
-    window.history.replaceState(null, '', url.toString());
-
-    if (payload) {
-      setUser({ itcode: 'logging_in' });
-      submitOALogin({ status, payload, next: null })
-        .then(async (result) => {
-          if (result.access_token && result.refresh_token) {
-            setAccessToken(result.access_token, result.expires_in ?? 900);
-            setRefreshToken(result.refresh_token);
-            const current = await getCurrentUser();
-            setUser(current.user as UserProfile);
-            showLoginSuccess((current.user as UserProfile)?.姓名 || (current.user as UserProfile)?.真实姓名);
-            navigate('/', { replace: true });
-          } else {
-            throw new Error('No token in response');
-          }
-        })
-        .catch((err) => {
-          console.error('OA login failed', err);
-          clearTokens();
-          setUser(null);
-        });
-    } else if (accessToken && refreshToken) {
-      const exp = expiresIn ? parseInt(expiresIn, 10) : 900;
-      setAccessToken(accessToken, exp);
-      setRefreshToken(refreshToken);
-      setUser({ itcode: 'logging_in' });
-      getCurrentUser()
-        .then((current) => {
-          setUser(current.user as UserProfile);
-          showLoginSuccess((current.user as UserProfile)?.姓名 || (current.user as UserProfile)?.真实姓名);
-          navigate('/', { replace: true });
-        })
-        .catch((err) => {
-          console.error('OA login failed', err);
-          clearTokens();
-          setUser(null);
-        });
+  const login = useCallback(async (username: string, password: string) => {
+    const result = await loginWithPassword(username, password);
+    if (!result.access_token || !result.refresh_token || !result.user) {
+      throw new Error('登录响应不完整，请稍后重试');
     }
+
+    setAccessToken(result.access_token, result.expires_in ?? 900);
+    setRefreshToken(result.refresh_token);
+    const profile = result.user as UserProfile;
+    setUser(profile);
+    showLoginSuccess(profile.姓名 || profile.真实姓名 || profile.name);
+    navigate('/', { replace: true });
   }, [navigate, showLoginSuccess]);
 
   useEffect(() => {
@@ -130,7 +86,7 @@ function InnerAuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   return (
-    <AuthContext.Provider value={{ user, isAuthenticated: !!user, isAuthLoaded, logout }}>
+    <AuthContext.Provider value={{ user, isAuthenticated: !!user, isAuthLoaded, login, logout }}>
       {children}
     </AuthContext.Provider>
   );
@@ -144,9 +100,4 @@ export function useAuth() {
   const context = useContext(AuthContext);
   if (!context) throw new Error('useAuth must be used within AuthProvider');
   return context;
-}
-
-export function getOALoginUrl(): string {
-  const next = window.location.origin;
-  return `${OA_LOGIN_BASE_URL}/${encodeURIComponent(OA_APP_NAME)}?next=${encodeURIComponent(next)}`;
 }

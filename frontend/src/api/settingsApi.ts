@@ -1,6 +1,6 @@
 import { API_BASE_URL } from '../constants';
 import { apiFetch } from './authApi';
-import type { MESConfig, ModelTargets, EmailAlertConfig, AIConfig, SettingsResponse, RTYDataDictionary, DimensionValues, CycleStatsConfig, DataSummary } from '../types';
+import type { MESConfig, ModelTargets, EmailAlertConfig, AIConfig, SettingsResponse, RTYDataDictionary, DimensionValues, CycleStatsConfig, DataSummary, ProcessRecordConfig, ProcessRecordConnectionTest } from '../types';
 
 interface ApiResponse<T> {
   success: boolean;
@@ -18,6 +18,7 @@ export const settingsApi = {
 
   async updateAll(data: {
     mes?: Partial<MESConfig>;
+    processRecords?: Partial<ProcessRecordConfig>;
     modelTargets?: ModelTargets;
     emailAlert?: Partial<EmailAlertConfig>;
     ai?: Partial<AIConfig>;
@@ -29,6 +30,17 @@ export const settingsApi = {
     });
     const json: ApiResponse<SettingsResponse> = await res.json();
     if (!json.success) throw new Error('Failed to update settings');
+    return json.data;
+  },
+
+  async testProcessRecords(config: Partial<ProcessRecordConfig>): Promise<ProcessRecordConnectionTest> {
+    const res = await apiFetch(`${API_BASE_URL}/settings/process-records/test`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: config.username, password: config.password }),
+    });
+    const json: ApiResponse<ProcessRecordConnectionTest> = await res.json();
+    if (!json.data) throw new Error(json.message || '数据源连接测试失败');
     return json.data;
   },
 

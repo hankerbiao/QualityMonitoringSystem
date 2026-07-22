@@ -148,26 +148,25 @@ export async function getCurrentUser(): Promise<{
   return response.json();
 }
 
-export async function submitOALogin(params: {
-  status: string;
-  payload: string;
-  next: string | null;
-}): Promise<{
+interface LoginResponse {
   ok: boolean;
   user?: unknown;
   access_token?: string;
   refresh_token?: string;
   expires_in?: number;
-}> {
-  const response = await fetch(`${API_BASE_URL}/auth/oa/callback`, {
+}
+
+export async function loginWithPassword(username: string, password: string): Promise<LoginResponse> {
+  const response = await fetch(`${API_BASE_URL}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
+    body: JSON.stringify({ username, password }),
   });
 
   if (!response.ok) {
-    const detail = await response.text().catch(() => 'Login failed');
-    throw new Error(detail || 'OA login failed');
+    const payload = await response.json().catch(() => null);
+    const message = payload?.detail || payload?.error || '登录失败，请稍后重试';
+    throw new Error(message);
   }
 
   return response.json();

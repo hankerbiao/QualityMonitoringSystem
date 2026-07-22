@@ -11,7 +11,29 @@ body {
   font-family: var(--font-sans);
 }
 
-/* ===== Login page ambient animations ===== */
+/* ===== Login page ===== */
+@keyframes login-entry {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.login-enter {
+  animation: login-entry 420ms ease-out both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-enter {
+    animation: none;
+  }
+}
+
+/* Legacy ambient animations used by older pages. */
 @keyframes float-orb {
   0%, 100% { transform: translate3d(0, 0, 0) scale(1); }
   50% { transform: translate3d(24px, -32px, 0) scale(1.08); }

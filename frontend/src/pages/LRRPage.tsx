@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -9,6 +9,7 @@ import {
   Wrench,
   AlertTriangle,
   TrendingUp,
+  Download,
   BarChart3,
   X,
 } from 'lucide-react';
@@ -18,17 +19,22 @@ import {
   Bar,
   XAxis,
   YAxis,
-  Cell,
-  ResponsiveContainer,
   Tooltip as RTooltip,
-  PieChart,
-  Pie,
+  ResponsiveContainer,
+  Cell,
 } from 'recharts';
 import { lrrApi } from '../api/lrrApi';
-import type { LRRData } from '../types';
+import type {
+  LRRFilters,
+  LRRListResponse,
+  LRROptions,
+  LRRData,
+  LRRDimensionStat,
+} from '../types';
 import { SortIcon } from '../components/shared/SortIcon';
+import LRRFiltersPanel from '../components/lrr/LRRFilters';
 
-type SortField = 'totalCount' | 'faultCount' | 'lrrRate';
+type SortField = 'lrrRate' | 'faultCount' | 'totalCount' | 'materialNo';
 type FilterMode = 'all' | 'with_assembly' | 'without_assembly';
 
 // 故障率风险分级阈值（%）
@@ -41,8 +47,48 @@ function lrrColor(rate: number | null): { text: string; bar: string } {
   return { text: 'text-red-600', bar: '#ef4444' };
 }
 
-function round2(n: number): number {
-  return Math.round(n * 100) / 100;
+function DimBarChart({ title, data, compact }: { title: string; data: LRRDimensionStat[]; compact?: boolean }) {
+  if (!data.length) {
+    return (
+      <div className={`bg-white rounded-lg border border-slate-200 shadow-sm ${compact ? 'p-2' : 'p-4'}`}>
+        <h3 className={`font-semibold text-slate-700 mb-2 ${compact ? 'text-[11px]' : 'text-sm'}`}>{title}</h3>
+        <div className={`flex items-center justify-center text-slate-400 text-sm ${compact ? 'h-[80px]' : 'h-[140px]'}`}>暂无数据</div>
+      </div>
+    );
+  }
+  const chartData = data.map((d) => ({
+    name: d.key.length > 8 ? d.key.slice(0, 8) + '…' : d.key,
+    full: d.key,
+    rate: d.lrrRate ?? 0,
+    faults: d.totalFaults,
+    assemblies: d.totalAssemblies,
+  }));
+  return (
+    <div className={`bg-white rounded-lg border border-slate-200 shadow-sm ${compact ? 'p-2' : 'p-4'}`}>
+      <h3 className={`font-semibold text-slate-700 mb-2 ${compact ? 'text-[11px]' : 'text-sm'}`}>
+        {title}
+        <span className="text-[11px] font-normal text-slate-400 ml-1">（按故障率降序）</span>
+      </h3>
+      <ResponsiveContainer width="100%" height={compact ? Math.max(80, chartData.length * 18) : Math.max(120, chartData.length * 22)}>
+        <BarChart data={chartData} layout="vertical" margin={compact ? { left: 4, right: 20, top: 2, bottom: 2 } : { left: 8, right: 28, top: 4, bottom: 4 }}>
+          <XAxis type="number" tickFormatter={(v) => `${v}%`} tick={{ fontSize: compact ? 9 : 10 }} />
+          <YAxis type="category" dataKey="name" width={compact ? 64 : 78} tick={{ fontSize: compact ? 9 : 10 }} />
+          <RTooltip
+            formatter={(v: any, _n: any, p: any) => [
+              `${v}% · 故障 ${p.payload.faults} / 装配 ${p.payload.assemblies}`,
+              '故障率',
+            ]}
+            labelFormatter={(l: any, p: any) => p?.[0]?.payload?.full ?? l}
+          />
+          <Bar dataKey="rate" radius={[0, 3, 3, 0]}>
+            {chartData.map((_, i) => (
+              <Cell key={i} fill={lrrColor(chartData[i].rate).bar} />
+            ))}
+          </Bar>
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
 }
 
 export default function LRRPage() {
@@ -50,81 +96,112 @@ export default function LRRPage() {
 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(false);
-  const [data, setData] = useState<LRRData[]>([]);
+  const [response, setResponse] = useState<LRRListResponse | null>(null);
+  const [options, setOptions] = useState<LRROptions>({
+    factories: [],
+    customers: [],
+    productFamilies: [],
+    partTypes: [],
+    faultTypes: [],
+  });
   const [page, setPage] = useState(1);
-  const [total, setTotal] = useState(0);
-  const [filter, setFilter] = useState<FilterMode>('all');
   const pageSize = 50;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  // 全量数据（用于概览统计与图表，limit=500 上限内）
-  const [overview, setOverview] = useState<LRRData[]>([]);
+  const [filters, setFilters] = useState<LRRFilters>({
+    filter: 'all',
+    timeGranularity: 'none',
+    sortBy: 'lrrRate',
+    sortDir: 'desc',
+  });
   const [search, setSearch] = useState('');
-  const [chartsOpen, setChartsOpen] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [showStats, setShowStats] = useState(false);
 
-  const [sortField, setSortField] = useState<SortField | null>(null);
-  const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
+  const total = response?.total ?? 0;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const data: LRRData[] = response?.items ?? [];
 
-  const fetchOverview = async (currentFilter: FilterMode) => {
-    try {
-      const res = await lrrApi.getLRRData(1, 500, currentFilter);
-      setOverview(res.items);
-    } catch (e) {
-      console.error('Failed to fetch LRR overview', e);
-      setOverview([]);
-    }
-  };
-
-  const fetchData = async (targetPage = page, currentFilter = filter) => {
-    setLoading(true);
-    setError(false);
-    try {
-      const result = await lrrApi.getLRRData(targetPage, pageSize, currentFilter);
-      setData(result.items);
-      setTotal(result.total);
-      setPage(result.page);
-    } catch (err) {
-      console.error('Failed to fetch LRR data', err);
-      setError(true);
-    } finally {
-      setLoading(false);
-    }
-  };
+  const load = useCallback(
+    async (targetPage: number, f: LRRFilters) => {
+      setLoading(true);
+      setError(false);
+      try {
+        const res = await lrrApi.getLRRData(targetPage, pageSize, f);
+        setResponse(res);
+        setPage(res.page);
+      } catch (err) {
+        console.error('Failed to fetch LRR data', err);
+        setError(true);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
-    fetchData(1, filter);
-    fetchOverview(filter);
+    lrrApi
+      .getOptions()
+      .then((opts) => {
+        // 防御：接口可能返回错误体(如 500/404 的 {detail:...})，
+        // 缺字段时保留初始空数组，避免下拉组件读取 undefined.map 崩溃
+        if (opts && Array.isArray(opts.factories)) {
+          setOptions(opts);
+        } else {
+          console.error('LRR options 返回格式异常，下拉降级为空', opts);
+        }
+      })
+      .catch((e) => console.error('Failed to fetch LRR options', e));
+    load(1, filters);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filter]);
+  }, []);
 
-  const handleFilterChange = (newFilter: FilterMode) => {
-    if (newFilter !== filter) {
-      setFilter(newFilter);
-      setPage(1);
-    }
+  const applyFilters = (patch: Partial<LRRFilters>) => {
+    const nf = { ...filters, ...patch };
+    setFilters(nf);
+    setPage(1);
+    load(1, nf);
   };
+
+  const handleFilterMode = (mode: FilterMode) => applyFilters({ filter: mode });
 
   const handleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
-    } else {
-      setSortField(field);
-      setSortDirection('desc');
-    }
+    const dir: 'asc' | 'desc' =
+      filters.sortBy === field && filters.sortDir === 'desc' ? 'asc' : 'desc';
+    applyFilters({ sortBy: field, sortDir: dir });
   };
 
-  const handleExport = () => {
-    const exportData = sortedData.map((row) => ({
-      '物料编号': row.materialNo,
-      '物料描述': row.materialDesc || '-',
-      '总装配数量': row.totalCount !== null ? row.totalCount : '无装配数据',
-      '故障数量': row.faultCount,
-      '故障率(%)': row.lrrRate !== null ? row.lrrRate : '-',
-    }));
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'LRR故障率');
-    XLSX.writeFile(wb, `LRR故障率数据导出_${new Date().toISOString().split('T')[0]}.xlsx`);
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const details = await lrrApi.getFaultDetails(filters);
+      const rows = details.map((d) => ({
+        序列号: d.sn,
+        销售单: d.saleNo,
+        生产工单: d.mfgOrder,
+        生产基地: d.factory,
+        客户: d.customer,
+        机型: d.productFamily,
+        生产时间: d.productionTime,
+        维修时间: d.repairTime,
+        部件PN: d.partPN,
+        部件类型: d.partType,
+        部件描述: d.partDesc,
+        故障类型: d.faultType,
+        故障描述: d.faultDesc,
+        二次复现: d.fault2ndAppear,
+        三次复现: d.fault3rdAppear,
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, '故障明细');
+      XLSX.writeFile(wb, `LRR故障明细_${new Date().toISOString().split('T')[0]}.xlsx`);
+    } catch (e) {
+      console.error('导出失败', e);
+      alert('导出失败，请重试');
+    } finally {
+      setExporting(false);
+    }
   };
 
   const sortedData = useMemo(() => {
@@ -135,84 +212,49 @@ export default function LRRPage() {
             (d.materialDesc || '').toLowerCase().includes(search.trim().toLowerCase()),
         )
       : data;
-    if (!sortField) return base;
-    return [...base].sort((a, b) => {
-      const aVal = a[sortField];
-      const bVal = b[sortField];
-      if (aVal === null && bVal === null) return 0;
-      if (aVal === null) return 1;
-      if (bVal === null) return -1;
-      if (aVal < bVal) return sortDirection === 'asc' ? -1 : 1;
-      if (aVal > bVal) return sortDirection === 'asc' ? 1 : -1;
-      return 0;
-    });
-  }, [data, sortField, sortDirection, search]);
+    return base;
+  }, [data, search]);
 
-  // ===== 概览统计 =====
-  const stats = useMemo(() => {
-    const total = overview.length;
-    const withAsm = overview.filter((d) => d.totalCount !== null).length;
-    const withoutAsm = total - withAsm;
-    const totalFaults = overview.reduce((s, d) => s + d.faultCount, 0);
-    const totalAsm = overview.reduce((s, d) => s + (d.totalCount ?? 0), 0);
-    const avgLrr = totalAsm > 0 ? round2((totalFaults / totalAsm) * 100) : null;
-    const highRisk = overview.filter(
-      (d) => d.lrrRate !== null && d.lrrRate >= HIGH_RISK_THRESHOLD,
-    ).length;
-    return { total, withAsm, withoutAsm, totalFaults, totalAsm, avgLrr, highRisk };
-  }, [overview]);
-
-  // ===== 图表数据 =====
-  const topRiskData = useMemo(
-    () =>
-      overview
-        .filter((d) => d.lrrRate !== null)
-        .sort((a, b) => (b.lrrRate ?? 0) - (a.lrrRate ?? 0))
-        .slice(0, 10)
-        .map((d) => ({ name: d.materialNo, rate: d.lrrRate ?? 0, color: lrrColor(d.lrrRate).bar })),
-    [overview],
-  );
-
-  const pieData = [
-    { name: '有装配扫号', value: stats.withAsm, color: '#3b82f6' },
-    { name: '无装配扫号', value: stats.withoutAsm, color: '#f59e0b' },
-  ];
+  const summary = response?.summary;
 
   const kpiCards = [
     {
-      label: '物料总数',
-      value: stats.total.toLocaleString(),
+      label: '物料种类',
+      value: (summary?.materialKinds ?? 0).toLocaleString(),
       icon: <Package className="w-4 h-4" />,
       tint: 'text-blue-600 bg-blue-50',
-      sub: `有装配 ${stats.withAsm} · 无装配 ${stats.withoutAsm}`,
+      sub: `有装配 ${summary?.withAssembly ?? 0} · 纯故障 ${summary?.withoutAssembly ?? 0}`,
     },
     {
       label: '总故障件次',
-      value: stats.totalFaults.toLocaleString(),
+      value: (summary?.totalFaults ?? 0).toLocaleString(),
       icon: <AlertTriangle className="w-4 h-4" />,
       tint: 'text-red-600 bg-red-50',
-      sub: `涉及 ${overview.filter((d) => d.faultCount > 0).length} 种物料`,
+      sub: `装配件次 ${(summary?.totalAssemblies ?? 0).toLocaleString()}`,
     },
     {
       label: '整体 LRR（加权）',
-      value: stats.avgLrr !== null ? `${stats.avgLrr}%` : '-',
+      value: summary?.overallLrr !== null && summary?.overallLrr !== undefined ? `${summary.overallLrr}%` : '-',
       icon: <TrendingUp className="w-4 h-4" />,
-      tint: stats.avgLrr !== null && stats.avgLrr >= HIGH_RISK_THRESHOLD ? 'text-red-600 bg-red-50' : 'text-emerald-600 bg-emerald-50',
-      sub: `基于 ${stats.totalAsm.toLocaleString()} 台装配量`,
+      tint:
+        summary?.overallLrr !== null && summary?.overallLrr !== undefined && summary.overallLrr >= HIGH_RISK_THRESHOLD
+          ? 'text-red-600 bg-red-50'
+          : 'text-emerald-600 bg-emerald-50',
+      sub: '故障件次 ÷ 装配件次',
     },
     {
       label: `高风险物料 (≥${HIGH_RISK_THRESHOLD}%)`,
-      value: stats.highRisk.toLocaleString(),
+      value: data.filter((d) => d.lrrRate !== null && d.lrrRate >= HIGH_RISK_THRESHOLD).length.toLocaleString(),
       icon: <Wrench className="w-4 h-4" />,
-      tint: stats.highRisk > 0 ? 'text-amber-600 bg-amber-50' : 'text-slate-500 bg-slate-100',
-      sub: '故障率超阈值，需重点跟进',
+      tint: 'text-amber-600 bg-amber-50',
+      sub: '当前页高风险物料数',
     },
   ];
 
   return (
-    <div className="h-screen bg-slate-50 flex flex-col overflow-hidden">
+    <div className="min-h-screen bg-slate-50 flex flex-col">
       {/* 顶部导航 */}
-      <header className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between sticky top-0 z-10">
+      <header className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between sticky top-0 z-20">
         <div className="flex items-center gap-3">
           <button
             onClick={() => navigate('/')}
@@ -223,7 +265,6 @@ export default function LRRPage() {
           <h1 className="text-lg font-semibold text-slate-800">QualiBoard 品质看板 — LRR 工厂阶段部件故障率</h1>
         </div>
         <div className="flex items-center gap-3 text-xs">
-          {/* 筛选开关 */}
           <div className="flex items-center gap-1.5 bg-slate-100 rounded-md p-0.5">
             {(
               [
@@ -234,9 +275,9 @@ export default function LRRPage() {
             ).map((opt) => (
               <button
                 key={opt.key}
-                onClick={() => handleFilterChange(opt.key)}
+                onClick={() => handleFilterMode(opt.key)}
                 className={`px-2.5 py-1.5 rounded text-xs font-medium transition-colors ${
-                  filter === opt.key ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+                  filters.filter === opt.key ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'
                 }`}
               >
                 {opt.label}
@@ -260,24 +301,31 @@ export default function LRRPage() {
             </button>
           </div>
           <button
-            onClick={handleExport}
-            disabled={data.length === 0}
-            title="导出当前页数据"
-            className="ml-2 px-2.5 py-1 text-xs border border-slate-300 rounded bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            onClick={() => setShowStats(true)}
+            title="查看 LRR 维度统计图表"
+            className="ml-2 px-2.5 py-1 text-xs border border-slate-300 rounded bg-white text-slate-600 hover:bg-slate-50 transition-colors inline-flex items-center gap-1"
           >
-            导出 Excel
+            <BarChart3 className="w-3.5 h-3.5" />
+            LRR统计
+          </button>
+          <button
+            onClick={handleExport}
+            disabled={exporting || !response || summary?.totalFaults === 0}
+            title="导出当前筛选条件下的故障明细"
+            className="ml-2 px-2.5 py-1 text-xs border border-slate-300 rounded bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors inline-flex items-center gap-1"
+          >
+            <Download className="w-3.5 h-3.5" />
+            {exporting ? '导出中…' : '故障明细导出'}
           </button>
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col p-4 max-w-[1800px] mx-auto w-full overflow-auto">
+      <main className="flex-1 flex flex-col p-4 max-w-[1800px] mx-auto w-full overflow-auto space-y-4">
         {/* KPI 概览卡片 */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
           {kpiCards.map((c) => (
             <div key={c.label} className="bg-white rounded-lg border border-slate-200 shadow-sm px-4 py-3 flex items-center gap-3">
-              <div className={`shrink-0 w-9 h-9 rounded-md flex items-center justify-center ${c.tint}`}>
-                {c.icon}
-              </div>
+              <div className={`shrink-0 w-9 h-9 rounded-md flex items-center justify-center ${c.tint}`}>{c.icon}</div>
               <div className="min-w-0">
                 <div className="text-[11px] text-slate-500 truncate">{c.label}</div>
                 <div className="text-xl font-bold text-slate-800 tabular-nums leading-tight">{c.value}</div>
@@ -287,67 +335,53 @@ export default function LRRPage() {
           ))}
         </div>
 
-        {/* 工具栏：搜索 + 统计分析入口 */}
-        <div className="flex items-center justify-between mb-2">
+        {/* 过滤器 */}
+          <LRRFiltersPanel
+            filters={filters}
+            options={options}
+            onChange={(patch) => applyFilters(patch)}
+            onReset={() => {
+            const base: LRRFilters = { filter: 'all', timeGranularity: 'none', sortBy: 'lrrRate', sortDir: 'desc' };
+            setFilters(base);
+            setPage(1);
+            load(1, base);
+          }}
+        />
+
+        {/* 工具栏: 搜索 + 图例 */}
+        <div className="flex items-center justify-between">
           <div className="relative">
             <Search className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              placeholder="搜索物料编号 / 描述"
+              placeholder="搜索物料编号 / 描述（当前页）"
               className="pl-8 pr-3 py-1.5 text-sm border border-slate-300 rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400 w-72"
             />
           </div>
-          <div className="flex items-center gap-3">
-            <button
-              onClick={() => setChartsOpen(true)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs border border-slate-300 rounded-md bg-white text-slate-600 hover:bg-slate-50 hover:border-slate-400 transition-colors"
-            >
-              <BarChart3 className="w-3.5 h-3.5" />
-              统计分析
-            </button>
-            <div className="flex items-center gap-3 text-[11px] text-slate-400">
-              <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />低 (&lt;2%)</span>
-              <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-amber-500" />中 (2~5%)</span>
-              <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-500" />高 (≥5%)</span>
-            </div>
+          <div className="flex items-center gap-3 text-[11px] text-slate-400">
+            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-emerald-500" />低 (&lt;2%)</span>
+            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-amber-500" />中 (2~5%)</span>
+            <span className="inline-flex items-center gap-1"><span className="w-2.5 h-2.5 rounded-full bg-red-500" />高 (≥5%)</span>
           </div>
         </div>
 
         {/* 数据表格 */}
         <div className="flex-1 min-h-0 bg-white rounded-md border border-slate-200 shadow-sm overflow-hidden">
-          <div className="h-full overflow-auto">
+          <div className="overflow-auto">
             <table className="w-full text-left text-sm whitespace-nowrap">
               <thead className="bg-[#f8fafc] border-b border-slate-200 text-slate-600 font-semibold text-xs sticky top-0 z-[1]">
                 <tr>
-                  <th className="px-3 py-2 border-r border-slate-100 last:border-none">物料编号</th>
-                  <th className="px-3 py-2 border-r border-slate-100 last:border-none">物料描述</th>
-                  <th
-                    className="px-3 py-2 border-r border-slate-100 last:border-none cursor-pointer hover:bg-slate-100 select-none"
-                    onClick={() => handleSort('totalCount')}
-                  >
-                    <span className="inline-flex items-center gap-1">
-                      总装配数量
-                      <SortIcon field="totalCount" activeField={sortField} direction={sortDirection} />
-                    </span>
+                  <th className="px-3 py-2 border-r border-slate-100">物料编号</th>
+                  <th className="px-3 py-2 border-r border-slate-100">物料描述</th>
+                  <th className="px-3 py-2 border-r border-slate-100 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('totalCount')}>
+                    <span className="inline-flex items-center gap-1">总装配数量<SortIcon field="totalCount" activeField={filters.sortBy ?? null} direction={filters.sortDir ?? 'desc'} /></span>
                   </th>
-                  <th
-                    className="px-3 py-2 border-r border-slate-100 last:border-none cursor-pointer hover:bg-slate-100 select-none"
-                    onClick={() => handleSort('faultCount')}
-                  >
-                    <span className="inline-flex items-center gap-1">
-                      故障数量
-                      <SortIcon field="faultCount" activeField={sortField} direction={sortDirection} />
-                    </span>
+                  <th className="px-3 py-2 border-r border-slate-100 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('faultCount')}>
+                    <span className="inline-flex items-center gap-1">故障数量<SortIcon field="faultCount" activeField={filters.sortBy ?? null} direction={filters.sortDir ?? 'desc'} /></span>
                   </th>
-                  <th
-                    className="px-3 py-2 border-r border-slate-100 last:border-none cursor-pointer hover:bg-slate-100 select-none"
-                    onClick={() => handleSort('lrrRate')}
-                  >
-                    <span className="inline-flex items-center gap-1">
-                      故障率 (LRR)
-                      <SortIcon field="lrrRate" activeField={sortField} direction={sortDirection} />
-                    </span>
+                  <th className="px-3 py-2 border-r border-slate-100 cursor-pointer hover:bg-slate-100 select-none" onClick={() => handleSort('lrrRate')}>
+                    <span className="inline-flex items-center gap-1">故障率 (LRR)<SortIcon field="lrrRate" activeField={filters.sortBy ?? null} direction={filters.sortDir ?? 'desc'} /></span>
                   </th>
                 </tr>
               </thead>
@@ -366,10 +400,7 @@ export default function LRRPage() {
                     <td colSpan={5} className="px-3 py-12 text-center">
                       <div className="flex flex-col items-center justify-center gap-2">
                         <span className="text-sm text-red-500">⚠ 加载失败</span>
-                        <button
-                          onClick={() => fetchData(page)}
-                          className="px-3 py-1 text-xs border border-slate-300 rounded bg-white text-slate-600 hover:bg-slate-50 transition-colors"
-                        >
+                        <button onClick={() => load(page, filters)} className="px-3 py-1 text-xs border border-slate-300 rounded bg-white text-slate-600 hover:bg-slate-50 transition-colors">
                           点击重试
                         </button>
                       </div>
@@ -402,10 +433,7 @@ export default function LRRPage() {
                           {row.lrrRate !== null ? (
                             <div className="flex items-center gap-2">
                               <div className="w-16 h-1.5 bg-slate-100 rounded-full overflow-hidden shrink-0">
-                                <div
-                                  className="h-full rounded-full"
-                                  style={{ width: `${Math.min(100, row.lrrRate * 4)}%`, backgroundColor: color.bar }}
-                                />
+                                <div className="h-full rounded-full" style={{ width: `${Math.min(100, row.lrrRate * 4)}%`, backgroundColor: color.bar }} />
                               </div>
                               <span className={`font-medium ${color.text}`}>{row.lrrRate}%</span>
                             </div>
@@ -424,29 +452,14 @@ export default function LRRPage() {
 
         {/* 分页 */}
         {data.length > 0 && !error && (
-          <div className="flex items-center justify-between px-2 py-2 bg-white rounded-md border border-slate-200 shadow-sm mt-3">
+          <div className="flex items-center justify-between px-2 py-2 bg-white rounded-md border border-slate-200 shadow-sm">
             <span className="text-xs text-slate-500">
-              {search.trim() ? (
-                <>筛选后 {sortedData.length} 种（共 {total} 种物料），第 {page}/{totalPages} 页</>
-              ) : (
-                <>共 {total} 种物料，第 {page}/{totalPages} 页</>
-              )}
+              {search.trim() ? <>筛选后 {sortedData.length} 种（共 {total} 种物料）</> : <>共 {total} 种物料</>} ，第 {page}/{totalPages} 页
             </span>
             <div className="flex items-center gap-1">
-              <button
-                onClick={() => fetchData(1)}
-                disabled={page === 1}
-                className="px-2 py-1 text-xs border border-slate-300 rounded bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors"
-              >
-                首页
-              </button>
-              <button
-                onClick={() => fetchData(page - 1)}
-                disabled={page <= 1}
-                className="px-2 py-1 text-xs border border-slate-300 rounded bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors flex items-center gap-0.5"
-              >
-                <ChevronLeft className="w-3 h-3" />
-                上一页
+              <button onClick={() => { setPage(1); load(1, filters); }} disabled={page === 1} className="px-2 py-1 text-xs border border-slate-300 rounded bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors">首页</button>
+              <button onClick={() => { const p = page - 1; setPage(p); load(p, filters); }} disabled={page <= 1} className="px-2 py-1 text-xs border border-slate-300 rounded bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors flex items-center gap-0.5">
+                <ChevronLeft className="w-3 h-3" />上一页
               </button>
               <div className="flex items-center gap-1 mx-1">
                 {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
@@ -454,134 +467,52 @@ export default function LRRPage() {
                   const p = startPage + i;
                   if (p > totalPages) return null;
                   return (
-                    <button
-                      key={p}
-                      onClick={() => fetchData(p)}
-                      className={`min-w-[28px] px-1.5 py-1 text-xs rounded transition-colors ${
-                        p === page
-                          ? 'bg-blue-600 text-white'
-                          : 'border border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
-                      }`}
-                    >
+                    <button key={p} onClick={() => { setPage(p); load(p, filters); }} className={`min-w-[28px] px-1.5 py-1 text-xs rounded transition-colors ${p === page ? 'bg-blue-600 text-white' : 'border border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}`}>
                       {p}
                     </button>
                   );
                 })}
               </div>
-              <button
-                onClick={() => fetchData(page + 1)}
-                disabled={page >= totalPages}
-                className="px-2 py-1 text-xs border border-slate-300 rounded bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors flex items-center gap-0.5"
-              >
-                下一页
-                <ChevronRight className="w-3 h-3" />
+              <button onClick={() => { const p = page + 1; setPage(p); load(p, filters); }} disabled={page >= totalPages} className="px-2 py-1 text-xs border border-slate-300 rounded bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors flex items-center gap-0.5">
+                下一页<ChevronRight className="w-3 h-3" />
               </button>
-              <button
-                onClick={() => fetchData(totalPages)}
-                disabled={page >= totalPages}
-                className="px-2 py-1 text-xs border border-slate-300 rounded bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors"
-              >
-                末页
-              </button>
+              <button onClick={() => { setPage(totalPages); load(totalPages, filters); }} disabled={page >= totalPages} className="px-2 py-1 text-xs border border-slate-300 rounded bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50 transition-colors">末页</button>
             </div>
           </div>
         )}
       </main>
 
-      {/* 统计分析弹窗：故障率 Top10 + 装配数据覆盖 */}
-      {chartsOpen && (
+      {/* LRR 维度统计图表弹窗 */}
+      {showStats && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={() => setChartsOpen(false)}
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+          onClick={() => setShowStats(false)}
         >
           <div
-            className="bg-white rounded-xl shadow-2xl w-full max-w-5xl max-h-[90vh] flex flex-col overflow-hidden"
+            className="bg-white rounded-xl shadow-2xl max-w-5xl w-[95vw] max-h-[85vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 sticky top-0 bg-white z-[1]">
-              <h3 className="text-base font-semibold text-slate-800">LRR 统计分析</h3>
+            {/* 弹窗头部 */}
+            <div className="flex items-center justify-between px-5 py-3 border-b border-slate-200 shrink-0">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="w-4 h-4 text-blue-600" />
+                <h2 className="text-sm font-semibold text-slate-800">LRR 维度统计</h2>
+              </div>
               <button
-                onClick={() => setChartsOpen(false)}
-                className="p-1 rounded-md hover:bg-slate-100 text-slate-400 transition-colors"
-                aria-label="关闭"
+                onClick={() => setShowStats(false)}
+                className="p-1 hover:bg-slate-100 rounded transition-colors text-slate-400 hover:text-slate-600"
               >
-                <X className="w-5 h-5" />
+                <X className="w-4 h-4" />
               </button>
             </div>
 
-            <div className="p-5 overflow-auto grid grid-cols-1 lg:grid-cols-3 gap-4">
-              {/* Top 10 故障率排行 */}
-              <div className="lg:col-span-2 bg-white rounded-lg border border-slate-200 shadow-sm p-4">
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-sm font-semibold text-slate-700">故障率 Top 10 物料</h3>
-                  <span className="text-[11px] text-slate-400">按故障率降序</span>
-                </div>
-                {topRiskData.length === 0 ? (
-                  <div className="h-[300px] flex items-center justify-center text-slate-400 text-sm">暂无有装配数据的故障率记录</div>
-                ) : (
-                  <ResponsiveContainer width="100%" height={300}>
-                    <BarChart layout="vertical" data={topRiskData} margin={{ left: 8, right: 24, top: 4, bottom: 4 }}>
-                      <XAxis type="number" tickFormatter={(v) => `${v}%`} tick={{ fontSize: 11 }} />
-                      <YAxis type="category" dataKey="name" width={120} tick={{ fontSize: 11 }} />
-                      <RTooltip formatter={(v) => [`${v}%`, '故障率']} />
-                      <Bar dataKey="rate" radius={[0, 4, 4, 0]}>
-                        {topRiskData.map((d, i) => (
-                          <Cell key={i} fill={d.color} />
-                        ))}
-                      </Bar>
-                    </BarChart>
-                  </ResponsiveContainer>
-                )}
-              </div>
-
-              {/* 装配占比环形图 */}
-              <div className="bg-white rounded-lg border border-slate-200 shadow-sm p-4">
-                <h3 className="text-sm font-semibold text-slate-700 mb-2">装配数据覆盖</h3>
-                {stats.total === 0 ? (
-                  <div className="h-[260px] flex items-center justify-center text-slate-400 text-sm">暂无数据</div>
-                ) : (
-                  <>
-                  <ResponsiveContainer width="100%" height={210}>
-                    <PieChart>
-                      <Pie
-                        data={pieData}
-                        dataKey="value"
-                        nameKey="name"
-                        cx="50%"
-                        cy="50%"
-                        innerRadius={50}
-                        outerRadius={80}
-                        paddingAngle={2}
-                      >
-                        {pieData.map((d, i) => (
-                          <Cell key={i} fill={d.color} />
-                        ))}
-                      </Pie>
-                      <RTooltip formatter={(v) => [`${v} 种`, '物料']} />
-                    </PieChart>
-                  </ResponsiveContainer>
-                  {/* 自定义图例：完整展示名称 + 数量 + 占比，避免饼图扇区标签被窄列裁切 */}
-                  <div className="mt-2 space-y-1.5">
-                    {pieData.map((d) => {
-                      const pct = stats.total > 0 ? Math.round((d.value / stats.total) * 100) : 0;
-                      return (
-                        <div key={d.name} className="flex items-center justify-between text-xs">
-                          <span className="inline-flex items-center gap-1.5 min-w-0">
-                            <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: d.color }} />
-                            <span className="truncate">{d.name}</span>
-                          </span>
-                          <span className="text-slate-600 tabular-nums shrink-0 ml-2">
-                            {d.value} 种 · {pct}%
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
-                  </>
-                )}
-                <div className="text-center text-[11px] text-slate-400 mt-1">
-                  共 {stats.total} 种物料
-                </div>
+            {/* 弹窗主体: 2x2 紧凑图表 */}
+            <div className="flex-1 overflow-auto p-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <DimBarChart title="按故障类型 LRR" data={response?.byFaultType ?? []} compact />
+                <DimBarChart title="按生产基地 LRR" data={response?.byFactory ?? []} compact />
+                <DimBarChart title="按机型 LRR" data={response?.byProductFamily ?? []} compact />
+                <DimBarChart title="按客户 LRR" data={response?.byCustomer ?? []} compact />
               </div>
             </div>
           </div>

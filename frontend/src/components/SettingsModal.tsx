@@ -1,19 +1,21 @@
 import { useState, useEffect } from 'react';
-import { Settings, Save, Database, BellRing, Target, X, CheckCircle, Bot, Loader2, BookOpen, BarChart3 } from 'lucide-react';
+import { Settings, Save, Database, BellRing, Target, X, CheckCircle, Bot, Loader2, BookOpen, BarChart3, Camera } from 'lucide-react';
 import { settingsApi } from '../api/settingsApi';
 import { useModelTargets } from '../context/ModelTargetsContext';
-import { MesConfigTab, ModelTargetsTab, EmailAlertTab, AIConfigTab, RTYDataDictionaryTab, DataOverviewTab } from './settings';
+import { MesConfigTab, ModelTargetsTab, EmailAlertTab, AIConfigTab, RTYDataDictionaryTab, DataOverviewTab, ProcessRecordConfigTab } from './settings';
+import type { ProcessRecordConfig } from '../types';
 
 interface SettingsModalProps {
   onClose: () => void;
   onSaved: () => void;
 }
 
-type TabKey = 'overview' | 'mes' | 'rty' | 'email' | 'ai' | 'dict';
+type TabKey = 'overview' | 'mes' | 'processRecords' | 'rty' | 'email' | 'ai' | 'dict';
 
 const TABS: { key: TabKey; label: string; icon: typeof Database }[] = [
   { key: 'overview', label: '数据概览', icon: BarChart3 },
   { key: 'mes', label: 'MES 系统接入', icon: Database },
+  { key: 'processRecords', label: '影像数据源', icon: Camera },
   { key: 'rty', label: '机型指标配置', icon: Target },
   { key: 'email', label: '邮件预警规则', icon: BellRing },
   { key: 'ai', label: 'AI 配置', icon: Bot },
@@ -34,6 +36,7 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
   const { setModelTargets: setTargets } = useModelTargets();
 
   const [mesConfig, setMesConfig] = useState({ username: '', password: '' });
+  const [processRecordConfig, setProcessRecordConfig] = useState<ProcessRecordConfig>({ username: '', password: '', hasPassword: false });
   const [emailConfig, setEmailConfig] = useState({ enabled: true, emails: '', triggerCondition: '', weeklyProductionThreshold: 50, lrrAlertThreshold: 5.0 });
   const [aiConfig, setAiConfig] = useState({ apiUrl: '', modelId: '', apiKey: '', maxTokens: 4096, hasApiKey: false });
   const [modelTargets, setModelTargets] = useState<Record<string, number>>({});
@@ -42,6 +45,7 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
     settingsApi.getAll()
       .then((data) => {
         if (data.mes) setMesConfig({ username: data.mes.username, password: data.mes.password || '' });
+        if (data.processRecords) setProcessRecordConfig({ ...data.processRecords, password: '' });
         if (data.modelTargets) setModelTargets(data.modelTargets);
         if (data.emailAlert) setEmailConfig({ enabled: data.emailAlert.enabled, emails: data.emailAlert.emails, triggerCondition: data.emailAlert.triggerCondition ?? '', weeklyProductionThreshold: data.emailAlert.weeklyProductionThreshold ?? 50, lrrAlertThreshold: data.emailAlert.lrrAlertThreshold ?? 5.0 });
         if (data.ai) setAiConfig(data.ai);
@@ -55,6 +59,7 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
     try {
       await settingsApi.updateAll({
         mes: { username: mesConfig.username, password: mesConfig.password },
+        processRecords: { username: processRecordConfig.username, password: processRecordConfig.password },
         modelTargets,
         emailAlert: emailConfig,
         ai: aiConfig,
@@ -137,6 +142,9 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
             )}
             {activeTab === 'mes' && (
               <MesConfigTab config={mesConfig} onChange={setMesConfig} showPassword={showPassword} onTogglePassword={() => setShowPassword(!showPassword)} />
+            )}
+            {activeTab === 'processRecords' && (
+              <ProcessRecordConfigTab config={processRecordConfig} onChange={setProcessRecordConfig} />
             )}
             {activeTab === 'rty' && (
               <ModelTargetsTab targets={modelTargets} onChange={setModelTargets} />

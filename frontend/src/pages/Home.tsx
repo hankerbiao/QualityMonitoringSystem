@@ -10,7 +10,8 @@ import {
   ShieldCheck,
   LogOut,
   ChevronDown,
-  Mail
+  Mail,
+  Camera
 } from 'lucide-react';
 import SettingsModal from '../components/SettingsModal';
 import { useAuth } from '../context/AuthContext';
@@ -189,6 +190,29 @@ export default function Home() {
               </div>
               <div className="mt-6 flex justify-end">
                 <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center group-hover:bg-purple-100 text-slate-400 group-hover:text-purple-600 transition-colors border border-slate-100">
+                  <ArrowRight className="w-4 h-4" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* System Settings */}
+          <div
+            onClick={() => navigate('/process-records')}
+            className="group relative overflow-hidden bg-white border border-slate-200 hover:border-cyan-300 rounded-2xl p-6 cursor-pointer transition-all duration-300 hover:bg-cyan-50/30 hover:shadow-md hover:shadow-cyan-900/5"
+          >
+            <div className="flex flex-col h-full justify-between">
+              <div>
+                <div className="w-10 h-10 bg-cyan-50 border border-cyan-100 rounded-lg flex items-center justify-center mb-4 text-cyan-700 group-hover:bg-cyan-100 transition-colors">
+                  <Camera className="w-5 h-5" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-800 mb-2">关键工位影像追溯</h3>
+                <p className="text-slate-500 text-sm leading-relaxed">
+                  实时联查工序扫码拍照与装配关键工位记录，支持按 SN 追溯工序、工位、提交时间和现场影像。
+                </p>
+              </div>
+              <div className="mt-6 flex justify-end">
+                <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center group-hover:bg-cyan-100 text-slate-400 group-hover:text-cyan-700 transition-colors border border-slate-100">
                   <ArrowRight className="w-4 h-4" />
                 </div>
               </div>

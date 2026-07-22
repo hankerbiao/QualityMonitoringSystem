@@ -2,6 +2,7 @@ import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-
 import Home from './pages/Home';
 import RTYPage from './pages/RTYPage';
 import LRRPage from './pages/LRRPage';
+import ProcessRecordsPage from './pages/ProcessRecordsPage';
 import LoginPage from './pages/LoginPage';
 import AlertReportPage from './pages/AlertReportPage';
 import { ModelTargetsProvider } from './context/ModelTargetsContext';
@@ -24,6 +25,7 @@ function AppContent() {
         <Route path="/" element={<Home />} />
         <Route path="/rty" element={<RTYPage />} />
         <Route path="/lrr" element={<LRRPage />} />
+        <Route path="/process-records" element={<ProcessRecordsPage />} />
         <Route path="/doa" element={<Navigate to="/" />} />
         <Route path="/mfr" element={<Navigate to="/" />} />
       </Route>

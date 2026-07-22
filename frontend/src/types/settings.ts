@@ -4,6 +4,24 @@ export interface MESConfig {
   hasPassword?: boolean;
 }
 
+export interface ProcessRecordConfig {
+  username: string;
+  password: string;
+  hasPassword: boolean;
+}
+
+export interface ProcessRecordConnectionResult {
+  source: 'system1' | 'system2';
+  name: string;
+  online: boolean;
+  message: string;
+}
+
+export interface ProcessRecordConnectionTest {
+  success: boolean;
+  sources: ProcessRecordConnectionResult[];
+}
+
 export interface ModelTargets {
   [model: string]: number;
 }
@@ -26,6 +44,7 @@ export interface AIConfig {
 
 export interface SettingsResponse {
   mes: MESConfig | null;
+  processRecords: ProcessRecordConfig;
   modelTargets: ModelTargets;
   emailAlert: EmailAlertConfig;
   featureFlags: { voiceInputEnabled: boolean };

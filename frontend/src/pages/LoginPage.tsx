@@ -1,176 +1,251 @@
-import { useState } from 'react';
-import { ShieldCheck, Activity, AlertTriangle, PackageCheck, Wrench, Zap, ArrowRight } from 'lucide-react';
-import { getOALoginUrl } from '../context/AuthContext';
+import { useState, type FormEvent } from 'react';
+import {
+  Activity,
+  AlertCircle,
+  ArrowRight,
+  Boxes,
+  CheckCircle2,
+  Eye,
+  EyeOff,
+  Gauge,
+  LockKeyhole,
+  ShieldCheck,
+  UserRound,
+} from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
 
-const modules = [
-  { icon: Activity, label: 'RTY 直通率', desc: '整机生产质量实时追踪', color: '#0071e3' },
-  { icon: AlertTriangle, label: 'LRR 故障率', desc: '部件故障深度分析', color: '#ff9500' },
-  { icon: PackageCheck, label: 'DOA 售后', desc: '客户端质量闭环', color: '#34c759' },
-  { icon: Wrench, label: 'MFR 维修', desc: '全链路维修统计', color: '#af52de' },
+const qualityModules = [
+  { icon: Gauge, code: 'RTY', label: '整机直通率', status: '在线' },
+  { icon: Activity, code: 'LRR', label: '部件故障率', status: '在线' },
+  { icon: Boxes, code: 'DOA', label: '开箱报修率', status: '建设中' },
 ];
 
 export default function LoginPage() {
+  const { login } = useAuth();
+  const [username, setUsername] = useState('admin');
+  const [password, setPassword] = useState('admin123');
+  const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
 
-  const handleOALogin = () => {
+  const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!username.trim() || !password) return;
+
     setLoading(true);
-    window.location.href = getOALoginUrl();
+    setError('');
+    try {
+      await login(username.trim(), password);
+    } catch (loginError) {
+      setError(loginError instanceof Error ? loginError.message : '登录失败，请稍后重试');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
-    <div className="min-h-screen flex">
-      {/* ===== Left branding panel: aurora gradient ===== */}
-      <div className="hidden lg:flex flex-col justify-between w-2/5 relative overflow-hidden animate-aurora bg-[linear-gradient(135deg,#0a1a3f_0%,#102a6b_42%,#0d4a7a_100%)] p-12">
-        {/* Floating colored orbs */}
-        <div className="absolute -top-40 -right-40 w-[440px] h-[440px] rounded-full bg-[#0071e3]/35 blur-[110px] animate-float-orb" />
-        <div className="absolute -bottom-32 -left-24 w-[380px] h-[380px] rounded-full bg-[#06d6f0]/25 blur-[100px] animate-float-orb-alt" />
-        <div className="absolute top-1/3 right-1/4 w-[300px] h-[300px] rounded-full bg-[#7c3aed]/20 blur-[90px] animate-float-orb" />
-        {/* Subtle dot grid */}
+    <main className="grid min-h-[100dvh] bg-[#f4f6f8] lg:grid-cols-[minmax(0,1.08fr)_minmax(420px,0.92fr)]">
+      <section className="relative hidden overflow-hidden bg-[#122125] text-white lg:flex lg:flex-col lg:justify-between lg:p-12 xl:p-16">
         <div
-          className="absolute inset-0 opacity-[0.10]"
+          className="pointer-events-none absolute inset-0 opacity-[0.08]"
           style={{
-            backgroundImage: 'radial-gradient(circle, #9fd0ff 1px, transparent 1px)',
-            backgroundSize: '28px 28px',
+            backgroundImage:
+              'linear-gradient(rgba(255,255,255,0.55) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.55) 1px, transparent 1px)',
+            backgroundSize: '40px 40px',
           }}
         />
-        {/* Top sheen */}
-        <div className="absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.08),transparent_30%)]" />
+        <div className="absolute left-0 top-0 h-1.5 w-32 bg-[#d7ff55]" />
 
-        {/* Top brand */}
         <div className="relative z-10">
-          <div className="flex items-center gap-4 mb-16">
-            <div className="w-12 h-12 rounded-2xl flex items-center justify-center border border-white/15 bg-white/10 backdrop-blur-sm shadow-[0_8px_24px_rgba(0,113,227,0.35)]">
-              <ShieldCheck className="w-7 h-7 text-cyan-200" strokeWidth={1.5} />
+          <div className="flex items-center gap-3">
+            <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-white/15 bg-white/5">
+              <ShieldCheck className="h-6 w-6 text-[#d7ff55]" strokeWidth={1.7} />
             </div>
             <div>
-              <h1 className="text-2xl font-semibold text-white tracking-tight">QualiBoard</h1>
-              <p className="text-sm text-cyan-100/60">品质监控系统</p>
+              <p className="text-lg font-semibold">QualiBoard</p>
+              <p className="text-xs text-white/55">品质监控系统</p>
             </div>
           </div>
 
-          <h2 className="text-4xl font-bold text-white leading-tight mb-4 tracking-tight">
-            数据驱动的<br />
-            <span className="bg-gradient-to-r from-cyan-200 via-sky-300 to-blue-300 bg-clip-text text-transparent">
-              品质管理
-            </span>
-          </h2>
-          <p className="text-base text-cyan-50/70 leading-relaxed max-w-sm">
-            打通 MES、SAP、SCS 等核心系统，覆盖 RTY/LRR/DOA/MFR 全模块，实现端到端质量监控与自动化预警。
-          </p>
+          <div className="mt-20 max-w-xl">
+            <p className="mb-5 flex items-center gap-2 text-sm font-medium text-[#d7ff55]">
+              <span className="h-2 w-2 bg-[#d7ff55]" />
+              QUALITY OPERATIONS
+            </p>
+            <h1 className="text-5xl font-semibold leading-[1.16] xl:text-[56px]">
+              让每一项质量数据
+              <br />
+              都能推动行动
+            </h1>
+            <p className="mt-6 max-w-lg text-base leading-7 text-white/62">
+              汇聚生产、故障与维修数据，为质量团队提供统一、及时、可追溯的决策视图。
+            </p>
+          </div>
         </div>
 
-        {/* Bottom stats */}
-        <div className="relative z-10 space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            {[
-              { value: '99.2%', label: '系统可用' },
-              { value: '5000+', label: '日订单量' },
-            ].map((s, i) => (
-              <div key={i} className="rounded-2xl p-4 border border-white/10 bg-white/5 backdrop-blur-sm">
-                <div className="text-2xl font-bold text-white mb-1">{s.value}</div>
-                <div className="text-xs text-cyan-100/50">{s.label}</div>
+        <div className="relative z-10">
+          <div className="mb-4 flex items-center justify-between border-b border-white/12 pb-3 text-xs text-white/45">
+            <span>监控模块</span>
+            <span>系统状态</span>
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            {qualityModules.map((module) => (
+              <div key={module.code} className="border-l-2 border-white/15 py-2 pl-3">
+                <div className="mb-4 flex items-center justify-between">
+                  <module.icon className="h-4 w-4 text-white/55" strokeWidth={1.7} />
+                  <span
+                    className={`text-[11px] ${module.status === '在线' ? 'text-[#d7ff55]' : 'text-white/35'}`}
+                  >
+                    {module.status}
+                  </span>
+                </div>
+                <p className="text-lg font-semibold">{module.code}</p>
+                <p className="mt-1 text-xs text-white/48">{module.label}</p>
               </div>
             ))}
           </div>
-          <p className="text-xs text-cyan-100/30 text-center">© 2026 QualiBoard · v1.0</p>
         </div>
-      </div>
+      </section>
 
-      {/* ===== Right login panel ===== */}
-      <div className="flex-1 flex items-center justify-center p-8 relative overflow-hidden bg-[linear-gradient(135deg,#eef3ff_0%,#f7f9ff_50%,#f5f5f7_100%)]">
-        {/* faint ambient blob */}
-        <div className="absolute -top-24 -right-24 w-[320px] h-[320px] rounded-full bg-[#0066ff]/10 blur-[90px]" />
-        <div className="absolute -bottom-24 -left-16 w-[280px] h-[280px] rounded-full bg-[#06d6f0]/10 blur-[90px]" />
-
-        <div className="w-full max-w-[400px] relative z-10">
-          {/* Mobile logo */}
-          <div className="lg:hidden flex items-center gap-3 mb-10">
-            <div className="w-11 h-11 rounded-xl flex items-center justify-center bg-[linear-gradient(135deg,#0d4a7a,#0066ff)]">
-              <ShieldCheck className="w-6 h-6 text-cyan-100" strokeWidth={1.5} />
+      <section className="flex min-h-[100dvh] items-center justify-center px-5 py-10 sm:px-10 lg:bg-white lg:px-12">
+        <div className="login-enter w-full max-w-[400px]">
+          <div className="mb-10 flex items-center gap-3 lg:hidden">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#122125]">
+              <ShieldCheck className="h-5 w-5 text-[#d7ff55]" strokeWidth={1.7} />
             </div>
             <div>
-              <h1 className="text-xl font-semibold text-[#0a1a3f]">QualiBoard</h1>
-              <p className="text-xs text-[#6b7280]">品质监控系统</p>
+              <p className="font-semibold text-[#122125]">QualiBoard</p>
+              <p className="text-xs text-[#667378]">品质监控系统</p>
             </div>
           </div>
 
-          {/* Login card */}
-          <div className="bg-white/90 backdrop-blur-xl rounded-3xl p-10 shadow-[0_20px_60px_-12px_rgba(16,42,107,0.22)] border border-white/60 relative overflow-hidden">
-            {/* top shimmer accent */}
-            <div className="absolute top-0 left-0 right-0 h-1 bg-[linear-gradient(90deg,#0d4a7a,#0066ff,#06d6f0)]" />
-            <div className="absolute -top-10 left-1/2 -translate-x-1/2 w-2/3 h-10 bg-[#0066ff]/20 blur-2xl rounded-full" />
+          <header className="mb-8">
+            <div className="mb-5 flex h-11 w-11 items-center justify-center rounded-lg border border-[#dbe2e4] bg-[#f7f9f9]">
+              <LockKeyhole className="h-5 w-5 text-[#19766f]" strokeWidth={1.8} />
+            </div>
+            <h2 className="text-[28px] font-semibold leading-tight text-[#122125]">登录质量监控平台</h2>
+            <p className="mt-2 text-sm leading-6 text-[#667378]">请输入系统用户名和密码继续访问。</p>
+          </header>
 
-            <div className="text-center mb-8 relative">
-              <div className="w-14 h-14 rounded-2xl flex items-center justify-center mx-auto mb-4 bg-[linear-gradient(135deg,#0d4a7a,#0066ff)] shadow-[0_10px_24px_rgba(0,102,255,0.35)]">
-                <Zap className="w-7 h-7 text-white" strokeWidth={1.5} />
+          <form onSubmit={handleSubmit} className="space-y-5" noValidate>
+            <div>
+              <label htmlFor="username" className="mb-2 block text-sm font-medium text-[#25383d]">
+                用户名
+              </label>
+              <div className="relative">
+                <UserRound
+                  className="pointer-events-none absolute left-3.5 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-[#7f8d91]"
+                  strokeWidth={1.7}
+                />
+                <input
+                  id="username"
+                  name="username"
+                  type="text"
+                  value={username}
+                  onChange={(event) => {
+                    setUsername(event.target.value);
+                    setError('');
+                  }}
+                  autoComplete="username"
+                  autoFocus
+                  required
+                  aria-invalid={Boolean(error)}
+                  className="h-12 w-full rounded-lg border border-[#cfd8da] bg-white pl-11 pr-4 text-[15px] text-[#122125] outline-none transition focus:border-[#19766f] focus:ring-4 focus:ring-[#19766f]/10"
+                  placeholder="请输入用户名"
+                />
               </div>
-              <h2 className="text-2xl font-semibold text-[#0a1a3f] mb-1.5">欢迎使用</h2>
-              <p className="text-sm text-[#6b7280]">点击下方按钮通过企业账号登录</p>
             </div>
 
+            <div>
+              <label htmlFor="password" className="mb-2 block text-sm font-medium text-[#25383d]">
+                密码
+              </label>
+              <div className="relative">
+                <LockKeyhole
+                  className="pointer-events-none absolute left-3.5 top-1/2 h-[18px] w-[18px] -translate-y-1/2 text-[#7f8d91]"
+                  strokeWidth={1.7}
+                />
+                <input
+                  id="password"
+                  name="password"
+                  type={showPassword ? 'text' : 'password'}
+                  value={password}
+                  onChange={(event) => {
+                    setPassword(event.target.value);
+                    setError('');
+                  }}
+                  autoComplete="current-password"
+                  required
+                  aria-invalid={Boolean(error)}
+                  aria-describedby={error ? 'login-error' : undefined}
+                  className="h-12 w-full rounded-lg border border-[#cfd8da] bg-white pl-11 pr-12 text-[15px] text-[#122125] outline-none transition focus:border-[#19766f] focus:ring-4 focus:ring-[#19766f]/10"
+                  placeholder="请输入密码"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword((visible) => !visible)}
+                  className="absolute right-2 top-1/2 flex h-9 w-9 -translate-y-1/2 items-center justify-center rounded-lg text-[#667378] transition hover:bg-[#eef2f2] hover:text-[#122125] focus:outline-none focus:ring-2 focus:ring-[#19766f]/30"
+                  aria-label={showPassword ? '隐藏密码' : '显示密码'}
+                  title={showPassword ? '隐藏密码' : '显示密码'}
+                >
+                  {showPassword ? <EyeOff className="h-[18px] w-[18px]" /> : <Eye className="h-[18px] w-[18px]" />}
+                </button>
+              </div>
+            </div>
+
+            {error && (
+              <div
+                id="login-error"
+                role="alert"
+                className="flex items-start gap-2 rounded-lg border border-[#efc7c1] bg-[#fff5f3] px-3.5 py-3 text-sm text-[#a13a2f]"
+              >
+                <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
             <button
-              onClick={handleOALogin}
-              disabled={loading}
-              className="group w-full py-4 bg-[linear-gradient(135deg,#0d4a7a,#0066ff,#0a84ff)] hover:bg-[linear-gradient(135deg,#0f5390,#0077ed,#1e90ff)] disabled:opacity-70 text-white rounded-2xl text-base font-medium transition-all duration-200 active:scale-[0.98] disabled:cursor-not-allowed flex items-center justify-center gap-3 shadow-[0_10px_28px_rgba(0,102,255,0.40)]"
+              type="submit"
+              disabled={loading || !username.trim() || !password}
+              className="group flex h-12 w-full items-center justify-center gap-2 rounded-lg bg-[#19766f] px-4 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(25,118,111,0.18)] transition hover:bg-[#135f59] focus:outline-none focus:ring-4 focus:ring-[#19766f]/20 active:translate-y-px disabled:cursor-not-allowed disabled:bg-[#9aacaa] disabled:shadow-none"
             >
               {loading ? (
                 <>
-                  <svg className="w-5 h-5 animate-spin" fill="none" viewBox="0 0 24 24">
-                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" />
-                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                  </svg>
-                  <span>验证中...</span>
+                  <span className="h-4 w-4 animate-spin rounded-full border-2 border-white/35 border-t-white" />
+                  正在登录
                 </>
               ) : (
                 <>
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth={1.5}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4" />
-                  </svg>
-                  <span>OA 统一登录</span>
-                  <ArrowRight className="w-4 h-4 opacity-0 -ml-2 group-hover:opacity-100 group-hover:ml-0 transition-all duration-200" strokeWidth={2} />
+                  登录系统
+                  <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" strokeWidth={2} />
                 </>
               )}
             </button>
+          </form>
 
-            <div className="mt-8 pt-6 border-t border-[#e8edf7]">
-              <p className="text-[11px] text-[#6b7280] text-center mb-4">支持的监控模块</p>
-              <div className="grid grid-cols-2 gap-2">
-                {modules.map((m) => (
-                  <div key={m.label} className="flex items-center gap-2.5 p-3 bg-[#f5f8ff] rounded-xl border border-[#e8edf7] hover:border-[#c7dcff] transition-colors">
-                    <div className="w-7 h-7 rounded-lg flex items-center justify-center" style={{ backgroundColor: m.color + '18' }}>
-                      <m.icon className="w-3.5 h-3.5" style={{ color: m.color }} strokeWidth={1.5} />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-[11px] font-medium text-[#0a1a3f] leading-tight">{m.label}</p>
-                      <p className="text-[9px] text-[#6b7280] leading-snug truncate">{m.desc}</p>
-                    </div>
-                  </div>
-                ))}
+          <div className="mt-6 rounded-lg border border-[#e6dfb8] bg-[#fffceb] px-4 py-3.5">
+            <div className="flex items-start gap-3">
+              <CheckCircle2 className="mt-0.5 h-[18px] w-[18px] shrink-0 text-[#7b721e]" strokeWidth={1.8} />
+              <div className="min-w-0">
+                <p className="text-xs font-medium text-[#5e581d]">默认登录信息</p>
+                <p className="mt-1.5 break-words font-mono text-xs text-[#746c24]">
+                  用户名 <strong className="text-[#403b11]">admin</strong>
+                  <span className="mx-2 text-[#b2a94f]">|</span>
+                  密码 <strong className="text-[#403b11]">admin123</strong>
+                </p>
               </div>
             </div>
           </div>
 
-          {/* Status indicators */}
-          <div className="flex items-center justify-center gap-6 mt-6 text-[11px] text-[#6b7280]">
-            <span className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#34c759] animate-pulse" />
-              MES
+          <footer className="mt-8 flex items-center justify-between border-t border-[#e2e7e8] pt-5 text-xs text-[#7b888c]">
+            <span className="flex items-center gap-2">
+              <span className="h-2 w-2 rounded-full bg-[#3bb273]" />
+              服务运行正常
             </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#34c759] animate-pulse" />
-              SAP
-            </span>
-            <span className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#34c759] animate-pulse" />
-              邮件预警
-            </span>
-          </div>
-
-          <p className="lg:block hidden text-center text-[11px] text-[#9ca3af] mt-4">
-            连续安全运行 47 天 · 最后同步 3 分钟前
-          </p>
+            <span>QualiBoard v1.0</span>
+          </footer>
         </div>
-      </div>
-    </div>
+      </section>
+    </main>
   );
 }
