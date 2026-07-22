@@ -36,3 +36,13 @@ export interface ProcessRecordRealtimeData {
   rows: ProcessRecordItem[];
   sources: Partial<Record<'system1' | 'system2', ProcessRecordSourceResult>>;
 }
+
+export interface ProcessRecordBaseOption {
+  name: string;
+  sources: ('system1' | 'system2')[];
+}
+
+export interface ProcessRecordFilterOptions {
+  bases: ProcessRecordBaseOption[];
+  system1Processes: string[];
+}

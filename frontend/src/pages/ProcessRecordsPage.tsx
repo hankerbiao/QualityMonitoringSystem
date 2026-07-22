@@ -15,6 +15,7 @@ import {
 import { processRecordsApi } from '../api/processRecordsApi';
 import type {
   ProcessRecordItem,
+  ProcessRecordFilterOptions,
   ProcessRecordRealtimeData,
   ProcessRecordSource,
 } from '../types';
@@ -26,6 +27,11 @@ const SOURCE_OPTIONS: { key: ProcessRecordSource; label: string }[] = [
   { key: 'system1', label: '工序扫码拍照' },
   { key: 'system2', label: '装配关键工位' },
 ];
+
+const EMPTY_FILTER_OPTIONS: ProcessRecordFilterOptions = {
+  bases: [],
+  system1Processes: [],
+};
 
 function display(value: string): string {
   return value || '-';
@@ -48,6 +54,11 @@ export default function ProcessRecordsPage() {
   const [source, setSource] = useState<ProcessRecordSource>('all');
   const [snInput, setSnInput] = useState('');
   const [sn, setSn] = useState('');
+  const [baseInput, setBaseInput] = useState('');
+  const [base, setBase] = useState('');
+  const [stationInput, setStationInput] = useState('');
+  const [station, setStation] = useState('');
+  const [filterOptions, setFilterOptions] = useState(EMPTY_FILTER_OPTIONS);
   const [page, setPage] = useState(1);
   const [refreshToken, setRefreshToken] = useState(0);
   const [autoRefresh, setAutoRefresh] = useState(false);
@@ -61,7 +72,14 @@ export default function ProcessRecordsPage() {
     setLoading(true);
     setError('');
     try {
-      const result = await processRecordsApi.getRealtime({ source, sn, page, pageSize: PAGE_SIZE });
+      const result = await processRecordsApi.getRealtime({
+        source,
+        sn,
+        base,
+        station,
+        page,
+        pageSize: PAGE_SIZE,
+      });
       setData(result);
     } catch (fetchError) {
       setData(null);
@@ -69,11 +87,15 @@ export default function ProcessRecordsPage() {
     } finally {
       setLoading(false);
     }
-  }, [page, sn, source, refreshToken]);
+  }, [base, page, sn, source, station, refreshToken]);
 
   useEffect(() => {
     void fetchRecords();
   }, [fetchRecords]);
+
+  useEffect(() => {
+    void processRecordsApi.getFilterOptions().then(setFilterOptions).catch(() => undefined);
+  }, []);
 
   useEffect(() => {
     if (!autoRefresh) return;
@@ -89,16 +111,49 @@ export default function ProcessRecordsPage() {
   const runSearch = (event: FormEvent) => {
     event.preventDefault();
     const nextSn = snInput.trim();
+    const nextBase = baseInput.trim();
+    const nextStation = stationInput.trim();
     setPage(1);
-    if (nextSn === sn) setRefreshToken((value) => value + 1);
-    else setSn(nextSn);
+    if (nextSn === sn && nextBase === base && nextStation === station) {
+      setRefreshToken((value) => value + 1);
+      return;
+    }
+    setSn(nextSn);
+    setBase(nextBase);
+    setStation(nextStation);
   };
 
   const changeSource = (nextSource: ProcessRecordSource) => {
+    const selectedBase = filterOptions.bases.find((option) => option.name === baseInput);
+    if (nextSource !== 'all' && selectedBase && !selectedBase.sources.includes(nextSource)) {
+      setBaseInput('');
+      setBase('');
+    }
     setSource(nextSource);
     setPage(1);
     setDetail(null);
   };
+
+  const clearFilters = () => {
+    const hadAppliedFilters = Boolean(sn || base || station);
+    setSnInput('');
+    setSn('');
+    setBaseInput('');
+    setBase('');
+    setStationInput('');
+    setStation('');
+    setPage(1);
+    if (!hadAppliedFilters) setRefreshToken((value) => value + 1);
+  };
+
+  const availableBases = filterOptions.bases.filter(
+    (option) => source === 'all' || option.sources.includes(source),
+  );
+  const stationPlaceholder = source === 'system1'
+    ? '工序，例如 TJM-OP320'
+    : source === 'system2'
+      ? '工位，例如 封箱检查'
+      : '工位/工序名称';
 
   return (
     <div className="h-screen bg-slate-50 flex flex-col overflow-hidden text-slate-800">
@@ -155,8 +210,32 @@ export default function ProcessRecordsPage() {
             ))}
           </div>
 
-          <form onSubmit={runSearch} className="flex items-center gap-2 flex-1 min-w-[280px]">
-            <div className="relative flex-1 max-w-lg">
+          <form onSubmit={runSearch} className="flex flex-wrap items-center gap-2 flex-1 min-w-[280px]">
+            <select
+              aria-label="基地"
+              value={baseInput}
+              onChange={(event) => setBaseInput(event.target.value)}
+              className="h-9 w-32 px-2 border border-slate-300 bg-white rounded-sm text-sm outline-none focus:border-cyan-600 focus:ring-1 focus:ring-cyan-600"
+            >
+              <option value="">全部基地</option>
+              {availableBases.map((option) => (
+                <option key={option.name} value={option.name}>{option.name}</option>
+              ))}
+            </select>
+            <input
+              aria-label="工位或工序"
+              list={source === 'system2' ? undefined : 'system1-process-options'}
+              value={stationInput}
+              onChange={(event) => setStationInput(event.target.value)}
+              placeholder={stationPlaceholder}
+              className="h-9 w-52 px-3 border border-slate-300 rounded-sm text-sm outline-none focus:border-cyan-600 focus:ring-1 focus:ring-cyan-600"
+            />
+            <datalist id="system1-process-options">
+              {filterOptions.system1Processes.map((process) => (
+                <option key={process} value={process} />
+              ))}
+            </datalist>
+            <div className="relative flex-1 min-w-[240px] max-w-lg">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
               <input
                 value={snInput}
@@ -168,10 +247,10 @@ export default function ProcessRecordsPage() {
             <button className="h-9 px-4 bg-slate-800 hover:bg-slate-900 text-white text-sm font-medium rounded-sm">
               查询
             </button>
-            {sn && (
+            {(snInput || baseInput || stationInput || sn || base || station) && (
               <button
                 type="button"
-                onClick={() => { setSnInput(''); setSn(''); setPage(1); }}
+                onClick={clearFilters}
                 className="h-9 px-3 text-sm text-slate-500 hover:bg-slate-100 rounded-sm"
               >
                 清除

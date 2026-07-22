@@ -1,5 +1,9 @@
 import { API_BASE_URL } from '../constants';
-import type { ProcessRecordRealtimeData, ProcessRecordSource } from '../types';
+import type {
+  ProcessRecordFilterOptions,
+  ProcessRecordRealtimeData,
+  ProcessRecordSource,
+} from '../types';
 import { apiFetch } from './authApi';
 
 interface ApiResponse<T> {
@@ -13,6 +17,8 @@ export const processRecordsApi = {
   async getRealtime(params: {
     source: ProcessRecordSource;
     sn?: string;
+    base?: string;
+    station?: string;
     page?: number;
     pageSize?: number;
   }): Promise<ProcessRecordRealtimeData> {
@@ -22,10 +28,21 @@ export const processRecordsApi = {
       pageSize: String(params.pageSize ?? 30),
     });
     if (params.sn) query.set('sn', params.sn);
+    if (params.base) query.set('base', params.base);
+    if (params.station) query.set('station', params.station);
     const response = await apiFetch(`${API_BASE_URL}/process-records/realtime?${query}`);
     const json: ApiResponse<ProcessRecordRealtimeData> = await response.json();
     if (!response.ok || !json.success || !json.data) {
       throw new Error(json.error || json.message || '实时数据查询失败');
+    }
+    return json.data;
+  },
+
+  async getFilterOptions(): Promise<ProcessRecordFilterOptions> {
+    const response = await apiFetch(`${API_BASE_URL}/process-records/filter-options`);
+    const json: ApiResponse<ProcessRecordFilterOptions> = await response.json();
+    if (!response.ok || !json.success || !json.data) {
+      throw new Error(json.error || json.message || '筛选条件加载失败');
     }
     return json.data;
   },
