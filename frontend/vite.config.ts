@@ -4,6 +4,8 @@ import path from 'path';
 import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
+  const apiProxyTarget = process.env.VITE_API_PROXY_TARGET || 'http://localhost:8000';
+
   return {
     plugins: [react(), tailwindcss()],
     resolve: {
@@ -16,7 +18,7 @@ export default defineConfig(() => {
       proxy: {
         // API 代理 - 用于登录等真实 API 调用
         '/api': {
-          target: 'http://localhost:8000',
+          target: apiProxyTarget,
           changeOrigin: true,
         },
         // 语音识别 WebSocket 代理

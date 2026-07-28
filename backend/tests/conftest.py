@@ -112,7 +112,7 @@ def app():
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
 
-    from app.api import ai, auth, rty, settings
+    from app.api import ai, auth, operations, rty, settings
 
     @asynccontextmanager
     async def noop_lifespan(app):
@@ -126,6 +126,7 @@ def app():
     test_app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
     test_app.include_router(ai.router, prefix="/api/ai", tags=["AI"])
     test_app.include_router(auth.router, prefix="/api", tags=["Auth"])
+    test_app.include_router(operations.router, prefix="/api/operations", tags=["Operations"])
     return test_app
 
 

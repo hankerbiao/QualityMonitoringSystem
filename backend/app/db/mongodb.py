@@ -72,6 +72,11 @@ async def create_indexes() -> None:
     await mongodb.db.sessions.create_index("sessionId", unique=True)
     await mongodb.db.sessions.create_index("expiresAt")
 
+    # 运营监控事件：按时间聚合，原始明细保留 180 天
+    await mongodb.db.usage_events.create_index([("itcode", 1), ("timestamp", -1)])
+    await mongodb.db.usage_events.create_index([("module", 1), ("timestamp", -1)])
+    await mongodb.db.usage_events.create_index("timestamp", expireAfterSeconds=180 * 24 * 60 * 60)
+
     # 无数据订单索引（按 sale_no 唯一，避免重复插入）
     await mongodb.db.no_data_orders.create_index("sale_no", unique=True)
 

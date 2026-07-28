@@ -1,16 +1,28 @@
-import { BrowserRouter as Router, Routes, Route, Navigate, Outlet } from 'react-router-dom';
+import { useEffect } from 'react';
+import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import Home from './pages/Home';
 import RTYPage from './pages/RTYPage';
 import LRRPage from './pages/LRRPage';
 import ProcessRecordsPage from './pages/ProcessRecordsPage';
 import LoginPage from './pages/LoginPage';
 import AlertReportPage from './pages/AlertReportPage';
+import OperationsPage from './pages/OperationsPage';
+import { operationsApi } from './api/operationsApi';
 import { ModelTargetsProvider } from './context/ModelTargetsContext';
 import { SettingsProvider } from './context/SettingsContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
 function ProtectedLayout() {
   const { isAuthenticated, isAuthLoaded } = useAuth();
+  const location = useLocation();
+
+  useEffect(() => {
+    if (!isAuthLoaded || !isAuthenticated) return;
+    operationsApi.trackPageView(location.pathname).catch((error) => {
+      console.debug('Page view tracking skipped', error);
+    });
+  }, [isAuthLoaded, isAuthenticated, location.pathname]);
+
   if (!isAuthLoaded) return null;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
   return <Outlet />;
@@ -26,6 +38,7 @@ function AppContent() {
         <Route path="/rty" element={<RTYPage />} />
         <Route path="/lrr" element={<LRRPage />} />
         <Route path="/process-records" element={<ProcessRecordsPage />} />
+        <Route path="/operations" element={<OperationsPage />} />
         <Route path="/doa" element={<Navigate to="/" />} />
         <Route path="/mfr" element={<Navigate to="/" />} />
       </Route>

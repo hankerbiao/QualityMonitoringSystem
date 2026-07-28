@@ -8,10 +8,21 @@ from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from app.api import ai, alert_report, auth, faults, lrr, mes, process_records, rty, settings
+from app.api import (
+    ai,
+    alert_report,
+    auth,
+    faults,
+    lrr,
+    mes,
+    operations,
+    process_records,
+    rty,
+    settings,
+)
 from app.core.config import get_settings
 from app.core.logger import log_error, log_info, setup_logger
-from app.core.middleware import RequestContextMiddleware
+from app.core.middleware import RequestContextMiddleware, UsageTrackingMiddleware
 from app.db.mongodb import close_mongo_connection, connect_to_mongo
 from app.services.lrr_alert import run_daily_lrr_check
 from app.services.process_record_service import process_record_gateway
@@ -121,6 +132,7 @@ app.add_middleware(
 
 # 请求上下文中间件：为每行日志自动绑定 request_id（及后续用户上下文）
 app.add_middleware(RequestContextMiddleware)
+app.add_middleware(UsageTrackingMiddleware)
 
 
 # 注册路由
@@ -137,6 +149,7 @@ app.include_router(
     tags=["Process Records"],
 )
 app.include_router(auth.router, prefix="/api", tags=["Auth"])
+app.include_router(operations.router, prefix="/api/operations", tags=["Operations"])
 
 
 @app.get("/health")

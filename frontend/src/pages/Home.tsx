@@ -11,7 +11,8 @@ import {
   LogOut,
   ChevronDown,
   Mail,
-  Camera
+  Camera,
+  Gauge,
 } from 'lucide-react';
 import SettingsModal from '../components/SettingsModal';
 import { useAuth } from '../context/AuthContext';
@@ -213,6 +214,29 @@ export default function Home() {
               </div>
               <div className="mt-6 flex justify-end">
                 <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center group-hover:bg-cyan-100 text-slate-400 group-hover:text-cyan-700 transition-colors border border-slate-100">
+                  <ArrowRight className="w-4 h-4" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Operations Monitoring */}
+          <div
+            onClick={() => navigate('/operations')}
+            className="group relative overflow-hidden bg-white border border-slate-200 hover:border-rose-300 rounded-2xl p-6 cursor-pointer transition-all duration-300 hover:bg-rose-50/30 hover:shadow-md hover:shadow-rose-900/5"
+          >
+            <div className="flex flex-col h-full justify-between">
+              <div>
+                <div className="w-10 h-10 bg-rose-50 border border-rose-100 rounded-lg flex items-center justify-center mb-4 text-rose-700 group-hover:bg-rose-100 transition-colors">
+                  <Gauge className="w-5 h-5" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-800 mb-2">运营监控</h3>
+                <p className="text-slate-500 text-sm leading-relaxed">
+                  汇总系统活跃用户、访问趋势、功能使用排行与接口运行状态，持续掌握 QualiBoard 的实际使用情况。
+                </p>
+              </div>
+              <div className="mt-6 flex justify-end">
+                <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center group-hover:bg-rose-100 text-slate-400 group-hover:text-rose-700 transition-colors border border-slate-100">
                   <ArrowRight className="w-4 h-4" />
                 </div>
               </div>
