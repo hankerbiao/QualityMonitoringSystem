@@ -1,0 +1,25 @@
+FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    UV_COMPILE_BYTECODE=1 \
+    UV_LINK_MODE=copy \
+    PATH="/app/.venv/bin:$PATH"
+
+WORKDIR /app
+
+# Cache dependency installation separately from application source changes.
+COPY backend/pyproject.toml backend/uv.lock ./
+RUN uv sync --frozen --no-dev --no-install-project
+
+COPY backend/ ./
+RUN uv sync --frozen --no-dev
+
+RUN mkdir -p /app/logs && chown -R 10001:10001 /app
+
+USER 10001:10001
+
+EXPOSE 8000
+
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
+

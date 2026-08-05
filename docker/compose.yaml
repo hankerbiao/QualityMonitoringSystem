@@ -1,0 +1,93 @@
+name: quality-monitoring-system
+
+x-backend-environment: &backend-environment
+  APP_NAME: ${APP_NAME:-QualiBoard}
+  DEBUG: ${DEBUG:-false}
+  MONGODB_URL: ${MONGODB_URL:-mongodb://10.17.154.252:27019}
+  MONGODB_DB_NAME: ${MONGODB_DB_NAME:-quality_monitoring}
+  PROCESS_RECORD_CREDENTIAL_KEY: ${PROCESS_RECORD_CREDENTIAL_KEY:-}
+  JWT_SECRET: ${JWT_SECRET:-change-me-before-production}
+  ALERT_TOKEN_SECRET: ${ALERT_TOKEN_SECRET:-change-me-before-production}
+  DEFAULT_ADMIN_USERNAME: ${DEFAULT_ADMIN_USERNAME:-admin}
+  DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-admin123}
+  OA_JWT_SECRET: ${OA_JWT_SECRET:-}
+  OA_LOGIN_URL: ${OA_LOGIN_URL:-http://10.2.48.65/auth/oa/callback}
+  OA_APP_NAME: ${OA_APP_NAME:-qualiboard}
+  OA_LOGIN_BASE_URL: ${OA_LOGIN_BASE_URL:-http://tl.cooacloud.com/springboard_v3/login_proxy}
+  CORS_ORIGINS: '["${FRONTEND_ORIGIN:-http://localhost:3000}"]'
+  APP_PUBLIC_BASE_URL: ${FRONTEND_ORIGIN:-http://localhost:3000}
+  MAIL_PROXY_URL: ${MAIL_PROXY_URL:-http://10.32.129.1/springboard_v3/mail_proxy/buqualiboard}
+  LOG_DIR: /app/logs
+  LOG_LEVEL: ${LOG_LEVEL:-INFO}
+  LOG_JSON_FORMAT: ${LOG_JSON_FORMAT:-false}
+  TZ: ${TZ:-Asia/Shanghai}
+
+services:
+  backend:
+    image: quality-monitoring-backend:local
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.backend
+    environment: *backend-environment
+    ports:
+      - "${BACKEND_PORT:-8000}:8000"
+    volumes:
+      - backend_logs:/app/logs
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    init: true
+    restart: unless-stopped
+    networks:
+      - app_network
+
+  frontend:
+    image: quality-monitoring-frontend:local
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.frontend
+    environment:
+      NGINX_ENVSUBST_FILTER: ^VOICE_WS_UPSTREAM$
+      VOICE_WS_UPSTREAM: ${VOICE_WS_UPSTREAM:-10.17.150.235:10095}
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/nginx-health"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 5s
+    init: true
+    restart: unless-stopped
+    networks:
+      - app_network
+
+  init-config:
+    image: quality-monitoring-backend:local
+    profiles: ["tools"]
+    environment: *backend-environment
+    command: ["python", "init_default_settings.py"]
+    restart: "no"
+    networks:
+      - app_network
+
+volumes:
+  backend_logs:
+
+networks:
+  app_network:
+    driver: bridge
+
