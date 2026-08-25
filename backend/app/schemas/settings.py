@@ -4,39 +4,6 @@
 
 from pydantic import BaseModel, Field
 
-# ============== MES 系统配置 ==============
-
-
-class MESConfigBase(BaseModel):
-    """MES 配置基础模型"""
-
-    username: str = Field(..., description="MES 系统账号")
-    password: str = Field(..., description="MES 系统密码 (加密存储)")
-
-
-class MESConfigCreate(MESConfigBase):
-    """创建 MES 配置"""
-
-    pass
-
-
-class MESConfig(BaseModel):
-    """MES 配置响应模型（出于安全，密码永不返回明文）"""
-
-    username: str
-    hasPassword: bool = Field(False, description="是否已配置密码（不返回明文）")
-
-    class Config:
-        from_attributes = True
-
-
-class MESConfigUpdate(BaseModel):
-    """更新 MES 配置"""
-
-    username: str | None = None
-    password: str | None = None
-
-
 # ============== 关键工位影像追溯配置 ==============
 
 
@@ -148,65 +115,6 @@ class AIConfigUpdate(BaseModel):
     maxTokens: int | None = None
 
 
-# ============== RTY 数据字典 ==============
-
-
-class DataDictionaryField(BaseModel):
-    """机器信息表(machine_info)字段概要"""
-
-    name: str = Field(..., description="MongoDB 字段名")
-    type: str = Field("unknown", description="推断的数据类型")
-    fillRate: float = Field(0.0, description="采样内非空比例 (0~1)")
-    nonNullCount: int = Field(0, description="采样内非空条数")
-    distinctCount: int = Field(0, description="去重数（关键业务字段为全集去重，其余为采样去重）")
-    sampleValue: str = Field("", description="样例值（字符串化，最多 60 字）")
-    rtyField: str = Field("", description="对应 RTY 业务字段名（如有）")
-    description: str = Field("", description="业务含义说明")
-
-
-class ValueCount(BaseModel):
-    """维度取值与出现次数"""
-
-    value: str = Field(..., description="取值（统一字符串化）")
-    count: int = Field(0, description="在机器信息表中出现的次数")
-
-
-class DimensionSummary(BaseModel):
-    """机器信息表中的一个可下钻业务维度（看板卡片）"""
-
-    key: str = Field(..., description="MongoDB 字段名")
-    label: str = Field(..., description="业务名称（如 销售订单号）")
-    total: int = Field(0, description="该维度全集去重数")
-    topValues: list[ValueCount] = Field(
-        default_factory=list, description="出现频次最高的前 20 个取值"
-    )
-
-
-class DimensionValues(BaseModel):
-    """维度下钻：某字段的全部去重取值（可按关键字搜索、分页）"""
-
-    field: str = Field(..., description="MongoDB 字段名")
-    label: str = Field(..., description="业务名称")
-    total: int = Field(0, description="该维度全集去重数")
-    filteredTotal: int = Field(0, description="按搜索关键字过滤后的去重数")
-    page: int = Field(1, description="当前页（从 1 开始）")
-    pageSize: int = Field(50, description="每页条数")
-    values: list[ValueCount] = Field(default_factory=list)
-
-
-class RTYDataDictionary(BaseModel):
-    """机器信息表(machine_info)数据字典与概要信息"""
-
-    collection: str = Field("machine_info", description="集合名称")
-    totalCount: int = Field(0, description="集合总记录数")
-    fieldCount: int = Field(0, description="字段（列）数量")
-    sampleSize: int = Field(0, description="采样条数")
-    fields: list[DataDictionaryField] = Field(default_factory=list)
-    dimensions: list[DimensionSummary] = Field(
-        default_factory=list, description="可下钻的业务维度看板"
-    )
-
-
 # ============== 功能开关配置 ==============
 
 
@@ -235,29 +143,7 @@ class FeatureFlagsUpdate(BaseModel):
     voiceInputEnabled: bool | None = None
 
 
-# ============== 统一设置响应 ==============
-
-
-class SettingsResponse(BaseModel):
-    """统一设置响应"""
-
-    mes: MESConfig | None = None
-    processRecords: ProcessRecordConfig
-    modelTargets: dict[str, float] = Field(default_factory=dict)
-    emailAlert: EmailAlertConfig
-    featureFlags: FeatureFlags
-    ai: AIConfigSchema
-
-
-class SettingsUpdateRequest(BaseModel):
-    """设置更新请求"""
-
-    mes: MESConfigUpdate | None = None
-    processRecords: ProcessRecordConfigUpdate | None = None
-    modelTargets: dict[str, float] | None = None
-    emailAlert: EmailAlertConfigUpdate | None = None
-    featureFlags: FeatureFlagsUpdate | None = None
-    ai: AIConfigUpdate | None = None
+# ============== 周期统计看板配置 ==============
 
 
 class CycleStatsConfig(BaseModel):
@@ -268,15 +154,26 @@ class CycleStatsConfig(BaseModel):
     )
 
 
-class DataSummaryResponse(BaseModel):
-    """数据概览统计响应"""
+# ============== 统一设置响应 ==============
 
-    totalOrders: int = Field(description="总销售订单数")
-    validOrders: int = Field(description="有效订单数（有机器数据的订单）")
-    totalMachines: int = Field(description="总机器数")
-    totalModelTypes: int = Field(description="总机型数")
-    totalMaterials: int = Field(description="总物料数（装配记录物料编码种类）")
-    totalFaults: int = Field(description="总故障数")
-    totalFaultMaterials: int = Field(description="总故障物料数（出现故障的物料种类）")
-    factories: list[str] = Field(description="基地列表")
-    customers: list[str] = Field(description="客户列表")
+
+class SettingsResponse(BaseModel):
+    """统一设置响应"""
+
+    processRecords: ProcessRecordConfig
+    modelTargets: dict[str, float] = Field(default_factory=dict)
+    emailAlert: EmailAlertConfig
+    featureFlags: FeatureFlags
+    ai: AIConfigSchema
+    cycleStatsConfig: CycleStatsConfig = Field(default_factory=CycleStatsConfig)
+
+
+class SettingsUpdateRequest(BaseModel):
+    """设置更新请求"""
+
+    processRecords: ProcessRecordConfigUpdate | None = None
+    modelTargets: dict[str, float] | None = None
+    emailAlert: EmailAlertConfigUpdate | None = None
+    featureFlags: FeatureFlagsUpdate | None = None
+    ai: AIConfigUpdate | None = None
+    cycleStatsConfig: CycleStatsConfig | None = None

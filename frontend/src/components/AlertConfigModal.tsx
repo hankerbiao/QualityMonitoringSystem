@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { X, Bell, Calendar, Filter, Loader2 } from 'lucide-react';
+import { X, Bell, Calendar, Filter, Loader2, FileText } from 'lucide-react';
 import {
   LineChart,
   BarChart,
@@ -14,18 +14,26 @@ import {
 } from 'recharts';
 import { RTYData } from '../types';
 import { rtyApi } from '../api/rtyApi';
-import { settingsApi } from '../api/settingsApi';
+import { useSettings } from '../context/SettingsContext';
 import type { RTYFilterParams, CycleStatsConfig } from '../types';
 
 interface AlertConfigModalProps {
-  onClose: () => void;
+  onClose?: () => void;
   modelTargets?: Record<string, number>;
+  embedded?: boolean;
+  onDetailOpen?: () => void;
 }
 
 // 预定义一些颜色，用于图表中的不同机型
 const COLORS = ['#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444', '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16'];
 
-export default function AlertConfigModal({ onClose, modelTargets = {} }: AlertConfigModalProps) {
+export default function AlertConfigModal({
+  onClose,
+  modelTargets = {},
+  embedded = false,
+  onDetailOpen,
+}: AlertConfigModalProps) {
+  const { settings, updateSettings } = useSettings();
 
   // 时间范围快捷键：6 = 近半年, 12 = 近一年, custom = 自定义
   const [timeFilter, setTimeFilter] = useState<'6' | '12' | 'custom'>('6');
@@ -79,18 +87,10 @@ export default function AlertConfigModal({ onClose, modelTargets = {} }: AlertCo
 
   // 加载保存的机型筛选配置
   useEffect(() => {
-    const load = async () => {
-      try {
-        const saved = await settingsApi.getCycleStatsConfig();
-        if (saved.selectedModels.length > 0) {
-          setSelectedModels(new Set(saved.selectedModels));
-        }
-      } catch {
-        // 忽略加载失败
-      }
-    };
-    load();
-  }, []);
+    if (settings.cycleStatsConfig.selectedModels.length > 0) {
+      setSelectedModels(new Set(settings.cycleStatsConfig.selectedModels));
+    }
+  }, [settings.cycleStatsConfig.selectedModels]);
 
   const baseDate = new Date();
   
@@ -205,7 +205,7 @@ export default function AlertConfigModal({ onClose, modelTargets = {} }: AlertCo
       const config: CycleStatsConfig = {
         selectedModels: selectedModels ? Array.from(selectedModels) : [],
       };
-      await settingsApi.saveCycleStatsConfig(config);
+      await updateSettings({ cycleStatsConfig: config });
       setFilterSaved(true);
       setTimeout(() => setFilterSaved(false), 2000);
     } catch {
@@ -276,11 +276,11 @@ export default function AlertConfigModal({ onClose, modelTargets = {} }: AlertCo
   }, [filteredData]);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
+    <div className={embedded ? 'h-full' : 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm'}>
       <div 
-        className="bg-white rounded-md shadow-xl border border-slate-200 w-full max-w-6xl overflow-hidden flex flex-col relative"
+        className={`bg-white rounded-md border border-slate-200 w-full overflow-hidden flex flex-col relative ${embedded ? 'h-full' : 'max-w-6xl shadow-xl'}`}
         onClick={(e) => e.stopPropagation()}
-        style={{ maxHeight: '90vh' }}
+        style={embedded ? undefined : { maxHeight: '90vh' }}
       >
         <div className="px-5 py-3 border-b border-slate-200 flex justify-between items-center bg-[#f8fafc]">
           <div className="flex items-center gap-2">
@@ -288,12 +288,23 @@ export default function AlertConfigModal({ onClose, modelTargets = {} }: AlertCo
             <h3 className="text-base font-semibold text-slate-800">周期统计</h3>
           </div>
           <div className="flex items-center gap-4">
-            <button 
-              onClick={onClose}
-              className="p-1 rounded-sm hover:bg-slate-200 text-slate-500 transition-colors"
-            >
-              <X className="w-4 h-4" />
-            </button>
+            {embedded && onDetailOpen && (
+              <button
+                onClick={onDetailOpen}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-sm border border-slate-300 bg-white text-xs font-medium text-slate-700 hover:bg-slate-50 transition-colors"
+              >
+                <FileText className="w-3.5 h-3.5 text-blue-600" />
+                详情
+              </button>
+            )}
+            {!embedded && (
+              <button
+                onClick={() => onClose?.()}
+                className="p-1 rounded-sm hover:bg-slate-200 text-slate-500 transition-colors"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            )}
           </div>
         </div>
         
@@ -682,14 +693,16 @@ export default function AlertConfigModal({ onClose, modelTargets = {} }: AlertCo
           </div>
         </div>
         
-        <div className="px-5 py-3 border-t border-slate-200 bg-[#f8fafc] flex justify-end mt-auto">
-          <button 
-            onClick={onClose}
-            className="px-6 py-1.5 bg-[#1e40af] hover:bg-[#1e3a8a] text-white rounded-sm text-sm font-medium transition-colors shadow-sm"
-          >
-            关闭
-          </button>
-        </div>
+        {!embedded && (
+          <div className="px-5 py-3 border-t border-slate-200 bg-[#f8fafc] flex justify-end mt-auto">
+            <button
+              onClick={() => onClose?.()}
+              className="px-6 py-1.5 bg-[#1e40af] hover:bg-[#1e3a8a] text-white rounded-sm text-sm font-medium transition-colors shadow-sm"
+            >
+              关闭
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

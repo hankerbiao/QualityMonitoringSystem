@@ -13,7 +13,7 @@ export function Modal({ title, onClose, children, footer, maxWidth = 'max-w-lg' 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm">
       <div
-        className={`bg-white rounded-md shadow-xl border border-slate-200 w-full ${maxWidth} overflow-hidden flex flex-col`}
+        className={`bg-white rounded-md shadow-xl border border-slate-200 w-full ${maxWidth} max-h-[calc(100vh-2rem)] overflow-hidden flex flex-col`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-5 py-3 border-b border-slate-200 flex justify-between items-center bg-[#f8fafc]">

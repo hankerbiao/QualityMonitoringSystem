@@ -7,10 +7,7 @@ from pydantic import BaseModel, Field
 
 from app.api.auth import get_current_user
 from app.db.mongodb import get_database
-from app.services.operations_service import (
-    build_operations_dashboard,
-    record_page_view,
-)
+from app.services.operations_service import build_operations_dashboard, record_page_view
 
 router = APIRouter()
 

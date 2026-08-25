@@ -1,0 +1,115 @@
+文档名称	SUGON_SAP_SIMS-ZSIMS_CL_INBOUND_SN_INFO-获取客户整机SN关键节点信息接口-技术说明书
+文档代码
+
+版本信息
+日期	版本	描述	作者	变更说明
+2026.03.09	V1.0		司伟东	初始版本
+
+
+
+文档审核
+责任人	签名	日期
+开发人员	司伟东	2026.03.09
+开发经理
+
+目录
+文档控制	1
+1.	业务需求	3
+1.1	业务背景	3
+1.2	业务流程	3
+1.3	功能需求概述	3
+2.	程序设计	4
+2.1	程序定义	4
+2.2	UI设计	4
+2.2.1	输入	4
+2.2.2	输出	4
+2.2.3	http地址	4
+2.2.4	HEAD字段	4
+2.2.5	签名规则	4
+2.3	数据库表设计	5
+2.4	程序设计流	5
+2.5	关键逻辑	5
+1.业务需求
+1.1业务背景
+1.2业务流程
+
+1.3功能需求概述
+2.程序设计
+2.1程序定义
+程序类型	程序名称	描述
+HTTP	ZSIMS_CL_INBOUND_SN_INFO	获取客户整机SN关键节点信息
+
+T-CODE	描述
+
+
+权限对象	描述
+
+
+2.2UI设计
+2.2.1输入表结构
+字段	类型	长度	示例值	字段描述
+SN_LIST	List<Strin g>			SN列表
+
+2.2.2输出结构
+字段	类型	长度	示例值	字段描述
+MSGTY	CHAR	1	S/E	消息类型：E为失败，S为成功
+MSGTX	CHAR	220		消息文本
+DATA	List			数据数组
+DATA列表定义
+字段	类型	长度	示例值	字段描述
+PCODE	CHAR	100		整机SN
+AUFNR	CHAR	20		生产订单
+MATNR	CHAR	40		物料编号
+MAKTX	CHAR	80		物料描述
+CDATE_S	DATE	10		上线日期
+CDATE_E	DATE	10		下线日期
+CDATE_I	DATE	10		入库日期
+CDATE_O	DATE	10		出库日期
+
+2.2.3http地址
+KK开发	http://10.8.100.13:8000/sap/ZHTTP_SIMS?sap-client=610
+KK测试	http://10.8.101.150:8000/sap/ZHTTP_SIMS?sap-client=600
+KK生产	http://10.8.100.11:8001/sap/ZHTTP_SIMS?sap-client=600
+SG开发	http://10.2.108.52:8000/sap/ZHTTP_SIMS?sap-client=800
+SG测试	http://10.2.108.53:8000/sap/ZHTTP_SIMS?sap-client=800
+SG生产	http://10.2.101.37:8000/sap/ZHTTP_SIMS?sap-client=800
+
+2.2.4HEAD字段
+1、method 方法名 传入固定值：ZSIMS_CL_INBOUND_SN_INFO
+2、sign 签名
+3、time 时间戳（建议等于接口交互当前日期，例：20260309）
+2.2.5签名规则
+内容：拼接sugon  方法名   时间戳  sugon
+例子：sugonZSIMS_CL_INBOUND_SN_INFO20260309sugon
+把内容做MD5加密放到签名里, 取32位大写
+2.2.6报文示例
+Request Body：
+{
+    "SN_LIST": [
+        "6102139607654349"
+    ]
+}
+
+Response Body:
+{
+    "MSGTY": "S",
+    "MSGTX": "Success",
+    "DATA": [
+        {
+            "PCODE": "6102139607654349",
+            "AUFNR": "30211673",
+            "MATNR": "61021396",
+            "MAKTX": "X660 G51_A01_爱琴海机尾02_BF3L",
+            "CDATE_S": "0000-00-00",
+            "CDATE_E": "0000-00-00",
+            "CDATE_I": "2025-11-24",
+            "CDATE_O": "0000-00-00"
+        }
+    ]
+}
+}
+2.3数据库表设计
+N/A
+2.4程序设计流
+
+2.5关键逻辑

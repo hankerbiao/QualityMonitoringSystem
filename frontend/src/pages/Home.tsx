@@ -1,35 +1,51 @@
-import { useState, useRef, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { 
-  Activity, 
-  AlertTriangle, 
-  Wrench, 
+import { useEffect, useRef, useState } from 'react';
+import {
   BarChart3,
-  ArrowRight,
-  Settings,
-  ShieldCheck,
-  LogOut,
   ChevronDown,
+  LayoutGrid,
+  LogOut,
   Mail,
-  Camera,
-  Gauge,
+  Search,
+  Settings as SettingsIcon,
+  Settings2,
+  ShieldCheck,
+  Wrench,
+  X,
 } from 'lucide-react';
+import HomeSection from '../components/home/HomeSection';
 import SettingsModal from '../components/SettingsModal';
+import {
+  managementModules,
+  metadataModules,
+  qualityModules,
+  toolModules,
+} from '../config/homeModules';
 import { useAuth } from '../context/AuthContext';
 
+type ModuleFilter = 'all' | 'quality' | 'tools' | 'management';
+
+const moduleFilters = [
+  { id: 'all', label: '全部', icon: LayoutGrid },
+  { id: 'quality', label: '质量看板', icon: BarChart3 },
+  { id: 'tools', label: '关键工位影像追溯', icon: Wrench },
+  { id: 'management', label: '运营监控', icon: Settings2, adminOnly: true },
+] as const;
+
 export default function Home() {
-  const navigate = useNavigate();
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const [activeFilter, setActiveFilter] = useState<ModuleFilter>('all');
+  const [searchQuery, setSearchQuery] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
   const { user, logout } = useAuth();
 
   useEffect(() => {
-    const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+    const handler = (event: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(event.target as Node)) {
         setUserMenuOpen(false);
       }
     };
+
     document.addEventListener('mousedown', handler);
     return () => document.removeEventListener('mousedown', handler);
   }, []);
@@ -38,238 +54,263 @@ export default function Home() {
   const avatarChar = displayName.charAt(0) || 'U';
   const department = user?.部门 || user?.department || '';
   const email = user?.邮件 || user?.email || '';
+  const isAdmin = user?.role === 'admin';
+  const visibleModules = [
+    ...qualityModules,
+    ...toolModules,
+    ...(isAdmin ? managementModules : []),
+  ];
+  const availableFunctionCount = visibleModules.filter(
+    (module) => module.status === 'available',
+  ).length;
+  const plannedFunctionCount = visibleModules.filter(
+    (module) => module.status === 'planned',
+  ).length;
+  const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
+  const filterModules = (modules: typeof qualityModules) =>
+    modules.filter((module) =>
+      [module.code, module.title, module.description]
+        .join(' ')
+        .toLocaleLowerCase()
+        .includes(normalizedQuery),
+    );
+  const filteredQualityModules = filterModules(qualityModules);
+  const filteredMetadataModules = filterModules(metadataModules);
+  const filteredToolModules = filterModules(toolModules);
+  const filteredManagementModules = filterModules(managementModules);
+  const showQuality = activeFilter === 'all' || activeFilter === 'quality';
+  const showMetadata = activeFilter === 'all';
+  const showTools = activeFilter === 'all' || activeFilter === 'tools';
+  const showManagement = isAdmin && (activeFilter === 'all' || activeFilter === 'management');
+  const hasMetadataResults = showMetadata && filteredMetadataModules.length > 0;
+  const hasToolResults = showTools && filteredToolModules.length > 0;
+  const resultCount =
+    (showQuality ? filteredQualityModules.length : 0) +
+    (showMetadata ? filteredMetadataModules.length : 0) +
+    (showTools ? filteredToolModules.length : 0) +
+    (showManagement ? filteredManagementModules.length : 0);
+
+  const openSettings = () => {
+    setIsSettingsOpen(true);
+  };
 
   return (
-    <div className="min-h-screen bg-slate-50/50 text-slate-800 p-6 lg:p-12 font-sans selection:bg-blue-500/30">
-      <div className="max-w-6xl mx-auto space-y-12">
-        
-        {/* Header Section */}
-        <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 pb-8 border-b border-slate-200">
-          <div>
-            <div className="flex items-center gap-3 mb-3">
-              <div className="w-10 h-10 bg-blue-600 rounded-lg flex items-center justify-center shadow-lg shadow-blue-600/20">
-                <ShieldCheck className="w-6 h-6 text-white" />
-              </div>
-              <h1 className="text-3xl font-bold text-slate-900 tracking-tight">品质看板 <span className="text-blue-600">QualiBoard</span></h1>
+    <div className="min-h-screen bg-slate-50 text-slate-800 selection:bg-blue-500/30">
+      <header className="border-b border-slate-200 bg-white">
+        <div className="mx-auto flex min-h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+          <div className="flex min-w-0 items-center gap-3">
+            <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-blue-600 text-white shadow-sm">
+              <ShieldCheck className="size-5" aria-hidden="true" />
             </div>
-            <p className="text-slate-500 max-w-xl leading-relaxed">
-              基于 5000 公司销售订单数据，全面打通 MES、SAP、SCS 等核心系统，提供端到端的整机与部件质量监控、深度分析与自动化预警。
+            <div className="min-w-0">
+              <p className="truncate text-base font-semibold leading-5 text-slate-950">QualiBoard</p>
+              <p className="text-xs leading-4 text-slate-400">品质看板</p>
+            </div>
+          </div>
+
+            {user && (
+            <div className="relative" ref={menuRef}>
+              <button
+                type="button"
+                aria-expanded={userMenuOpen}
+                aria-haspopup="menu"
+                onClick={() => setUserMenuOpen((open) => !open)}
+                className="flex min-h-10 items-center gap-2.5 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-left transition-colors hover:border-blue-300 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2"
+              >
+                <div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-blue-600 text-xs font-semibold text-white">
+                  {avatarChar}
+                </div>
+                <div className="hidden min-w-0 sm:block">
+                  <p className="max-w-28 truncate text-sm font-medium leading-5 text-slate-800">{displayName}</p>
+                </div>
+                <ChevronDown
+                  className={`size-4 text-slate-400 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`}
+                  aria-hidden="true"
+                />
+              </button>
+
+              {userMenuOpen && (
+                <div
+                  role="menu"
+                  className="absolute right-0 top-full z-50 mt-2 w-64 overflow-hidden rounded-lg border border-slate-200 bg-white py-2 shadow-lg shadow-slate-900/10"
+                >
+                  <div className="border-b border-slate-100 px-4 py-3">
+                    <p className="text-sm font-semibold text-slate-800">{displayName}</p>
+                    <p className="mt-0.5 text-xs text-slate-400">
+                      {[user.itcode, department].filter(Boolean).join(' · ')}
+                    </p>
+                  </div>
+                  {email && (
+                    <div className="flex items-start gap-2 px-4 py-2 text-xs text-slate-500">
+                      <Mail className="mt-0.5 size-3.5 shrink-0 text-slate-400" aria-hidden="true" />
+                      <span className="break-all">{email}</span>
+                    </div>
+                  )}
+                  <div className="mt-1 border-t border-slate-100 pt-1">
+                    <button
+                      type="button"
+                      role="menuitem"
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        logout();
+                      }}
+                      className="flex w-full items-center gap-2 px-4 py-2 text-sm text-slate-600 transition-colors hover:bg-red-50 hover:text-red-600"
+                    >
+                      <LogOut className="size-4" aria-hidden="true" />
+                      退出登录
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </header>
+
+      <main className="mx-auto max-w-7xl px-4 py-7 sm:px-6 lg:px-8 lg:py-9">
+        <div className="flex flex-col gap-4 pb-7 sm:flex-row sm:items-end sm:justify-between">
+          <div>
+            <h1 className="text-2xl font-semibold text-slate-950">质量监控工作台</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+              汇聚生产、交付和现网质量数据，快速进入日常监控、追溯与系统管理工作。
             </p>
           </div>
-          <div className="flex items-center gap-3" ref={menuRef}>
-            {user && (
-              <div className="relative">
+          <div className="flex items-center gap-5 text-xs text-slate-500">
+            <span className="flex items-center gap-2">
+              <span className="size-2 rounded-full bg-emerald-500" aria-hidden="true" />
+              {availableFunctionCount} 个功能可用
+            </span>
+            <span className="flex items-center gap-2">
+              <span className="size-2 rounded-full bg-amber-400" aria-hidden="true" />
+              {plannedFunctionCount} 个建设中
+            </span>
+            <button
+              type="button"
+              onClick={openSettings}
+              aria-label="系统配置管理"
+              className="-mr-1 ml-1 inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-slate-300 px-2.5 bg-white text-sm text-slate-600 transition-colors hover:border-blue-300 hover:bg-blue-50 hover:text-blue-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+            >
+              <SettingsIcon className="size-3.5" aria-hidden="true" />
+              <span>系统配置</span>
+            </button>
+          </div>
+        </div>
+
+        <div className="sticky top-0 z-30 -mx-4 border-y border-slate-200 bg-slate-50/95 px-4 py-3 backdrop-blur sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 items-center gap-1 overflow-x-auto" role="tablist" aria-label="功能分类">
+              {moduleFilters.map((filter) => {
+                if ('adminOnly' in filter && filter.adminOnly && !isAdmin) return null;
+                const FilterIcon = filter.icon;
+                const selected = activeFilter === filter.id;
+                return (
+                  <button
+                    key={filter.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={selected}
+                    onClick={() => setActiveFilter(filter.id)}
+                    className={`flex min-h-9 shrink-0 items-center gap-2 rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+                      selected ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-white hover:text-slate-950'
+                    }`}
+                  >
+                    <FilterIcon className="size-4" aria-hidden="true" />
+                    {filter.label}
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="relative w-full lg:w-72">
+              <label htmlFor="module-search" className="sr-only">搜索功能</label>
+              <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <input
+                id="module-search"
+                type="search"
+                value={searchQuery}
+                onChange={(event) => setSearchQuery(event.target.value)}
+                placeholder="搜索看板或工具"
+                className="h-9 w-full rounded-md border border-slate-200 bg-white pl-9 pr-9 text-sm text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-500/15"
+              />
+              {searchQuery && (
                 <button
-                  onClick={() => setUserMenuOpen((v) => !v)}
-                  className="flex items-center gap-3 pl-2 pr-3 py-1.5 bg-white border border-slate-200 rounded-xl hover:border-blue-300 hover:shadow-sm transition-all"
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  aria-label="清空搜索"
+                  className="absolute right-1.5 top-1/2 flex size-7 -translate-y-1/2 items-center justify-center rounded-md text-slate-400 hover:bg-slate-100 hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
                 >
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-sm">
-                    <span className="text-white text-sm font-semibold">{avatarChar}</span>
-                  </div>
-                  <div className="text-left">
-                    <p className="text-sm font-semibold text-slate-800 leading-none">{displayName}</p>
-                    <p className="text-xs text-slate-400 leading-none mt-0.5">{department}</p>
-                  </div>
-                  <ChevronDown className={`w-3.5 h-3.5 text-slate-400 transition-transform ${userMenuOpen ? 'rotate-180' : ''}`} />
+                  <X className="size-4" aria-hidden="true" />
                 </button>
-                {userMenuOpen && (
-                  <div className="absolute right-0 top-full mt-2 w-64 bg-white rounded-xl border border-slate-200 shadow-lg shadow-slate-900/10 py-2 z-50 overflow-hidden">
-                    <div className="px-4 py-3 border-b border-slate-100">
-                      <p className="text-sm font-semibold text-slate-800">{displayName}</p>
-                      <p className="text-xs text-slate-400 mt-0.5">{user.itcode} · {department}</p>
-                    </div>
-                    {email && (
-                      <div className="flex items-center gap-2 px-4 py-2 text-xs text-slate-500">
-                        <Mail className="w-3.5 h-3.5 text-slate-400" />
-                        {email}
-                      </div>
-                    )}
-                    <div className="border-t border-slate-100 mt-1 pt-1">
-                      <button
-                        onClick={() => { setUserMenuOpen(false); logout(); }}
-                        className="w-full flex items-center gap-2 px-4 py-2 text-sm text-slate-600 hover:text-red-600 hover:bg-red-50 transition-colors"
-                      >
-                        <LogOut className="w-4 h-4" />
-                        退出登录
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </header>
-
-        {/* Main Navigation Modules - Bento Grid */}
-        <section className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-          
-          {/* Main Module: RTY (Takes up more space) */}
-          <div 
-            onClick={() => navigate('/rty')}
-            className="lg:col-span-2 group relative overflow-hidden bg-gradient-to-br from-blue-50 to-white border border-blue-100 hover:border-blue-300 rounded-2xl p-8 cursor-pointer transition-all duration-300 shadow-sm hover:shadow-md hover:shadow-blue-900/5"
-          >
-            <div className="absolute top-0 right-0 p-8 opacity-[0.03] group-hover:opacity-[0.05] transition-opacity">
-              <Activity className="w-48 h-48 text-blue-900" />
-            </div>
-            <div className="relative z-10 flex flex-col h-full justify-between">
-              <div>
-                <div className="w-12 h-12 bg-blue-100 border border-blue-200 rounded-xl flex items-center justify-center mb-6 text-blue-600 group-hover:scale-110 transition-transform">
-                  <Activity className="w-6 h-6" />
-                </div>
-                <h2 className="text-2xl font-bold text-slate-800 mb-2">RTY (整机综合直通率)</h2>
-                <p className="text-slate-600 max-w-md leading-relaxed">
-                  依托 MES 销售订单数据，监控普通及复合机型的整体与过站直通率。提供多维度(基地/客户/订单)数据穿透下钻、实际达成与指标对比，并支持邮件自动化预警机制。
-                </p>
-              </div>
-              <div className="mt-8 flex items-center text-blue-600 font-medium group-hover:text-blue-700">
-                <span>进入模块</span>
-                <ArrowRight className="w-5 h-5 ml-2 group-hover:translate-x-1 transition-transform" />
-              </div>
+              )}
             </div>
           </div>
+        </div>
 
-          {/* Module: LRR */}
-          <div 
-            onClick={() => navigate('/lrr')}
-            className="group relative overflow-hidden bg-white border border-slate-200 hover:border-amber-300 rounded-2xl p-6 cursor-pointer transition-all duration-300 hover:bg-slate-50 hover:shadow-md hover:shadow-amber-900/5"
-          >
-             <div className="flex flex-col h-full justify-between">
-              <div>
-                <div className="w-10 h-10 bg-amber-50 border border-amber-100 rounded-lg flex items-center justify-center mb-4 text-amber-600 group-hover:bg-amber-100 transition-colors">
-                  <AlertTriangle className="w-5 h-5" />
-                </div>
-                <h3 className="text-lg font-bold text-slate-800 mb-2">LRR (工厂阶段部件故障率)</h3>
-                <p className="text-slate-500 text-sm leading-relaxed">
-                  基于 MES 生产与维修数据，精准统计工厂阶段各部件维度的故障率(故障部件数/总使用数)。支持按机型、部件类型、PN等维度深层剖析，快速锁定缺陷根因。
-                </p>
-              </div>
-              <div className="mt-6 flex justify-end">
-                <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center group-hover:bg-amber-100 text-slate-400 group-hover:text-amber-600 transition-colors border border-slate-100">
-                  <ArrowRight className="w-4 h-4" />
-                </div>
-              </div>
+        <div className="space-y-9 py-7">
+          {showQuality && filteredQualityModules.length > 0 && (
+            <HomeSection
+              id="quality-dashboards"
+              title="核心质量看板"
+              description="覆盖生产、交付与现网阶段的关键质量表现。"
+              modules={filteredQualityModules}
+              variant="primary"
+            />
+          )}
+
+          {(hasToolResults || hasMetadataResults) && (
+            <div className="grid gap-9">
+              {hasToolResults && (
+                <HomeSection
+                  id="quality-tools"
+                  title="关键工位影像追溯"
+                  description="用于调查问题、追溯过程与定位原因。"
+                  modules={filteredToolModules}
+                />
+              )}
+
+              {hasMetadataResults && (
+                <HomeSection
+                  id="metadata-dashboards"
+                  title="元数据"
+                  description="销售订单与 SCS 原始数据源，供各质量看板关联使用。"
+                  modules={filteredMetadataModules}
+                />
+              )}
             </div>
-          </div>
+          )}
 
-          {/* Module: DOA */}
-          <div 
-            onClick={() => navigate('/doa')}
-            className="group relative overflow-hidden bg-white border border-slate-200 hover:border-emerald-300 rounded-2xl p-6 cursor-pointer transition-all duration-300 hover:bg-slate-50 hover:shadow-md hover:shadow-emerald-900/5"
-          >
-             <div className="flex flex-col h-full justify-between">
-              <div>
-                <div className="w-10 h-10 bg-emerald-50 border border-emerald-100 rounded-lg flex items-center justify-center mb-4 text-emerald-600 group-hover:bg-emerald-100 transition-colors">
-                  <Wrench className="w-5 h-5" />
-                </div>
-                <h3 className="text-lg font-bold text-slate-800 mb-2">DOA (开箱报修与换件率)</h3>
-                <p className="text-slate-500 text-sm leading-relaxed">
-                  联动 SAP 发货数量与 SCS 报修数据，追踪设备开箱即损状态。细分"DOA报修率"与纯硬件更换的"DOA换件率"，全面评估出厂及物流交付质量。
-                </p>
-              </div>
-              <div className="mt-6 flex justify-end">
-                <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center group-hover:bg-emerald-100 text-slate-400 group-hover:text-emerald-600 transition-colors border border-slate-100">
-                  <ArrowRight className="w-4 h-4" />
-                </div>
-              </div>
+          {showManagement && filteredManagementModules.length > 0 && (
+            <HomeSection
+              id="management-tools"
+              title="运营监控"
+              description="平台运营和配置维护，仅管理员可见。"
+              modules={filteredManagementModules}
+            />
+          )}
+
+          {resultCount === 0 && (
+            <div className="flex min-h-52 flex-col items-center justify-center border-y border-dashed border-slate-300 text-center">
+              <Search className="size-6 text-slate-300" aria-hidden="true" />
+              <p className="mt-3 text-sm font-medium text-slate-700">没有匹配的功能</p>
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('');
+                  setActiveFilter('all');
+                }}
+                className="mt-2 text-sm font-medium text-blue-600 hover:text-blue-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500"
+              >
+                重置筛选
+              </button>
             </div>
-          </div>
+          )}
+        </div>
+      </main>
 
-          {/* Module: MFR */}
-          <div 
-            onClick={() => navigate('/mfr')}
-            className="group relative overflow-hidden bg-white border border-slate-200 hover:border-purple-300 rounded-2xl p-6 cursor-pointer transition-all duration-300 hover:bg-slate-50 hover:shadow-md hover:shadow-purple-900/5"
-          >
-             <div className="flex flex-col h-full justify-between">
-              <div>
-                <div className="w-10 h-10 bg-purple-50 border border-purple-100 rounded-lg flex items-center justify-center mb-4 text-purple-600 group-hover:bg-purple-100 transition-colors">
-                  <BarChart3 className="w-5 h-5" />
-                </div>
-                <h3 className="text-lg font-bold text-slate-800 mb-2">MFR (现网月化故障率)</h3>
-                <p className="text-slate-500 text-sm leading-relaxed">
-                  结合 SCS 换件记录与在保设备体量，计算产品现网月化故障率(当月故障数/在保保有量)，动态呈现各机型产品在全生命周期的现网质量表现。
-                </p>
-              </div>
-              <div className="mt-6 flex justify-end">
-                <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center group-hover:bg-purple-100 text-slate-400 group-hover:text-purple-600 transition-colors border border-slate-100">
-                  <ArrowRight className="w-4 h-4" />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* System Settings */}
-          <div
-            onClick={() => navigate('/process-records')}
-            className="group relative overflow-hidden bg-white border border-slate-200 hover:border-cyan-300 rounded-2xl p-6 cursor-pointer transition-all duration-300 hover:bg-cyan-50/30 hover:shadow-md hover:shadow-cyan-900/5"
-          >
-            <div className="flex flex-col h-full justify-between">
-              <div>
-                <div className="w-10 h-10 bg-cyan-50 border border-cyan-100 rounded-lg flex items-center justify-center mb-4 text-cyan-700 group-hover:bg-cyan-100 transition-colors">
-                  <Camera className="w-5 h-5" />
-                </div>
-                <h3 className="text-lg font-bold text-slate-800 mb-2">关键工位影像追溯</h3>
-                <p className="text-slate-500 text-sm leading-relaxed">
-                  实时联查工序扫码拍照与装配关键工位记录，支持按 SN 追溯工序、工位、提交时间和现场影像。
-                </p>
-              </div>
-              <div className="mt-6 flex justify-end">
-                <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center group-hover:bg-cyan-100 text-slate-400 group-hover:text-cyan-700 transition-colors border border-slate-100">
-                  <ArrowRight className="w-4 h-4" />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* Operations Monitoring */}
-          <div
-            onClick={() => navigate('/operations')}
-            className="group relative overflow-hidden bg-white border border-slate-200 hover:border-rose-300 rounded-2xl p-6 cursor-pointer transition-all duration-300 hover:bg-rose-50/30 hover:shadow-md hover:shadow-rose-900/5"
-          >
-            <div className="flex flex-col h-full justify-between">
-              <div>
-                <div className="w-10 h-10 bg-rose-50 border border-rose-100 rounded-lg flex items-center justify-center mb-4 text-rose-700 group-hover:bg-rose-100 transition-colors">
-                  <Gauge className="w-5 h-5" />
-                </div>
-                <h3 className="text-lg font-bold text-slate-800 mb-2">运营监控</h3>
-                <p className="text-slate-500 text-sm leading-relaxed">
-                  汇总系统活跃用户、访问趋势、功能使用排行与接口运行状态，持续掌握 QualiBoard 的实际使用情况。
-                </p>
-              </div>
-              <div className="mt-6 flex justify-end">
-                <div className="w-8 h-8 rounded-full bg-slate-50 flex items-center justify-center group-hover:bg-rose-100 text-slate-400 group-hover:text-rose-700 transition-colors border border-slate-100">
-                  <ArrowRight className="w-4 h-4" />
-                </div>
-              </div>
-            </div>
-          </div>
-
-          {/* System Settings */}
-          <div 
-            onClick={() => setIsSettingsOpen(true)}
-            className="group relative overflow-hidden bg-slate-50/50 border border-slate-200/50 rounded-2xl p-6 cursor-pointer transition-all duration-300 hover:bg-slate-100/50 hover:shadow-md"
-          >
-             <div className="flex flex-col h-full justify-center items-center text-center">
-              <div className="w-12 h-12 bg-slate-200 border border-slate-300 rounded-full flex items-center justify-center mb-4 text-slate-500 group-hover:rotate-45 transition-transform duration-500">
-                <Settings className="w-6 h-6" />
-              </div>
-              <h3 className="text-slate-700 font-medium group-hover:text-slate-900 transition-colors">系统配置管理</h3>
-              <p className="text-slate-500 text-xs mt-2">统一管理系统数据源接入、告警规则及业务指标标准</p>
-            </div>
-          </div>
-
-        </section>
-
-        {/* Footer info */}
-        <footer className="pt-8 border-t border-slate-200 flex items-center justify-between text-xs text-slate-400">
-          <div className="flex items-center gap-4">
-            <span>5000公司信息系统开发部</span>
-          </div>
-          <div>
-            有问题请联系 @libiao1
-          </div>
-        </footer>
-
-      </div>
+      <footer className="mx-auto flex max-w-7xl flex-col gap-2 border-t border-slate-200 px-4 py-5 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
+        <span>5000公司信息系统开发部</span>
+        <span>有问题请联系 @libiao1</span>
+      </footer>
 
       {isSettingsOpen && (
         <SettingsModal

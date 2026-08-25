@@ -1,32 +1,17 @@
-import { createContext, useContext, useState, useEffect, type ReactNode } from 'react';
-import { settingsApi } from '../api/settingsApi';
-import { useAuth } from './AuthContext';
+import { createContext, useContext, useState, type ReactNode } from 'react';
+import { useSettings } from './SettingsContext';
 import type { ModelTargets, ModelTargetsContextType } from '../types';
 import { DEFAULT_MODEL_TARGETS } from '../types';
 
 const ModelTargetsContext = createContext<ModelTargetsContextType | undefined>(undefined);
 
 export function ModelTargetsProvider({ children }: { children: ReactNode }) {
-  const { isAuthLoaded } = useAuth();
-  const [modelTargets, setModelTargets] = useState<ModelTargets>(DEFAULT_MODEL_TARGETS);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    if (!isAuthLoaded) return;
-    settingsApi.getModelTargets()
-      .then((items) => {
-        if (Object.keys(items).length > 0) {
-          setModelTargets(items);
-        }
-      })
-      .catch((err) => {
-        console.error('[ModelTargets] Failed to load from backend:', err);
-      })
-      .finally(() => setLoading(false));
-  }, [isAuthLoaded]);
+  const { settings, loading } = useSettings();
+  const [localTargets, setLocalTargets] = useState<ModelTargets | null>(null);
+  const modelTargets = localTargets ?? settings.modelTargets ?? DEFAULT_MODEL_TARGETS;
 
   return (
-    <ModelTargetsContext.Provider value={{ modelTargets, setModelTargets, loading }}>
+    <ModelTargetsContext.Provider value={{ modelTargets, setModelTargets: setLocalTargets, loading }}>
       {children}
     </ModelTargetsContext.Provider>
   );

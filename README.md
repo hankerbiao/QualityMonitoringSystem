@@ -42,6 +42,22 @@ DEFAULT_ADMIN_PASSWORD=admin123
 
 ## 快速开始
 
+### Docker Compose（推荐部署方式）
+
+```bash
+cp docker/.env.example docker/.env
+docker compose -f docker/compose.yaml up -d --build
+```
+
+服务启动后访问 `http://localhost:3000`。首次连接全新数据库时，再显式运行默认配置初始化：
+
+```bash
+docker compose -f docker/compose.yaml --profile tools run --rm init-config
+```
+
+生产环境启动前必须修改 `docker/.env` 中的密码和签名密钥。完整说明见
+[`docker/README.md`](docker/README.md)。
+
 ### 后端
 
 ```bash
@@ -163,6 +179,7 @@ QualityMonitoringSystem/
 | `GET` | `/api/rty/{id}/defects` | 查询故障明细 |
 | `GET` | `/api/rty/{id}/inputs` | 查询投入明细 |
 | `GET` | `/api/rty/cycle-stats` | 查询周期统计 |
+| `GET` | `/api/mfr/dashboard` | 查询整机现网月化故障率 |
 
 ### Settings
 
@@ -182,15 +199,19 @@ QualityMonitoringSystem/
 
 | 集合 | 说明 | 关键字段 |
 |---|---|---|
-| `rty_data` | RTY 直通率统计 | `time`, `productModel`, `base`, `rtyRate`, `targetRate` |
 | `machine_info` | MES 机器信息 | `sn`, `sale_no`, `mfg_order`, `factory`, `product_family` |
 | `fault_info` | 故障明细 | `sn`, `fault_category`, `fault_desc`, `repair_time` |
 | `configs` | 系统配置 | `key`: `mes_config`, `model_targets`, `email_alert_config`, `ai_config` |
-| `sales_orders` | 销售订单采集调度 | `sales_order_sn`, `import_status`, `assembly_status` |
-| `no_data_orders` | MES 查无数据订单 | `sale_no` |
+| `sales_orders_sap` | SAP 双来源销售订单（SG/KK 同步） | `aufnr`, `gstrs_date`, `quantity`, `data.CPXH`, `data.LGORT` |
+| `order_bom_postings_sap` | SAP 订单 BOM 发料与过账明细 | `AUFNR_1`, `VBELN_EX`, `MATNR`, `MENGE`, `BUDAT_MKPF` |
+| `serial_bindings_sap` | SAP 整机与部件序列号绑定关系 | `ZCODE_HEAD`, `ZCODE_ITEM`, `AUFNR_HEAD`, `AUFNR_ITEM` |
+| `repair_records_sap` | SAP/MES 维修与故障处理记录 | `PCODE`, `AUFNR`, `ZJXMC`, `ZNGWD`, `ZWXWD`, `ZDATE_WX` |
+| `station_records_sap` | SAP/MES 工位过站记录 | `PCODE`, `AUFNR`, `SPEC`, `OPERATION`, `ACTUAL_START_TIME` |
+| `scs_doa_results` | SCS DOA 原始记录及补采结果 | `is_5000`, `scs_enrichment.accepted_date`, `scs_enrichment.sales_order` |
 | `assembly_records` | 装配与发料记录 | `mfg_order`, `chassis_no`, `product_no`, `issued_material_name` |
 | `users` | 用户资料 | `itcode`, `profile` |
 | `sessions` | 登录会话 | `sessionId`, `itcode`, `accessToken`, `refreshToken`, `expiresAt` |
+| `usage_events` | 运营使用事件 | `itcode`, `module`, `timestamp` |
 
 ### 字段映射
 
@@ -203,35 +224,30 @@ QualityMonitoringSystem/
 | `productModel` | `product_family` |
 | `productLine` | `s_MFGLINENAME` |
 
-## 数据采集管线
+## 数据来源
 
 ```text
-阶段一：同步销售订单号
-  -> sales_orders(import_status=pending)
+销售订单（SAP 双来源 SG/KK 同步）
+  -> sales_orders_sap（按 aufnr 去重，data.GSTRS 归一化为 gstrs_date，data.GAMNG 归一化为 quantity）
+  -> 脚本: scripts/sync_sales_orders_range.py 或 POST /api/sales-orders/sync
 
-阶段二：导入 MES 机器与故障
-  -> machine_info / fault_info
-  -> 更新 sales_orders.import_status
-
-阶段三：采集装配记录
-  -> assembly_records
-  -> 更新 sales_orders.assembly_status
+机器 / 故障 / 装配（MES 采集）
+  -> machine_info / fault_info / assembly_records
+  -> 注：MES 采集链路已于 2026-08-18 下线，集合数据保留，供 RTY / LRR / 告警报表实时聚合
 ```
 
-常用采集命令：
+SCS DOA 采集统一使用 `scripts/sync_scs_incremental.py`：首次运行提供
+`--start-date`，后续运行从 `scs_doa_incremental_progress` 的水位线继续，并可使用
+`--lookback-days` 回看边界日期。脚本写入 `scs_doa_results` 时同步维护
+`scs_enrichment.accepted_date`（`YYYY-MM-DD`）；原始 `data.受理时间` 继续保留用于展示。
+详细的首次同步、定时增量、失败重试和一次性迁移说明见
+[`docs/sync-scripts.md`](docs/sync-scripts.md)。
 
-```bash
-cd backend
-
-# 全流程：同步 -> 导入 MES 机器/故障 -> 采集装配记录
-uv run python ../scripts/import_all_orders.py --order-file ../scripts/production_orders_integrated.csv
-
-# 仅采集装配记录
-uv run python ../scripts/import_all_orders.py --only-assembly
-
-# 增量更新，不清除旧数据
-uv run python ../scripts/import_all_orders.py --order-file ../scripts/production_orders_integrated.csv --update-existing
-```
+MFR（整机现网月化故障率）通过 `/api/mfr/dashboard` 提供，按自然月返回各机型的
+`故障数 / 在保整机数 * 100%`。故障数通过 `scs_change_results` 的“换上”记录，
+按服务单号关联 `scs_doa_results` 中的 5000 销售订单；不会向换上换下集合写入
+`is_5000` 冗余字段。保有量需要 `sales_orders_sap` 中每个销售订单的出厂日期和过保日期，
+并按销售订单数量汇总。接口会返回日期覆盖率，缺少生命周期日期的订单不计入分母。
 
 ## 关键注意事项
 

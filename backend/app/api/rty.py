@@ -511,6 +511,22 @@ async def get_bases():
     return Response(success=True, data=result, message=f"查询到 {len(result)} 个基地")
 
 
+@router.get("/customers", response_model=Response[list[str]])
+async def get_customers():
+    """获取客户编码列表，供 RTY 筛选器使用。"""
+    db = get_database()
+    cursor = db[Collections.MACHINE_INFO].aggregate(
+        [
+            {"$match": {"customer_id": {"$nin": [None, ""]}}},
+            {"$group": {"_id": "$customer_id"}},
+            {"$sort": {"_id": 1}},
+        ]
+    )
+    docs = await cursor.to_list(length=1000)
+    values = [str(doc["_id"]) for doc in docs if str(doc.get("_id") or "").strip()]
+    return Response(success=True, data=values)
+
+
 @router.get("/sales-orders", response_model=Response[list[str]])
 async def get_sales_orders(
     q: str = Query("", description="搜索关键词"),

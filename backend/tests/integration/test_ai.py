@@ -122,6 +122,52 @@ class TestAIChat:
         assert "answer" in data
         assert len(data["answer"]) > 0
 
+    async def test_uses_saved_api_key_when_request_key_is_masked(
+        self, client, db_clean, make_test_access_token
+    ):
+        await db_clean.configs.insert_one(
+            {
+                "key": "ai_config",
+                "apiUrl": "https://api.example.com",
+                "modelId": "gpt-4o-mini",
+                "apiKey": "saved-secret",
+            }
+        )
+        captured_headers = {}
+        mock_resp = self._make_mock_response(
+            200, {"choices": [{"message": {"content": "分析完成"}}]}
+        )
+
+        class MockAsyncClient:
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                pass
+
+            async def post(self, url, **kwargs):
+                captured_headers.update(kwargs.get("headers", {}))
+                return mock_resp
+
+        with patch("app.services.ai_service.httpx.AsyncClient", return_value=MockAsyncClient()):
+            response = await client.post(
+                "/api/ai/chat",
+                headers=self._auth(make_test_access_token),
+                json={
+                    "config": {
+                        "apiUrl": "https://api.example.com",
+                        "modelId": "gpt-4o-mini",
+                        "apiKey": "",
+                        "maxTokens": 4096,
+                    },
+                    "messages": [{"role": "user", "content": "分析"}],
+                    "context": {"totalInput": 100, "totalDefect": 1, "avgRty": 99.0},
+                },
+            )
+
+        assert response.status_code == 200
+        assert captured_headers["Authorization"] == "Bearer saved-secret"
+
     async def test_ai_api_error_returns_500(self, client, make_test_access_token):
         """AI API returning non-200 should return 500."""
         mock_resp = self._make_mock_response(500, {}, "Internal server error")

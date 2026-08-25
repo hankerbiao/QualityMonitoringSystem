@@ -16,6 +16,8 @@ MODULE_LABELS = {
     "ai": "AI 分析助手",
     "alert-report": "预警报告",
     "operations": "运营监控",
+    "doa": "DOA 报修率",
+    "sales-orders": "销售订单",
     "other": "其他功能",
 }
 
@@ -25,9 +27,12 @@ PAGE_MODULES = {
     "/lrr": "lrr",
     "/process-records": "process-records",
     "/operations": "operations",
+    "/doa/raw": "doa",
+    "/doa": "doa",
+    "/doa/repairs": "doa",
 }
 
-BUSINESS_MODULES = ("rty", "lrr", "process-records", "settings", "ai", "alert-report")
+BUSINESS_MODULES = ("rty", "lrr", "doa", "sales-orders", "process-records", "settings", "ai", "alert-report")
 
 
 def module_from_path(path: str) -> str:
@@ -43,6 +48,8 @@ def module_from_path(path: str) -> str:
         ("/api/fault", "rty"),
         ("/api/rty", "rty"),
         ("/api/lrr", "lrr"),
+        ("/api/doa", "doa"),
+        ("/api/sales-orders", "sales-orders"),
         ("/api/ai", "ai"),
         ("/api/mes", "rty"),
     )
@@ -104,9 +111,9 @@ async def build_operations_dashboard(db: Any, days: int) -> dict[str, Any]:
     events = await db.usage_events.find({"timestamp": {"$gte": previous_start}}).to_list(
         length=200_000
     )
-    sessions = await db.sessions.find(
-        {"createdAt": {"$gte": previous_start.isoformat()}}
-    ).to_list(length=100_000)
+    sessions = await db.sessions.find({"createdAt": {"$gte": previous_start.isoformat()}}).to_list(
+        length=100_000
+    )
     users = await db.users.find({}).to_list(length=20_000)
     total_users = await db.users.count_documents({})
 
@@ -135,7 +142,7 @@ async def build_operations_dashboard(db: Any, days: int) -> dict[str, Any]:
         durations = [
             float(e["durationMs"])
             for e in api_requests
-            if isinstance(e.get("durationMs"), (int, float))
+            if isinstance(e.get("durationMs"), int | float)
         ]
         return {
             "activeUsers": len(active_users),
@@ -246,9 +253,7 @@ async def build_operations_dashboard(db: Any, days: int) -> dict[str, Any]:
     modules.sort(key=lambda item: (item["pageViews"], item["apiRequests"]), reverse=True)
 
     profile_by_itcode = {
-        str(user.get("itcode")): user.get("profile") or {}
-        for user in users
-        if user.get("itcode")
+        str(user.get("itcode")): user.get("profile") or {} for user in users if user.get("itcode")
     }
     recent_items: list[dict[str, Any]] = []
     for event in current_events:

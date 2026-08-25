@@ -41,19 +41,6 @@ async def create_indexes() -> None:
     if mongodb.db is None:
         return
 
-    # RTY 数据索引
-    await mongodb.db.rty_data.create_index([("time", -1)])
-    await mongodb.db.rty_data.create_index([("productModel", 1)])
-    await mongodb.db.rty_data.create_index([("customer", 1)])
-    await mongodb.db.rty_data.create_index([("base", 1)])
-    await mongodb.db.rty_data.create_index([("model", 1)])
-    await mongodb.db.rty_data.create_index([
-        ("time", -1),
-        ("productModel", 1),
-        ("customer", 1),
-        ("base", 1)
-    ])
-
     # 机器信息索引 (machine_info 为 MES 录入机器数据，按 sn 唯一、按销售订单/生产订单批量查询)
     await mongodb.db.machine_info.create_index([("sn", 1)], unique=True)
     await mongodb.db.machine_info.create_index([("sale_no", 1)])
@@ -77,25 +64,34 @@ async def create_indexes() -> None:
     await mongodb.db.usage_events.create_index([("module", 1), ("timestamp", -1)])
     await mongodb.db.usage_events.create_index("timestamp", expireAfterSeconds=180 * 24 * 60 * 60)
 
-    # 无数据订单索引（按 sale_no 唯一，避免重复插入）
-    await mongodb.db.no_data_orders.create_index("sale_no", unique=True)
-
-    # 销售订单索引（按 sales_order_sn 唯一，用于采集模块）
-    await mongodb.db.sales_orders.create_index("sales_order_sn", unique=True)
-    await mongodb.db.sales_orders.create_index("import_status", sparse=True)
-
     # 装配记录索引（按 mfg_order 批量查询、chassis_no 查重）
-    await mongodb.db.assembly_records.create_index([
-        ("mfg_order", 1), ("chassis_no", 1)
-    ], unique=True)
+    await mongodb.db.assembly_records.create_index(
+        [("mfg_order", 1), ("chassis_no", 1)], unique=True
+    )
     await mongodb.db.assembly_records.create_index("chassis_no")
 
-    # 销售订单 BOM 索引（按销售单号查、按 (销售单+工单+物料) 去重）
-    await mongodb.db.sales_order_bom.create_index([
-        ("sale_no", 1), ("mfg_order", 1), ("bom_product_name", 1)
-    ], unique=True)
-    await mongodb.db.sales_order_bom.create_index("sale_no")
-    await mongodb.db.sales_order_bom.create_index("mfg_order")
+    # 销售订单双来源同步集合：aufnr 跨来源唯一业务键
+    from app.repositories import sales_order_repository
+
+    await sales_order_repository.init_sales_orders_index()
+    await mongodb.db.sales_orders_sap.create_index([("data.VBELN", 1)])
+    await mongodb.db.sales_orders_sap.create_index([("data.NAME1_ZU", 1), ("data.MAKTX_TH", 1)])
+    await mongodb.db.scs_doa_results.create_index(
+        [("scs_enrichment.is_5000", 1), ("data.判定结果", 1), ("scs_enrichment.accepted_date", 1)]
+    )
+    await mongodb.db.scs_doa_results.create_index(
+        [("is_5000", 1), ("data.判定结果", 1), ("scs_enrichment.accepted_date", 1)]
+    )
+    await mongodb.db.scs_doa_results.create_index("scs_enrichment.sales_order")
+    await mongodb.db.scs_doa_results.create_index("data.销售订单号")
+    # SCS 换上换下采集结果：按服务单号关联 DOA，支撑换件率聚合
+    await mongodb.db.scs_change_results.create_index("data.服务单号")
+    await mongodb.db.scs_change_results.create_index(
+        [("data.操作类型", 1), ("data.操作时间", 1), ("data.服务单号", 1)]
+    )
+    await mongodb.db.scs_change_results.create_index(
+        [("data.服务单号", 1), ("data.操作类型", 1), ("data.操作时间", 1)]
+    )
 
 
 def get_database() -> AsyncIOMotorDatabase:

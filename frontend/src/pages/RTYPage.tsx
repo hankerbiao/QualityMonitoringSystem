@@ -56,7 +56,7 @@ export default function RTYPage() {
   const [sortField, setSortField] = useState<SortField | null>(null);
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [defectModalData, setDefectModalData] = useState<{ filters: RTYFilterParams; label: string } | null>(null);
-  const [isAlertModalOpen, setIsAlertModalOpen] = useState(false);
+  const [detailOpen, setDetailOpen] = useState(false);
   const [aiChatOpen, setAiChatOpen] = useState(false);
 
   // 机器SN弹窗状态
@@ -90,6 +90,8 @@ export default function RTYPage() {
   };
 
   useEffect(() => {
+    if (!detailOpen) return;
+
     const load = async () => {
       setLoading(true);
       try {
@@ -104,13 +106,15 @@ export default function RTYPage() {
       }
     };
     load();
-  }, []);
+  }, [detailOpen]);
 
   useEffect(() => {
-    const handler = () => fetchData();
+    const handler = () => {
+      if (detailOpen) fetchData();
+    };
     window.addEventListener('settings-saved', handler);
     return () => window.removeEventListener('settings-saved', handler);
-  }, [fetchData]);
+  }, [detailOpen, fetchData]);
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -215,20 +219,43 @@ export default function RTYPage() {
         </div>
       </header>
 
-      <main className="flex-1 flex flex-col p-4 max-w-[1800px] mx-auto w-full overflow-hidden">
-        <FilterPanel
-          initialFilters={filters}
-          onFiltersChange={setFilters}
-          onSearch={() => fetchData(1)}
-          onAlertModalOpen={() => setIsAlertModalOpen(true)}
-          onAiChatOpen={() => setAiChatOpen(true)}
-          onExportConfirm={handleExport}
+      <main className="flex-1 flex flex-col p-4 max-w-[1800px] mx-auto w-full overflow-auto">
+        <AlertConfigModal
+          embedded
+          modelTargets={modelTargets}
+          onDetailOpen={() => setDetailOpen(true)}
         />
 
-        {/* 数据表格 */}
-        <div className="flex-1 min-h-0 bg-white rounded-md border border-slate-200 shadow-sm overflow-hidden">
-          <div className="h-full overflow-auto">
-            <table className="w-full text-left text-sm whitespace-nowrap">
+        {detailOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm">
+            <div className="flex h-[90vh] w-full max-w-[1800px] flex-col overflow-hidden rounded-md border border-slate-200 bg-slate-50 shadow-xl">
+              <div className="flex items-center justify-between border-b border-slate-200 bg-white px-5 py-3">
+                <h2 className="text-base font-semibold text-slate-800">表单数据</h2>
+                <button
+                  type="button"
+                  onClick={() => setDetailOpen(false)}
+                  className="rounded-sm p-1 text-slate-500 transition-colors hover:bg-slate-100"
+                  title="关闭详情"
+                  aria-label="关闭详情"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+
+              <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-4">
+                <FilterPanel
+                  initialFilters={filters}
+                  onFiltersChange={setFilters}
+                  onSearch={() => fetchData(1)}
+                  onAlertModalOpen={() => setDetailOpen(false)}
+                  onAiChatOpen={() => setAiChatOpen(true)}
+                  onExportConfirm={handleExport}
+                />
+
+                {/* 数据表格 */}
+                <div className="flex-1 min-h-0 overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
+                  <div className="h-full overflow-auto">
+                    <table className="w-full text-left text-sm whitespace-nowrap">
               <thead className="bg-[#f8fafc] border-b border-slate-200 text-slate-600 font-semibold text-xs">
                 <tr>
                   <th 
@@ -276,8 +303,8 @@ export default function RTYPage() {
                   <th className="px-3 py-2 border-r border-slate-100 last:border-none text-center">达成状况</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 text-slate-700 text-xs">
-                {loading ? (
+                      <tbody className="divide-y divide-slate-100 text-slate-700 text-xs">
+                        {loading ? (
                   <tr>
                     <td colSpan={11} className="px-3 py-12 text-center text-slate-500">
                       <div className="flex flex-col items-center justify-center gap-2">
@@ -390,14 +417,14 @@ export default function RTYPage() {
                     </tr>
                   ))
                 )}
-              </tbody>
-            </table>
-          </div>
-        </div>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
 
-        {/* 分页 */}
-        {data.length > 0 && (
-          <div className="flex items-center justify-between px-2 py-2 bg-white rounded-md border border-slate-200 shadow-sm">
+                {/* 分页 */}
+                {data.length > 0 && (
+                  <div className="flex items-center justify-between rounded-md border border-slate-200 bg-white px-2 py-2 shadow-sm">
             <span className="text-xs text-slate-500">
               共 {total} 条记录，第 {page}/{totalPages} 页
             </span>
@@ -452,6 +479,10 @@ export default function RTYPage() {
               >
                 末页
               </button>
+            </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
@@ -568,12 +599,6 @@ export default function RTYPage() {
         </div>
       )}
       
-      {isAlertModalOpen && (
-        <AlertConfigModal 
-          onClose={() => setIsAlertModalOpen(false)} 
-          modelTargets={modelTargets}
-        />
-      )}
     </div>
   );
 }

@@ -9,6 +9,8 @@ coverage/
 
 # IDE
 .idea/
+.codegraph/
+.cursor/
 
 # Python 缓存与字节码
 __pycache__/
@@ -17,8 +19,7 @@ __pycache__/
 # 临时数据文件（内部数据，不入库）
 *.csv
 
-# 临时脚本（内部使用，不入库）
-scripts/
+# 数据采集脚本是项目源码，应纳入版本控制；运行产生的缓存由上面的规则统一忽略。
 
 # 个人工作记忆（不入库）
 .workbuddy/

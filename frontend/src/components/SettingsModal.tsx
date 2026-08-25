@@ -1,8 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Settings, Save, Database, BellRing, Target, X, CheckCircle, Bot, Loader2, BookOpen, BarChart3, Camera } from 'lucide-react';
-import { settingsApi } from '../api/settingsApi';
-import { useModelTargets } from '../context/ModelTargetsContext';
-import { MesConfigTab, ModelTargetsTab, EmailAlertTab, AIConfigTab, RTYDataDictionaryTab, DataOverviewTab, ProcessRecordConfigTab } from './settings';
+import { Settings, Save, BellRing, Target, X, CheckCircle, Bot, Loader2, Camera } from 'lucide-react';
+import { useSettings } from '../context/SettingsContext';
+import { ModelTargetsTab, EmailAlertTab, AIConfigTab, ProcessRecordConfigTab } from './settings';
 import type { ProcessRecordConfig } from '../types';
 
 interface SettingsModalProps {
@@ -10,16 +9,13 @@ interface SettingsModalProps {
   onSaved: () => void;
 }
 
-type TabKey = 'overview' | 'mes' | 'processRecords' | 'rty' | 'email' | 'ai' | 'dict';
+type TabKey = 'processRecords' | 'rty' | 'email' | 'ai';
 
-const TABS: { key: TabKey; label: string; icon: typeof Database }[] = [
-  { key: 'overview', label: '数据概览', icon: BarChart3 },
-  { key: 'mes', label: 'MES 系统接入', icon: Database },
+const TABS: { key: TabKey; label: string; icon: typeof Save }[] = [
   { key: 'processRecords', label: '影像数据源', icon: Camera },
   { key: 'rty', label: '机型指标配置', icon: Target },
   { key: 'email', label: '邮件预警规则', icon: BellRing },
   { key: 'ai', label: 'AI 配置', icon: Bot },
-  { key: 'dict', label: 'RTY 数据字典', icon: BookOpen },
 ];
 
 export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) {
@@ -28,43 +24,38 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
     return () => { document.body.style.overflow = 'unset'; };
   }, []);
 
-  const [activeTab, setActiveTab] = useState<TabKey>('mes');
-  const [showPassword, setShowPassword] = useState(false);
+  const [activeTab, setActiveTab] = useState<TabKey>('processRecords');
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const { setModelTargets: setTargets } = useModelTargets();
+  const { settings, updateSettings, loading: settingsLoading } = useSettings();
 
-  const [mesConfig, setMesConfig] = useState({ username: '', password: '' });
   const [processRecordConfig, setProcessRecordConfig] = useState<ProcessRecordConfig>({ username: '', password: '', hasPassword: false });
   const [emailConfig, setEmailConfig] = useState({ enabled: true, emails: '', triggerCondition: '', weeklyProductionThreshold: 50, lrrAlertThreshold: 5.0 });
   const [aiConfig, setAiConfig] = useState({ apiUrl: '', modelId: '', apiKey: '', maxTokens: 4096, hasApiKey: false });
   const [modelTargets, setModelTargets] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    settingsApi.getAll()
-      .then((data) => {
-        if (data.mes) setMesConfig({ username: data.mes.username, password: data.mes.password || '' });
-        if (data.processRecords) setProcessRecordConfig({ ...data.processRecords, password: '' });
-        if (data.modelTargets) setModelTargets(data.modelTargets);
-        if (data.emailAlert) setEmailConfig({ enabled: data.emailAlert.enabled, emails: data.emailAlert.emails, triggerCondition: data.emailAlert.triggerCondition ?? '', weeklyProductionThreshold: data.emailAlert.weeklyProductionThreshold ?? 50, lrrAlertThreshold: data.emailAlert.lrrAlertThreshold ?? 5.0 });
-        if (data.ai) setAiConfig(data.ai);
-      })
-      .catch((err) => console.error('Failed to load settings:', err))
-      .finally(() => setLoading(false));
-  }, []);
+    setProcessRecordConfig({ ...settings.processRecords, password: '' });
+    setModelTargets(settings.modelTargets);
+    setEmailConfig({
+      enabled: settings.emailAlert.enabled,
+      emails: settings.emailAlert.emails,
+      triggerCondition: settings.emailAlert.triggerCondition ?? '',
+      weeklyProductionThreshold: settings.emailAlert.weeklyProductionThreshold ?? 50,
+      lrrAlertThreshold: settings.emailAlert.lrrAlertThreshold ?? 5.0,
+    });
+    setAiConfig(settings.ai);
+  }, [settings]);
 
   const handleSave = async () => {
     setSaving(true);
     try {
-      await settingsApi.updateAll({
-        mes: { username: mesConfig.username, password: mesConfig.password },
+      await updateSettings({
         processRecords: { username: processRecordConfig.username, password: processRecordConfig.password },
         modelTargets,
         emailAlert: emailConfig,
         ai: aiConfig,
       });
-      setTargets(modelTargets);
       setSaved(true);
       onSaved();
       setTimeout(onClose, 1500);
@@ -75,7 +66,7 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
     }
   };
 
-  if (loading) {
+  if (settingsLoading) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
         <div className="flex items-center gap-3 text-slate-500">
@@ -103,16 +94,14 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
             </div>
           </div>
           <div className="flex items-center gap-3">
-            {activeTab !== 'dict' && activeTab !== 'overview' && (
-              <button
-                onClick={handleSave}
-                disabled={saving}
-                className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 shadow-sm"
-              >
-                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-                {saving ? '保存中...' : '保存配置'}
-              </button>
-            )}
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 shadow-sm"
+            >
+              {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+              {saving ? '保存中...' : '保存配置'}
+            </button>
             <button
               onClick={onClose}
               className="p-1.5 rounded-md hover:bg-slate-200 text-slate-500 transition-colors"
@@ -137,12 +126,6 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
           </nav>
 
           <div className="flex-1 overflow-y-auto p-6">
-            {activeTab === 'overview' && (
-              <DataOverviewTab />
-            )}
-            {activeTab === 'mes' && (
-              <MesConfigTab config={mesConfig} onChange={setMesConfig} showPassword={showPassword} onTogglePassword={() => setShowPassword(!showPassword)} />
-            )}
             {activeTab === 'processRecords' && (
               <ProcessRecordConfigTab config={processRecordConfig} onChange={setProcessRecordConfig} />
             )}
@@ -154,9 +137,6 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
             )}
             {activeTab === 'ai' && (
               <AIConfigTab config={aiConfig} onChange={setAiConfig} />
-            )}
-            {activeTab === 'dict' && (
-              <RTYDataDictionaryTab />
             )}
           </div>
         </div>

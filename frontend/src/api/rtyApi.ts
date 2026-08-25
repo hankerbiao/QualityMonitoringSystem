@@ -81,4 +81,10 @@ export const rtyApi = {
     const json = await res.json();
     return json.success ? json.data : [];
   },
+
+  async getCustomers(): Promise<string[]> {
+    const res = await apiFetch('/api/rty/customers');
+    const json = await res.json();
+    return json.success ? json.data : [];
+  },
 };

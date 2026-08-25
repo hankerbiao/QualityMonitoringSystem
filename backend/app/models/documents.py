@@ -6,73 +6,10 @@ MongoDB Document 模型定义
 
 from datetime import datetime
 
-from pydantic import BaseModel, Field
-
-# ============== RTY 数据文档 ==============
-
-class RTYDocument(BaseModel):
-    """
-    RTY 数据文档
-
-    Collection: rty_data
-
-    MES 字段映射:
-    - factoryname -> base
-    - productfamilyname -> productModel
-    - s_NGCNT -> defectCount
-    - qty -> inputCount
-    - rate_real -> rtyRate
-    - rate_bz -> targetRate
-    - s_SALENO -> salesOrder (新增)
-    - mfgordername -> productionOrder (新增)
-    - s_MFGLINENAME -> productLine (新增)
-    - ordertypename -> orderType (新增)
-    - plannedstartdate -> planStartDate (新增)
-    - s_Mes_Planendtime -> planEndDate (新增)
-    - rate_status -> status (新增)
-    """
-    id: str = Field(..., alias="_id")
-    time: str  # YYYY-MM-DD 格式
-    model: str  # 普通机型 / 复合机型 / Qiandaohu一拖多机型
-    productModel: str  # 具体机型型号，如 6210 C21 BOX
-    customer: str = ""  # MES无此字段，留空
-    base: str  # 基地：天津 / 昆山 / 桐乡 / 大同
-    defectCount: int  # 故障数量
-    inputCount: int  # 投入数量
-    rtyRate: float  # 直通率 (0-100)
-    targetRate: float  # 目标直通率 (0-100)
-    # MES 额外字段
-    salesOrder: str = ""  # 销售单号
-    productionOrder: str = ""  # 生产订单号
-    productLine: str = ""  # 产线名称
-    orderType: str = ""  # 订单类型
-    planStartDate: str = ""  # 计划开始日期
-    planEndDate: str = ""  # 计划结束时间
-    status: str = ""  # 达成状态: 已达成/未达成
-    createdAt: datetime | None = None
-    updatedAt: datetime | None = None
-
-    class Config:
-        populate_by_name = True
-
-
-# ============== MES 配置文档 ==============
-
-class MESConfigDocument(BaseModel):
-    """
-    MES 配置文档
-
-    Collection: configs
-    Key: mes_config
-    """
-    key: str = "mes_config"
-    username: str
-    # 密码应加密存储，这里仅做占位
-    password: str
-    updatedAt: datetime | None = None
-
+from pydantic import BaseModel
 
 # ============== 机型指标文档 ==============
+
 
 class ModelTargetsDocument(BaseModel):
     """
@@ -81,12 +18,14 @@ class ModelTargetsDocument(BaseModel):
     Collection: configs
     Key: model_targets
     """
+
     key: str = "model_targets"
     targets: dict[str, float] = {}  # {机型名: 目标直通率}
     updatedAt: datetime | None = None
 
 
 # ============== 邮件预警配置文档 ==============
+
 
 class EmailAlertDocument(BaseModel):
     """
@@ -95,6 +34,7 @@ class EmailAlertDocument(BaseModel):
     Collection: configs
     Key: email_alert_config
     """
+
     key: str = "email_alert_config"
     enabled: bool = True
     emails: str = ""  # 分号分隔的邮箱列表
@@ -103,6 +43,7 @@ class EmailAlertDocument(BaseModel):
 
 # ============== 功能开关文档 ==============
 
+
 class FeatureFlagsDocument(BaseModel):
     """
     功能开关文档
@@ -110,6 +51,7 @@ class FeatureFlagsDocument(BaseModel):
     Collection: configs
     Key: feature_flags
     """
+
     key: str = "feature_flags"
     voiceInputEnabled: bool = False
     updatedAt: datetime | None = None
@@ -117,14 +59,20 @@ class FeatureFlagsDocument(BaseModel):
 
 # ============== MongoDB Collections ==============
 
+
 class Collections:
     """MongoDB Collection 名称常量"""
-    RTY_DATA = "rty_data"
+
     MACHINE_INFO = "machine_info"
     FAULT_INFO = "fault_info"
     CONFIGS = "configs"
     USERS = "users"
-    NO_DATA_ORDERS = "no_data_orders"
-    SALES_ORDERS = "sales_orders"
+    SALES_ORDERS_SAP = "sales_orders_sap"
+    ORDER_BOM_POSTINGS_SAP = "order_bom_postings_sap"
+    SERIAL_BINDINGS_SAP = "serial_bindings_sap"
+    REPAIR_RECORDS_SAP = "repair_records_sap"
+    STATION_RECORDS_SAP = "station_records_sap"
     ASSEMBLY_RECORDS = "assembly_records"
-    SALES_ORDER_BOM = "sales_order_bom"
+    SCS_DOA_RESULTS = "scs_doa_results"
+    # SCS 换上换下（换件登记）采集结果，与 scs_doa_results 通过 data.服务单号 关联
+    SCS_CHANGE_RESULTS = "scs_change_results"

@@ -11,9 +11,7 @@ class TestOperationsDashboard:
         response = await client.get("/api/operations/dashboard?days=30")
         assert response.status_code == 401
 
-    async def test_tracks_and_aggregates_usage(
-        self, client, db_clean, make_test_access_token
-    ):
+    async def test_tracks_and_aggregates_usage(self, client, db_clean, make_test_access_token):
         now = datetime.now(timezone.utc)
         token = make_test_access_token("alice")
         headers = {"Authorization": f"Bearer {token}"}
@@ -40,9 +38,7 @@ class TestOperationsDashboard:
         )
         assert track_response.status_code == 204
 
-        response = await client.get(
-            "/api/operations/dashboard?days=30", headers=headers
-        )
+        response = await client.get("/api/operations/dashboard?days=30", headers=headers)
         assert response.status_code == 200
         data = response.json()
 

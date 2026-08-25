@@ -2,6 +2,8 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.api.auth import get_current_user
 from app.core.logger import audit_log
+from app.db.mongodb import get_database
+from app.models.documents import Collections
 from app.schemas.ai import ChatRequest, ChatResponse
 from app.services.ai_service import chat as ai_chat
 
@@ -19,15 +21,19 @@ async def chat(
     AI 对话接口。
 
     - 鉴权：要求登录态（审计日志据此记录真实操作用户）。
-    - apiKey 仍由请求体传入（前端按次填入用户自有密钥），与设置中心的
-      ``hasApiKey``（仅标识是否已配置）互不冲突，且密钥不回写响应。
+    - API Key 从服务端设置读取，不返回或持久化到浏览器。
     """
-    if not body.config.apiUrl or not body.config.modelId or not body.config.apiKey:
+    config = body.config.model_copy()
+    if not config.apiKey:
+        ai_doc = await get_database()[Collections.CONFIGS].find_one({"key": "ai_config"})
+        config.apiKey = (ai_doc or {}).get("apiKey", "")
+
+    if not config.apiUrl or not config.modelId or not config.apiKey:
         raise HTTPException(status_code=400, detail='AI 配置不完整，请检查 API 地址、模型 ID 和 API Key')
 
     try:
         answer = await ai_chat(
-            config=body.config,
+            config=config,
             messages=body.messages,
             context=body.context,
         )

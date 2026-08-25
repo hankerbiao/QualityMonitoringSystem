@@ -14,51 +14,29 @@ class TestGetAllSettings:
         assert response.status_code == 200
         data = response.json()
         assert data["success"] is True
-        # Default values (MES 缺省时返回空对象而非 null，前端无需判空)
-        assert data["data"]["mes"] is not None
-        assert data["data"]["mes"]["username"] == ""
-        assert data["data"]["mes"]["hasPassword"] is False
         assert data["data"]["processRecords"]["username"] == ""
         assert data["data"]["processRecords"]["hasPassword"] is False
         assert data["data"]["modelTargets"] == {}
         assert data["data"]["emailAlert"]["enabled"] is True
         assert data["data"]["featureFlags"]["voiceInputEnabled"] is False
         assert data["data"]["ai"]["apiUrl"] == ""
+        assert data["data"]["cycleStatsConfig"]["selectedModels"] == []
 
-
-@pytest.mark.integration
-class TestMESConfig:
-    """Tests for GET/PUT /api/settings/mes"""
-
-    async def test_get_mes_default(self, client, db_clean):
-        response = await client.get("/api/settings/mes")
-        assert response.status_code == 200
-        assert response.json()["data"]["username"] == ""
-
-    async def test_update_mes_config(self, client, db_clean):
+    async def test_unified_update_includes_cycle_stats_and_keeps_secrets_masked(self, client, db_clean):
         response = await client.put(
-            "/api/settings/mes",
-            json={"username": "mes_user", "password": "secret123"},
+            "/api/settings",
+            json={
+                "modelTargets": {"X1": 98.5},
+                "cycleStatsConfig": {"selectedModels": ["X1"]},
+                "ai": {"apiUrl": "https://example.test", "apiKey": "secret"},
+            },
         )
         assert response.status_code == 200
-        data = response.json()
-        assert data["data"]["username"] == "mes_user"
-        # 安全：响应不再返回明文密码，仅以 hasPassword 标识是否已配置
-        assert "password" not in data["data"]
-        assert data["data"]["hasPassword"] is True
-
-        # Verify round-trip: GET should return updated values
-        get_resp = await client.get("/api/settings/mes")
-        assert get_resp.json()["data"]["username"] == "mes_user"
-
-    async def test_partial_mes_update(self, client, db_clean):
-        # Set initial
-        await client.put("/api/settings/mes", json={"username": "old", "password": "pw"})
-        # Partial update - only username
-        response = await client.put("/api/settings/mes", json={"username": "new"})
-        assert response.json()["data"]["username"] == "new"
-        # 部分更新只改 username，密码被后端安全护栏忽略，hasPassword 仍为真
-        assert response.json()["data"]["hasPassword"] is True
+        data = response.json()["data"]
+        assert data["modelTargets"] == {"X1": 98.5}
+        assert data["cycleStatsConfig"] == {"selectedModels": ["X1"]}
+        assert data["ai"]["apiKey"] == ""
+        assert data["ai"]["hasApiKey"] is True
 
 
 @pytest.mark.integration
@@ -225,7 +203,13 @@ class TestAIConfig:
         assert data["apiUrl"] == "https://api.example.com/v1/chat/completions"
         assert data["modelId"] == "gpt-4o-mini"
         assert data["apiKey"] == ""  # Masked
+        assert data["hasApiKey"] is True
         assert data["maxTokens"] == 8192
+
+        get_response = await client.get("/api/settings")
+        all_ai = get_response.json()["data"]["ai"]
+        assert all_ai["apiKey"] == ""
+        assert all_ai["hasApiKey"] is True
 
     async def test_partial_ai_update(self, client, db_clean):
         # Set initial
@@ -235,3 +219,24 @@ class TestAIConfig:
         data = response.json()["data"]
         assert data["apiUrl"] == "https://old.com"
         assert data["modelId"] == "new-model"
+
+    async def test_empty_api_key_preserves_existing_key(self, client, db_clean):
+        await client.put(
+            "/api/settings/ai",
+            json={"apiUrl": "https://api.example.com", "modelId": "model", "apiKey": "secret"},
+        )
+
+        single_response = await client.put("/api/settings/ai", json={"apiKey": ""})
+        assert single_response.status_code == 200
+        assert single_response.json()["data"]["apiKey"] == ""
+        assert single_response.json()["data"]["hasApiKey"] is True
+
+        response = await client.put(
+            "/api/settings",
+            json={"ai": {"apiUrl": "https://api.example.com", "modelId": "new-model", "apiKey": ""}},
+        )
+
+        assert response.status_code == 200
+        assert response.json()["data"]["ai"]["hasApiKey"] is True
+        stored = await db_clean.configs.find_one({"key": "ai_config"})
+        assert stored["apiKey"] == "secret"

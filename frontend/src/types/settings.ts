@@ -1,9 +1,3 @@
-export interface MESConfig {
-  username: string;
-  password: string;
-  hasPassword?: boolean;
-}
-
 export interface ProcessRecordConfig {
   username: string;
   password: string;
@@ -43,12 +37,12 @@ export interface AIConfig {
 }
 
 export interface SettingsResponse {
-  mes: MESConfig | null;
   processRecords: ProcessRecordConfig;
   modelTargets: ModelTargets;
   emailAlert: EmailAlertConfig;
   featureFlags: { voiceInputEnabled: boolean };
   ai: AIConfig;
+  cycleStatsConfig: CycleStatsConfig;
 }
 
 export const DEFAULT_AI_CONFIG: AIConfig = {
@@ -64,9 +58,20 @@ export const DEFAULT_AI_CONFIG: AIConfig = {
 export const DEFAULT_MODEL_TARGETS: ModelTargets = {};
 
 export interface SettingsContextType {
+  settings: SettingsResponse;
+  updateSettings: (config: SettingsUpdate) => Promise<void>;
   ai: AIConfig;
   updateAI: (config: Partial<AIConfig>) => Promise<void>;
   loading: boolean;
+}
+
+export interface SettingsUpdate {
+  processRecords?: Partial<ProcessRecordConfig>;
+  modelTargets?: ModelTargets;
+  emailAlert?: Partial<EmailAlertConfig>;
+  featureFlags?: Partial<SettingsResponse['featureFlags']>;
+  ai?: Partial<AIConfig>;
+  cycleStatsConfig?: CycleStatsConfig;
 }
 
 export interface ModelTargetsContextType {
@@ -75,60 +80,6 @@ export interface ModelTargetsContextType {
   loading: boolean;
 }
 
-export interface DataDictionaryField {
-  name: string;
-  type: string;
-  fillRate: number;
-  nonNullCount: number;
-  distinctCount: number;
-  sampleValue: string;
-  rtyField: string;
-  description: string;
-}
-
-export interface RTYDataDictionary {
-  collection: string;
-  totalCount: number;
-  fieldCount: number;
-  sampleSize: number;
-  fields: DataDictionaryField[];
-  dimensions: DimensionSummary[];
-}
-
-export interface ValueCount {
-  value: string;
-  count: number;
-}
-
-export interface DimensionSummary {
-  key: string;
-  label: string;
-  total: number;
-  topValues: ValueCount[];
-}
-
-export interface DimensionValues {
-  field: string;
-  label: string;
-  total: number;
-  filteredTotal: number;
-  page: number;
-  pageSize: number;
-  values: ValueCount[];
-}
-
 export interface CycleStatsConfig {
   selectedModels: string[];
-}
-
-export interface DataSummary {
-  totalOrders: number;
-  validOrders: number;
-  totalMachines: number;
-  totalModelTypes: number;
-  totalMaterials: number;
-  totalFaults: number;
-  totalFaultMaterials: number;
-  factories: string[];
-  customers: string[];
 }

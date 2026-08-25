@@ -12,13 +12,17 @@ from app.api import (
     ai,
     alert_report,
     auth,
+    doa,
     faults,
     lrr,
-    mes,
+    metadata,
+    mfr,
     operations,
     process_records,
     rty,
+    sales_orders,
     settings,
+    sn_info,
 )
 from app.core.config import get_settings
 from app.core.logger import log_error, log_info, setup_logger
@@ -138,10 +142,12 @@ app.add_middleware(UsageTrackingMiddleware)
 # 注册路由
 app.include_router(rty.router, prefix="/api/rty", tags=["RTY"])
 app.include_router(lrr.router, prefix="/api/lrr", tags=["LRR"])
+app.include_router(mfr.router, prefix="/api/mfr", tags=["MFR"])
+app.include_router(metadata.router, prefix="/api/metadata", tags=["Metadata"])
+app.include_router(doa.router, prefix="/api/doa", tags=["DOA"])
 app.include_router(faults.router, prefix="/api", tags=["Faults"])
 app.include_router(alert_report.router, prefix="/api/alert-report", tags=["AlertReport"])
 app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
-app.include_router(mes.router, prefix="/api/mes", tags=["MES"])
 app.include_router(ai.router, prefix="/api/ai", tags=["AI"])
 app.include_router(
     process_records.router,
@@ -150,6 +156,8 @@ app.include_router(
 )
 app.include_router(auth.router, prefix="/api", tags=["Auth"])
 app.include_router(operations.router, prefix="/api/operations", tags=["Operations"])
+app.include_router(sales_orders.router, prefix="/api/sales-orders", tags=["Sales Orders"])
+app.include_router(sn_info.router, prefix="/api/sn-info", tags=["SN Info"])
 
 
 @app.get("/health")
@@ -166,6 +174,9 @@ async def http_exception_handler(request: Request, exc: HTTPException):
         status_code=exc.status_code,
         path=request.url.path,
     )
+    # 若 detail 本身是字典（如结构化的 502 错误体），原样返回，保留结构
+    if isinstance(exc.detail, dict):
+        return JSONResponse(status_code=exc.status_code, content=exc.detail)
     return JSONResponse(
         status_code=exc.status_code,
         content={"success": False, "error": str(exc.detail)},

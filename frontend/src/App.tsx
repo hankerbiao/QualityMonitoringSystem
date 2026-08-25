@@ -7,6 +7,13 @@ import ProcessRecordsPage from './pages/ProcessRecordsPage';
 import LoginPage from './pages/LoginPage';
 import AlertReportPage from './pages/AlertReportPage';
 import OperationsPage from './pages/OperationsPage';
+import DoaScsPage from './pages/DoaScsPage';
+import DoaPage from './pages/DoaPage';
+import DoaReplacementPage from './pages/DoaReplacementPage';
+import DoaRepairsPage from './pages/DoaRepairsPage';
+import SalesOrdersPage from './pages/SalesOrdersPage';
+import MFRPage from './pages/MFRPage';
+import MetadataTablePage from './pages/MetadataTablePage';
 import { operationsApi } from './api/operationsApi';
 import { ModelTargetsProvider } from './context/ModelTargetsContext';
 import { SettingsProvider } from './context/SettingsContext';
@@ -39,8 +46,13 @@ function AppContent() {
         <Route path="/lrr" element={<LRRPage />} />
         <Route path="/process-records" element={<ProcessRecordsPage />} />
         <Route path="/operations" element={<OperationsPage />} />
-        <Route path="/doa" element={<Navigate to="/" />} />
-        <Route path="/mfr" element={<Navigate to="/" />} />
+        <Route path="/doa/raw" element={<DoaScsPage />} />
+        <Route path="/doa" element={<DoaPage />} />
+        <Route path="/doa/replacement" element={<DoaReplacementPage />} />
+        <Route path="/doa/repairs" element={<DoaRepairsPage />} />
+        <Route path="/sales-orders" element={<SalesOrdersPage />} />
+        <Route path="/mfr" element={<MFRPage />} />
+        <Route path="/metadata/:tableName" element={<MetadataTablePage />} />
       </Route>
     </Routes>
   );
@@ -50,11 +62,11 @@ export default function App() {
   return (
     <Router>
       <AuthProvider>
-        <ModelTargetsProvider>
-          <SettingsProvider>
+        <SettingsProvider>
+          <ModelTargetsProvider>
             <AppContent />
-          </SettingsProvider>
-        </ModelTargetsProvider>
+          </ModelTargetsProvider>
+        </SettingsProvider>
       </AuthProvider>
     </Router>
   );

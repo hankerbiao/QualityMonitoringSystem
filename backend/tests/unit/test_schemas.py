@@ -151,7 +151,7 @@ class TestSettingsUpdateRequest:
         )
         assert req.ai is not None
         assert req.ai.apiUrl == "https://api.example.com/v1/chat/completions"
-        assert req.mes is None
+        assert req.processRecords is None
 
     def test_partial_update_model_targets(self):
         req = SettingsUpdateRequest(
