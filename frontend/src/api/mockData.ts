@@ -1,16 +1,11 @@
-import { RTYData, DefectDetail, InputDetail } from '../types';
+import { RTYData, DefectDetail } from '../types';
 
 const BASES = ['天津', '昆山', '桐乡', '大同'];
-const CUSTOMERS = ['客户A', '客户B', '客户C'];
 const MODELS = ['6210 C21 BOX', '6210 C21', '6210 C31', '普通机型'];
 const MODEL_CATEGORIES = ['普通机型', '复合机型', '普通机型', '普通机型'];
 
 function rand(min: number, max: number): number {
   return Math.floor(Math.random() * (max - min + 1)) + min;
-}
-
-function pick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)];
 }
 
 function roundRty(defect: number, input: number): number {
@@ -30,8 +25,7 @@ const months = [
 let id = 0;
 months.forEach(time => {
   BASES.forEach(base => {
-    CUSTOMERS.forEach(customer => {
-      MODELS.forEach((productModel, mi) => {
+    MODELS.forEach((productModel, mi) => {
         id++;
         const inputCount = rand(500, 2500);
         
@@ -77,7 +71,7 @@ months.forEach(time => {
           time,
           model: MODEL_CATEGORIES[mi],
           productModel,
-          customer,
+          customer: '',
           base,
           defectCount,
           inputCount,
@@ -89,18 +83,13 @@ months.forEach(time => {
           productionOrders: [],
           serialNumbers: [],
           productLine: '',
-          orderType: '',
-          planStartDate: '',
-          planEndDate: '',
           status: '',
         });
       });
-    });
   });
 });
 
 export const mockDefectDetails: Record<string, DefectDetail[]> = {};
-export const mockInputDetails: Record<string, InputDetail[]> = {};
 
 // 为每个 record 生成故障明细和投入明细
 const defectTemplates: { code: string; desc: string }[] = [
@@ -115,8 +104,6 @@ const defectTemplates: { code: string; desc: string }[] = [
   { code: 'E009', desc: '系统卡顿' },
   { code: 'E010', desc: '蓝牙断连' },
 ];
-
-const productLines = ['L1', 'L2', 'L3', 'L4', 'L5'];
 
 for (let i = 1; i <= id; i++) {
   const key = String(i);
@@ -141,20 +128,10 @@ for (let i = 1; i <= id; i++) {
         repairTime: '',
         repairPerson: '',
         repair_effectiveness: '',
+        customer: '',
       });
     }
   }
   mockDefectDetails[key] = defectDetails;
 
-  const numInputs = rand(2, 5);
-  const inputDetails: InputDetail[] = [];
-  for (let inp = 0; inp < numInputs; inp++) {
-    inputDetails.push({
-      id: `i${key}-${inp}`,
-      workOrder: `WO-${key}-${String(inp + 1).padStart(2, '0')}`,
-      productLine: pick(productLines),
-      count: rand(100, 800),
-    });
-  }
-  mockInputDetails[key] = inputDetails;
 }

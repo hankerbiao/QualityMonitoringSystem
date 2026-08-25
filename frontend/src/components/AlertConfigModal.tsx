@@ -1,8 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { X, Bell, Calendar, Filter, Loader2, FileText } from 'lucide-react';
 import {
-  LineChart,
-  BarChart,
+  ComposedChart,
   Line,
   Bar,
   XAxis,
@@ -62,9 +61,7 @@ export default function AlertConfigModal({
     setLoading(true);
     try {
       const filters: RTYFilterParams = {
-        statMethod: '整体直通率',
         dateRange: { from: undefined, to: undefined },
-        model: '普通机型',
         productModel: 'all',
         customer: '',
         base: 'all',
@@ -72,8 +69,22 @@ export default function AlertConfigModal({
         productionOrder: '',
         serialNumber: ''
       };
-      const result = await rtyApi.getRTYData(filters);
-      setAllRawData(result.items);
+      const pageSize = 500;
+      const firstPage = await rtyApi.getRTYData(filters, 1, pageSize);
+      const pageCount = Math.ceil(firstPage.total / pageSize);
+      if (pageCount === 1) {
+        setAllRawData(firstPage.items);
+        return;
+      }
+      const remainingPages = await Promise.all(
+        Array.from({ length: pageCount - 1 }, (_, index) =>
+          rtyApi.getRTYData(filters, index + 2, pageSize)
+        )
+      );
+      setAllRawData([
+        ...firstPage.items,
+        ...remainingPages.flatMap(page => page.items),
+      ]);
     } catch (error) {
       console.error('Failed to fetch cycle stats data', error);
     } finally {
@@ -465,100 +476,31 @@ export default function AlertConfigModal({
             </div>
 
             {trendData && trendData.length > 0 && viewMode === 'chart' && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-                {/* 左侧：投入量柱状图 */}
-                <div className="border border-slate-200 rounded-sm p-4 bg-white">
-                  <div className="flex justify-between items-center mb-3">
-                    <h5 className="text-xs font-semibold text-slate-700">投入数量趋势</h5>
-                    <span className="text-[10px] text-slate-400">单位: 台</span>
-                  </div>
-                  <div className="h-56 text-xs">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <BarChart
-                        data={trendData}
-                        margin={{ top: 5, right: 5, left: -15, bottom: 0 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                        <XAxis 
-                          dataKey="time" 
-                          axisLine={false}
-                          tickLine={false}
-                          tick={{ fill: '#64748b', fontSize: 10 }}
-                          dy={8}
-                        />
-                        <YAxis 
-                          axisLine={false}
-                          tickLine={false}
-                          tick={{ fill: '#64748b', fontSize: 10 }}
-                        />
-                        <Tooltip 
-                          contentStyle={{ borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '11px' }}
-                          formatter={(value) => Number(value).toLocaleString()}
-                        />
-                        <Legend wrapperStyle={{ paddingTop: '8px', fontSize: '10px' }} />
-                        {displayModels.map((model, index) => (
-                          <Bar 
-                            key={`bar-${model}`}
-                            dataKey={`${model}_input`}
-                            name={model} 
-                            fill={COLORS[index % COLORS.length]} 
-                            radius={[2, 2, 0, 0]}
-                            maxBarSize={24}
-                          />
-                        ))}
-                      </BarChart>
-                    </ResponsiveContainer>
-                  </div>
+              <div className="mb-8 border border-slate-200 rounded-sm p-4 bg-white">
+                <div className="flex justify-between items-center mb-3">
+                  <h5 className="text-xs font-semibold text-slate-700">产量（WMENG）与直通率（RTY）</h5>
+                  <span className="text-[10px] text-slate-400">柱：台 · 线：%</span>
                 </div>
-                
-                {/* 右侧：RTY趋势折线图 */}
-                <div className="border border-slate-200 rounded-sm p-4 bg-white">
-                  <div className="flex justify-between items-center mb-3">
-                    <h5 className="text-xs font-semibold text-slate-700">直通率(RTY)趋势</h5>
-                    <span className="text-[10px] text-slate-400">单位: %</span>
-                  </div>
-                  <div className="h-56 text-xs">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <LineChart
-                        data={trendData}
-                        margin={{ top: 5, right: 5, left: -15, bottom: 0 }}
-                      >
-                        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
-                        <XAxis 
-                          dataKey="time" 
-                          axisLine={false}
-                          tickLine={false}
-                          tick={{ fill: '#64748b', fontSize: 10 }}
-                          dy={8}
-                        />
-                        <YAxis 
-                          domain={['dataMin - 2', 100]}
-                          axisLine={false}
-                          tickLine={false}
-                          tick={{ fill: '#64748b', fontSize: 10 }}
-                          tickFormatter={(value) => `${value}%`}
-                        />
-                        <Tooltip 
-                          contentStyle={{ borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '11px' }}
-                          formatter={(value) => `${Number(value).toFixed(3)}%`}
-                        />
-                        <Legend wrapperStyle={{ paddingTop: '8px', fontSize: '10px' }} />
-                        {displayModels.map((model, index) => (
-                          <Line 
-                            key={`line-${model}`}
-                            type="monotone" 
-                            dataKey={`${model}_rty`} 
-                            name={model} 
-                            stroke={COLORS[index % COLORS.length]} 
-                            strokeWidth={2}
-                            dot={{ r: 3, strokeWidth: 1 }}
-                            activeDot={{ r: 5 }}
-                            connectNulls={true}
-                          />
-                        ))}
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </div>
+                <div className="h-72 text-xs">
+                  <ResponsiveContainer width="100%" height="100%">
+                    <ComposedChart data={trendData} margin={{ top: 5, right: 10, left: -15, bottom: 0 }}>
+                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                      <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} dy={8} />
+                      <YAxis yAxisId="input" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} />
+                      <YAxis yAxisId="rty" orientation="right" domain={['dataMin - 2', 100]} axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} tickFormatter={(value) => `${value}%`} />
+                      <Tooltip
+                        contentStyle={{ borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '11px' }}
+                        formatter={(value, name) => name?.toString().includes('RTY') ? `${Number(value).toFixed(3)}%` : Number(value).toLocaleString()}
+                      />
+                      <Legend wrapperStyle={{ paddingTop: '8px', fontSize: '10px' }} />
+                      {displayModels.map((model, index) => (
+                        <Bar key={`bar-${model}`} dataKey={`${model}_input`} name={`${model} 产量`} yAxisId="input" fill={COLORS[index % COLORS.length]} fillOpacity={0.55} radius={[2, 2, 0, 0]} maxBarSize={24} />
+                      ))}
+                      {displayModels.map((model, index) => (
+                        <Line key={`line-${model}`} type="monotone" dataKey={`${model}_rty`} name={`${model} RTY`} yAxisId="rty" stroke={COLORS[index % COLORS.length]} strokeWidth={2} dot={{ r: 3, strokeWidth: 1 }} activeDot={{ r: 5 }} connectNulls={true} />
+                      ))}
+                    </ComposedChart>
+                  </ResponsiveContainer>
                 </div>
               </div>
             )}
@@ -636,7 +578,12 @@ export default function AlertConfigModal({
                                   className={`px-2 py-2 border-r border-slate-100 text-center text-[10px] ${bgClass} ${textClass} ${fontClass}`}
                                   title={cell?.text || ''}
                                 >
-                                  {hasData ? `${rty?.toFixed(2)}%` : '-'}
+                                  {hasData ? (
+                                    <div className="leading-tight">
+                                      <div className="font-semibold">{rty?.toFixed(2)}%</div>
+                                      <div className="mt-0.5 text-[9px] opacity-75">{cell.text.split('(')[1]?.replace(')', '') || '-'}</div>
+                                    </div>
+                                  ) : '-'}
                                 </td>
                               );
                             })}
@@ -650,44 +597,7 @@ export default function AlertConfigModal({
                   </table>
                 </div>
                 
-                {/* 热力图下方：缺陷明细 */}
-                <div className="mt-4 overflow-x-auto border border-slate-200 rounded-sm">
-                  <table className="w-full text-left border-collapse">
-                    <thead className="bg-[#f8fafc] border-b border-slate-200">
-                      <tr>
-                        <th className="px-3 py-2 border-r border-slate-100 text-[11px] font-semibold text-slate-600 whitespace-nowrap sticky left-0 bg-[#f8fafc] z-10">机型</th>
-                        {allMonths.map(month => (
-                          <th key={month} className="px-2 py-2 border-r border-slate-100 text-[10px] text-slate-500 text-center min-w-[60px]">{month}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {tableData
-                        .filter(row => displayModels.includes(row.model))
-                        .map((row, idx) => (
-                          <tr key={idx} className="border-b border-slate-100 last:border-none hover:bg-slate-50/50">
-                            <td className="px-3 py-2 border-r border-slate-100 text-[11px] font-medium text-slate-700 whitespace-nowrap sticky left-0 bg-white z-10">
-                              {row.model}
-                            </td>
-                            {allMonths.map(month => {
-                              const cell = row[month];
-                              const hasData = cell?.text && cell?.text !== '-';
-                              return (
-                                <td 
-                                  key={month} 
-                                  className={`px-2 py-2 border-r border-slate-100 text-center text-[10px] ${cell?.belowTarget ? 'text-red-600 font-medium' : 'text-slate-600'}`}
-                                >
-                                  {hasData ? cell.text.split('(')[1]?.replace(')', '') || '-' : '-'}
-                                </td>
-                              );
-                            })}
-                          </tr>
-                        ))
-                      }
-                    </tbody>
-                  </table>
-                </div>
-                <p className="text-[10px] text-slate-400 mt-2">下方表格：故障数/投入数</p>
+                <p className="text-[10px] text-slate-400 mt-2">单元格上方为 RTY，下方为故障数/产量（WMENG）</p>
               </div>
             )}
           </div>

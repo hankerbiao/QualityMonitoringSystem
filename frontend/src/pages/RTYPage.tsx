@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -12,9 +12,7 @@ import { FilterPanel } from '../components/rty';
 import { SortIcon } from '../components/shared/SortIcon';
 
 const DEFAULT_FILTERS: RTYFilterParams = {
-  statMethod: '整体直通率',
   dateRange: { from: undefined, to: undefined },
-  model: '普通机型',
   productModel: 'all',
   customer: '',
   base: 'all',
@@ -61,7 +59,7 @@ export default function RTYPage() {
 
   // 机器SN弹窗状态
   const [snModalOpen, setSnModalOpen] = useState(false);
-  const [snModalData, setSnModalData] = useState<{ title: string; sns: string[] }>({ title: '', sns: [] });
+  const [snModalData] = useState<{ title: string; sns: string[] }>({ title: '', sns: [] });
   const [snPage, setSnPage] = useState(1);
   const SN_PAGE_SIZE = 100;
 
@@ -75,7 +73,7 @@ export default function RTYPage() {
   const { modelTargets } = useModelTargets();
 
   // 获取数据
-  const fetchData = async (targetPage = page) => {
+  const fetchData = useCallback(async (targetPage = page) => {
     setLoading(true);
     try {
       const result = await rtyApi.getRTYData(filters, targetPage, pageSize);
@@ -87,7 +85,7 @@ export default function RTYPage() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [filters, page, pageSize]);
 
   useEffect(() => {
     if (!detailOpen) return;
@@ -132,7 +130,7 @@ export default function RTYPage() {
       customer: '客户',
       base: '基地',
       defectCount: '故障数量',
-      inputCount: '投入数量',
+      inputCount: '产量（WMENG）',
       rtyRate: '直通率(%)',
       targetRate: '直通率指标(%)',
       status: '达成状况',
@@ -140,9 +138,6 @@ export default function RTYPage() {
       productionOrder: '生产订单',
       serialNumbers: '机器SN',
       productLine: '产线',
-      orderType: '订单类型',
-      planStartDate: '计划开始日期',
-      planEndDate: '计划结束时间',
     };
     const selectedKeys = Object.entries(selectedColumns).filter(([, v]) => v).map(([k]) => k);
     const exportData = sortedData.map(row => {
@@ -187,6 +182,7 @@ export default function RTYPage() {
             <ArrowLeft className="w-4 h-4" />
           </button>
           <h1 className="text-lg font-semibold text-slate-800">QualiBoard 品质看板 — RTY 整机综合直通率</h1>
+          <span className="rounded-sm border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">2026 · 销售订单 WMENG 入库数量</span>
         </div>
         <div className="flex items-center gap-2 text-xs">
           <span className="text-slate-400 font-medium">快速切换看板:</span>
@@ -286,7 +282,7 @@ export default function RTYPage() {
                     onClick={() => handleSort('inputCount')}
                   >
                     <span className="inline-flex items-center gap-1">
-                      投入数量
+                      产量（WMENG）
                       <SortIcon field="inputCount" activeField={sortField} direction={sortDirection} />
                     </span>
                   </th>
@@ -324,7 +320,7 @@ export default function RTYPage() {
                     <tr key={row.id} className="hover:bg-slate-50 transition-colors">
                       <td className="px-3 py-2">{row.time}</td>
                       <td className="px-3 py-2">{row.productModel}</td>
-                      <td className="px-3 py-2">{row.customer}</td>
+                      <td className="px-3 py-2 max-w-[180px] truncate" title={row.customer}>{row.customer || '-'}</td>
                       <td className="px-3 py-2">{row.base}</td>
                       <td className="px-3 py-2">
                         {row.salesOrders.length === 1 ? (
@@ -368,9 +364,7 @@ export default function RTYPage() {
                               const so = row.salesOrder || row.salesOrders.join(',');
                               const po = row.productionOrder || row.productionOrders.join(',');
                               const defectFilters: RTYFilterParams = {
-                                statMethod: '整体直通率',
                                 dateRange: { from: undefined, to: undefined },
-                                model: '普通机型',
                                 productModel: row.productModel || 'all',
                                 customer: row.customer || '',
                                 base: row.base || 'all',
@@ -386,17 +380,7 @@ export default function RTYPage() {
                           {row.defectCount}
                         </button>
                       </td>
-                      <td className="px-3 py-2">
-                        <button
-                          onClick={() => {
-                            setSnModalData({ title: row.productionOrder || row.salesOrder || '机器SN列表', sns: row.serialNumbers || [] });
-                            setSnModalOpen(true);
-                          }}
-                          className="text-blue-600 hover:text-blue-800 hover:underline font-semibold focus:outline-none"
-                        >
-                          {row.inputCount}
-                        </button>
-                      </td>
+                      <td className="px-3 py-2 font-semibold" title="销售订单入库数量（WMENG）">{row.inputCount}</td>
                       <td className="px-3 py-2 font-medium">
                         {row.rtyRate}%
                       </td>
@@ -568,9 +552,7 @@ export default function RTYPage() {
                     onClick={() => {
                       if (orderListData.title.includes('故障明细')) {
                         const detailFilters: RTYFilterParams = {
-                          statMethod: '整体直通率',
                           dateRange: { from: undefined, to: undefined },
-                          model: '普通机型',
                           productModel: 'all',
                           customer: '',
                           base: 'all',

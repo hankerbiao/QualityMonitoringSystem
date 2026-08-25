@@ -52,6 +52,17 @@ async def create_indexes() -> None:
     await mongodb.db.fault_info.create_index([("fault_category", 1)])
     await mongodb.db.fault_info.create_index([("reinsert_lot", 1)])  # LRR 故障聚合
 
+    # RTY: 2026 工位投入 SN 与维修故障 SN 的实时交集计算。
+    await mongodb.db.station_records_sap.create_index([("GSTRS", 1), ("KDAUF", 1), ("PCODE", 1)])
+    await mongodb.db.station_records_sap.create_index([("GSTRS", 1), ("AUFNR", 1), ("PCODE", 1)])
+    await mongodb.db.station_records_sap.create_index([("GSTRS", 1), ("LGORT", 1), ("PCODE", 1)])
+    await mongodb.db.station_records_sap.create_index([("GSTRS", 1), ("MAKTX_TH", 1), ("PCODE", 1)])
+    await mongodb.db.station_records_sap.create_index([("KDAUF", 1), ("GSTRS", 1), ("PCODE", 1)])
+    await mongodb.db.station_records_sap.create_index([("AUFNR", 1), ("GSTRS", 1), ("PCODE", 1)])
+    await mongodb.db.station_records_sap.create_index([("LGORT", 1), ("GSTRS", 1), ("PCODE", 1)])
+    await mongodb.db.station_records_sap.create_index([("MAKTX_TH", 1), ("GSTRS", 1), ("PCODE", 1)])
+    await mongodb.db.repair_records_sap.create_index([("PCODE", 1), ("ZDATE_WX", 1)])
+
     # 用户索引
     await mongodb.db.users.create_index("itcode", unique=True)
 

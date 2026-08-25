@@ -368,6 +368,11 @@ class MockMotorCollection:
                             groups[g_key][field] += value or 0
                     elif op == "$first":
                         groups[g_key].setdefault(field, self._eval_expr(src, doc))
+                    elif op == "$addToSet":
+                        value = self._eval_expr(src, doc)
+                        values = groups[g_key].setdefault(field, [])
+                        if value not in values:
+                            values.append(value)
         return list(groups.values())
 
     def _run_pipeline(

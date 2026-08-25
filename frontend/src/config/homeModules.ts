@@ -39,7 +39,7 @@ export const qualityModules: readonly HomeModuleDefinition[] = [
     icon: Activity,
     accent: 'blue',
     path: '/rty',
-    status: 'planned',
+    status: 'available',
   },
   {
     id: 'lrr',

@@ -66,6 +66,7 @@ export default function DefectModal({ filters, filterLabel, onClose }: DefectMod
                     <th className="px-3 py-2 font-medium text-slate-700">机器SN</th>
                     <th className="px-3 py-2 font-medium text-slate-700">销售订单</th>
                     <th className="px-3 py-2 font-medium text-slate-700">生产订单</th>
+                    <th className="px-3 py-2 font-medium text-slate-700">客户</th>
                     <th className="px-3 py-2 font-medium text-slate-700">产品机型</th>
                     <th className="px-3 py-2 font-medium text-slate-700">故障类型</th>
                     <th className="px-3 py-2 font-medium text-slate-700">故障描述</th>
@@ -82,6 +83,7 @@ export default function DefectModal({ filters, filterLabel, onClose }: DefectMod
                       <td className="px-3 py-2 font-mono break-all max-w-[120px]" title={item.sn}>{item.sn}</td>
                       <td className="px-3 py-2 max-w-[130px] truncate" title={item.sale_no}>{item.sale_no || '-'}</td>
                       <td className="px-3 py-2 max-w-[130px] truncate" title={item.mfg_order}>{item.mfg_order || '-'}</td>
+                      <td className="px-3 py-2 max-w-[180px] truncate" title={item.customer}>{item.customer || '-'}</td>
                       <td className="px-3 py-2 max-w-[100px] truncate" title={item.product_family}>{item.product_family || '-'}</td>
                       <td className="px-3 py-2 font-medium text-slate-700">{item.defectCode}</td>
                       <td className="px-3 py-2 max-w-[200px]" title={item.description}>{item.description || '-'}</td>

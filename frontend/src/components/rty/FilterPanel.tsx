@@ -10,7 +10,7 @@ const EXPORT_COLUMNS: Record<string, string> = {
   customer: '客户',
   base: '基地',
   defectCount: '故障数量',
-  inputCount: '投入数量',
+  inputCount: '产量（WMENG）',
   rtyRate: '直通率(%)',
   targetRate: '直通率指标(%)',
   status: '达成状况',
@@ -18,15 +18,10 @@ const EXPORT_COLUMNS: Record<string, string> = {
   productionOrder: '生产订单',
   serialNumbers: '机器SN',
   productLine: '产线',
-  orderType: '订单类型',
-  planStartDate: '计划开始日期',
-  planEndDate: '计划结束时间',
 };
 
 const EMPTY_FILTERS: RTYFilterParams = {
-  statMethod: '整体直通率',
   dateRange: { from: undefined, to: undefined },
-  model: '普通机型',
   productModel: 'all',
   customer: '',
   base: 'all',
@@ -55,8 +50,8 @@ export function FilterPanel({
   const [filters, setFilters] = useState<RTYFilterParams>(initialFilters);
   const [productModelList, setProductModelList] = useState<{ model: string; count: number }[]>([]);
   const [baseList, setBaseList] = useState<{ base: string; count: number }[]>([]);
-  const [showModelSuggestions, setShowModelSuggestions] = useState(false);
   const [customerList, setCustomerList] = useState<string[]>([]);
+  const [showModelSuggestions, setShowModelSuggestions] = useState(false);
   const [showCustomerSuggestions, setShowCustomerSuggestions] = useState(false);
   const [showExportPanel, setShowExportPanel] = useState(false);
   const [exportColumns, setExportColumns] = useState<Record<string, boolean>>({
@@ -73,9 +68,6 @@ export function FilterPanel({
     productionOrder: true,
     serialNumbers: false,
     productLine: false,
-    orderType: false,
-    planStartDate: false,
-    planEndDate: false,
   });
 
   const update = (partial: Partial<RTYFilterParams>) => {
@@ -111,15 +103,15 @@ export function FilterPanel({
     setShowExportPanel(false);
   };
 
+  const filteredCustomers = customerList.filter(customer =>
+    !filters.customer || customer.toLowerCase().includes(filters.customer.toLowerCase())
+  );
+
   const handleClear = () => {
     setFilters({ ...EMPTY_FILTERS });
     onFiltersChange({ ...EMPTY_FILTERS });
     onSearch();
   };
-
-  const filteredCustomers = customerList.filter(customer =>
-    !filters.customer || customer.toLowerCase().includes(filters.customer.toLowerCase())
-  );
 
   return (
     <div className="flex-shrink-0 bg-white p-3 rounded-md border border-slate-200 shadow-sm mb-4">
@@ -131,7 +123,7 @@ export function FilterPanel({
               <button
                 type="button"
                 className="ml-1 text-slate-400 hover:text-slate-600 cursor-help"
-                title="实际开始时间（首台机器装配时间）"
+                title="销售订单计划开始日期（GSTRS），仅支持 2026 年"
               >
                 ?
               </button>
@@ -256,11 +248,11 @@ export function FilterPanel({
             />
           </div>
 
-          <div className="flex-1 min-w-[120px] max-w-[160px] relative">
+          <div className="flex-1 min-w-[140px] max-w-[220px] relative">
             <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">客户</label>
             <input
               type="text"
-              placeholder="输入或选择客户"
+              placeholder="请输入客户名称"
               className="w-full border border-slate-300 rounded-sm px-2 py-1.5 text-xs text-slate-700 focus:ring-1 focus:ring-blue-600 focus:border-blue-600 outline-none transition-all bg-white"
               value={filters.customer}
               onChange={e => {
@@ -274,7 +266,7 @@ export function FilterPanel({
               <div className="absolute z-50 top-full left-0 right-0 mt-1 max-h-48 overflow-auto rounded-sm border border-slate-200 bg-white shadow-lg">
                 <button
                   type="button"
-                  className={`w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-blue-50 ${!filters.customer ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}
+                  className={`w-full px-3 py-1.5 text-left text-xs hover:bg-blue-50 ${!filters.customer ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}
                   onMouseDown={() => {
                     update({ customer: '' });
                     setShowCustomerSuggestions(false);
@@ -282,21 +274,20 @@ export function FilterPanel({
                 >
                   全部客户
                 </button>
-                {filteredCustomers.map(customer => (
+                {filteredCustomers.length > 0 ? filteredCustomers.map(customer => (
                   <button
-                    type="button"
                     key={customer}
-                    className={`w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-blue-50 ${filters.customer === customer ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}
+                    type="button"
+                    className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs hover:bg-blue-50 ${filters.customer === customer ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}
                     onMouseDown={() => {
                       update({ customer });
                       setShowCustomerSuggestions(false);
                     }}
                   >
-                    {customer}
+                    <span className="truncate" title={customer}>{customer}</span>
                   </button>
-                ))}
-                {filteredCustomers.length === 0 && (
-                  <div className="px-3 py-2 text-xs text-slate-400">没有匹配的客户</div>
+                )) : (
+                  <div className="px-3 py-2 text-xs text-slate-400">无匹配客户</div>
                 )}
               </div>
             )}

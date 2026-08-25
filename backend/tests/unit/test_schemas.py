@@ -1,6 +1,7 @@
 """
 Unit tests for Pydantic schema validation
 """
+
 import pytest
 from pydantic import ValidationError
 
@@ -20,6 +21,7 @@ from app.schemas.settings import (
 
 # ─── RTY Schemas ─────────────────────────────────────────────────────────────
 
+
 class TestRTYData:
     def test_valid_rty_data(self):
         data = RTYData(
@@ -27,7 +29,6 @@ class TestRTYData:
             time="2026-06-01",
             model="普通机型",
             productModel="6210 C21",
-            customer="客户A",
             base="天津",
             defectCount=10,
             inputCount=1000,
@@ -49,12 +50,13 @@ class TestRTYData:
             rtyRate=100.0,
             targetRate=99.0,
         )
-        assert data.customer == ""
         assert data.salesOrder == ""
         assert data.status == ""
+        assert data.customer == ""
 
 
 # ─── Model Target Schemas ────────────────────────────────────────────────────
+
 
 class TestModelTarget:
     def test_valid_target_rate(self):
@@ -90,6 +92,7 @@ class TestModelTargetsResponse:
 
 # ─── Email Alert Schemas ─────────────────────────────────────────────────────
 
+
 class TestEmailAlertConfig:
     def test_valid_config(self):
         config = EmailAlertConfig(
@@ -108,6 +111,7 @@ class TestEmailAlertConfig:
 
 # ─── Feature Flags Schemas ───────────────────────────────────────────────────
 
+
 class TestFeatureFlags:
     def test_defaults(self):
         flags = FeatureFlags()
@@ -119,6 +123,7 @@ class TestFeatureFlags:
 
 
 # ─── AI Config Schemas ───────────────────────────────────────────────────────
+
 
 class TestAIConfigSchema:
     def test_defaults(self):
@@ -144,6 +149,7 @@ class TestAIConfigSchema:
 
 # ─── Settings Update Request ─────────────────────────────────────────────────
 
+
 class TestSettingsUpdateRequest:
     def test_partial_update_ai_only(self):
         req = SettingsUpdateRequest(
@@ -154,13 +160,12 @@ class TestSettingsUpdateRequest:
         assert req.processRecords is None
 
     def test_partial_update_model_targets(self):
-        req = SettingsUpdateRequest(
-            modelTargets={"6210 C21": 99.0, "6410 X21": 98.5}
-        )
+        req = SettingsUpdateRequest(modelTargets={"6210 C21": 99.0, "6410 X21": 98.5})
         assert req.modelTargets == {"6210 C21": 99.0, "6410 X21": 98.5}
 
 
 # ─── AI Request Schemas ──────────────────────────────────────────────────────
+
 
 class TestChatRequest:
     def test_valid_chat_request(self):

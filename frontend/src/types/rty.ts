@@ -15,9 +15,6 @@ export interface RTYData {
   productionOrders: string[];
   serialNumbers: string[];
   productLine: string;
-  orderType: string;
-  planStartDate: string;
-  planEndDate: string;
   status: string;
 }
 
@@ -35,19 +32,11 @@ export interface DefectDetail {
   repairTime: string;
   repairPerson: string;
   repair_effectiveness: string;
-}
-
-export interface InputDetail {
-  id: string;
-  workOrder: string;
-  productLine: string;
-  count: number;
+  customer: string;
 }
 
 export interface RTYFilterParams {
-  statMethod: string;
   dateRange: { from: Date | undefined; to: Date | undefined };
-  model: string;
   productModel: string;
   customer: string;
   base: string;

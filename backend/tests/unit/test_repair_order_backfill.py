@@ -49,3 +49,16 @@ def test_resolve_candidate_skips_ambiguous_source_before_using_fallback():
     assert result.value == "100001392"
     assert result.source == "sales_orders_sap"
     assert result.conflicting_values == ("40003908", "40003909")
+
+
+def test_customer_backfill_normalizes_numeric_order_padding():
+    customer_script = SCRIPT_PATH.with_name("backfill_repair_customers.py")
+    spec = importlib.util.spec_from_file_location("backfill_repair_customers", customer_script)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+
+    assert module.normalize_production_order("000030220742") == "30220742"
+    assert module.normalize_production_order("30220742") == "30220742"
+    assert module.normalize_production_order("") == ""

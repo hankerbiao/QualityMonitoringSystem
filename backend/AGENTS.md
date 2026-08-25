@@ -26,7 +26,7 @@ app/
 ├── main.py              # FastAPI 入口，lifespan 管理，CORS，路由注册
 ├── auth_service.py      # OA JWT 验签，Session 创建/验证，双 token 管理
 ├── api/
-│   ├── rty.py          # GET /api/rty/list, /{id}/defects, /{id}/inputs, /cycle-stats
+│   ├── rty.py          # RTY 列表、工位投入与维修故障明细接口
 │   ├── settings.py     # GET/PUT /api/settings, /mes, /model-targets, /email-alert, /ai
 │   ├── ai.py           # POST /api/ai/analyze
 │   └── auth.py         # OA callback, /me, /logout, /refresh
@@ -45,6 +45,7 @@ app/
 - **OA 登录**: JWT 验签 → Session 创建 → 302 重定向前端
 - **统一响应**: `Response[T]` (success, message, data, error)
 - **审计日志**: audit_logger 记录所有写操作
+- **RTY 口径**: 2026 年 SAP 工位记录中的去重 `PCODE` 为投入，维修记录中同 SN 的 2026 数据计为故障；客户字段不属于 RTY 列表契约
 
 ## Auth Flow (Critical)
 
@@ -66,7 +67,9 @@ app/
 | POST | /api/auth/refresh | 用 refresh_token 换发 access_token (**不换发 refresh_token**) |
 | GET | /api/auth/me | 当前用户信息 |
 | POST | /api/auth/logout | 退出登录 |
-| GET | /api/rty/list | RTY 数据列表 |
+| GET | /api/rty/list | 2026 SAP 工位投入 RTY 数据列表 |
+| GET | /api/rty/defects/by-filters | 按工位筛选返回维修故障明细 |
+| GET | /api/rty/defects | 按 SN 返回维修故障明细 |
 | GET | /api/rty/{id}/defects | 故障明细 |
 | GET | /api/rty/{id}/inputs | 投入明细 |
 | GET | /api/rty/cycle-stats | 周期统计 |
