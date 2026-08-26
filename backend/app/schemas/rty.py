@@ -67,6 +67,7 @@ class RTYFilterParams(BaseModel):
     salesOrder: str | None = Field(None, description="销售订单号筛选")
     productionOrder: str | None = Field(None, description="生产订单号筛选")
     serialNumber: str | None = Field(None, description="整机序列号筛选")
+    orderScope: str = Field("normal", description="订单范围: normal 或 l6")
 
 
 class RTYListResponse(BaseModel):

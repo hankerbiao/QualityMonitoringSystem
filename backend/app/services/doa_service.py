@@ -17,10 +17,6 @@ from app.schemas.doa import (
     DoaRepairsResponse,
     DoaSummary,
     DoaTrendItem,
-    ReplacementDashboardResponse,
-    ReplacementDimensionItem,
-    ReplacementSummary,
-    ReplacementTrendItem,
 )
 
 
@@ -56,18 +52,19 @@ def _normalize_filter_date(value: str | None) -> str | None:
     return normalize_gstrs_date(value) if value else None
 
 
-def _order_query(filters: DoaFilters | None = None) -> dict[str, Any]:
+def _order_query(filters: DoaFilters | None = None, *, include_date: bool = True) -> dict[str, Any]:
     """构造只命中规范化销售订单字段的查询。"""
     query: dict[str, Any] = {}
     if filters is None:
         return query
     date_query: dict[str, str] = {}
-    if date_from := _normalize_filter_date(filters.dateFrom):
-        date_query["$gte"] = date_from
-    if date_to := _normalize_filter_date(filters.dateTo):
-        date_query["$lte"] = date_to
-    if date_query:
-        query["gstrs_date"] = date_query
+    if include_date:
+        if date_from := _normalize_filter_date(filters.dateFrom):
+            date_query["$gte"] = date_from
+        if date_to := _normalize_filter_date(filters.dateTo):
+            date_query["$lte"] = date_to
+        if date_query:
+            query["gstrs_date"] = date_query
     if filters.customer:
         query["data.NAME1_ZU"] = filters.customer
     if filters.model:
@@ -83,9 +80,9 @@ def _scs_query(filters: DoaFilters | None = None) -> dict[str, Any]:
     if filters is None:
         return query
     date_query: dict[str, str] = {}
-    if date_from := _normalize_filter_date(filters.dateFrom):
+    if date_from := _normalize_filter_date(filters.acceptedDateFrom or filters.dateFrom):
         date_query["$gte"] = date_from
-    if date_to := _normalize_filter_date(filters.dateTo):
+    if date_to := _normalize_filter_date(filters.acceptedDateTo or filters.dateTo):
         date_query["$lte"] = date_to
     if date_query:
         query["scs_enrichment.accepted_date"] = date_query
@@ -167,7 +164,10 @@ def _repair_pipeline(
     include_data: bool = False,
     replacement_only: bool = False,
 ) -> list[dict[str, Any]]:
-    order_query = _order_query(filters)
+    # Replacement DOAs are scoped by the DOA accepted date. Their linked
+    # shipment can be outside that period, so the order date must not filter
+    # the replacement numerator.
+    order_query = _order_query(filters, include_date=not replacement_only)
     order_pipeline: list[dict[str, Any]] = [
         {"$match": {"$expr": {"$eq": ["$data.VBELN", "$$sales_order"]}}},
     ]
@@ -209,9 +209,7 @@ def _repair_pipeline(
                 "$group": {
                     "_id": "$customer",
                     "repair": {"$sum": "$repair_count"},
-                    "replacement": {
-                        "$sum": {"$cond": [{"$eq": ["$has_change", True]}, 1, 0]}
-                    },
+                    "replacement": {"$sum": {"$cond": [{"$eq": ["$has_change", True]}, 1, 0]}},
                 }
             }
         ],
@@ -220,9 +218,7 @@ def _repair_pipeline(
                 "$group": {
                     "_id": "$model",
                     "repair": {"$sum": "$repair_count"},
-                    "replacement": {
-                        "$sum": {"$cond": [{"$eq": ["$has_change", True]}, 1, 0]}
-                    },
+                    "replacement": {"$sum": {"$cond": [{"$eq": ["$has_change", True]}, 1, 0]}},
                 }
             }
         ],
@@ -231,9 +227,7 @@ def _repair_pipeline(
                 "$group": {
                     "_id": _period_expression("$accepted_at", filters.timeGranularity),
                     "repair": {"$sum": "$repair_count"},
-                    "replacement": {
-                        "$sum": {"$cond": [{"$eq": ["$has_change", True]}, 1, 0]}
-                    },
+                    "replacement": {"$sum": {"$cond": [{"$eq": ["$has_change", True]}, 1, 0]}},
                 }
             }
         ],
@@ -267,58 +261,76 @@ def _repair_pipeline(
             }
         },
         {"$unwind": "$orders"},
-        {
-            "$match": {
-                "$expr": {
-                    "$or": [
-                        {
-                            "$regexMatch": {
-                                "input": {"$ifNull": ["$data.产品/备件名称", ""]},
-                                "regex": {"$concat": ["^", _regex_literal("$orders.model")]},
-                                "options": "i",
-                            }
-                        },
-                        {
-                            "$regexMatch": {
-                                "input": "$orders.model",
-                                "regex": {
-                                    "$concat": [
-                                        "^",
-                                        _regex_literal(
-                                            {"$ifNull": ["$data.产品/备件名称", ""]}
-                                        ),
-                                    ]
-                                },
-                                "options": "i",
-                            }
-                        },
-                    ]
+    ]
+    if not replacement_only:
+        pipeline.append(
+            {
+                "$match": {
+                    "$expr": {
+                        "$or": [
+                            {
+                                "$regexMatch": {
+                                    "input": {"$ifNull": ["$data.产品/备件名称", ""]},
+                                    "regex": {"$concat": ["^", _regex_literal("$orders.model")]},
+                                    "options": "i",
+                                }
+                            },
+                            {
+                                "$regexMatch": {
+                                    "input": "$orders.model",
+                                    "regex": {
+                                        "$concat": [
+                                            "^",
+                                            _regex_literal(
+                                                {"$ifNull": ["$data.产品/备件名称", ""]}
+                                            ),
+                                        ]
+                                    },
+                                    "options": "i",
+                                }
+                            },
+                        ]
+                    }
                 }
             }
-        },
-        {
-            "$lookup": {
-                "from": Collections.SCS_CHANGE_RESULTS,
-                "let": {"service_no": "$data.服务单号"},
-                "pipeline": [
-                    {
-                        "$match": {
-                            "$expr": {
-                                "$and": [
-                                    {"$ne": ["$data.服务单号", None]},
-                                    {"$ne": ["$data.服务单号", ""]},
-                                    {"$eq": ["$data.服务单号", "$$service_no"]},
-                                ]
+        )
+    pipeline.extend(
+        [
+            {
+                "$lookup": {
+                    "from": Collections.SCS_CHANGE_RESULTS,
+                    "let": {"service_no": "$data.服务单号"},
+                    "pipeline": [
+                        {
+                            "$match": {
+                                "$expr": {
+                                    "$and": [
+                                        {"$ne": ["$data.服务单号", None]},
+                                        {"$ne": ["$data.服务单号", ""]},
+                                        {"$eq": ["$data.服务单号", "$$service_no"]},
+                                    ]
+                                }
                             }
-                        }
-                    },
-                    {"$limit": 1},
-                ],
-                "as": "changes",
-            }
-        },
-        {"$project": fields},
-    ]
+                        },
+                        {"$limit": 1},
+                    ],
+                    "as": "changes",
+                }
+            },
+            # A VBELN can have several SAP line documents. One DOA record
+            # must still count once after the order join.
+            {
+                "$group": {
+                    "_id": "$_id",
+                    "data": {"$first": "$data"},
+                    "scs_enrichment": {"$first": "$scs_enrichment"},
+                    "orders": {"$first": "$orders"},
+                    "changes": {"$first": "$changes"},
+                }
+            },
+            {"$project": fields},
+        ]
+    )
     if replacement_only:
         pipeline.append({"$match": {"has_change": True}})
     pipeline.append({"$facet": facet})
@@ -356,9 +368,7 @@ def _facet_total(facet: dict[str, Any], key: str, field: str) -> float:
     return float(rows[0].get(field, 0)) if rows else 0.0
 
 
-def _dimension_rows(
-    rows: list[dict[str, Any]], *fields: str
-) -> dict[str, dict[str, float]]:
+def _dimension_rows(rows: list[dict[str, Any]], *fields: str) -> dict[str, dict[str, float]]:
     result: dict[str, dict[str, float]] = {}
     for row in rows:
         key = str(row.get("_id"))
@@ -370,21 +380,27 @@ def _dimension_rows(
 
 async def build_doa_dashboard(db: Any, filters: DoaFilters) -> DoaDashboardResponse:
     """在 MongoDB 中完成订单/SCS 聚合，应用层只组装已聚合的结果。"""
-    orders_facet, repairs_facet, eligible, latest_data_at = await asyncio.gather(
+    orders_facet, repairs_facet, replacement_facet, eligible, latest_data_at = await asyncio.gather(
         _aggregate_one(db[Collections.SALES_ORDERS_SAP], _order_stats_pipeline(filters)),
         _aggregate_one(db[Collections.SCS_DOA_RESULTS], _repair_pipeline(filters)),
+        _aggregate_one(
+            db[Collections.SCS_DOA_RESULTS],
+            _repair_pipeline(filters, replacement_only=True),
+        ),
         db[Collections.SCS_DOA_RESULTS].count_documents(_scs_query(filters)),
         _latest_data_time(db),
     )
     shipped = _facet_total(orders_facet, "shipped", "sum")
     repair_count = _facet_total(repairs_facet, "repair_total", "sum")
+    replacement_count = int(_facet_total(replacement_facet, "replacement_total", "count"))
     matched = int(_facet_total(repairs_facet, "matched", "count"))
     excluded = max(0, eligible - matched)
 
     def dimensions(order_key: str, repair_key: str) -> list[DoaDimensionItem]:
         shipped_rows = _dimension_rows(orders_facet.get(order_key, []), "shipped")
-        repair_rows = _dimension_rows(repairs_facet.get(repair_key, []), "repair")
-        keys = sorted(set(shipped_rows) | set(repair_rows))
+        repair_rows = _dimension_rows(repairs_facet.get(repair_key, []), "repair", "replacement")
+        replacement_rows = _dimension_rows(replacement_facet.get(repair_key, []), "replacement")
+        keys = sorted(set(shipped_rows) | set(repair_rows) | set(replacement_rows))
         return [
             DoaDimensionItem(
                 key=key,
@@ -392,6 +408,11 @@ async def build_doa_dashboard(db: Any, filters: DoaFilters) -> DoaDashboardRespo
                 repairCount=repair_rows.get(key, {}).get("repair", 0),
                 repairRate=_rate(
                     repair_rows.get(key, {}).get("repair", 0),
+                    shipped_rows.get(key, {}).get("shipped", 0),
+                ),
+                replacementCount=replacement_rows.get(key, {}).get("replacement", 0),
+                replacementRate=_rate(
+                    replacement_rows.get(key, {}).get("replacement", 0),
                     shipped_rows.get(key, {}).get("shipped", 0),
                 ),
             )
@@ -407,7 +428,11 @@ async def build_doa_dashboard(db: Any, filters: DoaFilters) -> DoaDashboardRespo
     trend_servers = {
         str(row["_id"]): int(row.get("count", 0)) for row in repairs_facet.get("servers", [])
     }
-    periods = sorted(set(trend_ship) | set(trend_repair))
+    trend_replacement = {
+        str(row["_id"]): float(row.get("replacement", 0))
+        for row in replacement_facet.get("trend", [])
+    }
+    periods = sorted(set(trend_ship) | set(trend_repair) | set(trend_replacement))
     trend = [
         DoaTrendItem(
             period=period,
@@ -415,6 +440,10 @@ async def build_doa_dashboard(db: Any, filters: DoaFilters) -> DoaDashboardRespo
             repairCount=trend_repair.get(period, 0),
             repairServerCount=trend_servers.get(period, 0),
             repairRate=_rate(trend_repair.get(period, 0), trend_ship.get(period, 0)),
+            replacementCount=trend_replacement.get(period, 0),
+            replacementRate=_rate(
+                trend_replacement.get(period, 0), trend_ship.get(period, 0)
+            ),
         )
         for period in periods
     ]
@@ -424,72 +453,10 @@ async def build_doa_dashboard(db: Any, filters: DoaFilters) -> DoaDashboardRespo
             shippedCount=shipped,
             repairCount=repair_count,
             repairRate=_rate(repair_count, shipped),
-            matchedRepairRecords=matched,
-            excludedRepairRecords=excluded,
-            latestDataAt=latest_data_at,
-        ),
-        trend=trend,
-        byCustomer=dimensions("by_customer", "by_customer"),
-        byModel=dimensions("by_model", "by_model"),
-    )
-
-
-async def build_replacement_dashboard(
-    db: Any, filters: DoaFilters
-) -> ReplacementDashboardResponse:
-    """独立换件率看板：DOA 换件数 = 报修数中按服务单号匹配换上换下的记录数。"""
-    orders_facet, repairs_facet, latest_data_at = await asyncio.gather(
-        _aggregate_one(db[Collections.SALES_ORDERS_SAP], _order_stats_pipeline(filters)),
-        _aggregate_one(db[Collections.SCS_DOA_RESULTS], _repair_pipeline(filters)),
-        _latest_data_time(db),
-    )
-    shipped = _facet_total(orders_facet, "shipped", "sum")
-    replacement_count = int(_facet_total(repairs_facet, "replacement_total", "count"))
-    matched = int(_facet_total(repairs_facet, "matched", "count"))
-
-    def dimensions(order_key: str, repair_key: str) -> list[ReplacementDimensionItem]:
-        shipped_rows = _dimension_rows(orders_facet.get(order_key, []), "shipped")
-        repair_rows = _dimension_rows(repairs_facet.get(repair_key, []), "replacement")
-        keys = sorted(set(shipped_rows) | set(repair_rows))
-        return [
-            ReplacementDimensionItem(
-                key=key,
-                shippedCount=shipped_rows.get(key, {}).get("shipped", 0),
-                replacementCount=repair_rows.get(key, {}).get("replacement", 0),
-                replacementRate=_rate(
-                    repair_rows.get(key, {}).get("replacement", 0),
-                    shipped_rows.get(key, {}).get("shipped", 0),
-                ),
-            )
-            for key in keys
-        ]
-
-    trend_ship = {
-        str(row["_id"]): float(row.get("shipped", 0)) for row in orders_facet.get("trend", [])
-    }
-    trend_replacement = {
-        str(row["_id"]): float(row.get("replacement", 0))
-        for row in repairs_facet.get("trend", [])
-    }
-    periods = sorted(set(trend_ship) | set(trend_replacement))
-    trend = [
-        ReplacementTrendItem(
-            period=period,
-            shippedCount=trend_ship.get(period, 0),
-            replacementCount=trend_replacement.get(period, 0),
-            replacementRate=_rate(
-                trend_replacement.get(period, 0), trend_ship.get(period, 0)
-            ),
-        )
-        for period in periods
-    ]
-    return ReplacementDashboardResponse(
-        filters=filters,
-        summary=ReplacementSummary(
-            shippedCount=shipped,
             replacementCount=replacement_count,
             replacementRate=_rate(replacement_count, shipped),
             matchedRepairRecords=matched,
+            excludedRepairRecords=excluded,
             latestDataAt=latest_data_at,
         ),
         trend=trend,

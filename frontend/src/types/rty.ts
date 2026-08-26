@@ -43,6 +43,8 @@ export interface RTYFilterParams {
   salesOrder: string;
   productionOrder: string;
   serialNumber: string;
+  orderScope: 'normal' | 'l6';
+  calculationMethod?: 'normal' | 'composite';
 }
 
 export type SortField = 'time' | 'defectCount' | 'inputCount' | 'rtyRate';

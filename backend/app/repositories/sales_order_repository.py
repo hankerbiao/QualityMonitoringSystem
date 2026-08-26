@@ -167,6 +167,7 @@ async def upsert_sales_orders(
     aufnr_sources: dict[str, dict[str, dict]],
     source_records: dict[str, dict[str, dict]],
     now_iso: str,
+    db: Any | None = None,
 ) -> tuple[int, int]:
     """
     批量 upsert 订单文档。
@@ -178,7 +179,8 @@ async def upsert_sales_orders(
     Returns:
         (inserted, updated) 统计
     """
-    db = get_database()
+    if db is None:
+        db = get_database()
     coll = db[Collections.SALES_ORDERS_SAP]
     aufnrs = list(aufnr_sources.keys())
 

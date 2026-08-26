@@ -5,7 +5,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timezone
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -21,6 +20,7 @@ from app.schemas.sales_order import (
     SalesOrderSyncRequest,
     SalesOrderSyncResponse,
 )
+from app.services.rty_sync_service import RtySyncService
 from app.services.sap_sales_order_service import SapSalesOrderService, SourceFetchResult
 
 logger = logging.getLogger(__name__)
@@ -55,10 +55,15 @@ async def sync_sales_orders(
     - 单来源失败 → 成功来源继续入库，partial_success=true
     - MongoDB 写入失败 → 500，不返回伪成功结果
     """
-    service = SapSalesOrderService()
-    results: dict[str, SourceFetchResult] = await service.fetch_all(
-        payload.start_date, payload.end_date, payload.prodh_list
-    )
+    service = RtySyncService(sales_service=SapSalesOrderService())
+    try:
+        sync_result = await service.sync_sales_range(
+            payload.start_date, payload.end_date, payload.prodh_list
+        )
+    except Exception as exc:
+        logger.exception("Sales order sync DB write failed")
+        raise HTTPException(status_code=500, detail=f"Database write failed: {exc}") from exc
+    results: dict[str, SourceFetchResult] = sync_result["results"]
 
     successful = [s for s in results if results[s].success]
     if not successful:
@@ -73,18 +78,12 @@ async def sync_sales_orders(
             },
         )
 
-    now = datetime.now(timezone.utc)
-    now_iso = now.strftime("%Y-%m-%dT%H:%M:%SZ")
-
-    aufnr_sources, source_records, per_source = repo.aggregate_source_results(results, now_iso)
-
     partial_success = len(successful) < len(results)
 
-    try:
-        inserted, updated = await repo.upsert_sales_orders(aufnr_sources, source_records, now_iso)
-    except Exception as exc:  # 任何 DB 写入失败都不应返回伪成功
-        logger.exception("Sales order sync DB write failed")
-        raise HTTPException(status_code=500, detail=f"Database write failed: {exc}") from exc
+    inserted = sync_result["inserted"]
+    updated = sync_result["updated"]
+    aufnr_sources = sync_result["aufnr_sources"]
+    per_source = sync_result["per_source"]
 
     order_docs = await repo.get_orders_by_aufnrs(list(aufnr_sources.keys()))
     orders = [_serialize_order(d) for d in sorted(order_docs, key=lambda x: x.get("aufnr", ""))]

@@ -7,7 +7,8 @@
 | 脚本 | 数据源 | 目标集合 | 使用频率 |
 |---|---|---|---|
 | `sync_scs_incremental.py` | SCS DOA | `scs_doa_results` | 首次同步和日常定时任务 |
-| `sync_sales_orders_range.py` | SAP SG/KK | `sales_orders_sap` | 按日期范围执行 |
+| `sync_rty_incremental.py` | SAP SG/KK + MongoDB 维修记录 | `sales_orders_sap`、`repair_records_sap` | RTY 首次同步和日常定时任务 |
+| `sync_sales_orders_range.py` | SAP SG/KK | `sales_orders_sap` | 兼容旧入口，不用于日常调度 |
 | `spider_change_result.py` | SCS 换件登记 | `scs_change_results` | 首次同步、补页或定期重抓 |
 | `migrate_scs_doa_keys.py` | MongoDB 历史数据 | `scs_doa_results` | 一次性维护，不加入定时任务 |
 
@@ -15,6 +16,49 @@
 
 - `scs_sync_lib.py`：SCS 登录、日期查询、水位线、稳定键和幂等写入。
 - `spider_scs.py`、`enrich_scs_doa_sales_orders.py`：旧入口兼容代码和详情解析函数，仍被增量脚本导入。
+
+## RTY 销售订单与维修补全
+
+统一入口只处理 RTY 所需的 SAP 销售订单和已写入 MongoDB 的维修记录，不改变
+SCS 同步链路。首次运行必须显式指定历史起点：
+
+```bash
+uv run --project backend python scripts/sync_rty_incremental.py \
+  bootstrap --start-date 2026-01-01
+```
+
+首次任务仅在 SG、KK 请求成功后为两来源建立水位线。后续 cron 只调用：
+
+```bash
+uv run --project backend python scripts/sync_rty_incremental.py run
+```
+
+每个来源按自己的 `CHDAT` 水位线查询，默认从水位线前 7 天回看至任务当天，按
+`AUFNR` 幂等更新。单来源失败不会推进该来源水位线，成功来源仍会推进；两来源
+失败时任务返回非零退出码。产品层次由 `RTY_SYNC_PRODH_LIST` 配置（逗号分隔，默认
+`00100`）。支持 `--only sales|repair`、`--dry-run`、`--lookback-days N`。
+
+维修阶段只扫描 `repair_records_sap` 中 `AUFNR`、`VBELN` 或 `customer` 为空的文档，
+按维修/过站/序列绑定/故障/销售订单/BOM 的本地关联补全，仍缺订单的唯一 SN 按批调用
+`ZSIMS_CL_INBOUND_SN_INFO`，最后用 `sales_orders_sap.data.NAME1_ZU` 补客户。已有值不覆盖；
+候选冲突写入 `rty_backfill` 审计字段。任务运行摘要写入 `rty_sync_runs`，来源水位线写入
+`rty_sync_checkpoints`。
+
+建议 cron（每日 02:10）：
+
+```cron
+10 2 * * * cd /Users/libiao/Desktop/github/QualityMonitoringSystem && /usr/local/bin/uv run --project backend python scripts/sync_rty_incremental.py run >> /var/log/quality-monitoring-rty.log 2>&1
+```
+
+锁文件默认 `/tmp/quality-monitoring-rty-sync.lock`，可通过 `RTY_SYNC_LOCK_PATH` 覆盖。
+
+审计查询示例：
+
+```javascript
+use quality_monitoring
+db.rty_sync_checkpoints.find({ _id: /^sales_orders:/ })
+db.rty_sync_runs.find().sort({ started_at: -1 }).limit(20)
+```
 
 ## 2. 运行前准备
 

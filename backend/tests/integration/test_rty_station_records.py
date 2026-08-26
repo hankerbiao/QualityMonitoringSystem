@@ -138,6 +138,22 @@ class TestStationRecordRTY:
         assert so1["serialNumbers"] == []
         assert so1["customer"] == "客户A"
 
+    async def test_cycle_data_is_monthly_and_uses_same_fault_scope(self, client, db_clean):
+        await _seed_rty_data(db_clean)
+
+        response = await client.get("/api/rty/cycle-data")
+
+        assert response.status_code == 200
+        rows = response.json()["data"]
+        assert {(row["time"], row["productModel"]) for row in rows} == {
+            ("2026-02", "M-1"),
+            ("2026-03", "M-2"),
+        }
+        feb = next(row for row in rows if row["time"] == "2026-02")
+        assert feb["inputCount"] == 2
+        assert feb["defectCount"] == 1
+        assert feb["rtyRate"] == 50.0
+
     async def test_pagination_and_date_boundaries_are_deterministic(self, client, db_clean):
         await _seed_rty_data(db_clean)
 
@@ -185,3 +201,165 @@ class TestStationRecordRTY:
         assert models == [{"model": "M-1", "count": 2}, {"model": "M-2", "count": 1}]
         assert bases == [{"base": "9000", "count": 2}, {"base": "9100", "count": 1}]
         assert orders == ["PO-1"]
+
+    async def test_order_eligibility_excludes_status_and_type_and_separates_l6(
+        self, client, db_clean
+    ):
+        await db_clean.sales_orders_sap.insert_many(
+            [
+                {
+                    "aufnr": "PO-NORMAL",
+                    "gstrs_date": "2026-05-01",
+                    "data": {
+                        "VBELN": "SO-NORMAL",
+                        "WMENG": 10,
+                        "LGORT": "9000",
+                        "MAKTX_TH": "M-1",
+                        "NAME1_ZU": "客户A",
+                    },
+                },
+                {
+                    "aufnr": "PO-L6",
+                    "gstrs_date": "2026-05-01",
+                    "data": {
+                        "VBELN": "SO-L6",
+                        "WMENG": 8,
+                        "LGORT": "9000",
+                        "MAKTX_TH": "M-L6",
+                        "NAME1_ZU": "客户L6",
+                        "IF_L6": "X",
+                    },
+                },
+                {
+                    "aufnr": "PO-RELEASED",
+                    "gstrs_date": "2026-05-01",
+                    "data": {
+                        "VBELN": "SO-RELEASED",
+                        "WMENG": 20,
+                        "LGORT": "9000",
+                        "MAKTX_TH": "M-EXCLUDED",
+                        "ZSTAT": "RELEASED",
+                    },
+                },
+                {
+                    "aufnr": "PO-DLID",
+                    "gstrs_date": "2026-05-01",
+                    "data": {
+                        "VBELN": "SO-DLID",
+                        "WMENG": 30,
+                        "LGORT": "9000",
+                        "MAKTX_TH": "M-EXCLUDED",
+                        "ZSTAT": "DLID",
+                    },
+                },
+                {
+                    "aufnr": "PO-C001",
+                    "gstrs_date": "2026-05-01",
+                    "data": {
+                        "VBELN": "SO-C001",
+                        "WMENG": 40,
+                        "LGORT": "9000",
+                        "MAKTX_TH": "M-EXCLUDED",
+                        "AUART": "C001",
+                    },
+                },
+            ]
+        )
+        await db_clean.repair_records_sap.insert_many(
+            [
+                {"PCODE": "SN-NORMAL", "AUFNR": "PO-NORMAL", "ZDATE_WX": "20260502"},
+                {"PCODE": "SN-L6", "AUFNR": "PO-L6", "ZDATE_WX": "20260502"},
+                {"PCODE": "SN-RELEASED", "AUFNR": "PO-RELEASED", "ZDATE_WX": "20260502"},
+            ]
+        )
+
+        normal = (await client.get("/api/rty/list?productModel=M-1")).json()
+        assert normal["total"] == 1
+        assert normal["items"][0]["inputCount"] == 10
+        assert normal["items"][0]["defectCount"] == 1
+
+        l6 = (await client.get("/api/rty/list?orderScope=l6")).json()
+        assert l6["total"] == 1
+        assert l6["items"][0]["salesOrder"] == "SO-L6"
+        assert l6["items"][0]["inputCount"] == 8
+        assert l6["items"][0]["defectCount"] == 1
+
+        normal_models = (await client.get("/api/rty/product-models")).json()["data"]
+        assert normal_models == [{"model": "M-1", "count": 10}]
+        l6_models = (await client.get("/api/rty/product-models?orderScope=l6")).json()["data"]
+        assert l6_models == [{"model": "M-L6", "count": 8}]
+
+    async def test_composite_model_maps_box_faults_to_head_serial_numbers(self, client, db_clean):
+        await db_clean.sales_orders_sap.insert_one(
+            {
+                "aufnr": "HEAD-PO",
+                "gstrs_date": "2026-04-01",
+                "data": {
+                    "VBELN": "SO-COMPOSITE",
+                    "WMENG": 10,
+                    "LGORT": "9000",
+                    "MAKTX_TH": "6210 C21 BOX",
+                    "NAME1_ZU": "客户A",
+                },
+            }
+        )
+        await db_clean.serial_bindings_sap.insert_many(
+            [
+                {
+                    "AUFNR_HEAD": "HEAD-PO",
+                    "AUFNR_ITEM": "BOX-PO",
+                    "ZCODE_HEAD": "HEAD-SN-1",
+                    "ZCODE_ITEM": "BOX-SN-1",
+                },
+                {
+                    "AUFNR_HEAD": "HEAD-PO",
+                    "AUFNR_ITEM": "BOX-PO",
+                    "ZCODE_HEAD": "HEAD-SN-2",
+                    "ZCODE_ITEM": "BOX-SN-2",
+                },
+            ]
+        )
+        await db_clean.repair_records_sap.insert_many(
+            [
+                {"PCODE": "HEAD-SN-1", "AUFNR": "HEAD-PO", "ZDATE_WX": "20260402"},
+                {
+                    "PCODE": "BOX-SN-1",
+                    "AUFNR": "BOX-PO",
+                    "ZDATE_WX": "20260402",
+                    "ZJXMC": "6410 X21",
+                },
+                {
+                    "PCODE": "BOX-SN-2",
+                    "AUFNR": "BOX-PO",
+                    "ZDATE_WX": "20260403",
+                    "ZJXMC": "6410 X21",
+                },
+                {
+                    "PCODE": "UNBOUND-BOX-SN",
+                    "AUFNR": "BOX-PO",
+                    "ZDATE_WX": "20260403",
+                    "ZJXMC": "6410 X21",
+                },
+            ]
+        )
+
+        response = await client.get("/api/rty/list?productModel=6210%20C21%20BOX")
+
+        assert response.status_code == 200
+        item = response.json()["items"][0]
+        assert item["model"] == "复合机型"
+        assert item["inputCount"] == 10
+        assert item["defectCount"] == 2
+        assert item["rtyRate"] == 80.0
+
+        cycle = await client.get("/api/rty/cycle-data")
+        cycle_item = next(row for row in cycle.json()["data"] if row["productModel"] == "6210 C21 BOX")
+        assert cycle_item["inputCount"] == 10
+        assert cycle_item["defectCount"] == 2
+
+        details = await client.get("/api/rty/defects/by-filters?productModel=6210%20C21%20BOX")
+        assert {detail["sn"] for detail in details.json()["data"]} == {
+            "HEAD-SN-1",
+            "BOX-SN-1",
+            "BOX-SN-2",
+        }

@@ -164,6 +164,8 @@ async def test_doa_dashboard_joins_orders_and_filters(client, db_clean, make_tes
             "repairCount": 3,
             "repairServerCount": 1,
             "repairRate": 8.57,
+            "replacementCount": 0,
+            "replacementRate": 0,
         }
     ]
 
@@ -221,7 +223,7 @@ async def test_doa_dashboard_replacement_counts_change_matches(
         ]
     )
     response = await client.get(
-        "/api/doa/replacement-dashboard?dateFrom=2026-08-01&dateTo=2026-08-31",
+        "/api/doa/dashboard?dateFrom=2026-08-01&dateTo=2026-08-31",
         headers=token_headers(make_test_access_token),
     )
     assert response.status_code == 200
@@ -243,14 +245,117 @@ async def test_doa_dashboard_replacement_counts_change_matches(
     assert replacement_body["total"] == 1
     assert replacement_body["items"][0]["data"]["服务单号"] == "SVC-001"
 
-    repair_body = (
-        await client.get(
-            "/api/doa/dashboard?dateFrom=2026-08-01&dateTo=2026-08-31",
-            headers=token_headers(make_test_access_token),
-        )
-    ).json()
-    assert "replacementCount" not in repair_body["summary"]
-    assert "replacementRate" not in repair_body["trend"][0]
+    assert summary["repairCount"] == 2
+    assert summary["repairRate"] == 20.0
+    assert body["trend"][0]["replacementCount"] == 1
+    assert body["trend"][0]["replacementRate"] == 10.0
+
+
+@pytest.mark.integration
+async def test_replacement_drilldown_keeps_doa_month_and_deduplicates_orders(
+    client, db_clean, make_test_access_token
+):
+    await db_clean["sales_orders_sap"].insert_many(
+        [
+            {
+                "aufnr": f"A{i}",
+                "data": {
+                    "VBELN": "SO-JAN-REPLACEMENT",
+                    "WMENG": 1,
+                    "GSTRS": date,
+                    "NAME1_ZU": "客户A",
+                    "MAKTX_TH": "6215 C1",
+                },
+                "gstrs_date": date,
+            }
+            for i, date in enumerate(("2026-02-01", "2026-02-02", "2026-03-01", "2026-03-02"))
+        ]
+    )
+    await db_clean["scs_doa_results"].insert_one(
+        {
+            "_id": "jan-replacement",
+            "is_5000": True,
+            "data": {
+                "服务单号": "SVC-JAN-REPLACEMENT",
+                "判定结果": "是",
+                "问题批次数量": "1",
+                "产品/备件名称": "R6240A0_A620 G40 备件",
+            },
+            "scs_enrichment": {
+                "sales_order": "SO-JAN-REPLACEMENT",
+                "accepted_date": "2026-01-24",
+            },
+        }
+    )
+    await db_clean["scs_change_results"].insert_one(
+        {"data": {"服务单号": "SVC-JAN-REPLACEMENT", "操作类型": "换上"}}
+    )
+    token = token_headers(make_test_access_token)
+    query = "dateFrom=2026-01-01&dateTo=2026-01-31&timeGranularity=month&replacementOnly=true"
+
+    dashboard = await client.get(
+        "/api/doa/dashboard?dateFrom=2026-01-01&dateTo=2026-01-31",
+        headers=token,
+    )
+    assert dashboard.status_code == 200
+    assert dashboard.json()["summary"]["replacementCount"] == 1
+
+    details = await client.get(f"/api/doa/repairs?{query}", headers=token)
+    assert details.status_code == 200
+    body = details.json()
+    assert body["total"] == 1
+    assert [item["data"]["服务单号"] for item in body["items"]] == ["SVC-JAN-REPLACEMENT"]
+
+
+@pytest.mark.integration
+async def test_repair_trend_drilldown_keeps_original_order_date_scope(
+    client, db_clean, make_test_access_token
+):
+    await db_clean["sales_orders_sap"].insert_one(
+        {
+            "aufnr": "A-DRILLDOWN",
+            "data": {
+                "VBELN": "SO-DRILLDOWN",
+                "WMENG": 10,
+                "GSTRS": "2026-02-01",
+                "NAME1_ZU": "客户A",
+                "MAKTX_TH": "X2",
+            },
+            "gstrs_date": "2026-02-01",
+        }
+    )
+    await db_clean["scs_doa_results"].insert_one(
+        {
+            "_id": "doa-drilldown",
+            "is_5000": True,
+            "data": {
+                "判定结果": "是",
+                "问题批次数量": "1",
+                "产品/备件名称": "X2结构化BOM",
+                "曙光S/N": "SN-DRILLDOWN",
+            },
+            "scs_enrichment": {
+                "sales_order": "SO-DRILLDOWN",
+                "accepted_date": "2026-01-15",
+            },
+        }
+    )
+    token = token_headers(make_test_access_token)
+    dashboard = await client.get(
+        "/api/doa/dashboard?dateFrom=2026-01-01&dateTo=2026-12-31",
+        headers=token,
+    )
+    assert dashboard.status_code == 200
+    trend = {item["period"]: item for item in dashboard.json()["trend"]}
+    assert trend["2026-01"]["repairServerCount"] == 1
+
+    details = await client.get(
+        "/api/doa/repairs?dateFrom=2026-01-01&dateTo=2026-12-31"
+        "&acceptedDateFrom=2026-01-01&acceptedDateTo=2026-01-31",
+        headers=token,
+    )
+    assert details.status_code == 200
+    assert details.json()["total"] == 1
 
 
 @pytest.mark.integration
@@ -284,9 +389,7 @@ async def test_doa_dashboard_escapes_regex_metachars_in_model_names(
             "scs_enrichment": {"sales_order": "SO-1", "accepted_date": "2026-08-04"},
         }
     )
-    response = await client.get(
-        "/api/doa/dashboard", headers=token_headers(make_test_access_token)
-    )
+    response = await client.get("/api/doa/dashboard", headers=token_headers(make_test_access_token))
     assert response.status_code == 200
     body = response.json()
     assert body["summary"]["matchedRepairRecords"] == 1
@@ -300,7 +403,6 @@ async def test_doa_dashboards_report_latest_data_time(db_clean):
     from app.schemas.doa import DoaFilters
     from app.services.doa_service import (
         build_doa_dashboard,
-        build_replacement_dashboard,
     )
 
     now = datetime(2026, 8, 20, 9, 30, tzinfo=timezone.utc)
@@ -337,8 +439,7 @@ async def test_doa_dashboards_report_latest_data_time(db_clean):
     )
     doa = await build_doa_dashboard(db_clean, DoaFilters())
     assert doa.summary.latestDataAt == now
-    replacement = await build_replacement_dashboard(db_clean, DoaFilters())
-    assert replacement.summary.latestDataAt == now
+    assert doa.summary.latestDataAt == now
 
 
 @pytest.mark.integration

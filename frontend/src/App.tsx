@@ -9,7 +9,6 @@ import AlertReportPage from './pages/AlertReportPage';
 import OperationsPage from './pages/OperationsPage';
 import DoaScsPage from './pages/DoaScsPage';
 import DoaPage from './pages/DoaPage';
-import DoaReplacementPage from './pages/DoaReplacementPage';
 import DoaRepairsPage from './pages/DoaRepairsPage';
 import SalesOrdersPage from './pages/SalesOrdersPage';
 import MFRPage from './pages/MFRPage';
@@ -48,7 +47,6 @@ function AppContent() {
         <Route path="/operations" element={<OperationsPage />} />
         <Route path="/doa/raw" element={<DoaScsPage />} />
         <Route path="/doa" element={<DoaPage />} />
-        <Route path="/doa/replacement" element={<DoaReplacementPage />} />
         <Route path="/doa/repairs" element={<DoaRepairsPage />} />
         <Route path="/sales-orders" element={<SalesOrdersPage />} />
         <Route path="/mfr" element={<MFRPage />} />

@@ -21,6 +21,7 @@ interface AlertConfigModalProps {
   modelTargets?: Record<string, number>;
   embedded?: boolean;
   onDetailOpen?: () => void;
+  orderScope?: RTYFilterParams['orderScope'];
 }
 
 // 预定义一些颜色，用于图表中的不同机型
@@ -31,6 +32,7 @@ export default function AlertConfigModal({
   modelTargets = {},
   embedded = false,
   onDetailOpen,
+  orderScope = 'normal',
 }: AlertConfigModalProps) {
   const { settings, updateSettings } = useSettings();
 
@@ -60,37 +62,13 @@ export default function AlertConfigModal({
   const fetchAllData = useCallback(async () => {
     setLoading(true);
     try {
-      const filters: RTYFilterParams = {
-        dateRange: { from: undefined, to: undefined },
-        productModel: 'all',
-        customer: '',
-        base: 'all',
-        salesOrder: '',
-        productionOrder: '',
-        serialNumber: ''
-      };
-      const pageSize = 500;
-      const firstPage = await rtyApi.getRTYData(filters, 1, pageSize);
-      const pageCount = Math.ceil(firstPage.total / pageSize);
-      if (pageCount === 1) {
-        setAllRawData(firstPage.items);
-        return;
-      }
-      const remainingPages = await Promise.all(
-        Array.from({ length: pageCount - 1 }, (_, index) =>
-          rtyApi.getRTYData(filters, index + 2, pageSize)
-        )
-      );
-      setAllRawData([
-        ...firstPage.items,
-        ...remainingPages.flatMap(page => page.items),
-      ]);
+      setAllRawData(await rtyApi.getCycleData(orderScope));
     } catch (error) {
       console.error('Failed to fetch cycle stats data', error);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [orderScope]);
 
   useEffect(() => {
     fetchAllData();

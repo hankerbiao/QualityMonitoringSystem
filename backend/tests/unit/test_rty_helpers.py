@@ -36,6 +36,25 @@ async def test_sales_filter_splits_orders_and_ignores_all_sentinels():
     assert result["aufnr"] == "PO-1"
     assert "data.LGORT" not in result
     assert "data.MAKTX_TH" not in result
+    assert result["data.ZSTAT"] == {"$nin": ("DLID", "RELEASED")}
+    assert result["data.AUART"] == {"$nin": ("C001",)}
+    assert result["data.IF_L6"] == {"$nin": ["X"]}
+
+
+def test_rty_order_scope_keeps_l6_separate_and_excludes_ineligible_orders():
+    assert rty._rty_order_scope_match("l6")["data.IF_L6"] == "X"
+
+
+async def test_sales_filter_supports_calculation_method_scope():
+    db = MockMotorClient()["test"]
+    composite = await rty._sales_filter(db, calculation_method="composite")
+    assert composite["data.MAKTX_TH"] == {"$in": list(rty.COMPOSITE_MODEL_ITEMS)}
+    normal = await rty._sales_filter(db, calculation_method="normal")
+    assert normal["data.MAKTX_TH"] == {"$nin": list(rty.COMPOSITE_MODEL_ITEMS)}
+    impossible = await rty._sales_filter(
+        db, product_model="6210 C21 BOX", calculation_method="normal"
+    )
+    assert impossible["data.MAKTX_TH"] == {"$in": []}
 
 
 def test_group_field_prefers_the_most_specific_filter():

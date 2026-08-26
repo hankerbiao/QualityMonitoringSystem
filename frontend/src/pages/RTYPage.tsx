@@ -18,7 +18,8 @@ const DEFAULT_FILTERS: RTYFilterParams = {
   base: 'all',
   salesOrder: '',
   productionOrder: '',
-  serialNumber: ''
+  serialNumber: '',
+  orderScope: 'normal',
 };
 
 type SortField = 'time' | 'defectCount' | 'inputCount' | 'rtyRate';
@@ -36,6 +37,7 @@ export default function RTYPage() {
     if (searchParams.get('salesOrder')) df.salesOrder = searchParams.get('salesOrder')!;
     if (searchParams.get('productionOrder')) df.productionOrder = searchParams.get('productionOrder')!;
     if (searchParams.get('serialNumber')) df.serialNumber = searchParams.get('serialNumber')!;
+    if (searchParams.get('orderScope') === 'l6') df.orderScope = 'l6';
     const from = searchParams.get('dateFrom');
     const to = searchParams.get('dateTo');
     if (from) df.dateRange = { ...df.dateRange, from: new Date(from) };
@@ -184,42 +186,36 @@ export default function RTYPage() {
           <h1 className="text-lg font-semibold text-slate-800">QualiBoard 品质看板 — RTY 整机综合直通率</h1>
           <span className="rounded-sm border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">2026 · 销售订单 WMENG 入库数量</span>
         </div>
-        <div className="flex items-center gap-2 text-xs">
-          <span className="text-slate-400 font-medium">快速切换看板:</span>
-          <div className="flex items-center gap-1">
-            <button
-              disabled
-              className="px-2 py-1 bg-blue-600 text-white rounded-sm font-medium"
-            >
-              RTY
-            </button>
-            <button
-              onClick={() => navigate('/lrr')}
-              className="px-2 py-1 text-slate-500 hover:bg-slate-100 rounded-sm transition-colors"
-            >
-              LRR <span className="text-slate-400">故障率</span>
-            </button>
-            <button
-              onClick={() => navigate('/doa')}
-              className="px-2 py-1 text-slate-500 hover:bg-slate-100 rounded-sm transition-colors"
-            >
-              DOA <span className="text-slate-400">换件率</span>
-            </button>
-            <button
-              onClick={() => navigate('/mfr')}
-              className="px-2 py-1 text-slate-500 hover:bg-slate-100 rounded-sm transition-colors"
-            >
-              MFR <span className="text-slate-400">月化</span>
-            </button>
-          </div>
-        </div>
       </header>
 
       <main className="flex-1 flex flex-col p-4 max-w-[1800px] mx-auto w-full overflow-auto">
+        <section className="mb-4 flex flex-wrap items-center justify-between gap-3 border border-slate-200 bg-white px-4 py-3 shadow-sm">
+          <p className="text-xs text-slate-600">
+            RTY 统计已排除订单状态 DLID、RELEASED 及订单类型 C001；L6 订单单独统计，不与普通订单合并。
+          </p>
+          <div className="inline-flex overflow-hidden rounded-sm border border-slate-300 text-xs font-medium">
+            <button
+              type="button"
+              onClick={() => setFilters(current => ({ ...current, orderScope: 'normal' }))}
+              className={`px-3 py-1.5 transition-colors ${filters.orderScope === 'normal' ? 'bg-blue-700 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+            >
+              普通订单
+            </button>
+            <button
+              type="button"
+              onClick={() => setFilters(current => ({ ...current, orderScope: 'l6' }))}
+              className={`border-l border-slate-300 px-3 py-1.5 transition-colors ${filters.orderScope === 'l6' ? 'bg-blue-700 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+            >
+              L6 订单
+            </button>
+          </div>
+        </section>
+
         <AlertConfigModal
           embedded
           modelTargets={modelTargets}
           onDetailOpen={() => setDetailOpen(true)}
+          orderScope={filters.orderScope}
         />
 
         {detailOpen && (
@@ -370,7 +366,9 @@ export default function RTYPage() {
                                 base: row.base || 'all',
                                 salesOrder: so || '',
                                 productionOrder: po || '',
-                                serialNumber: ''
+                                serialNumber: '',
+                                orderScope: filters.orderScope,
+                                calculationMethod: row.model === '复合机型' ? 'composite' : 'normal',
                               };
                               setDefectModalData({ filters: defectFilters, label });
                             }
@@ -558,7 +556,8 @@ export default function RTYPage() {
                           base: 'all',
                           salesOrder: '',
                           productionOrder: order,
-                          serialNumber: ''
+                          serialNumber: '',
+                          orderScope: filters.orderScope,
                         };
                         setDefectModalData({ filters: detailFilters, label: order });
                       } else {

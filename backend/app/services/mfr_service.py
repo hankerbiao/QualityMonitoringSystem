@@ -54,6 +54,12 @@ def _model(data: dict[str, Any]) -> str:
     return str(data.get("MAKTX_TH") or data.get("CPXH") or data.get("MAKTX") or "未知机型").strip()
 
 
+def _order_key(value: Any) -> str:
+    """Normalize SAP order numbers that differ only by numeric leading zeroes."""
+    text = str(value or "").strip()
+    return text.lstrip("0") or "0" if text.isdigit() else text
+
+
 def _quantity(document: dict[str, Any]) -> float:
     value = document.get("quantity")
     if value in (None, ""):
@@ -122,6 +128,7 @@ async def build_mfr_dashboard(
         order_no = str((document.get("data") or {}).get("VBELN") or "").strip()
         if not order_no:
             continue
+        order_key = _order_key(order_no)
         data = document.get("data") or {}
         factory_date = _first_date(
             document,
@@ -147,9 +154,9 @@ async def build_mfr_dashboard(
             "factory_date": factory_date,
             "warranty_date": warranty_date,
         }
-        existing = orders.get(order_no)
+        existing = orders.get(order_key)
         if existing is None:
-            orders[order_no] = incoming
+            orders[order_key] = incoming
         else:
             # A VBELN can have multiple AUFNR/line documents. Sum quantities,
             # while retaining the first complete lifecycle date pair.
@@ -165,27 +172,58 @@ async def build_mfr_dashboard(
     # Resolve the 5000 scope from the current sales-order universe rather than
     # copying is_5000 onto change rows or trusting a stale derived flag.
     if order_numbers:
-        order_numbers_list = list(order_numbers)
         doa_query = {
             "$or": [
-                {"scs_enrichment.sales_order": {"$in": order_numbers_list}},
-                {"data.销售订单号": {"$in": order_numbers_list}},
+                {"scs_enrichment.sales_order": {"$exists": True}},
+                {"data.销售订单号": {"$exists": True}},
             ]
         }
         doa_projection = {
             "data.服务单号": 1,
             "data.销售订单号": 1,
+            "data.出厂日期": 1,
+            "data.生产日期": 1,
+            "data.保修结束日期": 1,
+            "data.质保到期日": 1,
             "scs_enrichment.sales_order": 1,
+            "scs_enrichment.factory_date": 1,
+            "scs_enrichment.warranty_end_date": 1,
         }
         async for document in doa_collection.find(doa_query, projection=doa_projection):
             data = document.get("data") or {}
             enrichment = document.get("scs_enrichment") or {}
             service_no = str(data.get("服务单号") or "").strip()
             order_no = str(enrichment.get("sales_order") or data.get("销售订单号") or "").strip()
-            if service_no and order_no in order_numbers:
-                service_to_order[service_no] = order_no
+            order_key = _order_key(order_no)
+            if service_no and order_key in order_numbers:
+                service_to_order[service_no] = order_key
+            order = orders.get(order_key)
+            if order is not None:
+                factory_date = _first_date(
+                    document,
+                    (
+                        ("data", "出厂日期"),
+                        ("data", "生产日期"),
+                        ("scs_enrichment", "factory_date"),
+                    ),
+                )
+                warranty_date = _first_date(
+                    document,
+                    (
+                        ("data", "保修结束日期"),
+                        ("data", "质保到期日"),
+                        ("scs_enrichment", "warranty_end_date"),
+                    ),
+                )
+                if not order["factory_date"] and factory_date:
+                    order["factory_date"] = factory_date
+                if not order["warranty_date"] and warranty_date:
+                    order["warranty_date"] = warranty_date
 
-    faults_by_period_model: dict[tuple[str, str], set[str]] = {}
+    # MFR counts valid replacement records (failure events). A machine with
+    # multiple distinct failures contributes once per event; this is different
+    # from a unique-affected-machine rate.
+    faults_by_period_model: dict[tuple[str, str], int] = {}
     change_collection = db[Collections.SCS_CHANGE_RESULTS]
     if service_to_order:
         change_query = {
@@ -217,8 +255,8 @@ async def build_mfr_dashboard(
             if period not in periods:
                 continue
             order = orders[order_no]
-            identity = str(data.get("报修设备") or data.get("服务单号") or document.get("_id"))
-            faults_by_period_model.setdefault((period, order["model"]), set()).add(identity)
+            key = (period, order["model"])
+            faults_by_period_model[key] = faults_by_period_model.get(key, 0) + 1
 
     month_points = {period: _month_point(period) for period in periods}
     fleet_by_period_model: dict[tuple[str, str], float] = {}
@@ -238,9 +276,9 @@ async def build_mfr_dashboard(
                 fleet_by_period_model[key] = fleet_by_period_model.get(key, 0) + order["quantity"]
 
     faults_by_model: dict[str, int] = {}
-    for (_period, model), identities in faults_by_period_model.items():
+    for (_period, model), fault_events in faults_by_period_model.items():
         if not filters.model or model == filters.model:
-            faults_by_model[model] = faults_by_model.get(model, 0) + len(identities)
+            faults_by_model[model] = faults_by_model.get(model, 0) + fault_events
 
     fleet_by_model: dict[str, float] = {}
     for (_period, model), value in fleet_by_period_model.items():
@@ -257,8 +295,8 @@ async def build_mfr_dashboard(
     trend: list[MFRTrendItem] = []
     for period in periods:
         faults = sum(
-            len(identities)
-            for (item_period, model), identities in faults_by_period_model.items()
+            fault_events
+            for (item_period, model), fault_events in faults_by_period_model.items()
             if item_period == period and (not filters.model or model == filters.model)
         )
         fleet = sum(

@@ -11,7 +11,6 @@ import {
   ClipboardCheck,
   Factory,
   Gauge,
-  RotateCcw,
   Wrench,
 } from 'lucide-react';
 
@@ -62,16 +61,6 @@ export const qualityModules: readonly HomeModuleDefinition[] = [
     status: 'available',
   },
   {
-    id: 'doa-replacement',
-    code: 'DOA/C',
-    title: 'DOA 换件率',
-    description: '在报修数中按服务单号匹配换上换下，统计开箱换件率。',
-    icon: RotateCcw,
-    accent: 'cyan',
-    path: '/doa/replacement',
-    status: 'available',
-  },
-  {
     id: 'mfr',
     code: 'MFR',
     title: 'MFR（现网月化故障率）',
@@ -96,12 +85,12 @@ export const metadataModules: readonly HomeModuleDefinition[] = [
   },
   {
     id: 'doa-scs',
-    code: 'DOA/SCS',
-    title: 'SCS 数据明细',
-    description: '查询 is_5000=true 的 DOA 原始数据与销售订单关联信息。',
+    code: 'SCS',
+    title: 'SCS 服务单',
+    description: '查看 SCS 服务单原始字段、销售订单关联和生命周期补采信息。',
     icon: Database,
     accent: 'emerald',
-    path: '/doa/raw',
+    path: '/metadata/scs_doa_results',
     status: 'available',
   },
   {

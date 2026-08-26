@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import {
   ArrowLeft,
   ChevronLeft,
@@ -24,6 +24,13 @@ function displayValue(value: unknown): string {
   if (value === null || value === undefined || value === '') return '-';
   if (typeof value === 'object') return JSON.stringify(value, null, 2);
   return String(value);
+}
+
+function getPathValue(row: Record<string, unknown>, path: string): unknown {
+  return path.split('.').reduce<unknown>((value, part) => {
+    if (!value || typeof value !== 'object') return undefined;
+    return (value as Record<string, unknown>)[part];
+  }, row);
 }
 
 function DetailModal({ row, onClose }: { row: Record<string, unknown>; onClose: () => void }) {
@@ -53,11 +60,13 @@ function DetailModal({ row, onClose }: { row: Record<string, unknown>; onClose: 
 
 export default function MetadataTablePage() {
   const navigate = useNavigate();
+  const location = useLocation();
   const { tableName = '' } = useParams<{ tableName: string }>();
+  const initialSearch = useMemo(() => new URLSearchParams(location.search).get('search')?.trim() || '', [location.search]);
   const [data, setData] = useState<MetadataTableResponse | null>(null);
   const [page, setPage] = useState(1);
-  const [draftSearch, setDraftSearch] = useState('');
-  const [search, setSearch] = useState('');
+  const [draftSearch, setDraftSearch] = useState(initialSearch);
+  const [search, setSearch] = useState(initialSearch);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selectedRow, setSelectedRow] = useState<Record<string, unknown> | null>(null);
@@ -79,8 +88,10 @@ export default function MetadataTablePage() {
   useEffect(() => {
     setData(null);
     setPage(1);
-    void load(1, '');
-  }, [load]);
+    setDraftSearch(initialSearch);
+    setSearch(initialSearch);
+    void load(1, initialSearch);
+  }, [load, initialSearch]);
 
   const visibleColumns = data?.columns || [];
 
@@ -129,7 +140,7 @@ export default function MetadataTablePage() {
             <section className="relative overflow-hidden rounded-md border border-slate-200 bg-white">
               {loading && <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/65 backdrop-blur-[1px]"><div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-600 shadow-sm"><LoaderCircle className="size-4 animate-spin" />正在刷新</div></div>}
               <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4"><div><h2 className="text-sm font-semibold text-slate-800">数据明细</h2><p className="mt-1 text-xs text-slate-400">{search ? `搜索：${search}` : '按数据库记录顺序展示'}</p></div><FileSearch className="size-4 text-slate-400" /></div>
-              {data.rows.length === 0 ? <div className="px-5 py-16 text-center text-sm text-slate-400">暂无匹配数据</div> : <div className="overflow-x-auto"><table className="w-full min-w-[1200px] text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-400"><tr>{visibleColumns.map((column) => <th key={column.key} className="whitespace-nowrap px-4 py-2.5 font-medium">{column.label}</th>)}</tr></thead><tbody className="divide-y divide-slate-100">{data.rows.map((row, index) => <tr key={String(row._source_key || row._id || index)} onClick={() => setSelectedRow(row)} className="cursor-pointer text-slate-600 hover:bg-blue-50/40">{visibleColumns.map((column) => <td key={column.key} className="max-w-[240px] truncate whitespace-nowrap px-4 py-3" title={displayValue(row[column.key])}>{displayValue(row[column.key])}</td>)}</tr>)}</tbody></table></div>}
+              {data.rows.length === 0 ? <div className="px-5 py-16 text-center text-sm text-slate-400">暂无匹配数据</div> : <div className="overflow-x-auto"><table className="w-full min-w-[1200px] text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-400"><tr>{visibleColumns.map((column) => <th key={column.key} className="whitespace-nowrap px-4 py-2.5 font-medium">{column.label}</th>)}</tr></thead><tbody className="divide-y divide-slate-100">{data.rows.map((row, index) => <tr key={String(row._source_key || row._id || index)} onClick={() => setSelectedRow(row)} className="cursor-pointer text-slate-600 hover:bg-blue-50/40">{visibleColumns.map((column) => <td key={column.key} className="max-w-[240px] truncate whitespace-nowrap px-4 py-3" title={displayValue(getPathValue(row, column.key))}>{displayValue(getPathValue(row, column.key))}</td>)}</tr>)}</tbody></table></div>}
               <div className="flex items-center justify-between border-t border-slate-100 px-5 py-3"><span className="text-xs text-slate-400">第 {data.page} 页 · 共 {formatNumber(data.total)} 条</span><div className="flex items-center gap-2"><button type="button" onClick={() => load(page - 1, search)} disabled={loading || page <= 1} className="flex size-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40" title="上一页" aria-label="上一页"><ChevronLeft className="size-4" /></button><button type="button" onClick={() => load(page + 1, search)} disabled={loading || !data.has_more} className="flex size-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40" title="下一页" aria-label="下一页"><ChevronRight className="size-4" /></button></div></div>
             </section>
           </>

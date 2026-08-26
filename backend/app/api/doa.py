@@ -10,11 +10,9 @@ from app.schemas.doa import (
     DoaDashboardResponse,
     DoaFilters,
     DoaRepairsResponse,
-    ReplacementDashboardResponse,
 )
 from app.services.doa_service import (
     build_doa_dashboard,
-    build_replacement_dashboard,
     get_doa_options,
     get_doa_raw,
     get_doa_repairs,
@@ -29,12 +27,16 @@ def _filters(
     customer: str | None = None,
     model: str | None = None,
     timeGranularity: str = "month",
+    acceptedDateFrom: str | None = None,
+    acceptedDateTo: str | None = None,
 ) -> DoaFilters:
     if timeGranularity not in {"year", "month", "day"}:
         timeGranularity = "month"
     return DoaFilters(
         dateFrom=dateFrom,
         dateTo=dateTo,
+        acceptedDateFrom=acceptedDateFrom,
+        acceptedDateTo=acceptedDateTo,
         customer=customer,
         model=model,
         timeGranularity=timeGranularity,
@@ -63,23 +65,20 @@ async def doa_dashboard(
     customer: str | None = Query(None),
     model: str | None = Query(None),
     timeGranularity: str = Query("month"),
+    acceptedDateFrom: str | None = Query(None),
+    acceptedDateTo: str | None = Query(None),
 ):
     return await build_doa_dashboard(
-        get_database(), _filters(dateFrom, dateTo, customer, model, timeGranularity)
-    )
-
-
-@router.get("/replacement-dashboard", response_model=ReplacementDashboardResponse)
-async def doa_replacement_dashboard(
-    _: Annotated[dict, Depends(get_current_user)],
-    dateFrom: str | None = Query(None),
-    dateTo: str | None = Query(None),
-    customer: str | None = Query(None),
-    model: str | None = Query(None),
-    timeGranularity: str = Query("month"),
-):
-    return await build_replacement_dashboard(
-        get_database(), _filters(dateFrom, dateTo, customer, model, timeGranularity)
+        get_database(),
+        _filters(
+            dateFrom,
+            dateTo,
+            customer,
+            model,
+            timeGranularity,
+            acceptedDateFrom,
+            acceptedDateTo,
+        ),
     )
 
 
@@ -91,13 +90,23 @@ async def doa_repairs(
     customer: str | None = Query(None),
     model: str | None = Query(None),
     timeGranularity: str = Query("month"),
+    acceptedDateFrom: str | None = Query(None),
+    acceptedDateTo: str | None = Query(None),
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=50000),
     replacementOnly: bool = Query(False),
 ):
     return await get_doa_repairs(
         get_database(),
-        _filters(dateFrom, dateTo, customer, model, timeGranularity),
+        _filters(
+            dateFrom,
+            dateTo,
+            customer,
+            model,
+            timeGranularity,
+            acceptedDateFrom,
+            acceptedDateTo,
+        ),
         page,
         limit,
         replacement_only=replacementOnly,

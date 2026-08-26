@@ -62,6 +62,8 @@ async def create_indexes() -> None:
     await mongodb.db.station_records_sap.create_index([("LGORT", 1), ("GSTRS", 1), ("PCODE", 1)])
     await mongodb.db.station_records_sap.create_index([("MAKTX_TH", 1), ("GSTRS", 1), ("PCODE", 1)])
     await mongodb.db.repair_records_sap.create_index([("PCODE", 1), ("ZDATE_WX", 1)])
+    await mongodb.db.repair_records_sap.create_index([("AUFNR", 1), ("ZDATE_WX", 1), ("ZJXMC", 1)])
+    await mongodb.db.serial_bindings_sap.create_index([("AUFNR_HEAD", 1), ("AUFNR_ITEM", 1)])
 
     # 用户索引
     await mongodb.db.users.create_index("itcode", unique=True)
@@ -87,6 +89,10 @@ async def create_indexes() -> None:
     await sales_order_repository.init_sales_orders_index()
     await mongodb.db.sales_orders_sap.create_index([("data.VBELN", 1)])
     await mongodb.db.sales_orders_sap.create_index([("data.NAME1_ZU", 1), ("data.MAKTX_TH", 1)])
+    # RTY unified synchronization audit and source-level checkpoints.
+    await mongodb.db.rty_sync_checkpoints.create_index("updated_at")
+    await mongodb.db.rty_sync_runs.create_index([("started_at", -1)])
+    await mongodb.db.rty_sync_runs.create_index([("success", 1), ("completed_at", -1)])
     await mongodb.db.scs_doa_results.create_index(
         [("scs_enrichment.is_5000", 1), ("data.判定结果", 1), ("scs_enrichment.accepted_date", 1)]
     )

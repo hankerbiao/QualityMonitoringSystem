@@ -3,6 +3,8 @@ export type DoaTimeGranularity = 'year' | 'month' | 'day';
 export interface DoaFilters {
   dateFrom: string;
   dateTo: string;
+  acceptedDateFrom?: string;
+  acceptedDateTo?: string;
   customer: string;
   model: string;
   timeGranularity: DoaTimeGranularity;
@@ -13,6 +15,8 @@ export interface DoaDimensionItem {
   shippedCount: number;
   repairCount: number;
   repairRate: number | null;
+  replacementCount: number;
+  replacementRate: number | null;
 }
 
 export interface DoaTrendItem extends DoaDimensionItem {
@@ -26,6 +30,8 @@ export interface DoaDashboard {
     shippedCount: number;
     repairCount: number;
     repairRate: number | null;
+    replacementCount: number;
+    replacementRate: number | null;
     matchedRepairRecords: number;
     excludedRepairRecords: number;
     latestDataAt: string | null;
@@ -33,34 +39,6 @@ export interface DoaDashboard {
   trend: DoaTrendItem[];
   byCustomer: DoaDimensionItem[];
   byModel: DoaDimensionItem[];
-}
-
-export interface ReplacementDimensionItem {
-  key: string;
-  shippedCount: number;
-  replacementCount: number;
-  replacementRate: number | null;
-}
-
-export interface ReplacementTrendItem {
-  period: string;
-  shippedCount: number;
-  replacementCount: number;
-  replacementRate: number | null;
-}
-
-export interface ReplacementDashboard {
-  filters: DoaFilters;
-  summary: {
-    shippedCount: number;
-    replacementCount: number;
-    replacementRate: number | null;
-    matchedRepairRecords: number;
-    latestDataAt: string | null;
-  };
-  trend: ReplacementTrendItem[];
-  byCustomer: ReplacementDimensionItem[];
-  byModel: ReplacementDimensionItem[];
 }
 
 export interface DoaRepairItem {

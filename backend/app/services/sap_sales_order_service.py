@@ -175,6 +175,21 @@ class SapSalesOrderService:
 
         return {"SG": sg_res, "KK": kk_res}
 
+    async def fetch_source(
+        self,
+        source: str,
+        start_date: datetime.date,
+        end_date: datetime.date,
+        prodh_list: list[str] | None,
+    ) -> SourceFetchResult:
+        """Fetch one SAP source, allowing each source to use its own watermark."""
+        if source not in SOURCE_URLS:
+            raise ValueError(f"Unknown SAP source: {source}")
+        headers = self._build_headers()
+        payload = self._build_payload(start_date, end_date, prodh_list)
+        async with self._client_context() as client:
+            return await self._fetch_source(source, client, headers, payload)
+
     @asynccontextmanager
     async def _client_context(self):
         if self._client is not None:

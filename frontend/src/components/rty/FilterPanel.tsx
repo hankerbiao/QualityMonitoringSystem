@@ -20,6 +20,8 @@ const EXPORT_COLUMNS: Record<string, string> = {
   productLine: '产线',
 };
 
+const COMPOSITE_MODELS = new Set(['6210 C21 BOX', '6215 C32']);
+
 const EMPTY_FILTERS: RTYFilterParams = {
   dateRange: { from: undefined, to: undefined },
   productModel: 'all',
@@ -27,7 +29,8 @@ const EMPTY_FILTERS: RTYFilterParams = {
   base: 'all',
   salesOrder: '',
   productionOrder: '',
-  serialNumber: ''
+  serialNumber: '',
+  orderScope: 'normal',
 };
 
 interface FilterPanelProps {
@@ -83,20 +86,16 @@ export function FilterPanel({
   useEffect(() => {
     const load = async () => {
       try {
-        const [models, bases, customers] = await Promise.all([
-          rtyApi.getProductModels(),
-          rtyApi.getBases(),
-          rtyApi.getCustomers(),
-        ]);
-        setProductModelList(models);
-        setBaseList(bases);
-        setCustomerList(customers);
+        const options = await rtyApi.getFilterOptions(filters.orderScope);
+        setProductModelList(options.productModels);
+        setBaseList(options.bases);
+        setCustomerList(options.customers);
       } catch (error) {
         console.error('Failed to fetch filters data', error);
       }
     };
     load();
-  }, []);
+  }, [filters.orderScope]);
 
   const handleExportConfirm = () => {
     onExportConfirm(exportColumns);
@@ -116,6 +115,9 @@ export function FilterPanel({
   return (
     <div className="flex-shrink-0 bg-white p-3 rounded-md border border-slate-200 shadow-sm mb-4">
       <div className="flex flex-col gap-3">
+        <p className="text-[11px] text-slate-500">
+          统计范围已排除订单状态 DLID、RELEASED 及订单类型 C001；L6 订单按范围单独统计。
+        </p>
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex-1 min-w-[200px] max-w-xs">
             <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
@@ -155,9 +157,25 @@ export function FilterPanel({
 
           <div className="flex-1 min-w-[100px] max-w-[160px] opacity-50">
             <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">计算方法</label>
-            <select className="w-full border border-slate-200 rounded-sm px-2 py-1.5 text-xs text-slate-400 bg-slate-100 cursor-not-allowed" disabled>
-              <option value="普通机型">普通机型</option>
-              <option value="复合机型">复合机型</option>
+            <select
+              className="w-full border border-slate-300 rounded-sm px-2 py-1.5 text-xs text-slate-700 focus:ring-1 focus:ring-blue-600 focus:border-blue-600 outline-none transition-all bg-white"
+              value={filters.calculationMethod || (COMPOSITE_MODELS.has(filters.productModel) ? 'composite' : 'normal')}
+              onChange={e => update({ calculationMethod: e.target.value as RTYFilterParams['calculationMethod'] })}
+            >
+              <option value="normal">普通机型</option>
+              <option value="composite">复合机型</option>
+            </select>
+          </div>
+
+          <div className="flex-1 min-w-[130px] max-w-[170px]">
+            <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">订单范围</label>
+            <select
+              className="w-full border border-slate-300 rounded-sm px-2 py-1.5 text-xs text-slate-700 focus:ring-1 focus:ring-blue-600 focus:border-blue-600 outline-none transition-all bg-white"
+              value={filters.orderScope}
+              onChange={e => update({ orderScope: e.target.value as RTYFilterParams['orderScope'] })}
+            >
+              <option value="normal">普通订单（不含 L6）</option>
+              <option value="l6">L6 订单</option>
             </select>
           </div>
 
@@ -191,8 +209,13 @@ export function FilterPanel({
                       className={`w-full text-left px-3 py-1.5 text-xs hover:bg-blue-50 transition-colors flex justify-between items-center ${filters.productModel === item.model ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-600'}`}
                       onMouseDown={() => { update({ productModel: item.model }); setShowModelSuggestions(false); }}
                     >
-                      <span>{item.model}</span>
-                      <span className="text-[10px] text-slate-400">{item.count}</span>
+                      <span className="truncate">{item.model}</span>
+                      <span className="ml-2 flex shrink-0 items-center gap-1.5 text-[10px] text-slate-400">
+                        {COMPOSITE_MODELS.has(item.model) && (
+                          <span className="rounded-sm bg-amber-50 px-1 py-0.5 font-medium text-amber-700">复合</span>
+                        )}
+                        {item.count}
+                      </span>
                     </button>
                   ))}
               </div>

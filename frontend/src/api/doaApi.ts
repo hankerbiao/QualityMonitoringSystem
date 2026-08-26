@@ -1,5 +1,5 @@
 import { apiFetch } from './authApi';
-import type { DoaDashboard, DoaFilters, DoaOptions, DoaRawDashboard, DoaRepairsResponse, ReplacementDashboard } from '../types/doa';
+import type { DoaDashboard, DoaFilters, DoaOptions, DoaRawDashboard, DoaRepairsResponse } from '../types/doa';
 
 function query(filters: DoaFilters, extra: Record<string, string | number> = {}) {
   const params = new URLSearchParams();
@@ -19,11 +19,6 @@ export const doaApi = {
     const response = await apiFetch(`/api/doa/dashboard${query(filters)}`);
     if (!response.ok) throw new Error('DOA 看板加载失败');
     return (await response.json()) as DoaDashboard;
-  },
-  async getReplacementDashboard(filters: DoaFilters): Promise<ReplacementDashboard> {
-    const response = await apiFetch(`/api/doa/replacement-dashboard${query(filters)}`);
-    if (!response.ok) throw new Error('DOA 换件率看板加载失败');
-    return (await response.json()) as ReplacementDashboard;
   },
   async getRepairs(filters: DoaFilters, page = 1, limit = 50, replacementOnly = false): Promise<DoaRepairsResponse> {
     const extra: Record<string, string | number> = replacementOnly
