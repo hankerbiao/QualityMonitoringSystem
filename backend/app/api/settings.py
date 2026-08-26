@@ -12,7 +12,7 @@
   避免逐字段 `if x is not None` 的重复样板。
 """
 
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException
 
@@ -37,12 +37,16 @@ from app.schemas.settings import (
 from app.services.credential_crypto import decrypt_credential, encrypt_credential
 from app.services.lrr_alert import run_daily_lrr_check
 from app.services.process_record_service import process_record_gateway
+from app.services.settings_service import SettingsService
 from app.services.weekly_alert import run_weekly_production_check
 
 router = APIRouter()
 
 CONFIGS = Collections.CONFIGS
-EMAIL_DEFAULT = "manager@company.com; quality-team@company.com"
+
+
+def _service() -> SettingsService:
+    return SettingsService(get_database())
 
 
 # ============== 通用助手 ==============
@@ -50,7 +54,7 @@ EMAIL_DEFAULT = "manager@company.com; quality-team@company.com"
 
 async def _read_doc(key: str) -> dict | None:
     """读取单个配置文档"""
-    return await get_database()[CONFIGS].find_one({"key": key})
+    return await _service().read_doc(key)
 
 
 async def _save_section(key: str, update: object) -> dict:
@@ -63,42 +67,19 @@ async def _save_section(key: str, update: object) -> dict:
     data = update.model_dump(exclude_none=True)
     if not data:
         raise HTTPException(status_code=400, detail="No fields to update")
-    data["updatedAt"] = datetime.utcnow()
-    await get_database()[CONFIGS].update_one({"key": key}, {"$set": data}, upsert=True)
-    return await _read_doc(key)
+    return await _service().save_section(key, update)
 
 
 def _process_records_from_doc(doc: dict | None) -> ProcessRecordConfig:
-    if not doc:
-        return ProcessRecordConfig()
-    return ProcessRecordConfig(
-        username=doc.get("username", ""),
-        hasPassword=bool(doc.get("passwordCiphertext")),
-    )
+    return SettingsService.process_records_from_doc(doc)
 
 
 def _email_from_doc(doc: dict | None) -> EmailAlertConfig:
-    if not doc:
-        return EmailAlertConfig(enabled=True, emails=EMAIL_DEFAULT)
-    return EmailAlertConfig(
-        enabled=doc.get("enabled", True),
-        emails=doc.get("emails", ""),
-        triggerCondition=doc.get("triggerCondition", ""),
-        weeklyProductionThreshold=doc.get("weeklyProductionThreshold", 50),
-        lrrAlertThreshold=doc.get("lrrAlertThreshold", 5.0),
-    )
+    return SettingsService.email_from_doc(doc)
 
 
 def _ai_from_doc(doc: dict | None) -> AIConfigSchema:
-    if not doc:
-        return AIConfigSchema()
-    return AIConfigSchema(
-        apiUrl=doc.get("apiUrl", ""),
-        modelId=doc.get("modelId", ""),
-        apiKey="",
-        hasApiKey=bool(doc.get("apiKey")),
-        maxTokens=doc.get("maxTokens", 4096),
-    )
+    return SettingsService.ai_from_doc(doc)
 
 
 # ============== 统一设置接口 ==============
@@ -107,92 +88,13 @@ def _ai_from_doc(doc: dict | None) -> AIConfigSchema:
 @router.get("", response_model=Response[SettingsResponse])
 async def get_all_settings():
     """获取所有系统配置"""
-    process_records_doc = await _read_doc("process_record_config")
-    model_doc = await _read_doc("model_targets")
-    email_doc = await _read_doc("email_alert_config")
-    flags_doc = await _read_doc("feature_flags")
-    ai_doc = await _read_doc("ai_config")
-    cycle_doc = await _read_doc("cycle_stats_config")
-
-    return Response(
-        success=True,
-        data=SettingsResponse(
-            processRecords=_process_records_from_doc(process_records_doc),
-            modelTargets=model_doc.get("targets", {}) if model_doc else {},
-            emailAlert=_email_from_doc(email_doc),
-            featureFlags=FeatureFlags(
-                voiceInputEnabled=(flags_doc or {}).get("voiceInputEnabled", False)
-            ),
-            ai=_ai_from_doc(ai_doc),
-            cycleStatsConfig=CycleStatsConfig(
-                selectedModels=(cycle_doc or {}).get("selectedModels", [])
-            ),
-        ),
-    )
+    return Response(success=True, data=await _service().get_all())
 
 
 @router.put("", response_model=Response[SettingsResponse])
 async def update_all_settings(request: SettingsUpdateRequest):
     """批量更新系统配置"""
-    db = get_database()
-    now = datetime.utcnow()
-
-    if request.processRecords is not None:
-        process_set = request.processRecords.model_dump(exclude_none=True)
-        password = process_set.pop("password", None)
-        if password:
-            process_set["passwordCiphertext"] = encrypt_credential(password)
-        if process_set:
-            process_set["updatedAt"] = now
-            await db[CONFIGS].update_one(
-                {"key": "process_record_config"},
-                {"$set": process_set},
-                upsert=True,
-            )
-
-    if request.modelTargets is not None:
-        await db[CONFIGS].update_one(
-            {"key": "model_targets"},
-            {"$set": {"targets": request.modelTargets, "updatedAt": now}},
-            upsert=True,
-        )
-
-    if request.emailAlert is not None:
-        email_set = request.emailAlert.model_dump(exclude_none=True)
-        if email_set:
-            email_set["updatedAt"] = now
-            await db[CONFIGS].update_one(
-                {"key": "email_alert_config"}, {"$set": email_set}, upsert=True
-            )
-
-    if request.featureFlags is not None:
-        flags_set = request.featureFlags.model_dump(exclude_none=True)
-        if flags_set:
-            flags_set["updatedAt"] = now
-            await db[CONFIGS].update_one({"key": "feature_flags"}, {"$set": flags_set}, upsert=True)
-
-    if request.ai is not None:
-        ai_set = request.ai.model_dump(exclude_none=True)
-        # 空值表示保留已存密钥，避免设置页回填的掩码值清空配置。
-        if not ai_set.get("apiKey"):
-            ai_set.pop("apiKey", None)
-        if ai_set:
-            ai_set["updatedAt"] = now
-            await db[CONFIGS].update_one({"key": "ai_config"}, {"$set": ai_set}, upsert=True)
-
-    if request.cycleStatsConfig is not None:
-        await db[CONFIGS].update_one(
-            {"key": "cycle_stats_config"},
-            {
-                "$set": {
-                    "selectedModels": request.cycleStatsConfig.selectedModels,
-                    "updatedAt": now,
-                }
-            },
-            upsert=True,
-        )
-
-    return await get_all_settings()
+    return Response(success=True, data=await _service().update_all(request))
 
 
 # ============== 关键工位影像追溯配置接口 ==============
@@ -214,7 +116,7 @@ async def update_process_record_config(config: ProcessRecordConfigUpdate):
         data["passwordCiphertext"] = encrypt_credential(password)
     if not data:
         raise HTTPException(status_code=400, detail="No fields to update")
-    data["updatedAt"] = datetime.utcnow()
+    data["updatedAt"] = datetime.now(timezone.utc)
     await get_database()[CONFIGS].update_one(
         {"key": "process_record_config"}, {"$set": data}, upsert=True
     )
@@ -270,7 +172,7 @@ async def update_model_targets(targets: dict[str, float]):
 
     await get_database()[CONFIGS].update_one(
         {"key": "model_targets"},
-        {"$set": {"targets": targets, "updatedAt": datetime.utcnow()}},
+        {"$set": {"targets": targets, "updatedAt": datetime.now(timezone.utc)}},
         upsert=True,
     )
     return Response(
@@ -286,7 +188,7 @@ async def add_model_target(model: str, targetRate: float):
     targets[model] = targetRate
     await get_database()[CONFIGS].update_one(
         {"key": "model_targets"},
-        {"$set": {"targets": targets, "updatedAt": datetime.utcnow()}},
+        {"$set": {"targets": targets, "updatedAt": datetime.now(timezone.utc)}},
         upsert=True,
     )
     return Response(
@@ -306,7 +208,7 @@ async def delete_model_target(model: str):
     del targets[model]
     await get_database()[CONFIGS].update_one(
         {"key": "model_targets"},
-        {"$set": {"targets": targets, "updatedAt": datetime.utcnow()}},
+        {"$set": {"targets": targets, "updatedAt": datetime.now(timezone.utc)}},
         upsert=True,
     )
     return Response(
@@ -422,7 +324,7 @@ async def get_cycle_stats_config():
 async def update_cycle_stats_config(config: CycleStatsConfig):
     """保存周期统计看板配置"""
     db = get_database()
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     await db[Collections.CONFIGS].update_one(
         {"key": "cycle_stats_config"},
         {"$set": {"selectedModels": config.selectedModels, "updatedAt": now}},

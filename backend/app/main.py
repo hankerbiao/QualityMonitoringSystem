@@ -24,90 +24,22 @@ from app.api import (
     settings,
     sn_info,
 )
-from app.core.config import get_settings
-from app.core.logger import log_error, log_info, setup_logger
+from app.core.config import get_settings, validate_security_settings
+from app.core.lifecycle import shutdown_infrastructure, startup_infrastructure
+from app.core.logger import log_error
 from app.core.middleware import RequestContextMiddleware, UsageTrackingMiddleware
-from app.db.mongodb import close_mongo_connection, connect_to_mongo
-from app.services.lrr_alert import run_daily_lrr_check
-from app.services.process_record_service import process_record_gateway
-from app.services.weekly_alert import run_weekly_production_check
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """应用生命周期管理"""
-    # 初始化日志系统
-    global audit_logger
     app_settings = get_settings()
-    audit_logger = setup_logger(
-        log_dir=app_settings.LOG_DIR,
-        level=app_settings.LOG_LEVEL,
-        rotation=app_settings.LOG_ROTATION,
-        retention=app_settings.LOG_RETENTION,
-        compression=app_settings.LOG_COMPRESSION,
-        json_format=app_settings.LOG_JSON_FORMAT,
-    )
-
-    # 导入审计日志器供其他模块使用
-    from app.core import logger as logger_module
-
-    logger_module.audit_logger = audit_logger
-
-    log_info("=" * 60)
-    log_info("QualiBoard API 启动中...")
-    log_info(f"调试模式: {app_settings.DEBUG}")
-    log_info(f"日志级别: {app_settings.LOG_LEVEL}")
-    log_info(f"日志目录: {app_settings.LOG_DIR}")
-
-    await connect_to_mongo()
-    log_info("MongoDB 连接成功")
-
-    # 启动定时调度器：每天 17:00 执行每周生产量预警统计
-    scheduler = None
-    try:
-        from apscheduler.schedulers.asyncio import AsyncIOScheduler
-
-        scheduler = AsyncIOScheduler()
-        scheduler.add_job(
-            run_weekly_production_check,
-            "cron",
-            hour=17,
-            minute=0,
-            id="weekly_production_alert",
-            replace_existing=True,
-        )
-        scheduler.start()
-        log_info("APScheduler 已启动：每周生产量预警任务计划于每天 17:00 执行")
-
-        # 每天 17:30 执行每日物料故障率(LRR)预警统计（与周生产量预警错开）
-        scheduler.add_job(
-            run_daily_lrr_check,
-            "cron",
-            hour=17,
-            minute=30,
-            id="daily_lrr_alert",
-            replace_existing=True,
-        )
-        log_info("APScheduler 已启动：物料故障率(LRR)预警任务计划于每天 17:30 执行")
-    except Exception as exc:  # 调度器启动失败不应阻断主服务
-        log_error(f"APScheduler 启动失败，定时预警将不会自动执行: {exc}")
-        scheduler = None
+    validate_security_settings(app_settings)
+    scheduler = await startup_infrastructure(app_settings)
 
     yield
 
-    # 关闭阶段
-    if scheduler is not None:
-        try:
-            scheduler.shutdown(wait=False)
-            log_info("APScheduler 已关闭")
-        except Exception as exc:
-            log_error(f"APScheduler 关闭异常: {exc}")
-
-    log_info("关闭 MongoDB 连接...")
-    await process_record_gateway.close()
-    await close_mongo_connection()
-    log_info("QualiBoard API 已关闭")
-    log_info("=" * 60)
+    await shutdown_infrastructure(scheduler)
 
 
 app = FastAPI(
@@ -193,14 +125,4 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     )
 
 
-# 全局审计日志器（由 lifespan 在 logger.py 模块内初始化，见 logger_module.audit_logger）
-def run():
-    """运行服务器"""
-    import uvicorn
-
-    uvicorn.run(
-        "app.main:app",
-        host="0.0.0.0",
-        port=8000,
-        reload=get_settings().DEBUG,
-    )
+# 全局审计日志器由 lifespan 在 logger.py 模块内初始化。

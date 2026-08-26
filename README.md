@@ -24,20 +24,15 @@ QualiBoard 是面向生产质量团队的一体化监控平台，聚合 MES、SA
 | AI | 智能分析助手 | 配置化 LLM 接口 | 已实现 |
 | Alert | 邮件预警 | 邮件代理 + 签名报表链接 | 部分实现 |
 
-## 默认登录
+## 本地登录配置
 
-开发环境默认账号如下，生产部署前请通过环境变量覆盖。
-
-| 字段 | 默认值 |
-|---|---|
-| 用户名 | `admin` |
-| 密码 | `admin123` |
+开发环境可在 `.env` 中显式配置本地管理员账号。代码不再提供默认密码；生产环境启动会拒绝空值、占位值和弱密码。
 
 后端配置项：
 
 ```bash
-DEFAULT_ADMIN_USERNAME=admin
-DEFAULT_ADMIN_PASSWORD=admin123
+DEFAULT_ADMIN_USERNAME=<your-admin-name>
+DEFAULT_ADMIN_PASSWORD=<strong-password>
 ```
 
 ## 快速开始
@@ -66,7 +61,7 @@ chmod +x deploy.sh
 ./deploy.sh
 ```
 
-脚本会创建虚拟环境、安装依赖、生成必要密钥、启动服务并检查 `/health`。首次生产部署前请检查 `backend/.env`，尤其是：
+脚本会创建虚拟环境、安装依赖、生成本地加密密钥、校验显式认证凭据、启动服务并检查 `/health`。首次生产部署前请检查 `backend/.env`，尤其是：
 
 ```bash
 DEBUG=false
@@ -75,6 +70,8 @@ JWT_SECRET=
 ALERT_TOKEN_SECRET=
 DEFAULT_ADMIN_USERNAME=
 DEFAULT_ADMIN_PASSWORD=
+OA_JWT_SECRET=
+AUTH_COOKIE_SECURE=true
 ```
 
 如需初始化默认配置：
@@ -284,6 +281,8 @@ JWT_SECRET=<strong-random-secret>
 ALERT_TOKEN_SECRET=<strong-random-secret>
 DEFAULT_ADMIN_USERNAME=<your-admin-user>
 DEFAULT_ADMIN_PASSWORD=<strong-password>
+OA_JWT_SECRET=<oa-issued-secret>
+AUTH_COOKIE_SECURE=true
 CORS_ORIGINS=["https://your-frontend.example.com"]
 APP_PUBLIC_BASE_URL=https://your-frontend.example.com
 ```

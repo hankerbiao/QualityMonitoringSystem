@@ -98,15 +98,8 @@ ensure_env() {
   fi
   [[ -n "$(env_value PROCESS_RECORD_CREDENTIAL_KEY)" ]] \
     || set_env_value "PROCESS_RECORD_CREDENTIAL_KEY" "$(fernet_key)"
-  [[ -n "$(env_value JWT_SECRET)" ]] \
-    || set_env_value "JWT_SECRET" "$(random_secret)"
-  [[ -n "$(env_value ALERT_TOKEN_SECRET)" ]] \
-    || set_env_value "ALERT_TOKEN_SECRET" "$(random_secret)"
   chmod 600 "$ENV_FILE"
 
-  if [[ -z "$(env_value OA_JWT_SECRET)" ]]; then
-    warn "OA_JWT_SECRET is not set in .env; configure the OA-issued secret before production use"
-  fi
   if [[ "$(env_value DEBUG)" == "true" ]]; then
     warn "DEBUG=true; set DEBUG=false before production use"
   fi
@@ -120,6 +113,21 @@ ensure_venv() {
   fi
 }
 
+validate_runtime_config() {
+  [[ -x "$VENV_PYTHON" ]] || fail "Virtual environment does not exist: ${VENV_DIR}"
+  "$VENV_PYTHON" - "$ENV_FILE" <<'PY'
+import sys
+
+from app.core.config import Settings, validate_security_settings
+
+settings = Settings(_env_file=sys.argv[1])
+try:
+    validate_security_settings(settings)
+except RuntimeError as exc:
+    raise SystemExit(f"Invalid production configuration: {exc}") from exc
+PY
+}
+
 install_app() {
   ensure_env
   ensure_venv
@@ -130,6 +138,7 @@ install_app() {
     cd "$APP_DIR"
     "$VENV_PYTHON" -c 'from app.main import app; print(f"Import check passed: {app.title}")'
   )
+  validate_runtime_config
 }
 
 read_pid() {
@@ -177,6 +186,7 @@ wait_until_healthy() {
 start_app() {
   ensure_env
   ensure_venv
+  validate_runtime_config
   [[ "$WORKERS" =~ ^[1-9][0-9]*$ ]] || fail "WORKERS must be a positive integer"
   if (( WORKERS > 1 )) && [[ "${ALLOW_MULTIPLE_WORKERS:-false}" != "true" ]]; then
     fail "WORKERS>1 would run APScheduler jobs more than once; set ALLOW_MULTIPLE_WORKERS=true only after externalizing the scheduler"

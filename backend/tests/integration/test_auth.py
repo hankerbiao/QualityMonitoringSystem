@@ -90,6 +90,30 @@ class TestOACallbackEndpoint:
 
 
 @pytest.mark.integration
+class TestOAGETCallbackEndpoint:
+    async def test_get_callback_preserves_redirect_tokens_and_http_only_cookies(
+        self, client, valid_jwt
+    ):
+        response = await client.get(
+            "/api/auth/oa/callback",
+            params={
+                "status": "success",
+                "payload": valid_jwt,
+                "next": "http://localhost:3000",
+            },
+            follow_redirects=False,
+        )
+
+        assert response.status_code == 302
+        location = response.headers["location"]
+        assert "access_token=" in location
+        assert "refresh_token=" in location
+        cookies = response.headers.get_list("set-cookie")
+        assert any("qms_access_token=" in value and "HttpOnly" in value for value in cookies)
+        assert any("qms_refresh_token=" in value and "HttpOnly" in value for value in cookies)
+
+
+@pytest.mark.integration
 class TestAuthMeEndpoint:
     """Tests for GET /api/auth/me"""
 
@@ -116,7 +140,7 @@ class TestAuthMeEndpoint:
         """After OA callback, /auth/me with the session token should return profile."""
         from tests.conftest import _make_jwt
 
-        jwt = _make_jwt({"itcode": "alice", "name": "Alice"}, "bc3868bfa47ef87440a9e874afaad77c706c6229d08e5bb74f51ab726d072fc4")
+        jwt = _make_jwt({"itcode": "alice", "name": "Alice"}, "test-oa-jwt-secret-key-for-testing-only")
         callback_resp = await client.post(
             "/api/auth/oa/callback",
             json={"status": "success", "payload": jwt, "next": None},
@@ -144,7 +168,7 @@ class TestLogoutEndpoint:
         """Logout should delete the session, invalidating the refresh token."""
         from tests.conftest import _make_jwt
 
-        jwt = _make_jwt({"itcode": "logout_user", "name": "Logout Test"}, "bc3868bfa47ef87440a9e874afaad77c706c6229d08e5bb74f51ab726d072fc4")
+        jwt = _make_jwt({"itcode": "logout_user", "name": "Logout Test"}, "test-oa-jwt-secret-key-for-testing-only")
         callback_resp = await client.post(
             "/api/auth/oa/callback",
             json={"status": "success", "payload": jwt, "next": None},

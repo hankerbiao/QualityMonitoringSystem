@@ -1,8 +1,6 @@
 """RTY API calculated from SAP sales-order production quantities and repair records."""
 
 import asyncio
-import re
-from datetime import datetime
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
@@ -12,28 +10,59 @@ from app.db.mongodb import get_database
 from app.models.documents import Collections
 from app.schemas.common import PaginatedResponse, Response
 from app.schemas.rty import DefectDetail, RTYData, SalesOrderSummary
+from app.services import rty_queries as _rty_queries
+from app.services.rty_queries import (
+    COMPOSITE_MODEL_ITEMS,
+    MAX_BINDING_ROW_COUNT,
+    MAX_CYCLE_SALES_ROW_COUNT,
+    MAX_DETAIL_ROW_COUNT,
+    REPAIR_YEAR_END,
+    REPAIR_YEAR_START,
+)
+from app.services.rty_queries import (
+    build_sales_filter as _sales_filter,
+)
+from app.services.rty_queries import (
+    group_field as _group_field,
+)
+from app.services.rty_queries import (
+    normalize_order as _normalize_order,
+)
+from app.services.rty_queries import (
+    option_totals as _option_totals,
+)
+from app.services.rty_queries import (
+    order_variants as _order_variants,
+)
+from app.services.rty_queries import (
+    sales_groups as _sales_groups,
+)
+from app.services.rty_queries import (
+    split_values as _split_values,
+)
 
 router = APIRouter()
 
-YEAR_START = "2026-01-01"
-YEAR_END = "2026-12-31"
-REPAIR_YEAR_START = "20260101"
-REPAIR_YEAR_END = "20261231"
-MAX_DETAIL_ROW_COUNT = 50_000
-MAX_BINDING_ROW_COUNT = 100_000
-MAX_CYCLE_SALES_ROW_COUNT = 100_000
-COMPOSITE_MODEL_ITEMS: dict[str, frozenset[str]] = {
-    "6210 C21 BOX": frozenset({"6410 X21"}),
-    "6215 C32": frozenset({"6615 X32"}),
-}
 OrderScope = Literal["normal", "l6"]
 OrderScopeQuery = Annotated[OrderScope, Query(description="订单范围: normal 或 l6")]
 CalculationMethod = Literal["normal", "composite"]
 CalculationMethodQuery = Annotated[
     CalculationMethod | None, Query(description="计算方法: normal 或 composite")
 ]
-EXCLUDED_ORDER_STATUSES = ("DLID", "RELEASED")
-EXCLUDED_ORDER_TYPES = ("C001",)
+
+
+def _sales_date_match(date_from: str | None, date_to: str | None) -> dict[str, str]:
+    return _rty_queries._sales_date_match(date_from, date_to)
+
+
+def _validate_date(value: str) -> str:
+    return _rty_queries.validate_date(value)
+
+
+def _rty_order_scope_match(order_scope: OrderScope = "normal") -> dict[str, Any]:
+    return _rty_queries.rty_order_scope_match(order_scope)
+
+
 _REPAIR_DUPLICATE_METADATA = frozenset(
     {
         "_id",
@@ -46,175 +75,6 @@ _REPAIR_DUPLICATE_METADATA = frozenset(
         "customer",
     }
 )
-
-
-def _split_values(value: str | None) -> list[str]:
-    return list(
-        dict.fromkeys(item.strip() for item in re.split(r"[,，\n]+", value or "") if item.strip())
-    )
-
-
-def _validate_date(value: str) -> str:
-    try:
-        return datetime.strptime(value[:10], "%Y-%m-%d").strftime("%Y-%m-%d")
-    except ValueError as exc:
-        raise HTTPException(status_code=422, detail="日期格式必须为 YYYY-MM-DD") from exc
-
-
-def _sales_date_match(date_from: str | None, date_to: str | None) -> dict[str, str]:
-    """RTY is 2026-only because repair history outside 2026 has been removed."""
-    lower = max(YEAR_START, _validate_date(date_from)) if date_from else YEAR_START
-    upper = min(YEAR_END, _validate_date(date_to)) if date_to else YEAR_END
-    if lower > upper:
-        return {"$gte": "9999-12-31", "$lte": "0000-01-01"}
-    return {"$gte": lower, "$lte": upper}
-
-
-def _normalize_order(value: Any) -> str:
-    value = str(value or "").strip()
-    if not value:
-        return ""
-    return value.lstrip("0") or "0" if value.isdigit() else value
-
-
-def _order_variants(values: list[str]) -> list[str]:
-    """Match SAP's compact sales-order AUFNR and 12-digit repair AUFNR formats."""
-    variants: set[str] = set()
-    for value in values:
-        normalized = _normalize_order(value)
-        if not normalized:
-            continue
-        variants.add(value.strip())
-        variants.add(normalized)
-        if normalized.isdigit():
-            variants.add(normalized.zfill(12))
-    return sorted(variants)
-
-
-def _rty_order_scope_match(order_scope: OrderScope = "normal") -> dict[str, Any]:
-    """Return the sales-order eligibility rules shared by every RTY query."""
-    match: dict[str, Any] = {
-        "data.ZSTAT": {"$nin": EXCLUDED_ORDER_STATUSES},
-        "data.AUART": {"$nin": EXCLUDED_ORDER_TYPES},
-    }
-    match["data.IF_L6"] = "X" if order_scope == "l6" else {"$nin": ["X"]}
-    return match
-
-
-async def _sales_filter(
-    db,
-    *,
-    sales_order: str | None = None,
-    production_order: str | None = None,
-    serial_number: str | None = None,
-    base: str | None = None,
-    product_model: str | None = None,
-    customer: str | None = None,
-    date_from: str | None = None,
-    date_to: str | None = None,
-    order_scope: OrderScope = "normal",
-    calculation_method: CalculationMethod | None = None,
-) -> dict[str, Any]:
-    """Build an eligible sales-order filter, including SN-to-order resolution."""
-    match: dict[str, Any] = {
-        "gstrs_date": _sales_date_match(date_from, date_to),
-        **_rty_order_scope_match(order_scope),
-    }
-    if calculation_method == "composite":
-        match["data.MAKTX_TH"] = {"$in": list(COMPOSITE_MODEL_ITEMS)}
-    elif calculation_method == "normal":
-        match["data.MAKTX_TH"] = {"$nin": list(COMPOSITE_MODEL_ITEMS)}
-    for field, value in (("data.VBELN", sales_order), ("aufnr", production_order)):
-        values = _split_values(value)
-        if not values:
-            continue
-        if field == "aufnr":
-            values = _order_variants(values)
-        match[field] = {"$in": values} if len(values) > 1 else values[0]
-    if base and base != "all":
-        match["data.LGORT"] = base
-    if product_model and product_model != "all":
-        if (
-            calculation_method == "composite" and product_model not in COMPOSITE_MODEL_ITEMS
-        ) or (calculation_method == "normal" and product_model in COMPOSITE_MODEL_ITEMS):
-            match["data.MAKTX_TH"] = {"$in": []}
-        else:
-            match["data.MAKTX_TH"] = product_model
-    if customer:
-        match["data.NAME1_ZU"] = customer
-    if serial_number:
-        repairs = (
-            await db[Collections.REPAIR_RECORDS_SAP]
-            .find({"PCODE": serial_number.strip()}, {"AUFNR": 1})
-            .to_list(length=10_000)
-        )
-        orders = _order_variants([str(repair.get("AUFNR") or "") for repair in repairs])
-        match["aufnr"] = {"$in": orders} if orders else {"$in": []}
-    return match
-
-
-def _group_field(
-    sales_order: str | None,
-    production_order: str | None,
-    base: str | None,
-    product_model: str | None,
-    customer: str | None,
-) -> str:
-    if production_order:
-        return "aufnr"
-    if sales_order:
-        return "data.VBELN"
-    if customer:
-        return "data.NAME1_ZU"
-    if product_model and product_model != "all":
-        return "data.MAKTX_TH"
-    if base and base != "all":
-        return "data.LGORT"
-    return "data.VBELN"
-
-
-async def _sales_groups(
-    db, sales_filter: dict[str, Any], group_field: str, page: int, limit: int
-) -> tuple[int, list[dict[str, Any]]]:
-    """Aggregate 2026 production quantity from WMENG, one document per production order."""
-    pipeline = [
-        {"$match": sales_filter},
-        {"$sort": {"gstrs_date": 1, "aufnr": 1}},
-        {
-            "$group": {
-                "_id": f"${group_field}",
-                "first": {"$first": "$$ROOT"},
-                "input_count": {
-                    "$sum": {
-                        "$convert": {
-                            "input": "$data.WMENG",
-                            "to": "double",
-                            "onError": 0,
-                            "onNull": 0,
-                        }
-                    }
-                },
-                "sales_orders": {"$addToSet": "$data.VBELN"},
-                "production_orders": {"$addToSet": "$aufnr"},
-                "customers": {"$addToSet": "$data.NAME1_ZU"},
-            }
-        },
-        {"$match": {"_id": {"$nin": [None, ""]}}},
-        {
-            "$facet": {
-                "metadata": [{"$count": "total"}],
-                "data": [
-                    {"$sort": {"_id": 1}},
-                    {"$skip": (page - 1) * limit},
-                    {"$limit": limit},
-                ],
-            }
-        },
-    ]
-    result = await db[Collections.SALES_ORDERS_SAP].aggregate(pipeline).to_list(length=1)
-    facet = result[0] if result else {"metadata": [], "data": []}
-    total = facet["metadata"][0]["total"] if facet.get("metadata") else 0
-    return total, facet.get("data", [])
 
 
 def _clean_values(values: list[Any]) -> list[str]:
@@ -790,37 +650,6 @@ async def get_production_orders_by_sales_order(
         .to_list(length=10_000)
     )
     return Response(success=True, data=sorted(_clean_values([doc.get("aufnr") for doc in docs])))
-
-
-async def _option_totals(
-    db, field: str, order_scope: OrderScope = "normal"
-) -> list[dict[str, Any]]:
-    pipeline = [
-        {
-            "$match": {
-                "gstrs_date": {"$gte": YEAR_START, "$lte": YEAR_END},
-                field: {"$nin": [None, ""]},
-                **_rty_order_scope_match(order_scope),
-            }
-        },
-        {
-            "$group": {
-                "_id": f"${field}",
-                "count": {
-                    "$sum": {
-                        "$convert": {
-                            "input": "$data.WMENG",
-                            "to": "double",
-                            "onError": 0,
-                            "onNull": 0,
-                        }
-                    }
-                },
-            }
-        },
-        {"$sort": {"_id": 1}},
-    ]
-    return await db[Collections.SALES_ORDERS_SAP].aggregate(pipeline).to_list(length=10_000)
 
 
 @router.get("/product-models", response_model=Response[list[dict]])

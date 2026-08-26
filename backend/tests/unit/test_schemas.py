@@ -14,7 +14,7 @@ from app.schemas.settings import (
     EmailAlertConfigUpdate,
     FeatureFlags,
     FeatureFlagsUpdate,
-    ModelTargetCreate,
+    ModelTargetBase,
     ModelTargetsResponse,
     SettingsUpdateRequest,
 )
@@ -60,23 +60,23 @@ class TestRTYData:
 
 class TestModelTarget:
     def test_valid_target_rate(self):
-        target = ModelTargetCreate(model="6210 C21", targetRate=99.5)
+        target = ModelTargetBase(model="6210 C21", targetRate=99.5)
         assert target.targetRate == 99.5
 
     def test_boundary_values_accepted(self):
         # 0 and 100 are valid
-        low = ModelTargetCreate(model="A", targetRate=0.0)
-        high = ModelTargetCreate(model="B", targetRate=100.0)
+        low = ModelTargetBase(model="A", targetRate=0.0)
+        high = ModelTargetBase(model="B", targetRate=100.0)
         assert low.targetRate == 0.0
         assert high.targetRate == 100.0
 
     def test_rate_below_zero_rejected(self):
         with pytest.raises(ValidationError):
-            ModelTargetCreate(model="Bad", targetRate=-0.1)
+            ModelTargetBase(model="Bad", targetRate=-0.1)
 
     def test_rate_above_100_rejected(self):
         with pytest.raises(ValidationError):
-            ModelTargetCreate(model="Bad", targetRate=100.1)
+            ModelTargetBase(model="Bad", targetRate=100.1)
 
 
 class TestModelTargetsResponse:

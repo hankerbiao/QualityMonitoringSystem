@@ -2,7 +2,7 @@
 系统配置相关 Pydantic 模型
 """
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # ============== 关键工位影像追溯配置 ==============
 
@@ -29,17 +29,10 @@ class ModelTargetBase(BaseModel):
     targetRate: float = Field(..., ge=0, le=100, description="目标直通率百分比")
 
 
-class ModelTargetCreate(ModelTargetBase):
-    """创建机型指标"""
-
-    pass
-
-
 class ModelTarget(ModelTargetBase):
     """机型指标响应模型"""
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ModelTargetsResponse(BaseModel):
@@ -74,17 +67,10 @@ class EmailAlertConfigBase(BaseModel):
     )
 
 
-class EmailAlertConfigCreate(EmailAlertConfigBase):
-    """创建邮件预警配置"""
-
-    pass
-
-
 class EmailAlertConfig(EmailAlertConfigBase):
     """邮件预警配置响应模型"""
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class EmailAlertConfigUpdate(BaseModel):
@@ -124,17 +110,10 @@ class FeatureFlagsBase(BaseModel):
     voiceInputEnabled: bool = Field(False, description="语音输入功能是否启用")
 
 
-class FeatureFlagsCreate(FeatureFlagsBase):
-    """创建功能开关配置"""
-
-    pass
-
-
 class FeatureFlags(FeatureFlagsBase):
     """功能开关配置响应模型"""
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class FeatureFlagsUpdate(BaseModel):

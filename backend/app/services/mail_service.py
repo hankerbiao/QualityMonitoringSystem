@@ -18,9 +18,6 @@ import httpx
 from app.core.config import get_settings
 from app.core.logger import log_error, log_info
 
-# 邮件代理地址（中间件），默认取自配置
-MAIL_PROXY_URL = get_settings().MAIL_PROXY_URL
-
 
 class MailSendError(Exception):
     """邮件发送失败异常"""

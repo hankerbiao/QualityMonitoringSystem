@@ -48,11 +48,14 @@ def _mock_settings():
         MONGODB_URL="mongodb://localhost:27017",
         MONGODB_DB_NAME="test_quality_monitoring",
         PROCESS_RECORD_CREDENTIAL_KEY="-Y1CqTw8-WDwRbbkyZ8wAEZbs4uT29bW-U7zQZd4eG4=",
-        OA_JWT_SECRET="bc3868bfa47ef87440a9e874afaad77c706c6229d08e5bb74f51ab726d072fc4",
+        DEFAULT_ADMIN_USERNAME="admin",
+        DEFAULT_ADMIN_PASSWORD="admin123",
+        OA_JWT_SECRET="test-oa-jwt-secret-key-for-testing-only",
         SESSION_EXPIRE_DAYS=30,
         ACCESS_TOKEN_EXPIRE_MINUTES=15,
         REFRESH_TOKEN_EXPIRE_DAYS=30,
         JWT_SECRET="test-jwt-secret-key-for-testing-only",
+        ALERT_TOKEN_SECRET="test-alert-token-secret-key-for-testing-only",
         LOG_DIR="logs",
         LOG_LEVEL="INFO",
         LOG_ROTATION="500 MB",
@@ -149,7 +152,7 @@ def client(db_clean, app):
 def valid_jwt():
     return _make_jwt(
         {"itcode": "testuser", "name": "Test User", "department": "QA"},
-        "bc3868bfa47ef87440a9e874afaad77c706c6229d08e5bb74f51ab726d072fc4",
+        "test-oa-jwt-secret-key-for-testing-only",
     )
 
 
@@ -157,7 +160,7 @@ def valid_jwt():
 def valid_jwt_no_itcode():
     return _make_jwt(
         {"name": "No Itcode"},
-        "bc3868bfa47ef87440a9e874afaad77c706c6229d08e5bb74f51ab726d072fc4",
+        "test-oa-jwt-secret-key-for-testing-only",
     )
 
 
@@ -167,7 +170,7 @@ def expired_jwt():
     payload = {"itcode": "testuser", "exp": int(past.timestamp()), "iat": int(past.timestamp())}
     h_b64 = base64.urlsafe_b64encode(json.dumps({"alg": "HS256", "typ": "JWT"}).encode()).rstrip(b"=").decode()
     p_b64 = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
-    secret = "bc3868bfa47ef87440a9e874afaad77c706c6229d08e5bb74f51ab726d072fc4"
+    secret = "test-oa-jwt-secret-key-for-testing-only"
     sig = hmac.new(secret.encode(), f"{h_b64}.{p_b64}".encode(), hashlib.sha256).digest()
     s_b64 = base64.urlsafe_b64encode(sig).rstrip(b"=").decode()
     return f"{h_b64}.{p_b64}.{s_b64}"

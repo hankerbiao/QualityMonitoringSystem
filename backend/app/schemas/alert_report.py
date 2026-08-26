@@ -1,8 +1,6 @@
 """
 告警报表相关模型
 """
-from typing import Optional
-
 from pydantic import BaseModel, Field
 
 from app.schemas.rty import DefectDetail
@@ -12,19 +10,19 @@ class AlertContext(BaseModel):
     """告警上下文: 触发报表的过滤条件 + 展示元信息（写入签名 token）"""
 
     # 过滤条件（与 RTY 聚合一致）
-    productModel: Optional[str] = Field(None, description="生产机型 (product_family)")
-    base: Optional[str] = Field(None, description="基地 (factory)")
-    customer: Optional[str] = Field(None, description="客户 (customer_id)")
-    salesOrder: Optional[str] = Field(None, description="销售订单号")
-    productionOrder: Optional[str] = Field(None, description="生产订单号")
-    serialNumber: Optional[str] = Field(None, description="整机序列号")
-    dateFrom: Optional[str] = Field(None, description="开始时间 (actual_start_time)")
-    dateTo: Optional[str] = Field(None, description="结束时间 (actual_start_time)")
+    productModel: str | None = Field(None, description="生产机型 (product_family)")
+    base: str | None = Field(None, description="基地 (factory)")
+    customer: str | None = Field(None, description="客户 (customer_id)")
+    salesOrder: str | None = Field(None, description="销售订单号")
+    productionOrder: str | None = Field(None, description="生产订单号")
+    serialNumber: str | None = Field(None, description="整机序列号")
+    dateFrom: str | None = Field(None, description="开始时间 (actual_start_time)")
+    dateTo: str | None = Field(None, description="结束时间 (actual_start_time)")
 
     # 展示元信息（仅用于页面呈现，可选）
     alertType: str = Field("RTY 未达标", description="告警类型")
     severity: str = Field("严重", description="严重级别: 严重/警告/提示")
-    title: Optional[str] = Field(None, description="自定义标题")
+    title: str | None = Field(None, description="自定义标题")
 
 
 class AlertReportSummary(BaseModel):
@@ -37,8 +35,8 @@ class AlertReportSummary(BaseModel):
     productModel: str = ""
     base: str = ""
     customer: str = ""
-    periodFrom: Optional[str] = None
-    periodTo: Optional[str] = None
+    periodFrom: str | None = None
+    periodTo: str | None = None
     reached: bool = True  # 是否达成指标
 
 

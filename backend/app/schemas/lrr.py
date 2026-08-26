@@ -14,7 +14,7 @@ LRR (工厂阶段部件故障率) 相关 Pydantic 模型
 - 时间维度统一使用 machine_info.actual_start_time(机器生产时间), 保证分子分母在同一生产周期内。
 - 部件类型 = fault_info.involved_component; 故障类型 = fault_info.fault_category。
 """
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class LRRData(BaseModel):
@@ -56,26 +56,26 @@ class LRRSummary(BaseModel):
 
 class LRRListResponse(BaseModel):
     """LRR 列表 + 多维统计聚合响应"""
-    items: list[LRRData] = []
+    items: list[LRRData] = Field(default_factory=list)
     total: int = 0
     page: int = 1
     limit: int = 50
     has_more: bool = False
-    summary: LRRSummary = LRRSummary()
-    trend: list[LRRTrendPoint] = []                       # 时间趋势(按 timeGranularity)
-    byFactory: list[LRRDimensionStat] = []                # 按生产基地
-    byCustomer: list[LRRDimensionStat] = []               # 按客户
-    byProductFamily: list[LRRDimensionStat] = []          # 按机型
-    byFaultType: list[LRRDimensionStat] = []              # 按故障类型
+    summary: LRRSummary = Field(default_factory=LRRSummary)
+    trend: list[LRRTrendPoint] = Field(default_factory=list)  # 时间趋势(按 timeGranularity)
+    byFactory: list[LRRDimensionStat] = Field(default_factory=list)  # 按生产基地
+    byCustomer: list[LRRDimensionStat] = Field(default_factory=list)  # 按客户
+    byProductFamily: list[LRRDimensionStat] = Field(default_factory=list)  # 按机型
+    byFaultType: list[LRRDimensionStat] = Field(default_factory=list)  # 按故障类型
 
 
 class LRROptions(BaseModel):
     """过滤器下拉枚举值"""
-    factories: list[str] = []
-    customers: list[str] = []
-    productFamilies: list[str] = []
-    partTypes: list[str] = []          # involved_component
-    faultTypes: list[str] = []         # fault_category
+    factories: list[str] = Field(default_factory=list)
+    customers: list[str] = Field(default_factory=list)
+    productFamilies: list[str] = Field(default_factory=list)
+    partTypes: list[str] = Field(default_factory=list)          # involved_component
+    faultTypes: list[str] = Field(default_factory=list)         # fault_category
 
 
 class LRRFaultDetail(BaseModel):

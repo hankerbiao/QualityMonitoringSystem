@@ -37,14 +37,14 @@ class AuthService:
         try:
             header_b64, payload_b64, signature_b64 = token.split(".")
         except ValueError:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token format")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token format") from None
 
         signing_input = f"{header_b64}.{payload_b64}".encode("ascii")
         expected_sig = hmac.new(secret.encode("utf-8"), signing_input, hashlib.sha256).digest()
         try:
             sig_bytes = self._base64url_decode(signature_b64)
         except Exception:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token signature encoding")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token signature encoding") from None
         if not hmac.compare_digest(expected_sig, sig_bytes):
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token signature")
 
@@ -52,7 +52,7 @@ class AuthService:
             payload_bytes = self._base64url_decode(payload_b64)
             payload = json.loads(payload_bytes)
         except Exception:
-            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token payload")
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid token payload") from None
 
         return payload
 
@@ -64,7 +64,7 @@ class AuthService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid token format",
-            )
+            ) from None
 
         signing_input = f"{header_b64}.{payload_b64}".encode("ascii")
         expected_sig = hmac.new(
@@ -77,7 +77,7 @@ class AuthService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid token signature encoding",
-            )
+            ) from None
 
         if not hmac.compare_digest(expected_sig, sig_bytes):
             raise HTTPException(
@@ -92,7 +92,7 @@ class AuthService:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Invalid token payload",
-            )
+            ) from None
 
         exp = payload.get("exp")
         if exp is None:
@@ -311,7 +311,7 @@ class AuthService:
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Invalid or expired access token",
-            )
+            ) from None
 
         user = await self.db.users.find_one({"itcode": itcode}) or {}
         return {

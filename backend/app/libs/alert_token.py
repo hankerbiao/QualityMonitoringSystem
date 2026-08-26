@@ -64,7 +64,7 @@ def verify_alert_token(token: str) -> dict[str, Any]:
         raw = _b64url_decode(payload_b64)
         payload = json.loads(raw.decode("utf-8"))
     except Exception:
-        raise ValueError("链接解析失败")
+        raise ValueError("链接解析失败") from None
     exp = payload.get("exp")
     if not isinstance(exp, int) or exp < int(time.time()):
         raise ValueError("链接已过期")

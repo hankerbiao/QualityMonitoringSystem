@@ -6,11 +6,12 @@ x-backend-environment: &backend-environment
   MONGODB_URL: ${MONGODB_URL:-mongodb://10.17.154.252:27019}
   MONGODB_DB_NAME: ${MONGODB_DB_NAME:-quality_monitoring}
   PROCESS_RECORD_CREDENTIAL_KEY: ${PROCESS_RECORD_CREDENTIAL_KEY:-}
-  JWT_SECRET: ${JWT_SECRET:-change-me-before-production}
-  ALERT_TOKEN_SECRET: ${ALERT_TOKEN_SECRET:-change-me-before-production}
-  DEFAULT_ADMIN_USERNAME: ${DEFAULT_ADMIN_USERNAME:-admin}
-  DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-admin123}
+  JWT_SECRET: ${JWT_SECRET:-}
+  ALERT_TOKEN_SECRET: ${ALERT_TOKEN_SECRET:-}
+  DEFAULT_ADMIN_USERNAME: ${DEFAULT_ADMIN_USERNAME:-}
+  DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-}
   OA_JWT_SECRET: ${OA_JWT_SECRET:-}
+  AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
   OA_LOGIN_URL: ${OA_LOGIN_URL:-http://10.2.48.65/auth/oa/callback}
   OA_APP_NAME: ${OA_APP_NAME:-qualiboard}
   OA_LOGIN_BASE_URL: ${OA_LOGIN_BASE_URL:-http://tl.cooacloud.com/springboard_v3/login_proxy}
@@ -90,4 +91,3 @@ volumes:
 networks:
   app_network:
     driver: bridge
-

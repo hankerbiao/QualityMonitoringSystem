@@ -10,8 +10,6 @@ HTML 告警邮件，并通过邮件代理(mail_service)发出。
 - 报表链接由 alert_token 签名生成，免登录即可查看完整明细。
 - 纯内联样式 HTML，兼容主流邮件客户端。
 """
-import html
-import re
 from datetime import datetime
 from typing import Any
 
@@ -20,44 +18,35 @@ from app.db.mongodb import get_database
 from app.libs.alert_token import build_alert_report_url, create_alert_token
 from app.models.documents import Collections
 from app.schemas.alert_report import AlertContext, AlertReportData
+from app.services.alert_mail_support import (
+    cell_html,
+    escape_html,
+    parse_emails,
+    severity_color,
+    target_from_config,
+)
 from app.services.alert_report import build_alert_report
 from app.services.mail_service import MailSendError, send_email
-
-# 与 app/api/settings.py 的 EMAIL_DEFAULT 保持一致（未配置时的兜底收件人）
-EMAIL_DEFAULT = "manager@company.com; quality-team@company.com"
 
 
 def _parse_emails(raw: str) -> list[str]:
     """把配置里的收件人字符串(分号/逗号/空白分隔)解析为有效邮箱列表。"""
-    if not raw:
-        return []
-    parts = re.split(r"[;；,，\s]+", raw.strip())
-    return [p.strip() for p in parts if p.strip() and "@" in p]
+    return parse_emails(raw)
 
 
 def _severity_color(severity: str) -> tuple[str, str]:
     """返回 (文字色, 背景色) 用于严重级别徽章。"""
-    s = (severity or "").strip()
-    if s == "严重":
-        return ("#dc2626", "#fef2f2")
-    if s == "警告":
-        return ("#d97706", "#fffbeb")
-    if s == "提示":
-        return ("#2563eb", "#eff6ff")
-    return ("#475569", "#f1f5f9")
+    return severity_color(severity)
 
 
 def _esc(value: Any) -> str:
     """HTML 转义，避免邮件正文注入/乱码。"""
-    return html.escape("" if value is None else str(value))
+    return escape_html(value)
 
 
 def _cell(value: str) -> str:
     """单行故障明细单元格（统一内联样式）。"""
-    return (
-        f'<td style="padding:8px 10px;border-bottom:1px solid #eef2f7;'
-        f'font-size:13px;color:#334155;">{_esc(value)}</td>'
-    )
+    return cell_html(value)
 
 
 def _defect_table_html(report: AlertReportData, more_html: str) -> str:
@@ -234,19 +223,15 @@ async def send_rty_alert_email(context: AlertContext) -> dict:
     cfg_doc = await db[Collections.CONFIGS].find_one({"key": "email_alert_config"})
 
     # 始终附带故障明细（去掉可配置选项）
-    if cfg_doc is None:
-        enabled = True
-        emails_raw = EMAIL_DEFAULT
-    else:
-        enabled = (cfg_doc or {}).get("enabled", True)
-        emails_raw = (cfg_doc or {}).get("emails", "")
+    target = target_from_config(cfg_doc)
+    enabled = target.enabled
     attach_report = True
 
     if not enabled:
         log_info("邮件预警未启用，跳过告警邮件发送")
         return {"sent": False, "reason": "disabled"}
 
-    recipients = _parse_emails(emails_raw)
+    recipients = list(target.recipients)
     if not recipients:
         log_warning("邮件预警已启用但无有效收件人，跳过发送")
         return {"sent": False, "reason": "no_recipients"}
@@ -418,18 +403,14 @@ async def send_lrr_alert_email(materials: list[dict], threshold: float) -> dict:
     db = get_database()
     cfg_doc = await db[Collections.CONFIGS].find_one({"key": "email_alert_config"})
 
-    if cfg_doc is None:
-        enabled = True
-        emails_raw = EMAIL_DEFAULT
-    else:
-        enabled = (cfg_doc or {}).get("enabled", True)
-        emails_raw = (cfg_doc or {}).get("emails", "")
+    target = target_from_config(cfg_doc)
+    enabled = target.enabled
 
     if not enabled:
         log_info("邮件预警未启用，跳过 LRR 故障率预警邮件发送")
         return {"sent": False, "reason": "disabled"}
 
-    recipients = _parse_emails(emails_raw)
+    recipients = list(target.recipients)
     if not recipients:
         log_warning("邮件预警已启用但无有效收件人，跳过 LRR 预警邮件发送")
         return {"sent": False, "reason": "no_recipients"}

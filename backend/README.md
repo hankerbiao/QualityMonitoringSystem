@@ -21,7 +21,7 @@ chmod +x deploy.sh
 ./deploy.sh
 ```
 
-脚本会自动创建 `.venv`、安装/更新运行依赖、从 `.env.example` 创建 `.env`、生成本地加密与签名密钥、启动后端并检查 `/health`。重复执行 `./deploy.sh` 即可更新并重启。
+脚本会自动创建 `.venv`、安装/更新运行依赖、从 `.env.example` 创建 `.env`、生成本地加密密钥、校验显式认证凭据、启动后端并检查 `/health`。重复执行 `./deploy.sh` 即可更新并重启。
 
 ```bash
 ./deploy.sh status            # 进程与健康状态
@@ -31,7 +31,7 @@ chmod +x deploy.sh
 PORT=8010 ./deploy.sh deploy  # 指定端口
 ```
 
-生产部署前必须在 `.env` 中填写与 OA 系统一致的 `OA_JWT_SECRET`。脚本不会自动运行 `init_default_settings.py`，避免覆盖已有业务配置；首次确需初始化时显式执行 `./deploy.sh init-config`。
+生产部署前必须在 `.env` 中显式填写 `JWT_SECRET`、`ALERT_TOKEN_SECRET`、与 OA 系统一致的 `OA_JWT_SECRET`、`DEFAULT_ADMIN_USERNAME` 和强管理员密码。部署脚本不会自动生成或覆盖这些凭据，启动时会拒绝空值、占位值和弱值。脚本不会自动运行 `init_default_settings.py`，避免覆盖已有业务配置；首次确需初始化时显式执行 `./deploy.sh init-config`。
 
 ### 1. 安装依赖
 

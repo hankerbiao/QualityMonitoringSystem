@@ -19,6 +19,13 @@ from app.schemas.mfr import (
     MFRSummary,
     MFRTrendItem,
 )
+from app.services.mfr_queries import (
+    change_projection,
+    change_query,
+    doa_link_projection,
+    doa_link_query,
+    sales_order_projection,
+)
 
 
 def _parse_date(value: Any) -> date | None:
@@ -107,24 +114,7 @@ async def build_mfr_dashboard(
 
     orders: dict[str, dict[str, Any]] = {}
     orders_collection = db[Collections.SALES_ORDERS_SAP]
-    order_projection = {
-        "data.VBELN": 1,
-        "data.MAKTX_TH": 1,
-        "data.CPXH": 1,
-        "data.MAKTX": 1,
-        "data.WMENG": 1,
-        "data.GAMNG": 1,
-        "data.出厂日期": 1,
-        "data.生产日期": 1,
-        "data.FACTORY_DATE": 1,
-        "data.保修结束日期": 1,
-        "data.质保到期日": 1,
-        "data.WARRANTY_END_DATE": 1,
-        "quantity": 1,
-        "factory_date": 1,
-        "warranty_end_date": 1,
-    }
-    async for document in orders_collection.find({}, projection=order_projection):
+    async for document in orders_collection.find({}, projection=sales_order_projection()):
         order_no = str((document.get("data") or {}).get("VBELN") or "").strip()
         if not order_no:
             continue
@@ -172,24 +162,9 @@ async def build_mfr_dashboard(
     # Resolve the 5000 scope from the current sales-order universe rather than
     # copying is_5000 onto change rows or trusting a stale derived flag.
     if order_numbers:
-        doa_query = {
-            "$or": [
-                {"scs_enrichment.sales_order": {"$exists": True}},
-                {"data.销售订单号": {"$exists": True}},
-            ]
-        }
-        doa_projection = {
-            "data.服务单号": 1,
-            "data.销售订单号": 1,
-            "data.出厂日期": 1,
-            "data.生产日期": 1,
-            "data.保修结束日期": 1,
-            "data.质保到期日": 1,
-            "scs_enrichment.sales_order": 1,
-            "scs_enrichment.factory_date": 1,
-            "scs_enrichment.warranty_end_date": 1,
-        }
-        async for document in doa_collection.find(doa_query, projection=doa_projection):
+        async for document in doa_collection.find(
+            doa_link_query(), projection=doa_link_projection()
+        ):
             data = document.get("data") or {}
             enrichment = document.get("scs_enrichment") or {}
             service_no = str(data.get("服务单号") or "").strip()
@@ -226,27 +201,15 @@ async def build_mfr_dashboard(
     faults_by_period_model: dict[tuple[str, str], int] = {}
     change_collection = db[Collections.SCS_CHANGE_RESULTS]
     if service_to_order:
-        change_query = {
-            "data.服务单号": {"$in": list(service_to_order)},
-            "data.操作类型": {"$in": ["换上", "换上-up"]},
-            "data.操作时间": {
-                "$gte": f"{start.isoformat()} 00:00:00",
-                "$lte": f"{end.isoformat()} 23:59:59",
-            },
-        }
-        change_projection = {
-            "_id": 1,
-            "data.是否撤销": 1,
-            "data.服务单号": 1,
-            "data.操作时间": 1,
-            "data.报修设备": 1,
-        }
-        async for document in change_collection.find(change_query, projection=change_projection):
+        async for document in change_collection.find(
+            change_query(set(service_to_order), start, end),
+            projection=change_projection(),
+        ):
             data = document.get("data") or {}
             if str(data.get("是否撤销") or "").strip() == "是":
                 continue
-            order_no = service_to_order.get(str(data.get("服务单号") or "").strip())
-            if not order_no:
+            linked_order = service_to_order.get(str(data.get("服务单号") or "").strip())
+            if not linked_order:
                 continue
             operation_date = _parse_date(data.get("操作时间"))
             if not operation_date:
@@ -254,7 +217,7 @@ async def build_mfr_dashboard(
             period = operation_date.strftime("%Y-%m")
             if period not in periods:
                 continue
-            order = orders[order_no]
+            order = orders[linked_order]
             key = (period, order["model"])
             faults_by_period_model[key] = faults_by_period_model.get(key, 0) + 1
 

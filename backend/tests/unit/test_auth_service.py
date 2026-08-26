@@ -13,7 +13,7 @@ from app.auth_service import AuthService
 
 # ─── JWT Sign/Verify Helpers ─────────────────────────────────────────────────
 
-SECRET = "bc3868bfa47ef87440a9e874afaad77c706c6229d08e5bb74f51ab726d072fc4"
+SECRET = "test-oa-jwt-secret-key-for-testing-only"
 
 
 def _make_jwt(payload: dict, secret: str = SECRET) -> str:

@@ -19,6 +19,7 @@ from pymongo import UpdateOne
 from app.db.mongodb import get_database
 from app.models.documents import Collections
 from app.repositories import sales_order_repository as sales_repo
+from app.services.rty_sync_types import RepairBackfillPlan, SalesSyncResult
 from app.services.sap_sales_order_service import SapSalesOrderService, SourceFetchResult
 from app.services.sap_sn_info_service import SapSnInfoService
 
@@ -220,14 +221,20 @@ class RtySyncService:
         inserted, updated = await sales_repo.upsert_sales_orders(
             aufnr_sources, source_records, now_iso, db=self.db
         )
+        summary = SalesSyncResult(
+            successful_sources=len(successful),
+            total_sources=len(results),
+            inserted=inserted,
+            updated=updated,
+            orders=len(aufnr_sources),
+            details={"results": results, "per_source": per_source, "aufnr_sources": aufnr_sources},
+        )
         return {
-            "success": True,
-            "partial_success": len(successful) < len(results),
-            "results": results,
-            "per_source": per_source,
-            "aufnr_sources": aufnr_sources,
-            "inserted": inserted,
-            "updated": updated,
+            "success": summary.success,
+            "partial_success": bool(summary.successful_sources) and not summary.success,
+            **summary.details,
+            "inserted": summary.inserted,
+            "updated": summary.updated,
         }
 
     async def sales(self, *, start_date: date | None, end_date: date, prodh_list: list[str], lookback_days: int, bootstrap: bool, dry_run: bool, run_id: str) -> dict[str, Any]:
@@ -380,6 +387,12 @@ class RtySyncService:
                 if target_fields:
                     filter_spec["$and"] = [_field_empty(field) for field in target_fields]
                 operations.append(UpdateOne(filter_spec, {"$set": updates}))
+        plan = RepairBackfillPlan(
+            operations=operations,
+            updates_planned=planned,
+            conflict_records=conflicts,
+            customer_conflicts=len(customer_conflicts),
+        )
         if not dry_run:
             matched_updates = 0
             modified_updates = 0
@@ -389,7 +402,7 @@ class RtySyncService:
                 modified_updates += result.modified_count
         else:
             matched_updates = modified_updates = 0
-        return {"success": not api_errors, "candidate_records": len(rows), "unique_sn": len(sns), "api_calls": (len(unresolved) + batch_size - 1) // batch_size, "api_errors": api_errors, "updates_planned": planned, "records_updated_planned": len(operations), "matched_updates": matched_updates, "modified_updates": modified_updates, "conflict_records": conflicts, "customer_conflicts": len(customer_conflicts)}
+        return {"success": not api_errors, "candidate_records": len(rows), "unique_sn": len(sns), "api_calls": (len(unresolved) + batch_size - 1) // batch_size, "api_errors": api_errors, "updates_planned": plan.updates_planned, "records_updated_planned": len(plan.operations), "matched_updates": matched_updates, "modified_updates": modified_updates, "conflict_records": plan.conflict_records, "customer_conflicts": plan.customer_conflicts}
 
     async def run(self, *, mode: str, end_date: date | None = None, start_date: date | None = None, prodh_list: list[str] | None = None, lookback_days: int = 7, only: str | None = None, dry_run: bool = False) -> dict[str, Any]:
         run_id = uuid.uuid4().hex

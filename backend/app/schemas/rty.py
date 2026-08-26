@@ -2,8 +2,6 @@
 RTY (整机综合直通率) 相关 Pydantic 模型
 """
 
-from datetime import datetime
-
 from pydantic import BaseModel, ConfigDict, Field
 
 # ============== RTY 数据模型 ==============
@@ -27,12 +25,6 @@ class RTYDataBase(BaseModel):
     status: str = Field("", description="达成状态 (rate_status): 已达成/未达成")
 
 
-class RTYDataCreate(RTYDataBase):
-    """创建 RTY 数据"""
-
-    pass
-
-
 class RTYData(RTYDataBase):
     """RTY 数据响应模型"""
 
@@ -44,30 +36,6 @@ class RTYData(RTYDataBase):
     )
 
     model_config = ConfigDict(from_attributes=True)
-
-
-class RTYDataInDB(RTYDataBase):
-    """存储在数据库中的 RTY 数据"""
-
-    id: str = Field(..., alias="_id")
-    createdAt: datetime | None = None
-    updatedAt: datetime | None = None
-    status: str = Field("", description="达成状态 (rate_status): 已达成/未达成")
-
-
-class RTYFilterParams(BaseModel):
-    """RTY 查询过滤参数"""
-
-    dateRange: dict[str, datetime | None] | None = Field(
-        None, description="日期范围: {from: datetime, to: datetime}"
-    )
-    productModel: str | None = Field(None, description="生产机型筛选")
-    base: str | None = Field(None, description="基地筛选")
-    customer: str | None = Field(None, description="客户筛选")
-    salesOrder: str | None = Field(None, description="销售订单号筛选")
-    productionOrder: str | None = Field(None, description="生产订单号筛选")
-    serialNumber: str | None = Field(None, description="整机序列号筛选")
-    orderScope: str = Field("normal", description="订单范围: normal 或 l6")
 
 
 class RTYListResponse(BaseModel):
@@ -109,19 +77,6 @@ class DefectDetail(DefectDetailBase):
 
 
 # ============== 周期统计数据模型 ==============
-
-
-class CycleStatsResponse(BaseModel):
-    """周期统计响应"""
-
-    totalInput: int = Field(..., description="周期内累计投入")
-    totalDefect: int = Field(..., description="周期内总故障数")
-    avgRty: float = Field(..., description="综合平均直通率")
-    maxInputMonth: str = Field(..., description="产量最高月份")
-    highestRiskModel: str = Field(..., description="高风险机型 (故障率最高)")
-    bestModel: str = Field(..., description="最佳表现机型 (RTY最高)")
-    trendData: list[dict] = Field(default_factory=list, description="趋势数据")
-    heatmapData: list[dict] = Field(default_factory=list, description="热力图数据")
 
 
 # ============== 销售订单汇总模型 ==============

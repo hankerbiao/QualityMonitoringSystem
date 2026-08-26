@@ -1,4 +1,5 @@
 
+from typing import Annotated
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -8,7 +9,7 @@ from pydantic import BaseModel
 from app.auth_service import AuthService
 from app.core.config import get_settings
 from app.core.context import user_var
-from app.core.logger import audit_log
+from app.core.logger import audit_log, get_audit_logger, get_client_ip
 from app.db.mongodb import get_database
 
 router = APIRouter()
@@ -115,6 +116,13 @@ async def oa_login_callback_get(
             payload_token=payload,
             next_url=next,
         )
+        get_audit_logger().log(
+            action="OA_URL_TOKEN_COMPAT",
+            resource="/auth/oa/callback",
+            client_ip=get_client_ip(request),
+            method="GET",
+            details="URL token redirect compatibility path used; token content omitted",
+        )
 
         frontend_base = _safe_redirect_target(next, request)
         access_token = result.get("access_token", "")
@@ -135,7 +143,7 @@ async def oa_login_callback_get(
             key="qms_access_token",
             value=access_token,
             httponly=True,
-            secure=False,
+            secure=get_settings().AUTH_COOKIE_SECURE,
             samesite="lax",
             max_age=15 * 60,
         )
@@ -143,7 +151,7 @@ async def oa_login_callback_get(
             key="qms_refresh_token",
             value=refresh_token,
             httponly=True,
-            secure=False,
+            secure=get_settings().AUTH_COOKIE_SECURE,
             samesite="lax",
             max_age=30 * 24 * 60 * 60,
         )
@@ -177,7 +185,7 @@ async def refresh_token(request: RefreshRequest):
 
 
 @router.get("/auth/me")
-async def get_me(current_user: dict = Depends(get_current_user)):
+async def get_me(current_user: Annotated[dict, Depends(get_current_user)]):
     """获取当前用户信息"""
     return current_user
 

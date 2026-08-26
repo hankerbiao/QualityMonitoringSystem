@@ -13,7 +13,9 @@ cp docker/.env.example docker/.env
 ```
 
 Edit `docker/.env` and set strong values for `JWT_SECRET`,
-`ALERT_TOKEN_SECRET`, `DEFAULT_ADMIN_PASSWORD`, and `OA_JWT_SECRET`. Generate
+`ALERT_TOKEN_SECRET`, `DEFAULT_ADMIN_PASSWORD`, `DEFAULT_ADMIN_USERNAME`, and `OA_JWT_SECRET`. Set
+`AUTH_COOKIE_SECURE=true` when the frontend is served over HTTPS. The backend rejects
+missing, placeholder, or weak production credentials. Generate
 the process-record encryption key with the backend image after it is built:
 
 ```bash

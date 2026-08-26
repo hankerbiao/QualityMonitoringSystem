@@ -74,9 +74,6 @@ async def list_fault_groups(
     total_groups = count_result[0]["total"] if count_result else 0
 
     # 总故障条数（全部匹配的故障文档数）
-    filter_kwargs = {}
-    if match_stage:
-        filter_kwargs["filter"] = match_stage
     total_faults = await col.count_documents(match_stage)
 
     # 分页
