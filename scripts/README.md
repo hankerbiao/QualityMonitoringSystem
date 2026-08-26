@@ -5,6 +5,37 @@
 
 ## 推荐运行流程
 
+### HANA 质量视图同步
+
+`sync_views.py` 将 SAP HANA 的四个质量视图写入本项目的 MongoDB 集合：
+`order_bom_postings_sap`、`serial_bindings_sap`、`repair_records_sap`、
+`station_records_sap`。脚本为单文件实现。
+
+先在 `backend/.env` 配置 `HANA_ADDRESS`、`HANA_PORT`、`HANA_USER`、
+`HANA_PASSWORD`、`HANA_CONNECT_TIMEOUT`；MongoDB 继续使用本项目已有的
+`MONGODB_URL` 和 `MONGODB_DB_NAME`。安装依赖后，先执行只读验证：
+
+```bash
+uv sync --project backend
+uv run --project backend python -m scripts.sync_views \
+  --dry-run --view ZSGV_ZSD124 --start-date 2026-01-01
+```
+
+正常增量同步四个视图：
+
+```bash
+uv run --project backend python -m scripts.sync_views \
+  --mode incremental \
+  --include-undated \
+  --view ZSGV_ZSD124 \
+  --view ZSGV_ZPP_SERNOLIST \
+  --view ZSGV_ZZT_WLJL \
+  --view Z_V_ZMES_T_001
+```
+
+每个集合以来源业务键幂等更新，不会清空历史记录。水位线和运行审计分别保存在
+`_hana_sync_checkpoints`、`_hana_sync_runs`。进程环境变量优先于 `backend/.env` 配置。
+
 RTY（SAP 销售订单 + 维修记录补全）统一使用 `sync_rty_incremental.py`：
 
 ```bash

@@ -13,3 +13,4 @@ bson>=0.5.10
 apscheduler>=3.10.0
 faker>=25.0.0
 cryptography>=42.0.0
+hdbcli>=2.20,<3
