@@ -229,7 +229,7 @@ QualityMonitoringSystem/
 ```text
 销售订单（SAP 双来源 SG/KK 同步）
   -> sales_orders_sap（按 aufnr 去重，data.GSTRS 归一化为 gstrs_date，data.GAMNG 归一化为 quantity）
-  -> 脚本: scripts/sync_sales_orders_range.py 或 POST /api/sales-orders/sync
+  -> 日常任务: scripts/sync_rty_incremental.py；手工范围同步: scripts/maintenance/sync_sales_orders_range.py 或 POST /api/sales-orders/sync
 
 机器 / 故障 / 装配（MES 采集）
   -> machine_info / fault_info / assembly_records

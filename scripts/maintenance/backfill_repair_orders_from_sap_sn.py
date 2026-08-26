@@ -5,8 +5,8 @@ The script deduplicates SNs across missing ``AUFNR`` and ``VBELN`` records,
 queries SG and KK once per batch, and only updates fields that are still
 empty. It defaults to a dry-run:
 
-    uv run --project backend python scripts/backfill_repair_orders_from_sap_sn.py
-    uv run --project backend python scripts/backfill_repair_orders_from_sap_sn.py --apply
+    uv run --project backend python scripts/maintenance/backfill_repair_orders_from_sap_sn.py
+    uv run --project backend python scripts/maintenance/backfill_repair_orders_from_sap_sn.py --apply
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from typing import Any
 
 from pymongo import UpdateOne
 
-BACKEND_DIR = Path(__file__).resolve().parent.parent / "backend"
+BACKEND_DIR = Path(__file__).resolve().parents[2] / "backend"
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app.db.mongodb import close_mongo_connection, connect_to_mongo, get_database  # noqa: E402

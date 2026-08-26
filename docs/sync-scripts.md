@@ -8,9 +8,9 @@
 |---|---|---|---|
 | `sync_scs_incremental.py` | SCS DOA | `scs_doa_results` | 首次同步和日常定时任务 |
 | `sync_rty_incremental.py` | SAP SG/KK + MongoDB 维修记录 | `sales_orders_sap`、`repair_records_sap` | RTY 首次同步和日常定时任务 |
-| `sync_sales_orders_range.py` | SAP SG/KK | `sales_orders_sap` | 兼容旧入口，不用于日常调度 |
+| `maintenance/sync_sales_orders_range.py` | SAP SG/KK | `sales_orders_sap` | 兼容旧入口，不用于日常调度 |
 | `spider_change_result.py` | SCS 换件登记 | `scs_change_results` | 首次同步、补页或定期重抓 |
-| `migrate_scs_doa_keys.py` | MongoDB 历史数据 | `scs_doa_results` | 一次性维护，不加入定时任务 |
+| `maintenance/migrate_scs_doa_keys.py` | MongoDB 历史数据 | `scs_doa_results` | 一次性维护，不加入定时任务 |
 
 下面两个文件是公共模块，不应作为定时任务直接执行：
 
@@ -196,12 +196,12 @@ db.scs_doa_results.find(
 
 ## 4. SAP 销售订单同步
 
-`sync_sales_orders_range.py` 按指定日期范围从 SAP SG/KK 拉取订单并写入 `sales_orders_sap`。它是范围同步，不使用 SCS DOA 水位线；定时任务应显式计算日期范围。
+`maintenance/sync_sales_orders_range.py` 按指定日期范围从 SAP SG/KK 拉取订单并写入 `sales_orders_sap`。它是范围同步，不使用 SCS DOA 水位线；定时任务应显式计算日期范围。
 
 从仓库根目录执行：
 
 ```bash
-uv run --project backend python scripts/sync_sales_orders_range.py \
+uv run --project backend python scripts/maintenance/sync_sales_orders_range.py \
   --start 2026-08-20 \
   --end 2026-08-21
 ```
@@ -209,7 +209,7 @@ uv run --project backend python scripts/sync_sales_orders_range.py \
 按产品层次过滤：
 
 ```bash
-uv run --project backend python scripts/sync_sales_orders_range.py \
+uv run --project backend python scripts/maintenance/sync_sales_orders_range.py \
   --start 2026-08-20 \
   --end 2026-08-21 \
   --prodh-list 00100 00200
@@ -316,7 +316,7 @@ sudo chmod 600 /etc/quality-monitoring/scs.env
 先备份数据库，再执行：
 
 ```bash
-uv run --project backend python scripts/migrate_scs_doa_keys.py
+uv run --project backend python scripts/maintenance/migrate_scs_doa_keys.py
 ```
 
 或在增量脚本中增加 `--migrate-keys`。迁移完成后重新运行增量任务。

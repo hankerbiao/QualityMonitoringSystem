@@ -29,7 +29,7 @@
 在脱敏、生产量级数据上执行：
 
 ```bash
-uv run --project backend python scripts/benchmark_rty.py \
+uv run --project backend python scripts/maintenance/benchmark_rty.py \
   --mongo-url "$MONGODB_URL" --database "$MONGODB_DB_NAME"
 ```
 

@@ -3,8 +3,8 @@
 
 Run from the repository root:
 
-    uv run --project backend python scripts/backfill_repair_orders.py
-    uv run --project backend python scripts/backfill_repair_orders.py --apply
+    uv run --project backend python scripts/maintenance/backfill_repair_orders.py
+    uv run --project backend python scripts/maintenance/backfill_repair_orders.py --apply
 
 The script uses ``PCODE`` as the machine SN. It only fills blank ``AUFNR``
 and ``VBELN`` fields and records the source and any competing candidates in
@@ -20,14 +20,15 @@ import re
 import sys
 import uuid
 from collections import defaultdict
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 from pymongo import UpdateOne
 
-BACKEND_DIR = Path(__file__).resolve().parent.parent / "backend"
+BACKEND_DIR = Path(__file__).resolve().parents[2] / "backend"
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app.db.mongodb import close_mongo_connection, connect_to_mongo, get_database  # noqa: E402

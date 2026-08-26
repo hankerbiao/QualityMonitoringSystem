@@ -6,7 +6,7 @@ import importlib.util
 import sys
 from pathlib import Path
 
-SCRIPT_PATH = Path(__file__).resolve().parents[3] / "scripts" / "backfill_repair_orders.py"
+SCRIPT_PATH = Path(__file__).resolve().parents[3] / "scripts" / "maintenance" / "backfill_repair_orders.py"
 SPEC = importlib.util.spec_from_file_location("backfill_repair_orders", SCRIPT_PATH)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)

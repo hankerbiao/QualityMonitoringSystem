@@ -15,8 +15,6 @@ import time
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
-from pymongo.errors import DuplicateKeyError
-
 from enrich_scs_doa_sales_orders import (
     RequestPacer,
     enrich_document,
@@ -24,6 +22,7 @@ from enrich_scs_doa_sales_orders import (
     load_sap_sales_orders,
     save_record_status,
 )
+from pymongo.errors import DuplicateKeyError
 from scs_sync_lib import (
     DB_NAME,
     DOA_COLLECTION,
@@ -203,7 +202,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     ensure_indexes(collection)
                 except DuplicateKeyError as exc:
                     raise RuntimeError(
-                        "scs_key 存在重复记录，请先运行 scripts/migrate_scs_doa_keys.py "
+                        "scs_key 存在重复记录，请先运行 scripts/maintenance/migrate_scs_doa_keys.py "
                         "或使用 --migrate-keys"
                     ) from exc
 

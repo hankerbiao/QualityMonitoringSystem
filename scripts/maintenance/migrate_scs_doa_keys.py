@@ -3,12 +3,23 @@
 
 from __future__ import annotations
 
-import logging
 import argparse
+import logging
+import sys
+from pathlib import Path
 
 from pymongo import MongoClient
 
-from scs_sync_lib import DB_NAME, DOA_COLLECTION, MONGO_URL, ensure_indexes, migrate_stable_keys
+SCRIPTS_DIR = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(SCRIPTS_DIR))
+
+from scs_sync_lib import (  # noqa: E402
+    DB_NAME,
+    DOA_COLLECTION,
+    MONGO_URL,
+    ensure_indexes,
+    migrate_stable_keys,
+)
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)

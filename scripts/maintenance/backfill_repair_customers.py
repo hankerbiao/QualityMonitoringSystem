@@ -3,8 +3,8 @@
 
 Run from the repository root:
 
-    uv run --project backend python scripts/backfill_repair_customers.py
-    uv run --project backend python scripts/backfill_repair_customers.py --apply
+    uv run --project backend python scripts/maintenance/backfill_repair_customers.py
+    uv run --project backend python scripts/maintenance/backfill_repair_customers.py --apply
 
 The join key is production order: ``repair_records_sap.AUFNR`` to
 ``sales_orders_sap.aufnr``. Numeric values are normalized by removing leading
@@ -25,7 +25,7 @@ from typing import Any
 
 from pymongo import UpdateOne
 
-BACKEND_DIR = Path(__file__).resolve().parent.parent / "backend"
+BACKEND_DIR = Path(__file__).resolve().parents[2] / "backend"
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app.db.mongodb import close_mongo_connection, connect_to_mongo, get_database  # noqa: E402
