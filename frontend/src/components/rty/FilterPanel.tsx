@@ -9,7 +9,7 @@ const EXPORT_COLUMNS: Record<string, string> = {
   productModel: '生产机型',
   customer: '客户 ID',
   base: '基地',
-  defectCount: '故障数量',
+  defectCount: '故障机器数',
   inputCount: '产量（WMENG）',
   rtyRate: '直通率(%)',
   targetRate: '直通率指标(%)',

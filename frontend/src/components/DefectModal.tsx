@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 import { DefectDetail, RTYFilterParams } from '../types';
 import { rtyApi } from '../api/rtyApi';
@@ -13,6 +13,10 @@ export default function DefectModal({ filters, filterLabel, onClose }: DefectMod
   const [loading, setLoading] = useState(true);
   const [data, setData] = useState<DefectDetail[]>([]);
   const [error, setError] = useState<string | null>(null);
+  const faultyMachineCount = useMemo(
+    () => new Set(data.map(item => item.sn).filter(Boolean)).size,
+    [data],
+  );
 
   useEffect(() => {
     const load = async () => {
@@ -111,7 +115,9 @@ export default function DefectModal({ filters, filterLabel, onClose }: DefectMod
         </div>
         
         <div className="px-5 py-3 border-t border-slate-200 bg-[#f8fafc] flex justify-between items-center">
-          <span className="text-sm text-slate-500">共 {data.length} 条记录</span>
+          <span className="text-sm text-slate-500">
+            {data.length} 条维修记录，涉及 {faultyMachineCount} 台故障机器
+          </span>
           <button 
             onClick={onClose}
             className="px-4 py-1.5 bg-white border border-slate-300 rounded-sm text-sm font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm"

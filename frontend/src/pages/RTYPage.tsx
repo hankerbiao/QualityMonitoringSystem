@@ -131,7 +131,7 @@ export default function RTYPage() {
       productModel: '生产机型',
       customer: '客户 ID',
       base: '基地',
-      defectCount: '故障数量',
+      defectCount: '故障机器数',
       inputCount: '产量（WMENG）',
       rtyRate: '直通率(%)',
       targetRate: '直通率指标(%)',
@@ -269,7 +269,7 @@ export default function RTYPage() {
                     onClick={() => handleSort('defectCount')}
                   >
                     <span className="inline-flex items-center gap-1">
-                      故障数量
+                      故障机器数
                       <SortIcon field="defectCount" activeField={sortField} direction={sortDirection} />
                     </span>
                   </th>
