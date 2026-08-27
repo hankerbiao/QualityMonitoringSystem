@@ -1,7 +1,8 @@
 """运营监控数据聚合服务。"""
 
+import asyncio
 from collections import defaultdict
-from datetime import datetime, time, timedelta, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -32,7 +33,23 @@ PAGE_MODULES = {
     "/doa/repairs": "doa",
 }
 
-BUSINESS_MODULES = ("rty", "lrr", "doa", "sales-orders", "process-records", "settings", "ai", "alert-report")
+BUSINESS_MODULES = (
+    "rty",
+    "lrr",
+    "doa",
+    "sales-orders",
+    "process-records",
+    "settings",
+    "ai",
+    "alert-report",
+)
+
+HANA_SOURCE_LABELS = {
+    "ZSGV_ZSD124": "SAP HANA 订单 BOM",
+    "ZSGV_ZPP_SERNOLIST": "SAP HANA 序列绑定",
+    "ZSGV_ZZT_WLJL": "SAP HANA 维修记录",
+    "Z_V_ZMES_T_001": "SAP HANA 过站记录",
+}
 
 
 def module_from_path(path: str) -> str:
@@ -85,6 +102,105 @@ def _display_name(profile: dict[str, Any], itcode: str) -> str:
     return itcode
 
 
+def _as_sync_value(value: Any) -> str | None:
+    """Normalize stored sync timestamps and watermarks for the dashboard API."""
+    if isinstance(value, datetime):
+        return (
+            value.replace(tzinfo=value.tzinfo or timezone.utc).astimezone(timezone.utc).isoformat()
+        )
+    if isinstance(value, date):
+        return value.isoformat()
+    if isinstance(value, str):
+        return value or None
+    if isinstance(value, dict):
+        date_value = value.get("ZDATE") or value.get("date")
+        time_value = value.get("ZTIME") or value.get("time")
+        if date_value:
+            date_text = str(date_value)
+            if len(date_text) == 8 and date_text.isdigit():
+                date_text = f"{date_text[:4]}-{date_text[4:6]}-{date_text[6:]}"
+            time_text = str(time_value or "")
+            if len(time_text) == 6 and time_text.isdigit():
+                time_text = f"{time_text[:2]}:{time_text[2:4]}:{time_text[4:]}"
+            return f"{date_text} {time_text}".strip()
+    return None
+
+
+async def _latest_sales_source_sync_time(db: Any, source_name: str) -> str | None:
+    rows = await (
+        db.sales_orders_sap.find({f"source_records.{source_name}.fetched_at": {"$exists": True}})
+        .sort(f"source_records.{source_name}.fetched_at", -1)
+        .limit(1)
+        .to_list(length=1)
+    )
+    if not rows:
+        return None
+    source_record = (rows[0].get("source_records") or {}).get(source_name) or {}
+    return _as_sync_value(source_record.get("fetched_at"))
+
+
+async def _sync_data_sources(db: Any) -> list[dict[str, Any]]:
+    """Return all scheduler checkpoints that represent data already written to MongoDB."""
+    sales_checkpoints, hana_checkpoints, doa_progress = await asyncio.gather(
+        db.rty_sync_checkpoints.find({"source": "sales_orders"}).to_list(length=20),
+        db["_hana_sync_checkpoints"].find({}).to_list(length=20),
+        db.scs_doa_incremental_progress.find_one({"_id": "scs_doa_incremental"}),
+    )
+
+    sources: list[dict[str, Any]] = []
+    sales_by_name = {str(item.get("source_name")): item for item in sales_checkpoints}
+    missing_sales_sources = [
+        source_name
+        for source_name in ("SG", "KK")
+        if not _as_sync_value(sales_by_name.get(source_name, {}).get("updated_at"))
+    ]
+    manual_sales_sync_times = dict(
+        zip(
+            missing_sales_sources,
+            await asyncio.gather(
+                *(_latest_sales_source_sync_time(db, source) for source in missing_sales_sources)
+            ),
+            strict=True,
+        )
+    )
+    for source_name in ("SG", "KK"):
+        checkpoint = sales_by_name.get(source_name, {})
+        sources.append(
+            {
+                "key": f"sales-orders-{source_name.lower()}",
+                "name": f"SAP 销售订单 · {source_name}",
+                "collection": "sales_orders_sap",
+                "lastSyncedAt": _as_sync_value(checkpoint.get("updated_at"))
+                or manual_sales_sync_times.get(source_name),
+                "latestDataAt": _as_sync_value(checkpoint.get("last_success_date")),
+            }
+        )
+
+    hana_by_view = {str(item.get("view_id") or item.get("_id")): item for item in hana_checkpoints}
+    for view_id, name in HANA_SOURCE_LABELS.items():
+        checkpoint = hana_by_view.get(view_id, {})
+        sources.append(
+            {
+                "key": f"hana-{view_id.lower()}",
+                "name": name,
+                "collection": str(checkpoint.get("collection") or ""),
+                "lastSyncedAt": _as_sync_value(checkpoint.get("updated_at")),
+                "latestDataAt": _as_sync_value(checkpoint.get("watermark")),
+            }
+        )
+
+    sources.append(
+        {
+            "key": "scs-doa",
+            "name": "SCS DOA 报修数据",
+            "collection": "scs_doa_results",
+            "lastSyncedAt": _as_sync_value((doa_progress or {}).get("last_success_at")),
+            "latestDataAt": _as_sync_value((doa_progress or {}).get("watermark_date")),
+        }
+    )
+    return sources
+
+
 async def record_page_view(db: Any, itcode: str, path: str) -> None:
     now = datetime.now(timezone.utc)
     await db.usage_events.insert_one(
@@ -108,14 +224,15 @@ async def build_operations_dashboard(db: Any, days: int) -> dict[str, Any]:
     current_start = current_start_local.astimezone(timezone.utc)
     previous_start = (current_start_local - timedelta(days=days)).astimezone(timezone.utc)
 
-    events = await db.usage_events.find({"timestamp": {"$gte": previous_start}}).to_list(
-        length=200_000
+    events, sessions, users, total_users, sync_data_sources = await asyncio.gather(
+        db.usage_events.find({"timestamp": {"$gte": previous_start}}).to_list(length=200_000),
+        db.sessions.find({"createdAt": {"$gte": previous_start.isoformat()}}).to_list(
+            length=100_000
+        ),
+        db.users.find({}).to_list(length=20_000),
+        db.users.count_documents({}),
+        _sync_data_sources(db),
     )
-    sessions = await db.sessions.find({"createdAt": {"$gte": previous_start.isoformat()}}).to_list(
-        length=100_000
-    )
-    users = await db.users.find({}).to_list(length=20_000)
-    total_users = await db.users.count_documents({})
 
     def in_period(value: Any, start: datetime, end: datetime) -> bool:
         parsed = _as_datetime(value)
@@ -307,5 +424,6 @@ async def build_operations_dashboard(db: Any, days: int) -> dict[str, Any]:
             "errorRequests": len(errors),
             "lastEventAt": last_event.isoformat() if last_event else None,
         },
+        "syncDataSources": sync_data_sources,
         "recentActivity": recent_items[:10],
     }

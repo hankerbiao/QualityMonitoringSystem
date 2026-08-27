@@ -41,13 +41,20 @@ function formatNumber(value: number): string {
 
 function formatTime(value: string | null): string {
   if (!value) return '暂无记录';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
   return new Intl.DateTimeFormat('zh-CN', {
     month: '2-digit',
     day: '2-digit',
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,
-  }).format(new Date(value));
+  }).format(date);
+}
+
+function formatSyncTime(value: string | null): string {
+  if (value && /^\d{4}-\d{2}-\d{2}$/.test(value)) return value;
+  return formatTime(value);
 }
 
 function ChangeIndicator({ value, suffix = '%' }: { value: number | null; suffix?: string }) {
@@ -187,6 +194,45 @@ function HealthPanel({ data }: { data: OperationsDashboard }) {
         <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-slate-200">
           <div className="h-full rounded-full bg-emerald-500" style={{ width: `${data.summary.successRate}%` }} />
         </div>
+      </div>
+    </section>
+  );
+}
+
+function SyncDataSources({ items }: { items: OperationsDashboard['syncDataSources'] }) {
+  return (
+    <section className="overflow-hidden rounded-md border border-slate-200 bg-white">
+      <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+        <div>
+          <h2 className="text-sm font-semibold text-slate-800">同步数据源</h2>
+          <p className="mt-1 text-xs text-slate-400">已成功写入数据库的最近同步与数据时间</p>
+        </div>
+        <Database className="h-4 w-4 text-slate-400" />
+      </div>
+      <div className="grid gap-px bg-slate-100 sm:grid-cols-2 xl:grid-cols-3">
+        {items.map((item) => (
+          <div key={item.key} className="min-w-0 bg-white px-5 py-4">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium text-slate-700" title={item.name}>{item.name}</p>
+                <p className="mt-1 truncate font-mono text-[11px] text-slate-400" title={item.collection || undefined}>
+                  {item.collection || '等待首次同步'}
+                </p>
+              </div>
+              <span className={`mt-0.5 h-2 w-2 shrink-0 rounded-full ${item.lastSyncedAt ? 'bg-emerald-500' : 'bg-slate-300'}`} title={item.lastSyncedAt ? '已同步' : '暂无同步记录'} />
+            </div>
+            <dl className="mt-4 grid grid-cols-2 gap-3 text-xs">
+              <div className="min-w-0">
+                <dt className="text-slate-400">最近入库</dt>
+                <dd className="mt-1 truncate font-mono text-slate-600" title={item.lastSyncedAt || undefined}>{formatSyncTime(item.lastSyncedAt)}</dd>
+              </div>
+              <div className="min-w-0">
+                <dt className="text-slate-400">最新数据</dt>
+                <dd className="mt-1 truncate font-mono text-slate-600" title={item.latestDataAt || undefined}>{formatSyncTime(item.latestDataAt)}</dd>
+              </div>
+            </dl>
+          </div>
+        ))}
       </div>
     </section>
   );
@@ -353,6 +399,8 @@ export default function OperationsPage() {
               </div>
               <HealthPanel data={data} />
             </div>
+
+            <SyncDataSources items={data.syncDataSources} />
 
             <RecentActivity items={data.recentActivity} />
 

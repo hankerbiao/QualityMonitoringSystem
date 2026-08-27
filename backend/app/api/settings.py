@@ -14,7 +14,7 @@
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Query
 
 from app.db.mongodb import get_database
 from app.models.documents import Collections
@@ -35,10 +35,9 @@ from app.schemas.settings import (
     SettingsUpdateRequest,
 )
 from app.services.credential_crypto import decrypt_credential, encrypt_credential
-from app.services.lrr_alert import run_daily_lrr_check
 from app.services.process_record_service import process_record_gateway
 from app.services.settings_service import SettingsService
-from app.services.weekly_alert import run_weekly_production_check
+from app.services.weekly_alert import get_weekly_production_candidates, run_weekly_production_check
 
 router = APIRouter()
 
@@ -251,17 +250,11 @@ async def run_weekly_check():
     return Response(success=True, data=result, message="每周生产量预警检查已执行")
 
 
-@router.post("/email-alert/run-lrr-check", response_model=Response[dict])
-async def run_lrr_check():
-    """
-    手动触发「每日物料故障率(LRR)预警检查」。
-
-    与每天 17:30 的定时任务逻辑一致：聚合有装配扫号物料的 LRR，
-    对达到 lrrAlertThreshold 阈值的物料发送汇总预警邮件。
-    主要用于验证配置与邮件链路，无需等待定时触发。
-    """
-    result = await run_daily_lrr_check()
-    return Response(success=True, data=result, message="物料故障率(LRR)预警检查已执行")
+@router.get("/email-alert/qualified-models", response_model=Response[dict])
+async def get_qualified_models(threshold: int = Query(..., ge=0)):
+    """查询达到生产量阈值且 RTY 未达标的机型，不触发邮件发送。"""
+    result = await get_weekly_production_candidates(threshold)
+    return Response(success=True, data=result, message="符合条件的机型已获取")
 
 
 # ============== 功能开关接口 ==============

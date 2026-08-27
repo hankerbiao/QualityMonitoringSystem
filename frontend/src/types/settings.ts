@@ -25,7 +25,6 @@ export interface EmailAlertConfig {
   emails: string;
   triggerCondition: string;
   weeklyProductionThreshold: number;
-  lrrAlertThreshold: number;
 }
 
 export interface AIConfig {

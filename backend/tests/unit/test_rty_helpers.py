@@ -61,7 +61,7 @@ def test_group_field_prefers_the_most_specific_filter():
     assert rty._group_field(None, "PO-1", None, None, None) == "aufnr"
     assert rty._group_field("SO-1", None, None, None, None) == "data.VBELN"
     assert rty._group_field(None, None, "9000", "M-1", None) == "data.MAKTX_TH"
-    assert rty._group_field(None, None, None, None, "客户A") == "data.NAME1_ZU"
+    assert rty._group_field(None, None, None, None, "CUST-1") == "data.KID"
 
 
 @pytest.mark.asyncio
@@ -88,6 +88,7 @@ def test_duplicate_repair_events_from_sap_clients_are_collapsed():
             "MANDT": "600",
             "PCODE": "SN-1",
             "AUFNR": "PO-1",
+            "VBELN": "0100001524",
             "ZDATE_WX": "20260101",
             "ZTIME": "120000",
             "ZNGWD": "F01",
@@ -98,6 +99,7 @@ def test_duplicate_repair_events_from_sap_clients_are_collapsed():
             "MANDT": "800",
             "PCODE": "SN-1",
             "AUFNR": "PO-1",
+            "VBELN": "100001524",
             "ZDATE_WX": "20260101",
             "ZTIME": "120000",
             "ZNGWD": "F01",
@@ -116,3 +118,4 @@ def test_duplicate_repair_events_from_sap_clients_are_collapsed():
     unique = rty._deduplicate_repair_rows(rows)
 
     assert [row["_id"] for row in unique] == ["600-id", "different-event"]
+    assert rty._repair_to_detail(unique[0]).sale_no == "100001524"

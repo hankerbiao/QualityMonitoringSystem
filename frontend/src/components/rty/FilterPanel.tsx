@@ -7,7 +7,7 @@ import { ExportPanel } from './index';
 const EXPORT_COLUMNS: Record<string, string> = {
   time: '时间',
   productModel: '生产机型',
-  customer: '客户',
+  customer: '客户 ID',
   base: '基地',
   defectCount: '故障数量',
   inputCount: '产量（WMENG）',
@@ -272,10 +272,10 @@ export function FilterPanel({
           </div>
 
           <div className="flex-1 min-w-[140px] max-w-[220px] relative">
-            <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">客户</label>
+            <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">客户 ID</label>
             <input
               type="text"
-              placeholder="请输入客户名称"
+              placeholder="请输入客户 ID"
               className="w-full border border-slate-300 rounded-sm px-2 py-1.5 text-xs text-slate-700 focus:ring-1 focus:ring-blue-600 focus:border-blue-600 outline-none transition-all bg-white"
               value={filters.customer}
               onChange={e => {
@@ -295,7 +295,7 @@ export function FilterPanel({
                     setShowCustomerSuggestions(false);
                   }}
                 >
-                  全部客户
+                  全部客户 ID
                 </button>
                 {filteredCustomers.length > 0 ? filteredCustomers.map(customer => (
                   <button

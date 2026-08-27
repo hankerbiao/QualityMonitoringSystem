@@ -60,11 +60,6 @@ class EmailAlertConfigBase(BaseModel):
         ge=0,
         description="周生产量阈值（台）：窗口内某机型投入台数达到该值才纳入 RTY 判定",
     )
-    lrrAlertThreshold: float = Field(
-        5.0,
-        ge=0,
-        description="物料故障率(LRR)阈值(%)：有装配扫号物料的故障率 ≥ 该值即发送预警邮件",
-    )
 
 
 class EmailAlertConfig(EmailAlertConfigBase):
@@ -80,7 +75,6 @@ class EmailAlertConfigUpdate(BaseModel):
     emails: str | None = None
     triggerCondition: str | None = None
     weeklyProductionThreshold: int | None = None
-    lrrAlertThreshold: float | None = None
 
 
 # ============== AI 模型配置 ==============

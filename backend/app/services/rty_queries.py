@@ -111,18 +111,20 @@ async def build_sales_filter(
     if base and base != "all":
         match["data.LGORT"] = base
     if product_model and product_model != "all":
-        if (
-            calculation_method == "composite" and product_model not in COMPOSITE_MODEL_ITEMS
-        ) or (calculation_method == "normal" and product_model in COMPOSITE_MODEL_ITEMS):
+        if (calculation_method == "composite" and product_model not in COMPOSITE_MODEL_ITEMS) or (
+            calculation_method == "normal" and product_model in COMPOSITE_MODEL_ITEMS
+        ):
             match["data.MAKTX_TH"] = {"$in": []}
         else:
             match["data.MAKTX_TH"] = product_model
     if customer:
-        match["data.NAME1_ZU"] = customer
+        match["data.KID"] = customer
     if serial_number:
-        repairs = await db[Collections.REPAIR_RECORDS_SAP].find(
-            {"PCODE": serial_number.strip()}, {"AUFNR": 1}
-        ).to_list(length=10_000)
+        repairs = (
+            await db[Collections.REPAIR_RECORDS_SAP]
+            .find({"PCODE": serial_number.strip()}, {"AUFNR": 1})
+            .to_list(length=10_000)
+        )
         orders = order_variants([str(repair.get("AUFNR") or "") for repair in repairs])
         match["aufnr"] = {"$in": orders} if orders else {"$in": []}
     return match
@@ -140,7 +142,7 @@ def group_field(
     if sales_order:
         return "data.VBELN"
     if customer:
-        return "data.NAME1_ZU"
+        return "data.KID"
     if product_model and product_model != "all":
         return "data.MAKTX_TH"
     if base and base != "all":
@@ -170,7 +172,7 @@ async def sales_groups(
                 },
                 "sales_orders": {"$addToSet": "$data.VBELN"},
                 "production_orders": {"$addToSet": "$aufnr"},
-                "customers": {"$addToSet": "$data.NAME1_ZU"},
+                "customers": {"$addToSet": "$data.KID"},
             }
         },
         {"$match": {"_id": {"$nin": [None, ""]}}},
@@ -191,7 +193,9 @@ async def sales_groups(
     return total, facet.get("data", [])
 
 
-async def option_totals(db: Any, field: str, order_scope: OrderScope = "normal") -> list[dict[str, Any]]:
+async def option_totals(
+    db: Any, field: str, order_scope: OrderScope = "normal"
+) -> list[dict[str, Any]]:
     pipeline = [
         {
             "$match": {
@@ -217,6 +221,4 @@ async def option_totals(db: Any, field: str, order_scope: OrderScope = "normal")
         },
         {"$sort": {"_id": 1}},
     ]
-    return list(
-        await db[Collections.SALES_ORDERS_SAP].aggregate(pipeline).to_list(length=10_000)
-    )
+    return list(await db[Collections.SALES_ORDERS_SAP].aggregate(pipeline).to_list(length=10_000))

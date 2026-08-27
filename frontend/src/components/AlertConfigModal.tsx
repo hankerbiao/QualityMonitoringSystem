@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
-import { X, Bell, Calendar, Filter, Loader2, FileText } from 'lucide-react';
+import { X, Bell, Calendar, Filter, Loader2, FileText, Users } from 'lucide-react';
 import {
   ComposedChart,
   Line,
@@ -27,6 +27,17 @@ interface AlertConfigModalProps {
 // 预定义一些颜色，用于图表中的不同机型
 const COLORS = ['#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444', '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16'];
 
+function formatMonth(date: Date): string {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getPresetRange(months: number): { start: string; end: string } {
+  const end = new Date();
+  const start = new Date(end);
+  start.setMonth(start.getMonth() - months);
+  return { start: formatMonth(start), end: formatMonth(end) };
+}
+
 export default function AlertConfigModal({
   onClose,
   modelTargets = {},
@@ -37,23 +48,20 @@ export default function AlertConfigModal({
   const { settings, updateSettings } = useSettings();
 
   // 时间范围快捷键：6 = 近半年, 12 = 近一年, custom = 自定义
-  const [timeFilter, setTimeFilter] = useState<'6' | '12' | 'custom'>('6');
+  const [timeFilter, setTimeFilter] = useState<'6' | '12' | 'custom'>('12');
   
   // 机型筛选状态
   const [selectedModels, setSelectedModels] = useState<Set<string> | null>(null);
   const [showModelFilter, setShowModelFilter] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState('');
+  const [customerList, setCustomerList] = useState<string[]>([]);
+  const [showCustomerFilter, setShowCustomerFilter] = useState(false);
   const [filterSaved, setFilterSaved] = useState(false);
   
   // 视图模式：chart = 双图表，heatmap = 热力图
   const [viewMode, setViewMode] = useState<'chart' | 'heatmap'>('heatmap');
-  const [customStart, setCustomStart] = useState(() => {
-    const d = new Date(); d.setFullYear(d.getFullYear() - 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  });
-  const [customEnd, setCustomEnd] = useState(() => {
-    const d = new Date(); d.setMonth(d.getMonth() - 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-  });
+  const [customStart, setCustomStart] = useState(() => getPresetRange(12).start);
+  const [customEnd, setCustomEnd] = useState(() => getPresetRange(12).end);
   
   // 独立数据拉取（不受主表单影响）
   const [allRawData, setAllRawData] = useState<RTYData[]>([]);
@@ -62,13 +70,13 @@ export default function AlertConfigModal({
   const fetchAllData = useCallback(async () => {
     setLoading(true);
     try {
-      setAllRawData(await rtyApi.getCycleData(orderScope));
+      setAllRawData(await rtyApi.getCycleData(orderScope, selectedCustomer || undefined));
     } catch (error) {
       console.error('Failed to fetch cycle stats data', error);
     } finally {
       setLoading(false);
     }
-  }, [orderScope]);
+  }, [orderScope, selectedCustomer]);
 
   useEffect(() => {
     fetchAllData();
@@ -81,7 +89,25 @@ export default function AlertConfigModal({
     }
   }, [settings.cycleStatsConfig.selectedModels]);
 
+  useEffect(() => {
+    const loadCustomers = async () => {
+      try {
+        setCustomerList(await rtyApi.getCustomers(orderScope));
+      } catch (error) {
+        console.error('Failed to fetch cycle stats customers', error);
+      }
+    };
+    loadCustomers();
+  }, [orderScope]);
+
   const baseDate = new Date();
+
+  const handlePresetRange = (months: '6' | '12') => {
+    const range = getPresetRange(Number(months));
+    setTimeFilter(months);
+    setCustomStart(range.start);
+    setCustomEnd(range.end);
+  };
   
   const filteredData = useMemo(() => {
     let result = allRawData;
@@ -417,16 +443,62 @@ export default function AlertConfigModal({
                     </div>
                   )}
                 </div>
+
+                {/* 客户筛选 */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowCustomerFilter(!showCustomerFilter)}
+                    className={`flex items-center gap-1.5 px-3 py-1 text-xs rounded-sm border ${showCustomerFilter || selectedCustomer ? 'bg-blue-50 border-blue-200 text-blue-700 font-medium' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    <Users className="w-3 h-3" />
+                    {selectedCustomer || '客户筛选'}
+                  </button>
+
+                  {showCustomerFilter && (
+                    <div className="absolute top-full right-0 mt-1 min-w-48 max-w-64 bg-white border border-slate-200 rounded-sm shadow-lg z-10 p-3">
+                      <div className="max-h-40 overflow-y-auto space-y-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedCustomer('');
+                            setShowCustomerFilter(false);
+                          }}
+                          className={`w-full px-2 py-1 text-left text-xs rounded hover:bg-blue-50 ${!selectedCustomer ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-600'}`}
+                        >
+                          全部客户
+                        </button>
+                        {customerList.map(customer => (
+                          <button
+                            type="button"
+                            key={customer}
+                            onClick={() => {
+                              setSelectedCustomer(customer);
+                              setShowCustomerFilter(false);
+                            }}
+                            className={`w-full px-2 py-1 text-left text-xs rounded hover:bg-blue-50 truncate ${selectedCustomer === customer ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-600'}`}
+                            title={customer}
+                          >
+                            {customer}
+                          </button>
+                        ))}
+                        {customerList.length === 0 && (
+                          <p className="px-2 py-1 text-xs text-slate-400">暂无客户数据</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
                 
                 <div className="flex space-x-2">
                   <button 
-                    onClick={() => setTimeFilter('6')}
+                    onClick={() => handlePresetRange('6')}
                     className={`px-3 py-1 text-xs rounded-sm border ${timeFilter === '6' ? 'bg-blue-50 border-blue-200 text-blue-700 font-medium' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
                   >
                     近半年
                   </button>
                   <button 
-                    onClick={() => setTimeFilter('12')}
+                    onClick={() => handlePresetRange('12')}
                     className={`px-3 py-1 text-xs rounded-sm border ${timeFilter === '12' ? 'bg-blue-50 border-blue-200 text-blue-700 font-medium' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
                   >
                     近一年

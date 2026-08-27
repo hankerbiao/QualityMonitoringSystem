@@ -45,6 +45,14 @@ export interface OperationsActivityItem {
   status: 'success';
 }
 
+export interface OperationsSyncDataSource {
+  key: string;
+  name: string;
+  collection: string;
+  lastSyncedAt: string | null;
+  latestDataAt: string | null;
+}
+
 export interface OperationsDashboard {
   period: {
     days: number;
@@ -61,5 +69,6 @@ export interface OperationsDashboard {
     errorRequests: number;
     lastEventAt: string | null;
   };
+  syncDataSources: OperationsSyncDataSource[];
   recentActivity: OperationsActivityItem[];
 }

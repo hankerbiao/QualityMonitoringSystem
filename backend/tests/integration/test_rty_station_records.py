@@ -14,6 +14,7 @@ async def _seed_rty_data(db):
                     "WMENG": 2,
                     "LGORT": "9000",
                     "MAKTX_TH": "M-1",
+                    "KID": "CUST-A",
                     "NAME1_ZU": "客户A",
                 },
             },
@@ -25,6 +26,7 @@ async def _seed_rty_data(db):
                     "WMENG": 1,
                     "LGORT": "9100",
                     "MAKTX_TH": "M-2",
+                    "KID": "CUST-B",
                     "NAME1_ZU": "客户B",
                 },
             },
@@ -136,7 +138,7 @@ class TestStationRecordRTY:
         assert so1["defectCount"] == 1
         assert so1["rtyRate"] == 50.0
         assert so1["serialNumbers"] == []
-        assert so1["customer"] == "客户A"
+        assert so1["customer"] == "CUST-A"
 
     async def test_cycle_data_is_monthly_and_uses_same_fault_scope(self, client, db_clean):
         await _seed_rty_data(db_clean)
@@ -153,6 +155,18 @@ class TestStationRecordRTY:
         assert feb["inputCount"] == 2
         assert feb["defectCount"] == 1
         assert feb["rtyRate"] == 50.0
+
+    async def test_cycle_data_supports_customer_filter(self, client, db_clean):
+        await _seed_rty_data(db_clean)
+
+        response = await client.get("/api/rty/cycle-data?customer=CUST-A")
+
+        assert response.status_code == 200
+        rows = response.json()["data"]
+        assert {(row["time"], row["productModel"]) for row in rows} == {
+            ("2026-02", "M-1"),
+        }
+        assert rows[0]["customer"] == "CUST-A"
 
     async def test_pagination_and_date_boundaries_are_deterministic(self, client, db_clean):
         await _seed_rty_data(db_clean)
@@ -194,12 +208,16 @@ class TestStationRecordRTY:
 
         models = (await client.get("/api/rty/product-models")).json()["data"]
         bases = (await client.get("/api/rty/bases")).json()["data"]
+        customers = (await client.get("/api/rty/customers")).json()["data"]
+        customer_rows = (await client.get("/api/rty/list?customer=CUST-A")).json()["items"]
         orders = (
             await client.get("/api/rty/production-orders/by-sales-order?salesOrder=SO-1")
         ).json()["data"]
 
         assert models == [{"model": "M-1", "count": 2}, {"model": "M-2", "count": 1}]
         assert bases == [{"base": "9000", "count": 2}, {"base": "9100", "count": 1}]
+        assert customers == ["CUST-A", "CUST-B"]
+        assert [row["salesOrder"] for row in customer_rows] == ["SO-1"]
         assert orders == ["PO-1"]
 
     async def test_order_eligibility_excludes_status_and_type_and_separates_l6(
@@ -353,7 +371,9 @@ class TestStationRecordRTY:
         assert item["rtyRate"] == 80.0
 
         cycle = await client.get("/api/rty/cycle-data")
-        cycle_item = next(row for row in cycle.json()["data"] if row["productModel"] == "6210 C21 BOX")
+        cycle_item = next(
+            row for row in cycle.json()["data"] if row["productModel"] == "6210 C21 BOX"
+        )
         assert cycle_item["inputCount"] == 10
         assert cycle_item["defectCount"] == 2
 

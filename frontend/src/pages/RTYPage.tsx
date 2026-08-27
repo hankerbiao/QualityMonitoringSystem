@@ -129,7 +129,7 @@ export default function RTYPage() {
     const exportColumnsMap: Record<string, string> = {
       time: '时间',
       productModel: '生产机型',
-      customer: '客户',
+      customer: '客户 ID',
       base: '基地',
       defectCount: '故障数量',
       inputCount: '产量（WMENG）',
@@ -260,7 +260,7 @@ export default function RTYPage() {
                     </span>
                   </th>
                   <th className="px-3 py-2 border-r border-slate-100 last:border-none">生产机型</th>
-                  <th className="px-3 py-2 border-r border-slate-100 last:border-none">客户</th>
+                  <th className="px-3 py-2 border-r border-slate-100 last:border-none">客户 ID</th>
                   <th className="px-3 py-2 border-r border-slate-100 last:border-none">基地</th>
                   <th className="px-3 py-2 border-r border-slate-100 last:border-none">销售订单</th>
                   <th className="px-3 py-2 border-r border-slate-100 last:border-none">生产订单</th>

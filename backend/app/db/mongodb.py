@@ -88,7 +88,7 @@ async def create_indexes() -> None:
 
     await sales_order_repository.init_sales_orders_index()
     await mongodb.db.sales_orders_sap.create_index([("data.VBELN", 1)])
-    await mongodb.db.sales_orders_sap.create_index([("data.NAME1_ZU", 1), ("data.MAKTX_TH", 1)])
+    await mongodb.db.sales_orders_sap.create_index([("data.KID", 1), ("data.MAKTX_TH", 1)])
     # RTY unified synchronization audit and source-level checkpoints.
     await mongodb.db.rty_sync_checkpoints.create_index("updated_at")
     await mongodb.db.rty_sync_runs.create_index([("started_at", -1)])

@@ -13,7 +13,7 @@ class RTYDataBase(BaseModel):
     time: str = Field(..., description="统计时间 (YYYY-MM-DD)")
     model: str = Field(..., description="数据口径: 销售订单 WMENG 入库数量")
     productModel: str = Field(..., description="生产机型 (sales_orders_sap.data.MAKTX_TH)")
-    customer: str = Field("", description="客户名称 (sales_orders_sap.data.NAME1_ZU)")
+    customer: str = Field("", description="客户 ID (sales_orders_sap.data.KID)")
     base: str = Field(..., description="基地/库位 (sales_orders_sap.data.LGORT)")
     defectCount: int = Field(..., ge=0, description="故障数量")
     inputCount: int = Field(..., ge=0, description="生产数量 (sales_orders_sap.data.WMENG 汇总)")

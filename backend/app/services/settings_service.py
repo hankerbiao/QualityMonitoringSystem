@@ -126,14 +126,12 @@ class SettingsService:
                 emails=EMAIL_DEFAULT,
                 triggerCondition="",
                 weeklyProductionThreshold=50,
-                lrrAlertThreshold=5.0,
             )
         return EmailAlertConfig(
             enabled=doc.get("enabled", True),
             emails=doc.get("emails", ""),
             triggerCondition=doc.get("triggerCondition", ""),
             weeklyProductionThreshold=doc.get("weeklyProductionThreshold", 50),
-            lrrAlertThreshold=doc.get("lrrAlertThreshold", 5.0),
         )
 
     @staticmethod

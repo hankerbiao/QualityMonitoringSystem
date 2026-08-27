@@ -30,7 +30,7 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
   const { settings, updateSettings, loading: settingsLoading } = useSettings();
 
   const [processRecordConfig, setProcessRecordConfig] = useState<ProcessRecordConfig>({ username: '', password: '', hasPassword: false });
-  const [emailConfig, setEmailConfig] = useState({ enabled: true, emails: '', triggerCondition: '', weeklyProductionThreshold: 50, lrrAlertThreshold: 5.0 });
+  const [emailConfig, setEmailConfig] = useState({ enabled: true, emails: '', triggerCondition: '', weeklyProductionThreshold: 50 });
   const [aiConfig, setAiConfig] = useState({ apiUrl: '', modelId: '', apiKey: '', maxTokens: 4096, hasApiKey: false });
   const [modelTargets, setModelTargets] = useState<Record<string, number>>({});
 
@@ -42,7 +42,6 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
       emails: settings.emailAlert.emails,
       triggerCondition: settings.emailAlert.triggerCondition ?? '',
       weeklyProductionThreshold: settings.emailAlert.weeklyProductionThreshold ?? 50,
-      lrrAlertThreshold: settings.emailAlert.lrrAlertThreshold ?? 5.0,
     });
     setAiConfig(settings.ai);
   }, [settings]);

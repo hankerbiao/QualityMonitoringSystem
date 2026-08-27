@@ -1,6 +1,6 @@
-import { Mail, Send, Loader2, CheckCircle2, XCircle, FileText, Hash } from 'lucide-react';
+import { Mail, Send, Loader2, CheckCircle2, XCircle, FileText, Hash, ListFilter } from 'lucide-react';
 import { useState } from 'react';
-import { settingsApi } from '../../api/settingsApi';
+import { settingsApi, type WeeklyQualifiedModels } from '../../api/settingsApi';
 
 interface EmailAlertTabProps {
   config: {
@@ -8,23 +8,24 @@ interface EmailAlertTabProps {
     emails: string;
     triggerCondition: string;
     weeklyProductionThreshold: number;
-    lrrAlertThreshold: number;
   };
   onChange: (config: {
     enabled: boolean;
     emails: string;
     triggerCondition: string;
     weeklyProductionThreshold: number;
-    lrrAlertThreshold: number;
   }) => void;
 }
 
 export const DEFAULT_TRIGGER_CONDITION =
-  '当某机型周生产量达到设定阈值（默认 50 台），且实际 RTY 低于目标直通率时，系统将在每天 17:00 自动发送预警邮件；同时，每日 17:30 系统将统计各物料故障率(LRR)，对有装配扫号且 LRR 达到设定阈值（默认 5%）的物料自动发送预警邮件。';
+  '当某机型周生产量达到设定阈值（默认 50 台），且实际 RTY 低于目标直通率时，系统将在每天 17:00 自动发送预警邮件。';
 
 export function EmailAlertTab({ config, onChange }: EmailAlertTabProps) {
   const [testing, setTesting] = useState(false);
   const [testMsg, setTestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [qualifiedModels, setQualifiedModels] = useState<WeeklyQualifiedModels | null>(null);
+  const [modelsError, setModelsError] = useState<string | null>(null);
 
   const handleTest = async () => {
     if (!config.emails.trim()) {
@@ -49,6 +50,19 @@ export function EmailAlertTab({ config, onChange }: EmailAlertTabProps) {
       setTestMsg({ type: 'error', text: message });
     } finally {
       setTesting(false);
+    }
+  };
+
+  const handleGetQualifiedModels = async () => {
+    setLoadingModels(true);
+    setModelsError(null);
+    try {
+      setQualifiedModels(await settingsApi.getWeeklyQualifiedModels(config.weeklyProductionThreshold));
+    } catch (err) {
+      setQualifiedModels(null);
+      setModelsError(err instanceof Error ? err.message : '符合条件的机型获取失败');
+    } finally {
+      setLoadingModels(false);
     }
   };
 
@@ -114,38 +128,56 @@ export function EmailAlertTab({ config, onChange }: EmailAlertTabProps) {
             <span className="text-xs text-slate-500">
               窗口内某机型投入台数 ≥ 该值，才纳入 RTY 判定
             </span>
+            <button
+              type="button"
+              onClick={handleGetQualifiedModels}
+              disabled={loadingModels}
+              className="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-60 rounded-md text-sm font-medium transition-colors"
+            >
+              {loadingModels ? <Loader2 className="w-4 h-4 animate-spin" /> : <ListFilter className="w-4 h-4" />}
+              {loadingModels ? '查询中...' : '查看符合机型'}
+            </button>
           </div>
           <p className="text-xs text-slate-500 mt-2 leading-relaxed">
             系统每天 17:00 自动统计：时间窗口为「上周五 00:00 至当前时刻」（滚动周窗口，最长 7 天）。
             对每个机型统计该窗口内的投入台数（按 SN 去重），达到上述阈值且实际 RTY 低于目标直通率时，自动发送预警邮件。
           </p>
-        </div>
-
-        {/* 物料故障率阈值 */}
-        <div className={!config.enabled ? 'opacity-50 pointer-events-none transition-opacity' : 'transition-opacity'}>
-          <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-1.5">
-            <Hash className="w-4 h-4 text-slate-400" /> 物料故障率阈值（%）
-          </label>
-          <div className="flex items-center gap-3">
-            <input
-              type="number"
-              min={0}
-              step={0.1}
-              value={config.lrrAlertThreshold}
-              onChange={(e) => {
-                const v = Number(e.target.value);
-                onChange({ ...config, lrrAlertThreshold: Number.isFinite(v) && v >= 0 ? v : 0 });
-              }}
-              className="w-32 border border-slate-300 rounded-md px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-            />
-            <span className="text-xs text-slate-500">
-              有装配扫号物料的故障率(LRR) ≥ 该值，即发送预警邮件
-            </span>
-          </div>
-          <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-            系统每天 17:30 自动统计：仅对「有装配扫号」物料计算故障率（无装配扫号物料无分母、不参与判定），
-            达到上述阈值的物料将汇总在一封预警邮件中列出（含物料编号、总装配数、故障数、LRR、阈值）。
-          </p>
+          {modelsError && <p className="mt-3 text-sm text-red-600">{modelsError}</p>}
+          {qualifiedModels && (
+            <div className="mt-3 border border-slate-200 rounded-md overflow-hidden">
+              <div className="px-3 py-2 bg-slate-50 text-xs text-slate-500">
+                统计窗口：{qualifiedModels.window.from} 至 {qualifiedModels.window.to}，达到产量阈值机型 {qualifiedModels.modelsChecked} 个
+              </div>
+              {qualifiedModels.details.length === 0 ? (
+                <p className="px-3 py-4 text-sm text-slate-500">暂无 RTY 未达标的符合机型</p>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm text-left">
+                    <thead className="bg-white text-xs text-slate-500 border-y border-slate-200">
+                      <tr>
+                        <th className="px-3 py-2 font-medium">机型</th>
+                        <th className="px-3 py-2 font-medium">投入</th>
+                        <th className="px-3 py-2 font-medium">故障</th>
+                        <th className="px-3 py-2 font-medium">RTY</th>
+                        <th className="px-3 py-2 font-medium">目标</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 text-slate-700">
+                      {qualifiedModels.details.map((model) => (
+                        <tr key={model.productModel}>
+                          <td className="px-3 py-2 font-medium">{model.productModel}</td>
+                          <td className="px-3 py-2">{model.inputCount}</td>
+                          <td className="px-3 py-2">{model.defectCount}</td>
+                          <td className="px-3 py-2 text-red-600">{model.rtyRate}%</td>
+                          <td className="px-3 py-2">{model.targetRate}%</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* 预警接收人邮箱 */}

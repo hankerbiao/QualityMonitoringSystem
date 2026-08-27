@@ -63,10 +63,13 @@ def main():
         "emails": "manager@company.com; quality-team@company.com",
         "triggerCondition": "当某机型周生产量达到设定阈值（默认 50 台），且实际 RTY 低于目标直通率时，系统将在每天 17:00 自动发送预警邮件。",
         "weeklyProductionThreshold": 50,
-        "lrrAlertThreshold": 5.0,
         "updatedAt": now,
     }
-    configs.update_one({"key": "email_alert_config"}, {"$set": email_config}, upsert=True)
+    configs.update_one(
+        {"key": "email_alert_config"},
+        {"$set": email_config, "$unset": {"lrrAlertThreshold": ""}},
+        upsert=True,
+    )
     print("✓ 邮件预警配置已写入（默认启用）")
 
     # 4. AI 模型配置

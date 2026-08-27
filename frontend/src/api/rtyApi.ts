@@ -34,9 +34,14 @@ function buildRtyQuery(params: RTYFilterParams): URLSearchParams {
 }
 
 export const rtyApi = {
-  async getCycleData(orderScope: RTYFilterParams['orderScope'] = 'normal'): Promise<RTYData[]> {
-    return cachedOption(`cycle-data:${orderScope}`, async () => {
-      const res = await apiFetch(`/api/rty/cycle-data?orderScope=${orderScope}`);
+  async getCycleData(
+    orderScope: RTYFilterParams['orderScope'] = 'normal',
+    customer?: string,
+  ): Promise<RTYData[]> {
+    return cachedOption(`cycle-data:${orderScope}:${customer || ''}`, async () => {
+      const qs = new URLSearchParams({ orderScope });
+      if (customer) qs.set('customer', customer);
+      const res = await apiFetch(`/api/rty/cycle-data?${qs.toString()}`);
       const json = await res.json();
       return json.success ? (json.data as RTYData[]) : [];
     });

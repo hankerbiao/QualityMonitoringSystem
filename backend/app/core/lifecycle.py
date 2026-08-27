@@ -5,7 +5,6 @@ from typing import Any
 from app.core.config import Settings
 from app.core.logger import log_error, log_info, setup_logger
 from app.db.mongodb import close_mongo_connection, connect_to_mongo
-from app.services.lrr_alert import run_daily_lrr_check
 from app.services.process_record_service import process_record_gateway
 from app.services.weekly_alert import run_weekly_production_check
 
@@ -49,16 +48,8 @@ def create_scheduler() -> Any | None:
             id="weekly_production_alert",
             replace_existing=True,
         )
-        scheduler.add_job(
-            run_daily_lrr_check,
-            "cron",
-            hour=17,
-            minute=30,
-            id="daily_lrr_alert",
-            replace_existing=True,
-        )
         scheduler.start()
-        log_info("APScheduler 已启动：预警任务计划于每天 17:00/17:30 执行")
+        log_info("APScheduler 已启动：预警任务计划于每天 17:00 执行")
         return scheduler
     except Exception as exc:
         log_error(f"APScheduler 启动失败，定时预警将不会自动执行: {exc}")

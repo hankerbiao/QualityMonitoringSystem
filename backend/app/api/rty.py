@@ -81,6 +81,11 @@ def _clean_values(values: list[Any]) -> list[str]:
     return sorted({str(value).strip() for value in values if str(value or "").strip()})
 
 
+def _normalize_sales_order(value: Any) -> str:
+    """Use one canonical sales-order representation across SAP clients."""
+    return _normalize_order(value)
+
+
 async def _repair_rows_for_orders(db, production_orders: set[str]) -> list[dict[str, Any]]:
     if not production_orders:
         return []
@@ -157,7 +162,10 @@ def _deduplicate_repair_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]
     for row in rows:
         key = tuple(
             sorted(
-                (str(field), repr(value))
+                (
+                    str(field),
+                    repr(_normalize_sales_order(value) if field == "VBELN" else value),
+                )
                 for field, value in row.items()
                 if field not in _REPAIR_DUPLICATE_METADATA
             )
@@ -223,19 +231,28 @@ async def _fault_counts(db, groups: list[dict[str, Any]]) -> dict[str, int]:
     return {group_id: len(sns) for group_id, sns in failed_sns.items()}
 
 
-async def _cycle_data(db, order_scope: OrderScope) -> list[RTYData]:
+async def _cycle_data(
+    db, order_scope: OrderScope, customer: str | None = None
+) -> list[RTYData]:
     """Build the small monthly/model data set used by the cycle dashboard.
 
     The detail list is intentionally paginated, but the cycle dashboard needs all
     months.  Computing it once here avoids fetching every detail page and avoids
     repeating the repair query for each page in the browser.
     """
-    sales_filter = await _sales_filter(db, order_scope=order_scope)
+    sales_filter = await _sales_filter(db, customer=customer, order_scope=order_scope)
     sales_docs = await (
         db[Collections.SALES_ORDERS_SAP]
         .find(
             sales_filter,
-            {"aufnr": 1, "gstrs_date": 1, "data.VBELN": 1, "data.WMENG": 1, "data.MAKTX_TH": 1},
+            {
+                "aufnr": 1,
+                "gstrs_date": 1,
+                "data.VBELN": 1,
+                "data.WMENG": 1,
+                "data.MAKTX_TH": 1,
+                "data.KID": 1,
+            },
         )
         .sort([("gstrs_date", 1), ("aufnr", 1)])
         .to_list(length=MAX_CYCLE_SALES_ROW_COUNT + 1)
@@ -313,7 +330,9 @@ async def _cycle_data(db, order_scope: OrderScope) -> list[RTYData]:
             .to_list(length=MAX_BINDING_ROW_COUNT + 1)
         )
         if len(bindings) > MAX_BINDING_ROW_COUNT:
-            raise HTTPException(status_code=413, detail="刀片绑定记录超过上限 100000，请缩小筛选范围")
+            raise HTTPException(
+                status_code=413, detail="刀片绑定记录超过上限 100000，请缩小筛选范围"
+            )
         item_orders: set[str] = set()
         item_to_heads: dict[str, set[str]] = {}
         item_to_sales: dict[str, set[str]] = {}
@@ -350,7 +369,9 @@ async def _cycle_data(db, order_scope: OrderScope) -> list[RTYData]:
                 .to_list(length=MAX_DETAIL_ROW_COUNT + 1)
             )
             if len(child_repairs) > MAX_DETAIL_ROW_COUNT:
-                raise HTTPException(status_code=413, detail="BOX 维修明细超过上限 50000，请缩小筛选范围")
+                raise HTTPException(
+                    status_code=413, detail="BOX 维修明细超过上限 50000，请缩小筛选范围"
+                )
             for repair in child_repairs:
                 head_sns = item_to_heads.get(str(repair.get("PCODE") or "").strip(), set())
                 for head_sn in head_sns:
@@ -378,13 +399,11 @@ async def _cycle_data(db, order_scope: OrderScope) -> list[RTYData]:
                 time=month,
                 model="复合机型" if model in COMPOSITE_MODEL_ITEMS else "普通机型",
                 productModel=model,
-                customer="",
+                customer=str(customer or "").strip(),
                 base="",
                 defectCount=defect_count,
                 inputCount=input_count,
-                rtyRate=round((1 - defect_count / input_count) * 100, 2)
-                if input_count
-                else 100.0,
+                rtyRate=round((1 - defect_count / input_count) * 100, 2) if input_count else 100.0,
                 targetRate=float(targets.get(model, 100)),
                 salesOrder="",
                 productionOrder="",
@@ -412,7 +431,7 @@ def _repair_to_detail(item: dict[str, Any]) -> DefectDetail:
         description=str(item.get("ZWXWD") or ""),
         count=1,
         sn=str(item.get("PCODE") or ""),
-        sale_no=str(item.get("VBELN") or ""),
+        sale_no=_normalize_sales_order(item.get("VBELN")),
         mfg_order=str(item.get("AUFNR") or ""),
         product_family=str(item.get("ZJXMC") or ""),
         fault_2nd_appear="",
@@ -448,9 +467,10 @@ async def _repair_details_for_orders(
 @router.get("/cycle-data", response_model=Response[list[RTYData]])
 async def get_rty_cycle_data(
     orderScope: OrderScopeQuery = "normal",
+    customer: str | None = Query(None, description="客户 ID (data.KID)"),
 ):
     """Return monthly/model aggregates for the cycle dashboard in one request."""
-    rows = await _cycle_data(get_database(), orderScope)
+    rows = await _cycle_data(get_database(), orderScope, customer)
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 条周期统计数据")
 
 
@@ -465,7 +485,7 @@ async def get_rty_list(
     serialNumber: str | None = Query(None, description="维修 SN (PCODE)"),
     base: str | None = Query(None, description="基地/库位 (data.LGORT)"),
     productModel: str | None = Query(None, description="生产机型 (data.MAKTX_TH)"),
-    customer: str | None = Query(None, description="客户 (data.NAME1_ZU)"),
+    customer: str | None = Query(None, description="客户 ID (data.KID)"),
     dateFrom: str | None = Query(None, description="生产开始日期 (gstrs_date)"),
     dateTo: str | None = Query(None, description="生产开始日期 (gstrs_date)"),
     orderScope: OrderScopeQuery = "normal",
@@ -672,7 +692,7 @@ async def get_bases(orderScope: OrderScopeQuery = "normal"):
 
 @router.get("/customers", response_model=Response[list[str]])
 async def get_customers(orderScope: OrderScopeQuery = "normal"):
-    docs = await _option_totals(get_database(), "data.NAME1_ZU", orderScope)
+    docs = await _option_totals(get_database(), "data.KID", orderScope)
     return Response(success=True, data=[str(doc["_id"]) for doc in docs])
 
 
@@ -683,18 +703,16 @@ async def get_filter_options(orderScope: OrderScopeQuery = "normal"):
     models, bases, customers = await asyncio.gather(
         _option_totals(db, "data.MAKTX_TH", orderScope),
         _option_totals(db, "data.LGORT", orderScope),
-        _option_totals(db, "data.NAME1_ZU", orderScope),
+        _option_totals(db, "data.KID", orderScope),
     )
     return Response(
         success=True,
         data={
             "productModels": [
-                {"model": str(doc["_id"]), "count": round(float(doc["count"]))}
-                for doc in models
+                {"model": str(doc["_id"]), "count": round(float(doc["count"]))} for doc in models
             ],
             "bases": [
-                {"base": str(doc["_id"]), "count": round(float(doc["count"]))}
-                for doc in bases
+                {"base": str(doc["_id"]), "count": round(float(doc["count"]))} for doc in bases
             ],
             "customers": [str(doc["_id"]) for doc in customers],
         },

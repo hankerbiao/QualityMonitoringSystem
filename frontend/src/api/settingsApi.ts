@@ -8,6 +8,19 @@ export interface ApiResponse<T> {
   message?: string;
 }
 
+export interface WeeklyQualifiedModels {
+  window: { from: string; to: string };
+  threshold: number;
+  modelsChecked: number;
+  details: Array<{
+    productModel: string;
+    inputCount: number;
+    defectCount: number;
+    rtyRate: number;
+    targetRate: number;
+  }>;
+}
+
 export const settingsApi = {
   async getAll(): Promise<SettingsResponse> {
     const res = await apiFetch(`${API_BASE_URL}/settings`);
@@ -47,6 +60,13 @@ export const settingsApi = {
     });
     const json: ApiResponse<{ sent: boolean; recipients?: string[]; reason?: string }> = await res.json();
     if (!json.success) throw new Error(json.message || '测试邮件发送失败');
+    return json.data;
+  },
+
+  async getWeeklyQualifiedModels(threshold: number): Promise<WeeklyQualifiedModels> {
+    const res = await apiFetch(`${API_BASE_URL}/settings/email-alert/qualified-models?threshold=${threshold}`);
+    const json: ApiResponse<WeeklyQualifiedModels> = await res.json();
+    if (!json.success) throw new Error(json.message || '符合条件的机型获取失败');
     return json.data;
   },
 
