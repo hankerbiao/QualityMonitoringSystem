@@ -63,17 +63,17 @@ def _rty_order_scope_match(order_scope: OrderScope = "normal") -> dict[str, Any]
     return _rty_queries.rty_order_scope_match(order_scope)
 
 
-_REPAIR_DUPLICATE_METADATA = frozenset(
-    {
-        "_id",
-        "_source_key",
-        "MANDT",
-        "_sync_run_id",
-        "_synced_at",
-        "order_backfill",
-        "customer_backfill",
-        "customer",
-    }
+_REPAIR_BUSINESS_KEY_FIELDS = (
+    "PCODE",
+    "AUFNR",
+    "VBELN",
+    "ZDATE_WX",
+    "ZTIME",
+    "ZMCOD1",
+    "ZNGWD",
+    "ZWXWD",
+    "ZJXMC",
+    "ZUSER",
 )
 
 
@@ -155,21 +155,26 @@ async def _composite_child_repairs(
     return _deduplicate_repair_rows(child_repairs), item_to_heads
 
 
+def _repair_business_key(row: dict[str, Any]) -> tuple[str, ...]:
+    """Identify one repair event independently of SAP client and sync metadata."""
+    values: list[str] = []
+    for field in _REPAIR_BUSINESS_KEY_FIELDS:
+        value = row.get(field)
+        if field == "AUFNR":
+            values.append(_normalize_order(value))
+        elif field == "VBELN":
+            values.append(_normalize_sales_order(value))
+        else:
+            values.append(str(value or "").strip())
+    return tuple(values)
+
+
 def _deduplicate_repair_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Collapse the same repair event ingested from multiple SAP clients."""
-    seen: dict[tuple[tuple[str, str], ...], int] = {}
+    """Collapse cross-client copies using the stable repair business fields."""
+    seen: dict[tuple[str, ...], int] = {}
     unique: list[dict[str, Any]] = []
     for row in rows:
-        key = tuple(
-            sorted(
-                (
-                    str(field),
-                    repr(_normalize_sales_order(value) if field == "VBELN" else value),
-                )
-                for field, value in row.items()
-                if field not in _REPAIR_DUPLICATE_METADATA
-            )
-        )
+        key = _repair_business_key(row)
         if key in seen:
             existing = unique[seen[key]]
             if not existing.get("customer") and row.get("customer"):
