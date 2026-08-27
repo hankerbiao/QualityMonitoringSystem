@@ -152,6 +152,7 @@ class TestStationRecordRTY:
             ("2026-03", "M-2"),
         }
         feb = next(row for row in rows if row["time"] == "2026-02")
+        assert feb["base"] == "9000"
         assert feb["inputCount"] == 2
         assert feb["defectCount"] == 1
         assert feb["rtyRate"] == 50.0

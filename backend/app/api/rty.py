@@ -257,6 +257,7 @@ async def _cycle_data(
                 "data.WMENG": 1,
                 "data.MAKTX_TH": 1,
                 "data.KID": 1,
+                "data.LGORT": 1,
             },
         )
         .sort([("gstrs_date", 1), ("aufnr", 1)])
@@ -265,21 +266,24 @@ async def _cycle_data(
     if len(sales_docs) > MAX_CYCLE_SALES_ROW_COUNT:
         raise HTTPException(status_code=413, detail="销售订单周期统计数据超过上限")
 
-    # Match the list endpoint's sales-order grouping: an order is assigned to
-    # the month of its first GSTRS row while WMENG is summed across its rows.
-    order_groups: dict[str, dict[str, Any]] = {}
-    order_to_groups: dict[str, set[str]] = {}
+    # A sales order can span multiple bases. Keep each base separate so the
+    # cycle dashboard can filter it without dropping a later base row.
+    order_groups: dict[tuple[str, str], dict[str, Any]] = {}
+    order_to_groups: dict[str, set[tuple[str, str]]] = {}
     for doc in sales_docs:
         raw_data = doc.get("data") or {}
         sales_order = str(raw_data.get("VBELN") or "").strip()
         production_order = str(doc.get("aufnr") or "").strip()
         if not sales_order or not production_order:
             continue
+        base = str(raw_data.get("LGORT") or "").strip()
+        group_id = (sales_order, base)
         group = order_groups.setdefault(
-            sales_order,
+            group_id,
             {
                 "month": str(doc.get("gstrs_date") or "")[:7],
                 "model": str(raw_data.get("MAKTX_TH") or ""),
+                "base": base,
                 "input": 0.0,
                 "orders": set(),
                 "fault_sns": set(),
@@ -287,7 +291,7 @@ async def _cycle_data(
         )
         group["input"] += _wmeng_value(raw_data.get("WMENG"))
         group["orders"].add(production_order)
-        order_to_groups.setdefault(_normalize_order(production_order), set()).add(sales_order)
+        order_to_groups.setdefault(_normalize_order(production_order), set()).add(group_id)
 
     if not order_groups:
         return []
@@ -313,8 +317,8 @@ async def _cycle_data(
         sn = str(repair.get("PCODE") or "").strip()
         if not sn:
             continue
-        for sales_order in order_to_groups.get(_normalize_order(repair.get("AUFNR")), set()):
-            order_groups[sales_order]["fault_sns"].add(sn)
+        for group_id in order_to_groups.get(_normalize_order(repair.get("AUFNR")), set()):
+            order_groups[group_id]["fault_sns"].add(sn)
 
     # Composite products count BOX faults against the bound head SN.  Query all
     # bindings and child repairs in bulk instead of once per sales-order group.
@@ -380,32 +384,32 @@ async def _cycle_data(
             for repair in child_repairs:
                 head_sns = item_to_heads.get(str(repair.get("PCODE") or "").strip(), set())
                 for head_sn in head_sns:
-                    for sales_order in item_to_sales.get(
+                    for group_id in item_to_sales.get(
                         _normalize_order(repair.get("AUFNR")), set()
                     ):
-                        order_groups[sales_order]["fault_sns"].add(head_sn)
+                        order_groups[group_id]["fault_sns"].add(head_sn)
 
     targets_doc = await db[Collections.CONFIGS].find_one({"key": "model_targets"})
     targets = (targets_doc or {}).get("targets", {}) or {}
-    month_groups: dict[tuple[str, str], dict[str, Any]] = {}
+    month_groups: dict[tuple[str, str, str], dict[str, Any]] = {}
     for group in order_groups.values():
-        key = (group["month"], group["model"])
+        key = (group["month"], group["model"], group["base"])
         aggregate = month_groups.setdefault(key, {"input": 0.0, "fault_sns": set()})
         aggregate["input"] += group["input"]
         aggregate["fault_sns"].update(group["fault_sns"])
 
     rows: list[RTYData] = []
-    for (month, model), aggregate in sorted(month_groups.items()):
+    for (month, model, base), aggregate in sorted(month_groups.items()):
         input_count = round(aggregate["input"])
         defect_count = len(aggregate["fault_sns"])
         rows.append(
             RTYData(
-                id=f"cycle:{month}:{model}",
+                id=f"cycle:{month}:{model}:{base}",
                 time=month,
                 model="复合机型" if model in COMPOSITE_MODEL_ITEMS else "普通机型",
                 productModel=model,
                 customer=str(customer or "").strip(),
-                base="",
+                base=base,
                 defectCount=defect_count,
                 inputCount=input_count,
                 rtyRate=round((1 - defect_count / input_count) * 100, 2) if input_count else 100.0,

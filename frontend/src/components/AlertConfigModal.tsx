@@ -24,6 +24,20 @@ interface AlertConfigModalProps {
   orderScope?: RTYFilterParams['orderScope'];
 }
 
+type ScopeSummaryCell = {
+  inputCount: number;
+  defectCount: number;
+  rtyRate: number;
+};
+
+type ScopeSummaryRow = {
+  scope: RTYFilterParams['orderScope'];
+  label: string;
+  months: Record<string, ScopeSummaryCell>;
+  totalInput: number;
+  totalDefect: number;
+};
+
 // 预定义一些颜色，用于图表中的不同机型
 const COLORS = ['#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444', '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16'];
 
@@ -36,6 +50,30 @@ function getPresetRange(months: number): { start: string; end: string } {
   const start = new Date(end);
   start.setMonth(start.getMonth() - months);
   return { start: formatMonth(start), end: formatMonth(end) };
+}
+
+function filterCycleData(
+  data: RTYData[],
+  timeFilter: '6' | '12' | 'custom',
+  customStart: string,
+  customEnd: string,
+  selectedBases: Set<string> | null,
+): RTYData[] {
+  let result = data;
+  if (timeFilter !== 'custom') {
+    const startDate = new Date();
+    startDate.setMonth(startDate.getMonth() - Number(timeFilter));
+    result = result.filter(item => new Date(item.time) >= startDate);
+  } else if (customStart && customEnd) {
+    result = result.filter(item => {
+      const month = item.time.substring(0, 7);
+      return month >= customStart && month <= customEnd;
+    });
+  }
+
+  return selectedBases && selectedBases.size > 0
+    ? result.filter(item => selectedBases.has(item.base))
+    : result;
 }
 
 export default function AlertConfigModal({
@@ -53,6 +91,8 @@ export default function AlertConfigModal({
   // 机型筛选状态
   const [selectedModels, setSelectedModels] = useState<Set<string> | null>(null);
   const [showModelFilter, setShowModelFilter] = useState(false);
+  const [selectedBases, setSelectedBases] = useState<Set<string> | null>(null);
+  const [showBaseFilter, setShowBaseFilter] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState('');
   const [customerList, setCustomerList] = useState<string[]>([]);
   const [showCustomerFilter, setShowCustomerFilter] = useState(false);
@@ -65,12 +105,23 @@ export default function AlertConfigModal({
   
   // 独立数据拉取（不受主表单影响）
   const [allRawData, setAllRawData] = useState<RTYData[]>([]);
+  const [scopeRawData, setScopeRawData] = useState<Record<RTYFilterParams['orderScope'], RTYData[]>>({
+    normal: [],
+    l6: [],
+  });
   const [loading, setLoading] = useState(true);
 
   const fetchAllData = useCallback(async () => {
     setLoading(true);
     try {
-      setAllRawData(await rtyApi.getCycleData(orderScope, selectedCustomer || undefined));
+      const customer = selectedCustomer || undefined;
+      const [currentData, normalData, l6Data] = await Promise.all([
+        rtyApi.getCycleData(orderScope, customer),
+        rtyApi.getCycleData('normal', customer),
+        rtyApi.getCycleData('l6', customer),
+      ]);
+      setAllRawData(currentData);
+      setScopeRawData({ normal: normalData, l6: l6Data });
     } catch (error) {
       console.error('Failed to fetch cycle stats data', error);
     } finally {
@@ -100,8 +151,6 @@ export default function AlertConfigModal({
     loadCustomers();
   }, [orderScope]);
 
-  const baseDate = new Date();
-
   const handlePresetRange = (months: '6' | '12') => {
     const range = getPresetRange(Number(months));
     setTimeFilter(months);
@@ -110,22 +159,13 @@ export default function AlertConfigModal({
   };
   
   const filteredData = useMemo(() => {
-    let result = allRawData;
-    if (timeFilter !== 'custom') {
-      const monthsToSubtract = parseInt(timeFilter);
-      const startDate = new Date(baseDate);
-      startDate.setMonth(startDate.getMonth() - monthsToSubtract);
-      result = result.filter(item => new Date(item.time) >= startDate);
-    } else {
-      if (customStart && customEnd) {
-        result = result.filter(item => {
-          const month = item.time.substring(0, 7);
-          return month >= customStart && month <= customEnd;
-        });
-      }
-    }
-    return result;
-  }, [allRawData, timeFilter, customStart, customEnd]);
+    return filterCycleData(allRawData, timeFilter, customStart, customEnd, selectedBases);
+  }, [allRawData, timeFilter, customStart, customEnd, selectedBases]);
+
+  const baseOptions = useMemo(
+    () => Array.from(new Set(allRawData.map(item => item.base).filter(Boolean))).sort(),
+    [allRawData],
+  );
 
   const { trendData, trendModels, tableData, allMonths } = useMemo(() => {
     const map = new Map<string, any>();
@@ -199,6 +239,43 @@ export default function AlertConfigModal({
     return trendModels.filter(m => selectedModels.has(m));
   }, [trendModels, selectedModels]);
 
+  const scopeSummaryRows = useMemo<ScopeSummaryRow[]>(() => (
+    (['normal', 'l6'] as const).map(scope => {
+      const months: Record<string, ScopeSummaryCell> = {};
+      let totalInput = 0;
+      let totalDefect = 0;
+
+      filterCycleData(scopeRawData[scope], timeFilter, customStart, customEnd, selectedBases).forEach(item => {
+        const month = item.time.substring(0, 7);
+        const current = months[month] || { inputCount: 0, defectCount: 0, rtyRate: 0 };
+        current.inputCount += item.inputCount;
+        current.defectCount += item.defectCount;
+        current.rtyRate = current.inputCount > 0
+          ? ((current.inputCount - current.defectCount) / current.inputCount) * 100
+          : 0;
+        months[month] = current;
+        totalInput += item.inputCount;
+        totalDefect += item.defectCount;
+      });
+
+      return {
+        scope,
+        label: scope === 'normal' ? '普通订单汇总' : 'L6 订单汇总',
+        months,
+        totalInput,
+        totalDefect,
+      };
+    })
+  ), [scopeRawData, timeFilter, customStart, customEnd, selectedBases]);
+
+  const heatmapMonths = useMemo(
+    () => Array.from(new Set([
+      ...allMonths,
+      ...scopeSummaryRows.flatMap(row => Object.keys(row.months)),
+    ])).sort(),
+    [allMonths, scopeSummaryRows],
+  );
+
   // 机型选择/取消的辅助函数
   const toggleModel = (model: string) => {
     setSelectedModels(prev => {
@@ -214,6 +291,21 @@ export default function AlertConfigModal({
 
   const selectAllModels = () => setSelectedModels(null);
   const clearAllModels = () => setSelectedModels(new Set());
+
+  const toggleBase = (base: string) => {
+    setSelectedBases(previous => {
+      const next = previous ? new Set(previous) : new Set(baseOptions);
+      if (next.has(base)) {
+        next.delete(base);
+      } else {
+        next.add(base);
+      }
+      return next;
+    });
+  };
+
+  const selectAllBases = () => setSelectedBases(null);
+  const clearAllBases = () => setSelectedBases(new Set());
 
   const handleSaveFilter = async () => {
     try {
@@ -444,6 +536,63 @@ export default function AlertConfigModal({
                   )}
                 </div>
 
+                {/* 生产基地筛选：影响整个周期统计口径 */}
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowBaseFilter(!showBaseFilter)}
+                    className={`flex items-center gap-1.5 px-3 py-1 text-xs rounded-sm border ${showBaseFilter || (selectedBases?.size ?? 0) > 0 ? 'bg-blue-50 border-blue-200 text-blue-700 font-medium' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    <Filter className="w-3 h-3" />
+                    生产基地
+                    {selectedBases && selectedBases.size > 0 && (
+                      <span className="ml-1 px-1.5 py-0.5 bg-blue-600 text-white rounded text-[10px]">
+                        {selectedBases.size}
+                      </span>
+                    )}
+                  </button>
+
+                  {showBaseFilter && (
+                    <div className="absolute top-full right-0 mt-1 bg-white border border-slate-200 rounded-sm shadow-lg z-10 p-3 min-w-48">
+                      <div className="flex gap-2 mb-2 pb-2 border-b border-slate-100">
+                        <button
+                          type="button"
+                          onClick={selectAllBases}
+                          className="text-xs text-blue-600 hover:text-blue-800"
+                        >
+                          全部基地
+                        </button>
+                        <button
+                          type="button"
+                          onClick={clearAllBases}
+                          className="text-xs text-slate-500 hover:text-slate-700"
+                        >
+                          清空
+                        </button>
+                      </div>
+                      <div className="max-h-40 overflow-y-auto space-y-1">
+                        {baseOptions.map(base => {
+                          const isSelected = selectedBases === null || selectedBases.has(base);
+                          return (
+                            <label key={base} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 px-1 py-0.5 rounded">
+                              <input
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={() => toggleBase(base)}
+                                className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600"
+                              />
+                              <span className="text-xs text-slate-700 truncate" title={base}>{base}</span>
+                            </label>
+                          );
+                        })}
+                        {baseOptions.length === 0 && (
+                          <p className="px-1 py-2 text-xs text-slate-400">暂无基地数据</p>
+                        )}
+                      </div>
+                    </div>
+                  )}
+                </div>
+
                 {/* 客户筛选 */}
                 <div className="relative">
                   <button
@@ -537,7 +686,16 @@ export default function AlertConfigModal({
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
                       <XAxis dataKey="time" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} dy={8} />
                       <YAxis yAxisId="input" axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} />
-                      <YAxis yAxisId="rty" orientation="right" domain={['dataMin - 2', 100]} axisLine={false} tickLine={false} tick={{ fill: '#64748b', fontSize: 10 }} tickFormatter={(value) => `${value}%`} />
+                      <YAxis
+                        yAxisId="rty"
+                        orientation="right"
+                        domain={[0, 100]}
+                        ticks={[0, 25, 50, 75, 100]}
+                        axisLine={false}
+                        tickLine={false}
+                        tick={{ fill: '#64748b', fontSize: 10 }}
+                        tickFormatter={(value) => `${value}%`}
+                      />
                       <Tooltip
                         contentStyle={{ borderRadius: '4px', border: '1px solid #e2e8f0', fontSize: '11px' }}
                         formatter={(value, name) => name?.toString().includes('RTY') ? `${Number(value).toFixed(3)}%` : Number(value).toLocaleString()}
@@ -556,7 +714,7 @@ export default function AlertConfigModal({
             )}
             
             {/* 热力图模式 */}
-            {trendData && trendData.length > 0 && viewMode === 'heatmap' && (
+            {heatmapMonths.length > 0 && viewMode === 'heatmap' && (
               <div className="mb-8">
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-4">
@@ -578,17 +736,54 @@ export default function AlertConfigModal({
                     <thead className="bg-[#f8fafc] border-b border-slate-200">
                       <tr>
                         <th className="px-3 py-2 border-r border-slate-100 text-[11px] font-semibold text-slate-600 whitespace-nowrap sticky left-0 bg-[#f8fafc] z-10">机型</th>
-                        {allMonths.map(month => (
+                        {heatmapMonths.map(month => (
                           <th key={month} className="px-2 py-2 border-r border-slate-100 text-[10px] text-slate-500 text-center min-w-[60px]">{month}</th>
                         ))}
-                        <th className="px-2 py-2 border-r border-slate-100 text-[10px] font-semibold text-slate-500 text-center bg-slate-100">平均</th>
+                        <th className="px-2 py-2 border-r border-slate-100 text-[10px] font-semibold text-slate-500 text-center bg-slate-100">产量汇总</th>
                       </tr>
                     </thead>
                     <tbody>
+                      {scopeSummaryRows.map(row => {
+                        const totalRty = row.totalInput > 0
+                          ? ((row.totalInput - row.totalDefect) / row.totalInput) * 100
+                          : null;
+                        const tone = row.scope === 'normal'
+                          ? 'bg-sky-50 text-sky-800'
+                          : 'bg-violet-50 text-violet-800';
+
+                        return (
+                          <tr key={row.scope} className={`border-b border-slate-200 font-semibold ${tone}`}>
+                            <td className={`px-3 py-2 border-r border-slate-200 text-[11px] whitespace-nowrap sticky left-0 z-10 ${tone}`}>
+                              {row.label}
+                            </td>
+                            {heatmapMonths.map(month => {
+                              const cell = row.months[month];
+                              return (
+                                <td key={month} className={`px-2 py-2 border-r border-slate-200 text-center text-[10px] ${tone}`}>
+                                  {cell ? (
+                                    <div className="leading-tight">
+                                      <div>{cell.rtyRate.toFixed(2)}%</div>
+                                      <div className="mt-0.5 text-[9px] font-normal opacity-80">{cell.defectCount}/{cell.inputCount}</div>
+                                    </div>
+                                  ) : '-'}
+                                </td>
+                              );
+                            })}
+                            <td className={`px-2 py-2 border-r border-slate-200 text-center text-[10px] ${tone}`}>
+                              {totalRty === null ? '-' : (
+                                <div className="leading-tight">
+                                  <div>{totalRty.toFixed(2)}%</div>
+                                  <div className="mt-0.5 text-[9px] font-normal opacity-80">{row.totalInput.toLocaleString()} 台</div>
+                                </div>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
                       {tableData
                         .filter(row => displayModels.includes(row.model))
                         .map((row, idx) => {
-                        const validMonths = allMonths.filter(m => row[m]?.text && row[m].text !== '-');
+                        const validMonths = heatmapMonths.filter(m => row[m]?.text && row[m].text !== '-');
                         const avgRty = validMonths.length > 0 
                           ? validMonths.reduce((sum, m) => {
                               const match = row[m]?.text?.match(/^([\d.]+)%/);
@@ -601,7 +796,7 @@ export default function AlertConfigModal({
                             <td className="px-3 py-2 border-r border-slate-100 text-[11px] font-medium text-slate-700 whitespace-nowrap sticky left-0 bg-white z-10">
                               {row.model}
                             </td>
-                            {allMonths.map(month => {
+                            {heatmapMonths.map(month => {
                               const cell = row[month];
                               const hasData = cell?.text && cell?.text !== '-';
                               const rtyMatch = cell?.text?.match(/^([\d.]+)%/);
