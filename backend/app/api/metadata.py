@@ -37,6 +37,20 @@ class MetadataTableResponse(MetadataTableDefinition):
 
 
 TABLE_DEFINITIONS: dict[str, MetadataTableDefinition] = {
+    Collections.MACHINE_INFO: MetadataTableDefinition(
+        key=Collections.MACHINE_INFO,
+        title="整机信息",
+        description="MES 整机序列号、订单、基地与产品机型信息。",
+        columns=[
+            MetadataColumn(key="sn", label="整机序列号"),
+            MetadataColumn(key="sale_no", label="销售订单"),
+            MetadataColumn(key="mfg_order", label="生产订单"),
+            MetadataColumn(key="factory", label="生产基地"),
+            MetadataColumn(key="product_family", label="产品机型"),
+            MetadataColumn(key="s_MFGLINENAME", label="产线"),
+            MetadataColumn(key="customer_id", label="客户"),
+        ],
+    ),
     Collections.SALES_ORDERS_SAP: MetadataTableDefinition(
         key=Collections.SALES_ORDERS_SAP,
         title="SAP 销售订单",
@@ -98,9 +112,10 @@ TABLE_DEFINITIONS: dict[str, MetadataTableDefinition] = {
         columns=[
             MetadataColumn(key="AUFNR_1", label="生产订单"),
             MetadataColumn(key="VBELN_EX", label="销售订单"),
+            MetadataColumn(key="GSTRS", label="计划开始"),
             MetadataColumn(key="MATNR", label="物料编码"),
             MetadataColumn(key="MAKTX", label="物料描述"),
-            MetadataColumn(key="MENGE", label="发料数量"),
+            MetadataColumn(key="MENGE_A", label="发料数量"),
             MetadataColumn(key="BUDAT_MKPF", label="过账日期"),
             MetadataColumn(key="LGORT", label="库存地点"),
             MetadataColumn(key="WERKS", label="工厂"),

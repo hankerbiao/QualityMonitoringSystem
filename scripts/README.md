@@ -35,6 +35,15 @@ uv run --project backend python -m scripts.sync_views \
 
 每个集合以来源业务键幂等更新，不会清空历史记录。水位线和运行审计分别保存在
 `_hana_sync_checkpoints`、`_hana_sync_runs`。进程环境变量优先于 `backend/.env` 配置。
+订单 BOM 同步会保留缺失 `AUFNR_1` 的记录；其余记录的 `VBELN_EX` 必须存在于
+销售订单看板 `sales_orders_sap.data.VBELN`。不匹配记录会在运行统计的 `filtered`
+字段中体现。写入时以 `AUFNR_1` 优先、`VBELN_EX` 兜底关联销售订单看板，并将对应的
+`data.GSTRS` 同步到 BOM 文档的 `GSTRS` 字段。历史 BOM 数据可先预览、再执行回填：
+
+```bash
+uv run --project backend python scripts/maintenance/backfill_order_bom_gstrs.py
+uv run --project backend python scripts/maintenance/backfill_order_bom_gstrs.py --apply
+```
 
 RTY（SAP 销售订单 + 维修记录补全）统一使用 `sync_rty_incremental.py`：
 
@@ -92,6 +101,8 @@ uv run --project backend python scripts/sync_scs_incremental.py \
 | `maintenance/backfill_repair_orders_from_sap_sn.py` | 一次性维护 | 合并缺失订单字段的 SN，分批调用 SAP `ZSIMS_CL_INBOUND_SN_INFO` 回填；默认只统计，传 `--apply` 才写库 |
 | `maintenance/backfill_repair_customers.py` | 一次性维护 | 按生产订单回填维修记录客户；已由 RTY 统一同步任务覆盖 |
 | `maintenance/benchmark_rty.py` | 手工诊断 | 只读 RTY 查询性能与执行计划基准 |
+| `maintenance/clean_order_bom_by_sales_orders.py` | 一次性维护 | 清理有 `AUFNR_1` 但销售订单不在看板中的 BOM 记录；默认 dry-run，`--apply` 才删除 |
+| `maintenance/backfill_order_bom_gstrs.py` | 一次性维护 | 从销售订单看板按生产订单优先、销售订单兜底回填 BOM `GSTRS`；默认 dry-run，`--apply` 才写入 |
 
 ## 迁移和清理说明
 

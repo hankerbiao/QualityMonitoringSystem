@@ -241,11 +241,11 @@ class ProcessRecordGateway:
         base: str,
         station: str,
     ) -> ProcessRecordSourceResult:
-        clients = await self._ensure_clients()
         source_base = BASE_FILTER_VALUES.get(base, {}).get(source) if base else ""
         if base and not source_base:
             return ProcessRecordSourceResult(online=True)
         try:
+            clients = await self._ensure_clients()
             payload = await clients[source].fetch_page(
                 page,
                 page_size,

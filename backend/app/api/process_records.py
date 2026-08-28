@@ -7,6 +7,7 @@ from fastapi import Response as FastAPIResponse
 
 from app.schemas.common import Response
 from app.schemas.process_records import ProcessRecordFilterOptions, ProcessRecordRealtimeData
+from app.services.credential_crypto import CredentialEncryptionError
 from app.services.process_record_service import (
     CredentialsNotConfiguredError,
     get_filter_options,
@@ -34,7 +35,7 @@ async def get_realtime_records(
             base.strip(),
             station.strip(),
         )
-    except CredentialsNotConfiguredError as exc:
+    except (CredentialsNotConfiguredError, CredentialEncryptionError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -53,7 +54,7 @@ async def get_record_image(
 ):
     try:
         content, content_type = await process_record_gateway.fetch_image(source, path)
-    except CredentialsNotConfiguredError as exc:
+    except (CredentialsNotConfiguredError, CredentialEncryptionError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

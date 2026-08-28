@@ -44,11 +44,11 @@ export const qualityModules: readonly HomeModuleDefinition[] = [
     id: 'lrr',
     code: 'LRR',
     title: 'LRR（工厂阶段部件故障率）',
-    description: '按机型、部件类型和 PN 分析工厂阶段故障率，快速定位缺陷根因。',
+    description: '基于订单 BOM 发料与故障看板，按生产订单、销售订单和库存点分析部件故障率。',
     icon: AlertTriangle,
     accent: 'amber',
     path: '/lrr',
-    status: 'planned',
+    status: 'available',
   },
   {
     id: 'doa-repair',

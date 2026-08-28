@@ -51,6 +51,8 @@ async def create_indexes() -> None:
     await mongodb.db.fault_info.create_index([("sn", 1)])
     await mongodb.db.fault_info.create_index([("fault_category", 1)])
     await mongodb.db.fault_info.create_index([("reinsert_lot", 1)])  # LRR 故障聚合
+    await mongodb.db.fault_info.create_index([("mfg_order", 1)])
+    await mongodb.db.fault_info.create_index([("sale_no", 1)])
 
     # RTY: 2026 工位投入 SN 与维修故障 SN 的实时交集计算。
     await mongodb.db.station_records_sap.create_index([("GSTRS", 1), ("KDAUF", 1), ("PCODE", 1)])
@@ -82,6 +84,9 @@ async def create_indexes() -> None:
         [("mfg_order", 1), ("chassis_no", 1)], unique=True
     )
     await mongodb.db.assembly_records.create_index("chassis_no")
+
+    # 订单 BOM LRR: 按订单/库存点筛选，并读取 MATNR、MENGE_A 聚合
+    await mongodb.db.order_bom_postings_sap.create_index([("AUFNR_1", 1), ("VBELN_EX", 1), ("LGORT", 1), ("MATNR", 1)])
 
     # 销售订单双来源同步集合：aufnr 跨来源唯一业务键
     from app.repositories import sales_order_repository

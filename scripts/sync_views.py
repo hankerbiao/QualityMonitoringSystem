@@ -27,11 +27,21 @@ from pathlib import Path
 from typing import Any, Iterator, Mapping, Sequence
 from uuid import uuid4
 
-
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_ENV_FILE = PROJECT_ROOT / "backend" / ".env"
+BACKEND_DIR = PROJECT_ROOT / "backend"
+if str(BACKEND_DIR) not in sys.path:
+    sys.path.insert(0, str(BACKEND_DIR))
+
+from app.services.order_bom_gstrs import (  # noqa: E402
+    OrderBomGstrsLookup,
+    build_order_bom_gstrs_lookup,
+    normalize_production_order,
+)
+
 CHECKPOINTS_COLLECTION = "_hana_sync_checkpoints"
 RUNS_COLLECTION = "_hana_sync_runs"
+SALES_ORDERS_COLLECTION = "sales_orders_sap"
 logger = logging.getLogger("hana_mongodb_sync")
 
 
@@ -67,13 +77,9 @@ class HanaSettings:
             port = int(os.getenv("HANA_PORT", "30015"))
             timeout = int(os.getenv("HANA_CONNECT_TIMEOUT", "120"))
         except ValueError as exc:
-            raise ConfigurationError(
-                "HANA_PORT and HANA_CONNECT_TIMEOUT must be integers"
-            ) from exc
+            raise ConfigurationError("HANA_PORT and HANA_CONNECT_TIMEOUT must be integers") from exc
         if port < 1 or timeout < 1:
-            raise ConfigurationError(
-                "HANA_PORT and HANA_CONNECT_TIMEOUT must be greater than zero"
-            )
+            raise ConfigurationError("HANA_PORT and HANA_CONNECT_TIMEOUT must be greater than zero")
         return cls(
             address=required["HANA_ADDRESS"],
             port=port,
@@ -212,6 +218,10 @@ class SyncStats:
     upserted: int = 0
     matched: int = 0
     modified: int = 0
+    filtered: int = 0
+    gstrs_enriched: int = 0
+    gstrs_unmatched: int = 0
+    gstrs_ambiguous: int = 0
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -224,6 +234,10 @@ class SyncStats:
             "upserted": self.upserted,
             "matched": self.matched,
             "modified": self.modified,
+            "filtered": self.filtered,
+            "gstrs_enriched": self.gstrs_enriched,
+            "gstrs_unmatched": self.gstrs_unmatched,
+            "gstrs_ambiguous": self.gstrs_ambiguous,
         }
 
 
@@ -254,9 +268,7 @@ def normalize_start_date(value: str) -> str:
     try:
         return datetime.strptime(normalized, "%Y%m%d").strftime("%Y%m%d")
     except ValueError as exc:
-        raise ConfigurationError(
-            "SYNC_START_DATE must use YYYY-MM-DD or YYYYMMDD"
-        ) from exc
+        raise ConfigurationError("SYNC_START_DATE must use YYYY-MM-DD or YYYYMMDD") from exc
 
 
 def normalize_key_value(value: Any) -> str | None:
@@ -268,6 +280,38 @@ def normalize_key_value(value: Any) -> str | None:
         return format(value, "f")
     value = str(value).strip()
     return value or None
+
+
+def normalize_sales_order(value: Any) -> str:
+    """Normalize SAP VBELN values before comparing collections."""
+    text = str(value or "").strip()
+    if not text or (text.isdigit() and not text.lstrip("0")):
+        return ""
+    return text.lstrip("0") if text.isdigit() else text
+
+
+def load_sales_order_vbelns(database: Any) -> set[str]:
+    """Load sales-order IDs currently exposed by the sales-order dashboard."""
+    return {
+        vbeln
+        for document in database[SALES_ORDERS_COLLECTION].find({}, {"data.VBELN": 1})
+        if (vbeln := normalize_sales_order((document.get("data") or {}).get("VBELN")))
+    }
+
+
+def should_sync_bom_row(row: Mapping[str, Any], sales_order_vbelns: set[str]) -> bool:
+    """Keep BOM rows without AUFNR_1; otherwise require a known sales order."""
+    if not normalize_production_order(row.get("AUFNR_1")):
+        return True
+    return normalize_sales_order(row.get("VBELN_EX")) in sales_order_vbelns
+
+
+def load_order_bom_gstrs_lookup(database: Any) -> OrderBomGstrsLookup:
+    """Load dashboard GSTRS values for BOM AUFNR/VBELN enrichment."""
+    documents = database[SALES_ORDERS_COLLECTION].find(
+        {}, {"aufnr": 1, "data.VBELN": 1, "data.GSTRS": 1}
+    )
+    return build_order_bom_gstrs_lookup(documents)
 
 
 def full_row_source_key(row: Mapping[str, Any]) -> str:
@@ -291,9 +335,7 @@ def build_source_key(row: Mapping[str, Any], spec: ViewSpec) -> str:
     if missing:
         if spec.fallback_to_full_row:
             return full_row_source_key(row)
-        raise SyncError(
-            f"{spec.view_id} row is missing key field(s): {', '.join(missing)}"
-        )
+        raise SyncError(f"{spec.view_id} row is missing key field(s): {', '.join(missing)}")
     return json.dumps(values, ensure_ascii=False, separators=(",", ":"))
 
 
@@ -315,34 +357,26 @@ def date_overlap(value: Any) -> Any:
     normalized = normalize_key_value(value)
     if normalized and len(normalized) == 8 and normalized.isdigit():
         try:
-            return (
-                datetime.strptime(normalized, "%Y%m%d") - timedelta(days=1)
-            ).strftime("%Y%m%d")
+            return (datetime.strptime(normalized, "%Y%m%d") - timedelta(days=1)).strftime("%Y%m%d")
         except ValueError:
             pass
     return value
 
 
-def max_watermark(
-    spec: ViewSpec, current: Any | None, row: Mapping[str, Any]
-) -> Any | None:
+def max_watermark(spec: ViewSpec, current: Any | None, row: Mapping[str, Any]) -> Any | None:
     if not spec.watermark_fields:
         return current
     if len(spec.watermark_fields) == 2:
-        values = tuple(
-            normalize_key_value(row.get(field)) for field in spec.watermark_fields
-        )
+        values = tuple(normalize_key_value(row.get(field)) for field in spec.watermark_fields)
         if any(value is None for value in values):
             return current
-        candidate = dict(zip(spec.watermark_fields, values))
+        candidate = dict(zip(spec.watermark_fields, values, strict=True))
         current_values = (
             tuple(str(current.get(field, "")) for field in spec.watermark_fields)
             if isinstance(current, Mapping)
             else None
         )
-        return (
-            candidate if current_values is None or values > current_values else current
-        )
+        return candidate if current_values is None or values > current_values else current
     value = row.get(spec.watermark_fields[0])
     if value is None:
         return current
@@ -358,9 +392,7 @@ def hana_connection(settings: HanaSettings) -> Iterator[Any]:
     try:
         from hdbcli import dbapi
     except ImportError as exc:
-        raise ConfigurationError(
-            "hdbcli is required; run: uv sync --project backend"
-        ) from exc
+        raise ConfigurationError("hdbcli is required; run: uv sync --project backend") from exc
     connection = dbapi.connect(**settings.connector_kwargs())
     try:
         yield connection
@@ -411,9 +443,7 @@ def build_query(
 
 
 def ensure_indexes(database: Any, spec: ViewSpec) -> None:
-    database[CHECKPOINTS_COLLECTION].create_index(
-        "view_id", unique=True, name="view_id_unique"
-    )
+    database[CHECKPOINTS_COLLECTION].create_index("view_id", unique=True, name="view_id_unique")
     database[RUNS_COLLECTION].create_index(
         [("view_id", 1), ("started_at", -1)], name="view_started_at"
     )
@@ -440,9 +470,7 @@ def sync_view(
         if dry_run or mode == "full"
         else database[CHECKPOINTS_COLLECTION].find_one({"_id": spec.view_id})
     )
-    sql, params = build_query(
-        spec, mode=mode, checkpoint=checkpoint, start_date=start_date
-    )
+    sql, params = build_query(spec, mode=mode, checkpoint=checkpoint, start_date=start_date)
     logger.info("syncing %s into %s", spec.view_id, spec.collection)
     if not dry_run:
         ensure_indexes(database, spec)
@@ -458,6 +486,16 @@ def sync_view(
             }
         )
     collection = database[spec.collection] if database is not None else None
+    valid_bom_vbelns = (
+        load_sales_order_vbelns(database)
+        if not dry_run and spec.collection == "order_bom_postings_sap"
+        else None
+    )
+    bom_gstrs_lookup = (
+        load_order_bom_gstrs_lookup(database)
+        if not dry_run and spec.collection == "order_bom_postings_sap"
+        else None
+    )
     seen_keys: set[str] = set()
     watermark: Any | None = None
     try:
@@ -468,12 +506,17 @@ def sync_view(
                 while rows := cursor.fetchmany(batch_size):
                     operations = []
                     for values in rows:
-                        row = dict(zip(spec.columns, values))
+                        row = dict(zip(spec.columns, values, strict=True))
+                        watermark = max_watermark(spec, watermark, row)
+                        if (
+                            valid_bom_vbelns is not None
+                            and not should_sync_bom_row(row, valid_bom_vbelns)
+                        ):
+                            stats.filtered += 1
+                            continue
                         key = build_source_key(row, spec)
                         fallback_key = (
-                            full_row_source_key(row)
-                            if spec.fallback_to_full_row
-                            else None
+                            full_row_source_key(row) if spec.fallback_to_full_row else None
                         )
                         if fallback_key and fallback_key in seen_keys:
                             continue
@@ -481,21 +524,26 @@ def sync_view(
                             if fallback_key:
                                 key = fallback_key
                             else:
-                                raise SyncError(
-                                    f"Duplicate business key in {spec.view_id}: {key}"
-                                )
+                                raise SyncError(f"Duplicate business key in {spec.view_id}: {key}")
                         seen_keys.add(key)
                         if fallback_key:
                             seen_keys.add(fallback_key)
-                        watermark = max_watermark(spec, watermark, row)
                         stats.source_rows += 1
                         if not dry_run:
                             from pymongo import UpdateOne
 
-                            document = {
-                                field: to_bson_value(value)
-                                for field, value in row.items()
-                            }
+                            document = {field: to_bson_value(value) for field, value in row.items()}
+                            if bom_gstrs_lookup is not None:
+                                gstrs_match = bom_gstrs_lookup.resolve(
+                                    row.get("AUFNR_1"), row.get("VBELN_EX")
+                                )
+                                if gstrs_match.value is not None:
+                                    document["GSTRS"] = to_bson_value(gstrs_match.value)
+                                    stats.gstrs_enriched += 1
+                                elif gstrs_match.ambiguous:
+                                    stats.gstrs_ambiguous += 1
+                                else:
+                                    stats.gstrs_unmatched += 1
                             document.update(
                                 {
                                     "_source_view": spec.view_id,
@@ -510,9 +558,7 @@ def sync_view(
                                     {
                                         "$set": document,
                                         "$setOnInsert": {
-                                            "_id": hashlib.sha256(
-                                                key.encode("utf-8")
-                                            ).hexdigest()
+                                            "_id": hashlib.sha256(key.encode("utf-8")).hexdigest()
                                         },
                                     },
                                     upsert=True,
@@ -575,12 +621,8 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="Synchronize registered HANA views to QualityMonitoringSystem MongoDB"
     )
-    parser.add_argument(
-        "--mode", choices=("full", "incremental"), default="incremental"
-    )
-    parser.add_argument(
-        "--view", action="append", dest="views", choices=tuple(VIEW_SPECS)
-    )
+    parser.add_argument("--mode", choices=("full", "incremental"), default="incremental")
+    parser.add_argument("--view", action="append", dest="views", choices=tuple(VIEW_SPECS))
     parser.add_argument("--batch-size", type=int, default=None)
     parser.add_argument(
         "--start-date",
@@ -601,9 +643,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
-    logging.basicConfig(
-        level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s"
-    )
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     load_env_file(DEFAULT_ENV_FILE)
     if not DEFAULT_ENV_FILE.is_file():
         logger.warning(
@@ -618,9 +658,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             else int(os.getenv("SYNC_BATCH_SIZE", "1000"))
         )
         if batch_size < 1:
-            raise ConfigurationError(
-                "--batch-size and SYNC_BATCH_SIZE must be greater than zero"
-            )
+            raise ConfigurationError("--batch-size and SYNC_BATCH_SIZE must be greater than zero")
         start_date = normalize_start_date(
             args.start_date or os.getenv("SYNC_START_DATE", "2026-01-01")
         )
@@ -629,11 +667,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             for view_id, spec in VIEW_SPECS.items()
             if spec.start_date_field or args.include_undated
         ]
-        undated = [
-            view_id
-            for view_id in selected
-            if VIEW_SPECS[view_id].start_date_field is None
-        ]
+        undated = [view_id for view_id in selected if VIEW_SPECS[view_id].start_date_field is None]
         if undated and not args.include_undated:
             raise ConfigurationError(
                 "Undated view(s) require --include-undated: " + ", ".join(undated)
@@ -659,9 +693,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                     database,
                     mode=args.mode,
                     batch_size=batch_size,
-                    start_date=start_date
-                    if VIEW_SPECS[view_id].start_date_field
-                    else None,
+                    start_date=start_date if VIEW_SPECS[view_id].start_date_field else None,
                     dry_run=args.dry_run,
                 )
                 logger.info("synchronized %s: %s", view_id, stats.as_dict())

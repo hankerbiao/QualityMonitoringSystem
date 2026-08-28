@@ -22,12 +22,14 @@ export const lrrApi = {
   async getLRRData(page = 1, pageSize = 50, filters: LRRFilters = {}): Promise<LRRListResponse> {
     const qs = buildQuery(filters, { page, limit: pageSize });
     const res = await apiFetch(`/api/lrr/list${qs}`);
+    if (!res.ok) throw new Error('LRR 看板加载失败');
     return (await res.json()) as LRRListResponse;
   },
 
   /** 过滤器下拉枚举 */
   async getOptions(): Promise<LRROptions> {
     const res = await apiFetch('/api/lrr/options');
+    if (!res.ok) throw new Error('LRR 筛选项加载失败');
     return (await res.json()) as LRROptions;
   },
 
@@ -35,6 +37,7 @@ export const lrrApi = {
   async getFaultDetails(filters: LRRFilters = {}, limit = 20000): Promise<LRRFaultDetail[]> {
     const qs = buildQuery(filters, { limit });
     const res = await apiFetch(`/api/lrr/fault-details${qs}`);
+    if (!res.ok) throw new Error('LRR 故障明细加载失败');
     return (await res.json()) as LRRFaultDetail[];
   },
 };

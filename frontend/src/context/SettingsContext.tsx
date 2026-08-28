@@ -16,12 +16,16 @@ const DEFAULT_SETTINGS: SettingsResponse = {
 };
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const { isAuthLoaded } = useAuth();
+  const { isAuthLoaded, isAuthenticated } = useAuth();
   const [settings, setSettings] = useState<SettingsResponse>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!isAuthLoaded) return;
+    if (!isAuthenticated) {
+      setLoading(false);
+      return;
+    }
 
     let active = true;
     const loadSettings = async () => {
@@ -43,7 +47,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       active = false;
       window.removeEventListener('settings-saved', handleSettingsSaved);
     };
-  }, [isAuthLoaded]);
+  }, [isAuthLoaded, isAuthenticated]);
 
   const updateSettings = useCallback(async (config: SettingsUpdate) => {
     const updated = await settingsApi.updateAll(config);

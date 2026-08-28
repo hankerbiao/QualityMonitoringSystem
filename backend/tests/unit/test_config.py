@@ -38,3 +38,9 @@ def test_production_security_settings_reject_default_admin_password():
         assert "DEFAULT_ADMIN_PASSWORD" in str(exc)
     else:
         raise AssertionError("default admin password must fail production validation")
+
+
+def test_settings_ignores_hana_sync_variables():
+    settings = Settings(HANA_ADDRESS="hana.internal", HANA_USER="sync_user")
+
+    assert settings.MONGODB_DB_NAME == "quality_monitoring"
