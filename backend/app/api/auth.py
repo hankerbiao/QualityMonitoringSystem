@@ -52,10 +52,10 @@ def _safe_redirect_target(next_url: str | None, request: Request | None = None) 
     优先级：
     1. `next` 为相对路径 → 直接用；
     2. `next` 的 origin 命中 CORS 白名单或部署公网地址(APP_PUBLIC_BASE_URL) → 用；
-    3. 回退到 APP_PUBLIC_BASE_URL（部署的前端地址），不再写死 localhost:3000。
+    3. 回退到 APP_PUBLIC_BASE_URL（部署的前端地址），不再写死 localhost:4000。
     """
     settings = get_settings()
-    default = settings.APP_PUBLIC_BASE_URL or "http://localhost:3000"
+    default = settings.APP_PUBLIC_BASE_URL or "http://localhost:4000"
     if not next_url:
         # 没有 next 时回退到部署的前端公网地址（注意：不能用 request.url.origin，
         # 因为回调请求打在后端端口上，其 origin 是后端而非前端）

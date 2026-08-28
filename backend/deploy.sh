@@ -8,7 +8,7 @@ VENV_DIR="${VENV_DIR:-${APP_DIR}/.venv}"
 ENV_FILE="${ENV_FILE:-${APP_DIR}/.env}"
 RUNTIME_DIR="${RUNTIME_DIR:-${APP_DIR}/.runtime}"
 HOST="${HOST:-0.0.0.0}"
-PORT="${PORT:-8000}"
+PORT="${PORT:-4001}"
 WORKERS="${WORKERS:-1}"
 PYTHON_BIN="${PYTHON_BIN:-python3}"
 PID_FILE="${PID_FILE:-${RUNTIME_DIR}/backend-${PORT}.pid}"
@@ -41,8 +41,8 @@ Commands:
   help         Show this help
 
 Environment overrides:
-  PYTHON_BIN=python3  VENV_DIR=.venv  HOST=0.0.0.0  PORT=8000
-  WORKERS=1          ENV_FILE=.env   SERVER_LOG=logs/uvicorn-8000.log
+  PYTHON_BIN=python3  VENV_DIR=.venv  HOST=0.0.0.0  PORT=4001
+  WORKERS=1          ENV_FILE=.env   SERVER_LOG=logs/uvicorn-4001.log
 
 Examples:
   chmod +x deploy.sh

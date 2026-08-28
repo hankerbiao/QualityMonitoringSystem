@@ -9,7 +9,7 @@ from app.core.logger import audit_log, log_info
 from app.db.mongodb import get_database
 from app.models.documents import Collections
 from app.schemas.common import PaginatedResponse, Response
-from app.schemas.rty import DefectDetail, RTYData, SalesOrderSummary
+from app.schemas.rty import DefectDetail, RTYData, SalesOrderSummary, StationPassRate
 from app.services import rty_queries as _rty_queries
 from app.services.rty_queries import (
     COMPOSITE_MODEL_ITEMS,
@@ -84,6 +84,81 @@ def _clean_values(values: list[Any]) -> list[str]:
 def _normalize_sales_order(value: Any) -> str:
     """Use one canonical sales-order representation across SAP clients."""
     return _normalize_order(value)
+
+
+def _station_code(value: Any) -> str:
+    """Normalize station values such as ``M-OP205:初检前测`` to ``OP205``."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    # Repair ZNGGZ values may append a Chinese/English description after ':'.
+    text = text.split(":", 1)[0].split("：", 1)[0].strip()
+    return text.rsplit("-", 1)[-1].strip() if text else ""
+
+
+def _station_record_date(row: dict[str, Any]) -> str:
+    """Use the actual station start date, with legacy GSTRS as a fallback."""
+    value = row.get("ACTUAL_START_TIME") or row.get("GSTRS")
+    return "".join(char for char in str(value or "") if char.isdigit())[:8]
+
+
+async def _station_pass_rates(
+    db: Any, date_from: str | None = None, date_to: str | None = None
+) -> list[StationPassRate]:
+    """Calculate station RTY from deduplicated station passes and repair records."""
+    start = _validate_date(date_from).replace("-", "") if date_from else REPAIR_YEAR_START
+    end = _validate_date(date_to).replace("-", "") if date_to else REPAIR_YEAR_END
+    if start > end:
+        return []
+
+    station_sns: dict[str, set[str]] = {}
+    station_names: dict[str, str] = {}
+    station_cursor = db[Collections.STATION_RECORDS_SAP].find(
+        {}, {"PCODE": 1, "SPEC": 1, "SPEC_DESC": 1, "ACTUAL_START_TIME": 1, "GSTRS": 1}
+    )
+    async for row in station_cursor:
+        record_date = _station_record_date(row)
+        if not start <= record_date <= end:
+            continue
+        station = _station_code(row.get("SPEC"))
+        sn = str(row.get("PCODE") or "").strip()
+        if not station or not sn:
+            continue
+        station_sns.setdefault(station, set()).add(sn)
+        name = str(row.get("SPEC_DESC") or "").strip()
+        if name and station not in station_names:
+            station_names[station] = name
+
+    if not station_sns:
+        return []
+
+    defect_sns: dict[str, set[str]] = {station: set() for station in station_sns}
+    repair_cursor = db[Collections.REPAIR_RECORDS_SAP].find(
+        {"ZDATE_WX": {"$gte": start, "$lte": end}},
+        {"PCODE": 1, "ZNGGZ": 1, "ZNGSPEC": 1},
+    )
+    async for repair in repair_cursor:
+        # ZNGGZ is the repair workstation field. ZNGSPEC remains a read-only
+        # fallback for older synchronized rows that predate the field mapping.
+        station = _station_code(repair.get("ZNGGZ") or repair.get("ZNGSPEC"))
+        sn = str(repair.get("PCODE") or "").strip()
+        if station in station_sns and sn in station_sns[station]:
+            defect_sns[station].add(sn)
+
+    rows: list[StationPassRate] = []
+    for station in sorted(station_sns):
+        input_count = len(station_sns[station])
+        defect_count = len(defect_sns[station])
+        rows.append(
+            StationPassRate(
+                stationCode=station,
+                stationName=station_names.get(station, ""),
+                inputCount=input_count,
+                defectCount=defect_count,
+                passRate=round((1 - defect_count / input_count) * 100, 2) if input_count else 100.0,
+            )
+        )
+    return rows
 
 
 async def _repair_rows_for_orders(db, production_orders: set[str]) -> list[dict[str, Any]]:
@@ -236,9 +311,7 @@ async def _fault_counts(db, groups: list[dict[str, Any]]) -> dict[str, int]:
     return {group_id: len(sns) for group_id, sns in failed_sns.items()}
 
 
-async def _cycle_data(
-    db, order_scope: OrderScope, customer: str | None = None
-) -> list[RTYData]:
+async def _cycle_data(db, order_scope: OrderScope, customer: str | None = None) -> list[RTYData]:
     """Build the small monthly/model data set used by the cycle dashboard.
 
     The detail list is intentionally paginated, but the cycle dashboard needs all
@@ -384,9 +457,7 @@ async def _cycle_data(
             for repair in child_repairs:
                 head_sns = item_to_heads.get(str(repair.get("PCODE") or "").strip(), set())
                 for head_sn in head_sns:
-                    for group_id in item_to_sales.get(
-                        _normalize_order(repair.get("AUFNR")), set()
-                    ):
+                    for group_id in item_to_sales.get(_normalize_order(repair.get("AUFNR")), set()):
                         order_groups[group_id]["fault_sns"].add(head_sn)
 
     targets_doc = await db[Collections.CONFIGS].find_one({"key": "model_targets"})
@@ -481,6 +552,16 @@ async def get_rty_cycle_data(
     """Return monthly/model aggregates for the cycle dashboard in one request."""
     rows = await _cycle_data(get_database(), orderScope, customer)
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 条周期统计数据")
+
+
+@router.get("/station-pass-rates", response_model=Response[list[StationPassRate]])
+async def get_station_pass_rates(
+    dateFrom: str | None = Query(None, description="过站日期起始日 (YYYY-MM-DD)"),
+    dateTo: str | None = Query(None, description="过站日期截止日 (YYYY-MM-DD)"),
+):
+    """Return station-level pass rates, matching station SPEC to repair ZNGGZ."""
+    rows = await _station_pass_rates(get_database(), dateFrom, dateTo)
+    return Response(success=True, data=rows, message=f"查询到 {len(rows)} 个工位")
 
 
 @router.get("/list", response_model=PaginatedResponse[RTYData])

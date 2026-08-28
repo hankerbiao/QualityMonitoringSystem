@@ -5,7 +5,7 @@
 ```bash
 uv sync
 uv run python init_default_settings.py  # 首次必执行
-uv run uvicorn app.main:app --reload --port 8000
+uv run uvicorn app.main:app --reload --port 4001
 ```
 
 ## Commands

@@ -1,7 +1,9 @@
-export type LRRSortField = 'lrrRate' | 'faultCount' | 'issuedQuantity' | 'materialNo';
+export type LRROrderDimension = 'productionOrder' | 'salesOrder';
+export type LRRSortField = 'lrrRate' | 'faultCount' | 'issuedQuantity' | 'orderNo';
 export type LRRSortDir = 'asc' | 'desc';
 
 export interface LRRFilters {
+  groupBy?: LRROrderDimension;
   productionOrder?: string | null;
   salesOrder?: string | null;
   storageLocation?: string | null;
@@ -11,15 +13,17 @@ export interface LRRFilters {
 
 export interface LRRData {
   id: string;
-  materialNo: string;
-  materialDesc: string;
+  orderDimension: LRROrderDimension;
+  orderNo: string;
+  productionOrder: string;
+  salesOrder: string;
   issuedQuantity: number;
   faultCount: number;
   lrrRate: number | null;
 }
 
 export interface LRRSummary {
-  materialKinds: number;
+  orderCount: number;
   issuedQuantity: number;
   totalFaults: number;
   overallLrr: number | null;
@@ -41,8 +45,8 @@ export interface LRROptions {
 }
 
 export interface LRRFaultDetail {
-  materialNo: string;
-  materialDesc: string;
+  orderDimension: LRROrderDimension;
+  orderNo: string;
   productionOrder: string;
   salesOrder: string;
   storageLocation: string;

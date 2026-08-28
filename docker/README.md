@@ -38,8 +38,8 @@ kept out of the normal startup path:
 docker compose -f docker/compose.yaml --profile tools run --rm init-config
 ```
 
-Open `http://localhost:3000`. The backend health endpoint is available at both
-`http://localhost:3000/health` and `http://localhost:8000/health`.
+Open `http://localhost:4000`. The backend health endpoint is available at both
+`http://localhost:4000/health` and `http://localhost:4001/health`.
 
 ## Operations
 

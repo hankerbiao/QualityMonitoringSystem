@@ -1,4 +1,4 @@
-import { DefectDetail, RTYData, RTYFilterParams, SalesOrderSummary, PaginatedRTYResponse } from '../types';
+import { DefectDetail, RTYData, RTYFilterParams, SalesOrderSummary, PaginatedRTYResponse, StationPassRate } from '../types';
 import { apiFetch } from './authApi';
 
 const RTY_LIST_CACHE_TTL_MS = 2_000;
@@ -34,6 +34,18 @@ function buildRtyQuery(params: RTYFilterParams): URLSearchParams {
 }
 
 export const rtyApi = {
+  async getStationPassRates(dateFrom?: string, dateTo?: string): Promise<StationPassRate[]> {
+    const query = new URLSearchParams();
+    if (dateFrom) query.set('dateFrom', dateFrom);
+    if (dateTo) query.set('dateTo', dateTo);
+    const suffix = query.toString();
+    return cachedOption(`station-pass-rates:${suffix}`, async () => {
+      const res = await apiFetch(`/api/rty/station-pass-rates${suffix ? `?${suffix}` : ''}`);
+      const json = await res.json();
+      return json.success ? (json.data as StationPassRate[]) : [];
+    });
+  },
+
   async getCycleData(
     orderScope: RTYFilterParams['orderScope'] = 'normal',
     customer?: string,

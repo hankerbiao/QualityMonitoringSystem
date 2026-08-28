@@ -15,8 +15,8 @@ x-backend-environment: &backend-environment
   OA_LOGIN_URL: ${OA_LOGIN_URL:-http://10.2.48.65/auth/oa/callback}
   OA_APP_NAME: ${OA_APP_NAME:-qualiboard}
   OA_LOGIN_BASE_URL: ${OA_LOGIN_BASE_URL:-http://tl.cooacloud.com/springboard_v3/login_proxy}
-  CORS_ORIGINS: '["${FRONTEND_ORIGIN:-http://localhost:3000}"]'
-  APP_PUBLIC_BASE_URL: ${FRONTEND_ORIGIN:-http://localhost:3000}
+  CORS_ORIGINS: '["${FRONTEND_ORIGIN:-http://localhost:4000}"]'
+  APP_PUBLIC_BASE_URL: ${FRONTEND_ORIGIN:-http://localhost:4000}
   MAIL_PROXY_URL: ${MAIL_PROXY_URL:-http://10.32.129.1/springboard_v3/mail_proxy/buqualiboard}
   LOG_DIR: /app/logs
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
@@ -31,7 +31,7 @@ services:
       dockerfile: docker/Dockerfile.backend
     environment: *backend-environment
     ports:
-      - "${BACKEND_PORT:-8000}:8000"
+      - "${BACKEND_PORT:-4001}:8000"
     volumes:
       - backend_logs:/app/logs
     healthcheck:
@@ -61,7 +61,7 @@ services:
       VOICE_WS_UPSTREAM: ${VOICE_WS_UPSTREAM:-10.17.150.235:10095}
       TZ: ${TZ:-Asia/Shanghai}
     ports:
-      - "${FRONTEND_PORT:-3000}:80"
+      - "${FRONTEND_PORT:-4000}:80"
     depends_on:
       backend:
         condition: service_healthy

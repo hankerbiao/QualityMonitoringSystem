@@ -67,17 +67,17 @@ uv run python import_mock_data.py
 
 ```bash
 # 开发模式 (热重载)
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 4001
 
 # 生产模式
-uv run uvicorn app.main:app --host 0.0.0.0 --port 8000
+uv run uvicorn app.main:app --host 0.0.0.0 --port 4001
 ```
 
 ### 5. 访问 API 文档
 
-- Swagger UI: http://localhost:8000/docs (仅 DEBUG=true 时开启)
-- ReDoc: http://localhost:8000/redoc (仅 DEBUG=true 时开启)
-- 健康检查: http://localhost:8000/health
+- Swagger UI: http://localhost:4001/docs (仅 DEBUG=true 时开启)
+- ReDoc: http://localhost:4001/redoc (仅 DEBUG=true 时开启)
+- 健康检查: http://localhost:4001/health
 
 ## 项目结构
 
@@ -276,7 +276,7 @@ uv run python import_mock_data.py         # 导入模拟数据
 docker build -t qualiboard-backend .
 
 # 运行容器
-docker run -d -p 8000:8000 --env-file .env qualiboard-backend
+docker run -d -p 4001:8000 --env-file .env qualiboard-backend
 ```
 
 ## License

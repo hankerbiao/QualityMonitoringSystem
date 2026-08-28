@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import Home from './pages/Home';
 import RTYPage from './pages/RTYPage';
+import StationPassRatePage from './pages/StationPassRatePage';
 import LRRPage from './pages/LRRPage';
 import ProcessRecordsPage from './pages/ProcessRecordsPage';
 import LoginPage from './pages/LoginPage';
@@ -42,6 +43,7 @@ function AppContent() {
       <Route element={<ProtectedLayout />}>
         <Route path="/" element={<Home />} />
         <Route path="/rty" element={<RTYPage />} />
+        <Route path="/station-pass-rate" element={<StationPassRatePage />} />
         <Route path="/lrr" element={<LRRPage />} />
         <Route path="/process-records" element={<ProcessRecordsPage />} />
         <Route path="/operations" element={<OperationsPage />} />

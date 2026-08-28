@@ -2,6 +2,8 @@
 
 import pytest
 
+from app.services.rty_queries import MAX_DETAIL_ROW_COUNT
+
 
 async def _seed_rty_data(db):
     await db.sales_orders_sap.insert_many(
@@ -125,6 +127,108 @@ async def _seed_rty_data(db):
 
 @pytest.mark.integration
 class TestStationRecordRTY:
+    async def test_station_pass_rates_match_station_suffix_and_deduplicate_sns(
+        self, client, db_clean
+    ):
+        await db_clean.station_records_sap.insert_many(
+            [
+                {
+                    "PCODE": "SN-1",
+                    "GSTRS": "20260201",
+                    "ACTUAL_START_TIME": "2026-02-01 08:00:00",
+                    "SPEC": "M-OP205",
+                    "SPEC_DESC": "装配",
+                },
+                {
+                    "PCODE": "SN-1",
+                    "GSTRS": "20260202",
+                    "ACTUAL_START_TIME": "2026-02-02 08:00:00",
+                    "SPEC": "M-OP205",
+                    "SPEC_DESC": "装配",
+                },
+                {
+                    "PCODE": "SN-2",
+                    "GSTRS": "20260201",
+                    "ACTUAL_START_TIME": "2026-02-01 08:00:00",
+                    "SPEC": "OP205",
+                    "SPEC_DESC": "装配",
+                },
+                {
+                    "PCODE": "SN-3",
+                    "GSTRS": "20260201",
+                    "ACTUAL_START_TIME": "2026-02-01 08:00:00",
+                    "SPEC": "M-OP210",
+                },
+            ]
+        )
+        await db_clean.repair_records_sap.insert_many(
+            [
+                {"PCODE": "SN-1", "ZDATE_WX": "20260203", "ZNGGZ": "M-OP205:初检前测"},
+                {"PCODE": "SN-1", "ZDATE_WX": "20260204", "ZNGGZ": "OP205"},
+                {"PCODE": "SN-2", "ZDATE_WX": "20260204", "ZNGGZ": "M-OP210"},
+                {"PCODE": "SN-NOT-PASSED", "ZDATE_WX": "20260204", "ZNGGZ": "M-OP205"},
+            ]
+        )
+
+        response = await client.get("/api/rty/station-pass-rates")
+
+        assert response.status_code == 200
+        rows = response.json()["data"]
+        op205 = next(row for row in rows if row["stationCode"] == "OP205")
+        assert op205 == {
+            "stationCode": "OP205",
+            "stationName": "装配",
+            "inputCount": 2,
+            "defectCount": 1,
+            "passRate": 50.0,
+        }
+        op210 = next(row for row in rows if row["stationCode"] == "OP210")
+        assert op210["inputCount"] == 1
+        assert op210["defectCount"] == 0
+        assert op210["passRate"] == 100.0
+
+    async def test_station_pass_rates_filter_by_actual_pass_date(self, client, db_clean):
+        await db_clean.station_records_sap.insert_many(
+            [
+                {
+                    "PCODE": "SN-2026",
+                    "GSTRS": "20251231",
+                    "ACTUAL_START_TIME": "2026-01-02 09:00:00",
+                    "SPEC": "M-OP205",
+                },
+                {
+                    "PCODE": "SN-2025",
+                    "GSTRS": "20260101",
+                    "ACTUAL_START_TIME": "2025-12-31 09:00:00",
+                    "SPEC": "M-OP205",
+                },
+            ]
+        )
+
+        response = await client.get(
+            "/api/rty/station-pass-rates?dateFrom=2026-01-01&dateTo=2026-01-31"
+        )
+
+        assert response.status_code == 200
+        assert response.json()["data"][0]["inputCount"] == 1
+
+    async def test_station_pass_rates_supports_more_than_raw_row_limit(self, client, db_clean):
+        await db_clean.station_records_sap.insert_many(
+            [
+                {
+                    "PCODE": f"SN-{index}",
+                    "ACTUAL_START_TIME": "2026-01-02 09:00:00",
+                    "SPEC": "M-OP205",
+                }
+                for index in range(MAX_DETAIL_ROW_COUNT + 1)
+            ]
+        )
+
+        response = await client.get("/api/rty/station-pass-rates")
+
+        assert response.status_code == 200
+        assert response.json()["data"][0]["inputCount"] == MAX_DETAIL_ROW_COUNT + 1
+
     async def test_uses_sales_order_wmeng_and_distinct_repair_sns(self, client, db_clean):
         await _seed_rty_data(db_clean)
 

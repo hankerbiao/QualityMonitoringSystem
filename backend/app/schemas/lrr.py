@@ -5,15 +5,17 @@ from pydantic import BaseModel, Field
 
 class LRRData(BaseModel):
     id: str = ""
-    materialNo: str = ""
-    materialDesc: str = ""
+    orderDimension: str = "productionOrder"
+    orderNo: str = ""
+    productionOrder: str = ""
+    salesOrder: str = ""
     issuedQuantity: float = 0.0
     faultCount: int = 0
     lrrRate: float | None = None
 
 
 class LRRSummary(BaseModel):
-    materialKinds: int = 0
+    orderCount: int = 0
     issuedQuantity: float = 0.0
     totalFaults: int = 0
     overallLrr: float | None = None
@@ -35,8 +37,8 @@ class LRROptions(BaseModel):
 
 
 class LRRFaultDetail(BaseModel):
-    materialNo: str = ""
-    materialDesc: str = ""
+    orderDimension: str = "productionOrder"
+    orderNo: str = ""
     productionOrder: str = ""
     salesOrder: str = ""
     storageLocation: str = ""

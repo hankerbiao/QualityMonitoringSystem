@@ -63,8 +63,15 @@ async def create_indexes() -> None:
     await mongodb.db.station_records_sap.create_index([("AUFNR", 1), ("GSTRS", 1), ("PCODE", 1)])
     await mongodb.db.station_records_sap.create_index([("LGORT", 1), ("GSTRS", 1), ("PCODE", 1)])
     await mongodb.db.station_records_sap.create_index([("MAKTX_TH", 1), ("GSTRS", 1), ("PCODE", 1)])
+    await mongodb.db.station_records_sap.create_index(
+        [("ACTUAL_START_TIME", 1), ("SPEC", 1), ("PCODE", 1)]
+    )
     await mongodb.db.repair_records_sap.create_index([("PCODE", 1), ("ZDATE_WX", 1)])
     await mongodb.db.repair_records_sap.create_index([("AUFNR", 1), ("ZDATE_WX", 1), ("ZJXMC", 1)])
+    await mongodb.db.repair_records_sap.create_index([("VBELN", 1)])
+    await mongodb.db.repair_records_sap.create_index(
+        [("ZDATE_WX", 1), ("ZNGSPEC", 1), ("PCODE", 1)]
+    )
     await mongodb.db.serial_bindings_sap.create_index([("AUFNR_HEAD", 1), ("AUFNR_ITEM", 1)])
 
     # 用户索引
@@ -86,7 +93,9 @@ async def create_indexes() -> None:
     await mongodb.db.assembly_records.create_index("chassis_no")
 
     # 订单 BOM LRR: 按订单/库存点筛选，并读取 MATNR、MENGE_A 聚合
-    await mongodb.db.order_bom_postings_sap.create_index([("AUFNR_1", 1), ("VBELN_EX", 1), ("LGORT", 1), ("MATNR", 1)])
+    await mongodb.db.order_bom_postings_sap.create_index(
+        [("AUFNR_1", 1), ("VBELN_EX", 1), ("LGORT", 1), ("MATNR", 1)]
+    )
 
     # 销售订单双来源同步集合：aufnr 跨来源唯一业务键
     from app.repositories import sales_order_repository

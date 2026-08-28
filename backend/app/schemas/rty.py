@@ -47,6 +47,16 @@ class RTYListResponse(BaseModel):
     limit: int = 100
 
 
+class StationPassRate(BaseModel):
+    """工位过站直通率：过站 SN 为分母，匹配工位的维修 SN 为故障数。"""
+
+    stationCode: str = Field(..., description="工位编码，取 SPEC / ZNGGZ 冒号前且最后一个 '-' 后的值")
+    stationName: str = Field("", description="工位名称")
+    inputCount: int = Field(..., ge=0, description="该工位去重后的过站 SN 数")
+    defectCount: int = Field(..., ge=0, description="该工位去重后的维修 SN 数")
+    passRate: float = Field(..., ge=0, le=100, description="过站直通率百分比")
+
+
 # ============== 故障明细模型 ==============
 
 

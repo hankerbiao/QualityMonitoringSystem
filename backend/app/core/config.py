@@ -49,13 +49,13 @@ class Settings(BaseSettings):
     JWT_SECRET: str = ""
 
     # CORS 白名单（生产环境必须显式配置，禁止用 "*"）
-    CORS_ORIGINS: list[str] = Field(default_factory=lambda: ["http://localhost:3000"])
+    CORS_ORIGINS: list[str] = Field(default_factory=lambda: ["http://localhost:4000"])
 
     # 告警报表公开链接（免登录签名 token）
     ALERT_TOKEN_SECRET: str = ""
     ALERT_TOKEN_TTL_DAYS: int = 7
     # 报表链接指向的前端地址（用于邮件中拼装 URL）
-    APP_PUBLIC_BASE_URL: str = "http://localhost:3000"
+    APP_PUBLIC_BASE_URL: str = "http://localhost:4000"
 
     # 邮件代理地址（中间件转发，用于发送告警邮件）
     # 默认地址由运维提供；如环境变化可通过环境变量 MAIL_PROXY_URL 覆盖。

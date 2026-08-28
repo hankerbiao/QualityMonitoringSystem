@@ -13,14 +13,14 @@ QualityMonitoringSystem/
 
 **Frontend:**
 ```bash
-cd frontend && npm run dev      # http://localhost:3000
+cd frontend && npm run dev      # http://localhost:4000
 ```
 
 **Backend:**
 ```bash
 cd backend && uv sync
 uv run python init_default_settings.py  # 首次必执行
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 4001
 ```
 
 ## Commands
@@ -35,7 +35,7 @@ uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 ## Architecture
 
 - **Monorepo** 前端 + 后端独立运行
-- **API 代理**: 前端 Vite proxy `/api/*` → `http://localhost:8000`
+- **API 代理**: 前端 Vite proxy `/api/*` → `http://localhost:4001`
 - **Path alias**: `@/*` → `frontend/` 根目录
 - **MongoDB**: 端口 **27019**
 

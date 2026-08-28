@@ -94,7 +94,7 @@ src/
 
 ```bash
 # .env.development
-VITE_API_BASE_URL=http://localhost:8000
+VITE_API_BASE_URL=http://localhost:4001
 
 # AI Studio 模式 (禁用 HMR)
 DISABLE_HMR=true

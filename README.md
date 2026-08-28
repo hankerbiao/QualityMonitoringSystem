@@ -44,7 +44,7 @@ cp docker/.env.example docker/.env
 docker compose -f docker/compose.yaml up -d --build
 ```
 
-服务启动后访问 `http://localhost:3000`。首次连接全新数据库时，再显式运行默认配置初始化：
+服务启动后访问 `http://localhost:4000`。首次连接全新数据库时，再显式运行默认配置初始化：
 
 ```bash
 docker compose -f docker/compose.yaml --profile tools run --rm init-config
@@ -87,7 +87,7 @@ cd backend
 cd backend
 uv sync
 uv run python init_default_settings.py
-uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 4001
 ```
 
 ### 前端
@@ -101,10 +101,10 @@ npm run dev
 默认访问地址：
 
 ```text
-http://localhost:3000
+http://localhost:4000
 ```
 
-前端 Vite 代理会将 `/api/*` 转发到 `http://localhost:8000`。
+前端 Vite 代理会将 `/api/*` 转发到 `http://localhost:4001`。
 
 ## 常用命令
 

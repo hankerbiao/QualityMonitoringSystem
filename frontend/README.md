@@ -156,7 +156,7 @@ frontend/
 
 ```bash
 # .env (开发环境)
-VITE_API_BASE_URL=http://localhost:8000
+VITE_API_BASE_URL=http://localhost:4001
 ```
 
 ## 后续计划

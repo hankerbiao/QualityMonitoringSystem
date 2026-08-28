@@ -1,4 +1,4 @@
-"""Order BOM material LRR dashboard API."""
+"""Order BOM LRR dashboard API."""
 
 from __future__ import annotations
 
@@ -33,11 +33,6 @@ def normalize_sales_order(value: Any) -> str:
     return text.lstrip("0") or "0" if text.isdigit() else text
 
 
-def material_no(value: Any) -> str:
-    text = str(value or "").strip()
-    return text[-8:] if text else ""
-
-
 def quantity(value: Any) -> Decimal:
     if value is None or value == "":
         return Decimal(0)
@@ -53,88 +48,139 @@ def _variants(value: str, normalizer) -> list[str]:
     return list(dict.fromkeys(item for item in (raw, normalized) if item))
 
 
-def _bom_query(production_order: str | None, sales_order: str | None, storage_location: str | None) -> dict:
+def _bom_query(
+    production_order: str | None, sales_order: str | None, storage_location: str | None
+) -> dict:
     query: dict[str, Any] = {}
     if production_order:
         query["AUFNR_1"] = {"$in": _variants(production_order, normalize_production_order)}
     if sales_order:
-        query["VBELN_EX"] = {"$in": _variants(sales_order, normalize_sales_order)}
+        normalized_sales_order = normalize_sales_order(sales_order)
+        if normalized_sales_order.isdigit():
+            query["VBELN_EX"] = {"$regex": rf"^0*{re.escape(normalized_sales_order)}(?:--\d+)?$"}
+        else:
+            query["VBELN_EX"] = {"$in": _variants(sales_order, normalize_sales_order)}
     if storage_location:
         query["LGORT"] = storage_location.strip()
     return query
 
 
-def aggregate_lrr(bom_docs: list[dict], fault_docs: list[dict]) -> tuple[list[LRRData], list[LRRFaultDetail]]:
-    """Aggregate quantities and expand each fault to its associated BOM materials."""
-    materials: dict[str, dict[str, Any]] = {}
-    sales_orders: dict[str, list[str]] = defaultdict(list)
-    order_locations: dict[str, str] = {}
-    for bom in bom_docs:
-        pn = material_no(bom.get("MATNR"))
-        order = normalize_production_order(bom.get("AUFNR_1"))
-        sale = normalize_sales_order(bom.get("VBELN_EX"))
-        if not pn or not order:
-            continue
-        item = materials.setdefault(pn, {"qty": Decimal(0), "desc": "", "orders": set()})
-        item["qty"] += quantity(bom.get("MENGE_A"))
-        if not item["desc"]:
-            item["desc"] = str(bom.get("MAKTX") or "").strip()
-        item["orders"].add(order)
-        order_locations.setdefault(order, str(bom.get("LGORT") or "").strip())
-        if sale and order not in sales_orders[sale]:
-            sales_orders[sale].append(order)
+def aggregate_lrr(
+    bom_docs: list[dict],
+    fault_docs: list[dict],
+    group_by: str = "productionOrder",
+    *,
+    include_details: bool = True,
+) -> tuple[list[LRRData], list[LRRFaultDetail]]:
+    """Calculate LRR by production order or sales order."""
+    if group_by not in {"productionOrder", "salesOrder"}:
+        raise ValueError(f"Unsupported LRR grouping: {group_by}")
 
-    positive = {pn: value for pn, value in materials.items() if value["qty"] > 0}
+    groups: dict[str, dict[str, Any]] = {}
+    for bom in bom_docs:
+        production_order = normalize_production_order(bom.get("AUFNR_1"))
+        sales_order = normalize_sales_order(bom.get("VBELN_EX"))
+        order_no = production_order if group_by == "productionOrder" else sales_order
+        if not order_no:
+            continue
+        group = groups.setdefault(
+            order_no,
+            {
+                "quantity": Decimal(0),
+                "production_orders": set(),
+                "sales_orders": set(),
+                "storage_locations": set(),
+            },
+        )
+        group["quantity"] += quantity(bom.get("MENGE_A"))
+        if production_order:
+            group["production_orders"].add(production_order)
+        if sales_order:
+            group["sales_orders"].add(sales_order)
+        storage_location = str(bom.get("LGORT") or "").strip()
+        if storage_location:
+            group["storage_locations"].add(storage_location)
+
+    active_groups = {order_no: group for order_no, group in groups.items() if group["quantity"] > 0}
+    groups_by_production_order: dict[str, set[str]] = defaultdict(set)
+    groups_by_sales_order: dict[str, set[str]] = defaultdict(set)
+    for order_no, group in active_groups.items():
+        for production_order in group["production_orders"]:
+            groups_by_production_order[production_order].add(order_no)
+        for sales_order in group["sales_orders"]:
+            groups_by_sales_order[sales_order].add(order_no)
+
     fault_counts: dict[str, int] = defaultdict(int)
     details: list[LRRFaultDetail] = []
-    seen_links: set[tuple[str, str, str]] = set()
+    seen_links: set[tuple[str, str]] = set()
     for fault in fault_docs:
         fault_id = str(fault.get("_id") or id(fault))
-        fault_order = normalize_production_order(fault.get("mfg_order"))
-        has_order = fault_order and any(fault_order in value["orders"] for value in positive.values())
-        targets = [fault_order] if has_order else sales_orders.get(normalize_sales_order(fault.get("sale_no")), [])
-        for target in targets:
-            for pn, value in positive.items():
-                if target not in value["orders"]:
-                    continue
-                link = (fault_id, target, pn)
-                if link in seen_links:
-                    continue
-                seen_links.add(link)
-                fault_counts[pn] += 1
-                details.append(LRRFaultDetail(
-                    materialNo=pn,
-                    materialDesc=value["desc"],
-                    productionOrder=target,
-                    salesOrder=str(fault.get("sale_no") or ""),
-                    storageLocation=order_locations.get(target, str(fault.get("LGORT") or "")),
-                    sn=str(fault.get("sn") or ""),
-                    faultType=str(fault.get("fault_category") or ""),
-                    faultDesc=str(fault.get("fault_desc") or ""),
-                    repairTime=str(fault.get("repair_time") or ""),
-                ))
+        production_order = normalize_production_order(fault.get("mfg_order") or fault.get("AUFNR"))
+        sales_order = normalize_sales_order(fault.get("sale_no") or fault.get("VBELN"))
+        matched_groups = set()
+        if production_order:
+            matched_groups.update(groups_by_production_order.get(production_order, set()))
+        if sales_order:
+            matched_groups.update(groups_by_sales_order.get(sales_order, set()))
+        for order_no in sorted(matched_groups):
+            link = (fault_id, order_no)
+            if link in seen_links:
+                continue
+            seen_links.add(link)
+            fault_counts[order_no] += 1
+            if include_details:
+                group = active_groups[order_no]
+                details.append(
+                    LRRFaultDetail(
+                        orderDimension=group_by,
+                        orderNo=order_no,
+                        productionOrder=production_order,
+                        salesOrder=str(fault.get("sale_no") or fault.get("VBELN") or ""),
+                        storageLocation=",".join(sorted(group["storage_locations"])),
+                        sn=str(fault.get("sn") or fault.get("PCODE") or ""),
+                        faultType=str(fault.get("fault_category") or fault.get("ZNGWD") or ""),
+                        faultDesc=str(fault.get("fault_desc") or fault.get("ZWXWD") or ""),
+                        repairTime=str(fault.get("repair_time") or fault.get("ZDATE_WX") or ""),
+                    )
+                )
 
     rows: list[LRRData] = []
-    for pn, value in positive.items():
-        issued = value["qty"]
-        faults = fault_counts[pn]
-        rows.append(LRRData(
-            id=pn,
-            materialNo=pn,
-            materialDesc=value["desc"],
-            issuedQuantity=float(issued),
-            faultCount=faults,
-            lrrRate=round(float(Decimal(faults) / issued * 100), 2),
-        ))
+    for order_no, group in active_groups.items():
+        issued = group["quantity"]
+        faults = fault_counts[order_no]
+        rows.append(
+            LRRData(
+                id=f"{group_by}:{order_no}",
+                orderDimension=group_by,
+                orderNo=order_no,
+                productionOrder=",".join(sorted(group["production_orders"])),
+                salesOrder=",".join(sorted(group["sales_orders"])),
+                issuedQuantity=float(issued),
+                faultCount=faults,
+                lrrRate=round(float(Decimal(faults) / issued * 100), 2),
+            )
+        )
     return rows, details
 
 
 def _sort_rows(rows: list[LRRData], sort_by: str, sort_dir: str) -> list[LRRData]:
-    key = sort_by if sort_by in {"materialNo", "issuedQuantity", "faultCount", "lrrRate"} else "lrrRate"
-    return sorted(rows, key=lambda row: (getattr(row, key) is None, getattr(row, key) or 0), reverse=sort_dir == "desc")
+    key = (
+        sort_by if sort_by in {"orderNo", "issuedQuantity", "faultCount", "lrrRate"} else "lrrRate"
+    )
+    return sorted(
+        rows,
+        key=lambda row: (getattr(row, key) is None, getattr(row, key) or 0),
+        reverse=sort_dir == "desc",
+    )
 
 
-async def _load_bom_and_faults(production_order: str | None, sales_order: str | None, storage_location: str | None):
+async def _load_bom_and_repairs(
+    production_order: str | None,
+    sales_order: str | None,
+    storage_location: str | None,
+    *,
+    include_fault_details: bool = True,
+):
     db = get_database()
     projection = {
         "_id": 1,
@@ -145,10 +191,14 @@ async def _load_bom_and_faults(production_order: str | None, sales_order: str | 
         "MAKTX": 1,
         "MENGE_A": 1,
     }
-    bom_docs = await db[Collections.ORDER_BOM_POSTINGS_SAP].find(
-        _bom_query(production_order, sales_order, storage_location),
-        projection=projection,
-    ).to_list(length=None)
+    bom_docs = (
+        await db[Collections.ORDER_BOM_POSTINGS_SAP]
+        .find(
+            _bom_query(production_order, sales_order, storage_location),
+            projection=projection,
+        )
+        .to_list(length=None)
+    )
     order_values = sorted(
         {
             str(d.get("AUFNR_1") or "").strip()
@@ -169,7 +219,7 @@ async def _load_bom_and_faults(production_order: str | None, sales_order: str | 
     if orders:
         branches.append(
             {
-                "mfg_order": {
+                "AUFNR": {
                     "$in": sorted(
                         {
                             variant
@@ -182,21 +232,42 @@ async def _load_bom_and_faults(production_order: str | None, sales_order: str | 
         )
     if sales:
         sales_match = sorted(
+            {variant for sale in sale_values for variant in _variants(sale, normalize_sales_order)}
+        )
+        normalized_numeric_sales = sorted(
             {
-                variant
+                normalize_sales_order(sale)
                 for sale in sale_values
-                for variant in _variants(sale, normalize_sales_order)
+                if normalize_sales_order(sale).isdigit()
+            },
+            key=lambda value: (-len(value), value),
+        )
+        sales_conditions: list[dict[str, Any]] = [{"VBELN": {"$in": sales_match}}]
+        if normalized_numeric_sales:
+            alternatives = "|".join(re.escape(sale) for sale in normalized_numeric_sales)
+            sales_conditions.append({"VBELN": {"$regex": rf"^0*(?:{alternatives})(?:--\d+)?$"}})
+        branches.append({"$or": sales_conditions})
+    repair_query = {"$or": branches} if branches else {"_id": "__none__"}
+    repair_projection: dict[str, int] = {
+        "_id": 1,
+        "AUFNR": 1,
+        "VBELN": 1,
+    }
+    if include_fault_details:
+        repair_projection.update(
+            {
+                "PCODE": 1,
+                "ZNGWD": 1,
+                "ZWXWD": 1,
+                "ZDATE_WX": 1,
             }
         )
-        sales_match_regex = [
-            {"sale_no": {"$regex": rf"^0*{re.escape(normalize_sales_order(sale))}(?:--\d+)?$"}}
-            for sale in sale_values
-            if normalize_sales_order(sale).isdigit()
-        ]
-        branches.append({"$or": [{"sale_no": {"$in": sales_match}}, *sales_match_regex]})
-    fault_query = {"$or": branches} if branches else {"_id": "__none__"}
-    faults = await db[Collections.FAULT_INFO].find(fault_query).to_list(length=None)
-    return bom_docs, faults
+    repairs = (
+        await db[Collections.REPAIR_RECORDS_SAP]
+        .find(repair_query, projection=repair_projection)
+        .to_list(length=None)
+    )
+    return bom_docs, repairs
 
 
 @router.get("/list", response_model=LRRListResponse)
@@ -208,11 +279,14 @@ async def get_lrr_list(
     productionOrder: str | None = Query(None),
     salesOrder: str | None = Query(None),
     storageLocation: str | None = Query(None),
+    groupBy: str = Query("productionOrder", pattern="^(productionOrder|salesOrder)$"),
     sortBy: str = Query("lrrRate"),
     sortDir: str = Query("desc"),
 ):
-    bom_docs, fault_docs = await _load_bom_and_faults(productionOrder, salesOrder, storageLocation)
-    rows, _ = aggregate_lrr(bom_docs, fault_docs)
+    bom_docs, repair_docs = await _load_bom_and_repairs(
+        productionOrder, salesOrder, storageLocation, include_fault_details=False
+    )
+    rows, _ = aggregate_lrr(bom_docs, repair_docs, group_by=groupBy, include_details=False)
     rows = _sort_rows(rows, sortBy, sortDir)
     issued_total = sum((quantity(row.issuedQuantity) for row in rows), Decimal(0))
     fault_total = sum(row.faultCount for row in rows)
@@ -224,7 +298,7 @@ async def get_lrr_list(
         limit=limit,
         has_more=start + limit < len(rows),
         summary=LRRSummary(
-            materialKinds=len(rows),
+            orderCount=len(rows),
             issuedQuantity=float(issued_total),
             totalFaults=fault_total,
             overallLrr=round(fault_total / issued_total * 100, 2) if issued_total > 0 else None,
@@ -242,9 +316,19 @@ async def get_lrr_options(request: Request):
         collection.distinct("LGORT"),
     )
     return LRROptions(
-        productionOrders=sorted({normalize_production_order(value) for value in production_orders if normalize_production_order(value)}),
-        salesOrders=sorted({normalize_sales_order(value) for value in sales_orders if normalize_sales_order(value)}),
-        storageLocations=sorted({str(value or "").strip() for value in storage_locations if str(value or "").strip()}),
+        productionOrders=sorted(
+            {
+                normalize_production_order(value)
+                for value in production_orders
+                if normalize_production_order(value)
+            }
+        ),
+        salesOrders=sorted(
+            {normalize_sales_order(value) for value in sales_orders if normalize_sales_order(value)}
+        ),
+        storageLocations=sorted(
+            {str(value or "").strip() for value in storage_locations if str(value or "").strip()}
+        ),
     )
 
 
@@ -255,8 +339,11 @@ async def get_lrr_fault_details(
     productionOrder: str | None = Query(None),
     salesOrder: str | None = Query(None),
     storageLocation: str | None = Query(None),
+    groupBy: str = Query("productionOrder", pattern="^(productionOrder|salesOrder)$"),
     limit: int = Query(20000, ge=1, le=50000),
 ):
-    bom_docs, fault_docs = await _load_bom_and_faults(productionOrder, salesOrder, storageLocation)
-    _, details = aggregate_lrr(bom_docs, fault_docs)
+    bom_docs, repair_docs = await _load_bom_and_repairs(
+        productionOrder, salesOrder, storageLocation
+    )
+    _, details = aggregate_lrr(bom_docs, repair_docs, group_by=groupBy)
     return details[:limit]

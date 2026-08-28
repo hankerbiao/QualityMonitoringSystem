@@ -1,6 +1,6 @@
 # 认证安全加固改造方案（前后端对齐版）
 
-> 适用范围：QualiBoard 前端（React + Vite）与认证后端（Spring，`tl.cooacloud.com` 统一登录代理 + `localhost:8000` 业务网关）。
+> 适用范围：QualiBoard 前端（React + Vite）与认证后端（Spring，`tl.cooacloud.com` 统一登录代理 + `localhost:4001` 业务网关）。
 > 关联问题：代码评审中的 **P1 安全问题**（Token 暴露在 URL query、明文存 localStorage、无过期机制）。
 > 目标：在不降低可用性的前提下，消除会话令牌的泄露面，并建立过期/刷新机制。
 
@@ -212,6 +212,6 @@ GET /login?status=success&code=<authorization_code>&next=<path>
 ## 10. 待与后端 / OA 平台确认事项
 
 1. OA 代理（`springboard_v3/login_proxy`）是否支持授权码流程？能否配置 `redirect_uri` 与 `client_id`？
-2. 后端网关 `localhost:8000`（生产 Nginx）是否透传 `Set-Cookie` / `Cookie`？
+2. 后端网关 `localhost:4001`（生产 Nginx）是否透传 `Set-Cookie` / `Cookie`？
 3. 会话令牌的签名/加密方案与过期时长约定（访问令牌 15min、刷新 7d 为建议值）。
 4. 多标签页会话一致性：采用 Cookie 后天然共享，无需前端额外同步。

@@ -46,7 +46,7 @@ class TestOACallbackEndpoint:
         """Success OA callback should return tokens and user info."""
         response = await client.post(
             "/api/auth/oa/callback",
-            json={"status": "success", "payload": valid_jwt, "next": "http://localhost:3000"},
+            json={"status": "success", "payload": valid_jwt, "next": "http://localhost:4000"},
         )
         assert response.status_code == 200
         data = response.json()
@@ -99,7 +99,7 @@ class TestOAGETCallbackEndpoint:
             params={
                 "status": "success",
                 "payload": valid_jwt,
-                "next": "http://localhost:3000",
+                "next": "http://localhost:4000",
             },
             follow_redirects=False,
         )

@@ -141,7 +141,7 @@ class TestOACallback:
 
     async def test_success_callback_creates_user_and_session(self, auth_service, _mock_db):
         token = _make_jwt({"itcode": "newuser", "name": "New User"})
-        result = await auth_service.handle_oa_callback("success", token, "http://localhost:3000")
+        result = await auth_service.handle_oa_callback("success", token, "http://localhost:4000")
 
         assert result["ok"] is True
         assert result["user"]["itcode"] == "newuser"

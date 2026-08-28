@@ -146,6 +146,7 @@ TABLE_DEFINITIONS: dict[str, MetadataTableDefinition] = {
             MetadataColumn(key="AUFNR", label="生产订单"),
             MetadataColumn(key="VBELN", label="销售订单"),
             MetadataColumn(key="ZJXMC", label="机型"),
+            MetadataColumn(key="ZNGSPEC", label="故障工位编码"),
             MetadataColumn(key="ZBJ", label="部件"),
             MetadataColumn(key="ZNGWD", label="故障现象"),
             MetadataColumn(key="ZWXWD", label="维修现象"),

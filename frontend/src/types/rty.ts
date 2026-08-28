@@ -18,6 +18,14 @@ export interface RTYData {
   status: string;
 }
 
+export interface StationPassRate {
+  stationCode: string;
+  stationName: string;
+  inputCount: number;
+  defectCount: number;
+  passRate: number;
+}
+
 export interface DefectDetail {
   id: string;
   defectCode: string;
