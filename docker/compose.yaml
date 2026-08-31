@@ -57,8 +57,6 @@ services:
       context: ..
       dockerfile: docker/Dockerfile.frontend
     environment:
-      NGINX_ENVSUBST_FILTER: ^VOICE_WS_UPSTREAM$
-      VOICE_WS_UPSTREAM: ${VOICE_WS_UPSTREAM:-10.17.150.235:10095}
       TZ: ${TZ:-Asia/Shanghai}
     ports:
       - "${FRONTEND_PORT:-4000}:80"

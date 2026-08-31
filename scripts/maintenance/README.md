@@ -13,3 +13,4 @@
 | `migrate_scs_doa_keys.py` | 迁移历史 SCS DOA 稳定键并清理重复记录 |
 | `sync_sales_orders_range.py` | 手工按日期范围同步 SAP 销售订单，不创建 RTY 水位线 |
 | `benchmark_rty.py` | 只读 RTY 查询性能与执行计划基准 |
+| `backfill_station_pass_fields.py` | 回填工位直通率聚合所需规范字段；默认 dry-run，使用 `--apply` 写入 |

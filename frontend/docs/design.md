@@ -28,7 +28,7 @@
 
 - `src/api`：数据接口层（目前使用 Mock 数据封装，保留真实的 Promise 异步结构，方便后续直接替换真实接口）
 - `src/components`：全局和业务相关的可复用组件
-- `src/components/ui`：基于 shadcn/ui 引入的基础原子组件（Button, Table, Select 等）
+- `src/components/ui`：项目内复用的基础 UI 组件（例如 Modal、LoadingSpinner）
 - `src/pages`：页面级组件
   - `Home`：系统入口页，展示四个子模块卡片
   - `RTY`：RTY 整机综合直通率业务页

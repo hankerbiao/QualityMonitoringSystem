@@ -187,7 +187,6 @@ QualityMonitoringSystem/
 | `GET/PUT` | `/api/settings/mes` | MES 接入配置 |
 | `GET/PUT` | `/api/settings/model-targets` | 机型目标配置 |
 | `GET/PUT` | `/api/settings/email-alert` | 邮件预警配置 |
-| `GET/PUT` | `/api/settings/feature-flags` | 功能开关 |
 | `GET/PUT` | `/api/settings/ai` | AI 配置 |
 
 ## MongoDB Collections

@@ -21,11 +21,6 @@ export default defineConfig(() => {
           target: apiProxyTarget,
           changeOrigin: true,
         },
-        // 语音识别 WebSocket 代理
-        '/ws-voice': {
-          target: 'ws://10.17.150.235:10095',
-          ws: true,
-        },
       },
       hmr: process.env.DISABLE_HMR !== 'true',
       watch: process.env.DISABLE_HMR === 'true' ? null : {},

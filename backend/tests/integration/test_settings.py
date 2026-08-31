@@ -18,7 +18,6 @@ class TestGetAllSettings:
         assert data["data"]["processRecords"]["hasPassword"] is False
         assert data["data"]["modelTargets"] == {}
         assert data["data"]["emailAlert"]["enabled"] is True
-        assert data["data"]["featureFlags"]["voiceInputEnabled"] is False
         assert data["data"]["ai"]["apiUrl"] == ""
         assert data["data"]["cycleStatsConfig"]["selectedModels"] == []
 
@@ -37,6 +36,19 @@ class TestGetAllSettings:
         assert data["cycleStatsConfig"] == {"selectedModels": ["X1"]}
         assert data["ai"]["apiKey"] == ""
         assert data["ai"]["hasApiKey"] is True
+
+    async def test_removed_feature_flags_are_rejected(self, client, db_clean):
+        response = await client.put(
+            "/api/settings",
+            json={"featureFlags": {"voiceInputEnabled": True}},
+        )
+        assert response.status_code == 422
+        assert "featureFlags" in response.text
+
+    async def test_removed_routes_return_404(self, client, db_clean):
+        assert (await client.get("/api/settings/feature-flags")).status_code == 404
+        assert (await client.put("/api/settings/feature-flags", json={})).status_code == 404
+        assert (await client.get("/api/faults")).status_code == 404
 
 
 @pytest.mark.integration
@@ -157,25 +169,6 @@ class TestEmailAlert:
     async def test_empty_update_returns_400(self, client, db_clean):
         response = await client.put("/api/settings/email-alert", json={})
         assert response.status_code == 400
-
-
-@pytest.mark.integration
-class TestFeatureFlags:
-    """Tests for feature flags"""
-
-    async def test_get_default_flags(self, client, db_clean):
-        response = await client.get("/api/settings/feature-flags")
-        assert response.status_code == 200
-        assert response.json()["data"]["voiceInputEnabled"] is False
-
-    async def test_update_feature_flag(self, client, db_clean):
-        response = await client.put(
-            "/api/settings/feature-flags",
-            json={"voiceInputEnabled": True},
-        )
-        assert response.status_code == 200
-        assert response.json()["data"]["voiceInputEnabled"] is True
-
 
 @pytest.mark.integration
 class TestAIConfig:

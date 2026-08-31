@@ -39,7 +39,6 @@ export interface SettingsResponse {
   processRecords: ProcessRecordConfig;
   modelTargets: ModelTargets;
   emailAlert: EmailAlertConfig;
-  featureFlags: { voiceInputEnabled: boolean };
   ai: AIConfig;
   cycleStatsConfig: CycleStatsConfig;
 }
@@ -68,7 +67,6 @@ export interface SettingsUpdate {
   processRecords?: Partial<ProcessRecordConfig>;
   modelTargets?: ModelTargets;
   emailAlert?: Partial<EmailAlertConfig>;
-  featureFlags?: Partial<SettingsResponse['featureFlags']>;
   ai?: Partial<AIConfig>;
   cycleStatsConfig?: CycleStatsConfig;
 }

@@ -33,7 +33,7 @@
 # 安装依赖
 npm install
 
-# 开发模式 (端口 3000)
+# 开发模式 (端口 4000)
 npm run dev
 
 # 构建生产版本
@@ -59,7 +59,6 @@ frontend/
 │   │   ├── settingsApi.ts      # 系统配置接口
 │   │   ├── authApi.ts          # 认证接口 (OA 登录)
 │   │   ├── aiApi.ts            # AI 分析接口
-│   │   └── mockData.ts         # 开发用模拟数据
 │   ├── components/             # 可复用组件
 │   │   ├── SettingsModal.tsx   # 系统配置管理弹窗
 │   │   ├── DefectModal.tsx     # 故障明细弹窗

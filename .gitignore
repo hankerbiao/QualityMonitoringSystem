@@ -4,6 +4,7 @@ dist/
 coverage/
 .DS_Store
 *.log
+*.pem
 .env*
 !.env.example
 
@@ -18,6 +19,7 @@ __pycache__/
 
 # 临时数据文件（内部数据，不入库）
 *.csv
+frontend/test.html
 
 # 数据采集脚本是项目源码，应纳入版本控制；运行产生的缓存由上面的规则统一忽略。
 

@@ -95,27 +95,6 @@ class AIConfigUpdate(BaseModel):
     maxTokens: int | None = None
 
 
-# ============== 功能开关配置 ==============
-
-
-class FeatureFlagsBase(BaseModel):
-    """功能开关基础模型"""
-
-    voiceInputEnabled: bool = Field(False, description="语音输入功能是否启用")
-
-
-class FeatureFlags(FeatureFlagsBase):
-    """功能开关配置响应模型"""
-
-    model_config = ConfigDict(from_attributes=True)
-
-
-class FeatureFlagsUpdate(BaseModel):
-    """更新功能开关配置"""
-
-    voiceInputEnabled: bool | None = None
-
-
 # ============== 周期统计看板配置 ==============
 
 
@@ -136,7 +115,6 @@ class SettingsResponse(BaseModel):
     processRecords: ProcessRecordConfig
     modelTargets: dict[str, float] = Field(default_factory=dict)
     emailAlert: EmailAlertConfig
-    featureFlags: FeatureFlags
     ai: AIConfigSchema
     cycleStatsConfig: CycleStatsConfig = Field(default_factory=CycleStatsConfig)
 
@@ -144,9 +122,10 @@ class SettingsResponse(BaseModel):
 class SettingsUpdateRequest(BaseModel):
     """设置更新请求"""
 
+    model_config = ConfigDict(extra="forbid")
+
     processRecords: ProcessRecordConfigUpdate | None = None
     modelTargets: dict[str, float] | None = None
     emailAlert: EmailAlertConfigUpdate | None = None
-    featureFlags: FeatureFlagsUpdate | None = None
     ai: AIConfigUpdate | None = None
     cycleStatsConfig: CycleStatsConfig | None = None

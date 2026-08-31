@@ -1,9 +1,11 @@
 """RTY API calculated from SAP sales-order production quantities and repair records."""
 
 import asyncio
+import time
 from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, HTTPException, Query, Request
+from loguru import logger
 
 from app.core.logger import audit_log, log_info
 from app.db.mongodb import get_database
@@ -40,6 +42,7 @@ from app.services.rty_queries import (
 from app.services.rty_queries import (
     split_values as _split_values,
 )
+from app.services.station_pass_fields import normalize_station_code
 
 router = APIRouter()
 
@@ -88,12 +91,7 @@ def _normalize_sales_order(value: Any) -> str:
 
 def _station_code(value: Any) -> str:
     """Normalize station values such as ``M-OP205:初检前测`` to ``OP205``."""
-    text = str(value or "").strip()
-    if not text:
-        return ""
-    # Repair ZNGGZ values may append a Chinese/English description after ':'.
-    text = text.split(":", 1)[0].split("：", 1)[0].strip()
-    return text.rsplit("-", 1)[-1].strip() if text else ""
+    return normalize_station_code(value)
 
 
 def _station_record_date(row: dict[str, Any]) -> str:
@@ -111,54 +109,87 @@ async def _station_pass_rates(
     if start > end:
         return []
 
-    station_sns: dict[str, set[str]] = {}
-    station_names: dict[str, str] = {}
-    station_cursor = db[Collections.STATION_RECORDS_SAP].find(
-        {}, {"PCODE": 1, "SPEC": 1, "SPEC_DESC": 1, "ACTUAL_START_TIME": 1, "GSTRS": 1}
+    pipeline = [
+        {
+            "$match": {
+                "station_pass_date": {"$gte": start, "$lte": end},
+                "station_code_norm": {"$nin": [None, ""]},
+                "PCODE": {"$nin": [None, ""]},
+            }
+        },
+        {
+            "$group": {
+                "_id": {"stationCode": "$station_code_norm", "sn": "$PCODE"},
+                "stationName": {"$first": "$station_name_norm"},
+                "sourceDocumentCount": {"$sum": 1},
+            }
+        },
+        {
+            "$lookup": {
+                "from": Collections.REPAIR_RECORDS_SAP,
+                "let": {"stationCode": "$_id.stationCode", "sn": "$_id.sn"},
+                "pipeline": [
+                    {
+                        "$match": {
+                            "ZDATE_WX": {"$gte": start, "$lte": end},
+                            "$expr": {
+                                "$and": [
+                                    {"$eq": ["$repair_station_code_norm", "$$stationCode"]},
+                                    {"$eq": ["$PCODE", "$$sn"]},
+                                ]
+                            },
+                        }
+                    },
+                    {"$limit": 1},
+                ],
+                "as": "repairs",
+            }
+        },
+        {
+            "$project": {
+                "stationCode": "$_id.stationCode",
+                "stationName": 1,
+                "sourceDocumentCount": 1,
+                "isDefect": {"$gt": [{"$size": "$repairs"}, 0]},
+            }
+        },
+        {
+            "$group": {
+                "_id": "$stationCode",
+                "stationName": {"$first": "$stationName"},
+                "inputCount": {"$sum": 1},
+                "defectCount": {"$sum": {"$cond": ["$isDefect", 1, 0]}},
+                "sourceDocumentCount": {"$sum": "$sourceDocumentCount"},
+            }
+        },
+        {"$sort": {"_id": 1}},
+    ]
+    started_at = time.perf_counter()
+    results = (
+        await db[Collections.STATION_RECORDS_SAP]
+        .aggregate(pipeline, allowDiskUse=True)
+        .to_list(None)
     )
-    async for row in station_cursor:
-        record_date = _station_record_date(row)
-        if not start <= record_date <= end:
-            continue
-        station = _station_code(row.get("SPEC"))
-        sn = str(row.get("PCODE") or "").strip()
-        if not station or not sn:
-            continue
-        station_sns.setdefault(station, set()).add(sn)
-        name = str(row.get("SPEC_DESC") or "").strip()
-        if name and station not in station_names:
-            station_names[station] = name
-
-    if not station_sns:
-        return []
-
-    defect_sns: dict[str, set[str]] = {station: set() for station in station_sns}
-    repair_cursor = db[Collections.REPAIR_RECORDS_SAP].find(
-        {"ZDATE_WX": {"$gte": start, "$lte": end}},
-        {"PCODE": 1, "ZNGGZ": 1, "ZNGSPEC": 1},
+    duration_ms = (time.perf_counter() - started_at) * 1000
+    input_documents = sum(row.get("sourceDocumentCount", 0) for row in results)
+    message = (
+        f"station_pass_rates date_from={start} date_to={end} duration_ms={duration_ms:.2f} "
+        f"input_documents={input_documents} output_stations={len(results)}"
     )
-    async for repair in repair_cursor:
-        # ZNGGZ is the repair workstation field. ZNGSPEC remains a read-only
-        # fallback for older synchronized rows that predate the field mapping.
-        station = _station_code(repair.get("ZNGGZ") or repair.get("ZNGSPEC"))
-        sn = str(repair.get("PCODE") or "").strip()
-        if station in station_sns and sn in station_sns[station]:
-            defect_sns[station].add(sn)
-
-    rows: list[StationPassRate] = []
-    for station in sorted(station_sns):
-        input_count = len(station_sns[station])
-        defect_count = len(defect_sns[station])
-        rows.append(
-            StationPassRate(
-                stationCode=station,
-                stationName=station_names.get(station, ""),
-                inputCount=input_count,
-                defectCount=defect_count,
-                passRate=round((1 - defect_count / input_count) * 100, 2) if input_count else 100.0,
-            )
+    if duration_ms > 8_000:
+        logger.warning(message)
+    else:
+        log_info(message)
+    return [
+        StationPassRate(
+            stationCode=row["_id"],
+            stationName=row.get("stationName") or "",
+            inputCount=row["inputCount"],
+            defectCount=row["defectCount"],
+            passRate=round((1 - row["defectCount"] / row["inputCount"]) * 100, 2),
         )
-    return rows
+        for row in results
+    ]
 
 
 async def _repair_rows_for_orders(db, production_orders: set[str]) -> list[dict[str, Any]]:

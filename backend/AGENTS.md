@@ -16,7 +16,6 @@ uv add <package>               # 添加依赖
 uv run ruff check .            # 代码检查
 uv run ruff format .           # 代码格式化
 uv run python init_default_settings.py   # 初始化默认配置
-uv run python import_mock_data.py         # 导入模拟 RTY 数据
 ```
 
 ## Architecture
@@ -27,7 +26,7 @@ app/
 ├── auth_service.py      # OA JWT 验签，Session 创建/验证，双 token 管理
 ├── api/
 │   ├── rty.py          # RTY 列表、工位投入与维修故障明细接口
-│   ├── settings.py     # GET/PUT /api/settings, /mes, /model-targets, /email-alert, /ai
+│   ├── settings.py     # 设置、影像数据源、机型指标、邮件预警和 AI 接口
 │   ├── ai.py           # POST /api/ai/analyze
 │   └── auth.py         # OA callback, /me, /logout, /refresh
 ├── core/

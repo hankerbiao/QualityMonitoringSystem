@@ -1,7 +1,8 @@
-"""Read-only RTY MongoDB benchmark and explain report.
+"""Read-only benchmark for the optimized station pass-rate aggregation.
 
-Run against a de-identified, production-sized database. This script never writes
-documents or indexes; index creation remains an application deployment concern.
+Run this against a de-identified production-sized database after the field
+backfill and index deployment. It prints legacy collection-scan explains and
+the new aggregation explain, then executes the aggregation repeatedly.
 """
 
 from __future__ import annotations
@@ -9,64 +10,124 @@ from __future__ import annotations
 import argparse
 import statistics
 import time
+from collections.abc import Mapping
+from typing import Any
 
 from pymongo import MongoClient
 
-YEAR_START = "20260101"
-YEAR_END = "20261231"
 
-
-def _match(**extra: str) -> dict:
-    return {
-        "GSTRS": {"$gte": YEAR_START, "$lte": YEAR_END},
-        "PCODE": {"$nin": [None, ""]},
-        **extra,
-    }
-
-
-def _group_pipeline(match: dict, group_field: str, limit: int) -> list[dict]:
+def station_pass_pipeline(start: str, end: str) -> list[dict[str, Any]]:
     return [
-        {"$match": match},
-        {"$group": {"_id": f"${group_field}"}},
-        {"$match": {"_id": {"$nin": [None, ""]}}},
         {
-            "$facet": {
-                "metadata": [{"$count": "total"}],
-                "data": [{"$sort": {"_id": 1}}, {"$limit": limit}],
+            "$match": {
+                "station_pass_date": {"$gte": start, "$lte": end},
+                "station_code_norm": {"$nin": [None, ""]},
+                "PCODE": {"$nin": [None, ""]},
             }
         },
+        {
+            "$group": {
+                "_id": {"stationCode": "$station_code_norm", "sn": "$PCODE"},
+                "stationName": {"$first": "$station_name_norm"},
+            }
+        },
+        {
+            "$lookup": {
+                "from": "repair_records_sap",
+                "let": {"stationCode": "$_id.stationCode", "sn": "$_id.sn"},
+                "pipeline": [
+                    {
+                        "$match": {
+                            "ZDATE_WX": {"$gte": start, "$lte": end},
+                            "$expr": {
+                                "$and": [
+                                    {"$eq": ["$repair_station_code_norm", "$$stationCode"]},
+                                    {"$eq": ["$PCODE", "$$sn"]},
+                                ]
+                            },
+                        }
+                    },
+                    {"$limit": 1},
+                ],
+                "as": "repairs",
+            }
+        },
+        {
+            "$project": {
+                "stationCode": "$_id.stationCode",
+                "stationName": 1,
+                "isDefect": {"$gt": [{"$size": "$repairs"}, 0]},
+            }
+        },
+        {
+            "$group": {
+                "_id": "$stationCode",
+                "stationName": {"$first": "$stationName"},
+                "inputCount": {"$sum": 1},
+                "defectCount": {"$sum": {"$cond": ["$isDefect", 1, 0]}},
+            }
+        },
+        {"$sort": {"_id": 1}},
     ]
 
 
-def _execution_summary(explain: dict) -> dict:
+def _index_names(plan: Any) -> list[str]:
+    if isinstance(plan, Mapping):
+        names = [str(plan["indexName"])] if plan.get("indexName") else []
+        for value in plan.values():
+            names.extend(_index_names(value))
+        return sorted(set(names))
+    if isinstance(plan, list):
+        return sorted({name for value in plan for name in _index_names(value)})
+    return []
+
+
+def execution_summary(explain: Mapping[str, Any]) -> dict[str, Any]:
     stats = explain.get("executionStats", {})
+    planner = explain.get("queryPlanner", {})
     return {
-        "stage": stats.get("executionStages", {}).get("stage"),
         "nReturned": stats.get("nReturned"),
         "totalDocsExamined": stats.get("totalDocsExamined"),
         "totalKeysExamined": stats.get("totalKeysExamined"),
         "executionTimeMillis": stats.get("executionTimeMillis"),
+        "indexesUsed": _index_names(planner.get("winningPlan")),
     }
 
 
-def _run_case(collection, name: str, pipeline: list[dict], iterations: int) -> None:
-    explain = collection.database.command(
-        "explain",
-        {"aggregate": collection.name, "pipeline": pipeline, "cursor": {}},
-        verbosity="executionStats",
-    )
-    durations = []
-    for _ in range(iterations):
-        started = time.perf_counter()
-        list(collection.aggregate(pipeline, allowDiskUse=True))
-        durations.append((time.perf_counter() - started) * 1000)
-    print(
-        {
-            "case": name,
-            "p50_ms": round(statistics.median(durations), 2),
-            "p95_ms": round(sorted(durations)[max(0, int(iterations * 0.95) - 1)], 2),
-            "explain": _execution_summary(explain),
-        }
+def aggregate_execution_summaries(explain: Any) -> list[dict[str, Any]]:
+    """Extract root cursor and nested lookup metrics from aggregate explains."""
+    summaries: list[dict[str, Any]] = []
+
+    def visit(value: Any, path: str) -> None:
+        if isinstance(value, Mapping):
+            if "executionStats" in value and "queryPlanner" in value:
+                summaries.append({"path": path, **execution_summary(value)})
+            if any(
+                key in value for key in ("totalDocsExamined", "totalKeysExamined", "indexesUsed")
+            ):
+                summaries.append(
+                    {
+                        "path": path,
+                        "nReturned": value.get("nReturned"),
+                        "totalDocsExamined": value.get("totalDocsExamined"),
+                        "totalKeysExamined": value.get("totalKeysExamined"),
+                        "executionTimeMillis": value.get("executionTimeMillisEstimate"),
+                        "indexesUsed": value.get("indexesUsed", []),
+                    }
+                )
+            for key, child in value.items():
+                visit(child, f"{path}.{key}")
+        elif isinstance(value, list):
+            for index, child in enumerate(value):
+                visit(child, f"{path}[{index}]")
+
+    visit(explain, "aggregate")
+    return summaries
+
+
+def explain_find(collection: Any, query: dict[str, Any]) -> dict[str, Any]:
+    return collection.database.command(
+        "explain", {"find": collection.name, "filter": query}, verbosity="executionStats"
     )
 
 
@@ -74,54 +135,41 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--mongo-url", required=True)
     parser.add_argument("--database", required=True)
+    parser.add_argument("--date-from", default="20260101")
+    parser.add_argument("--date-to", default="20261231")
     parser.add_argument("--iterations", type=int, default=20)
-    parser.add_argument("--limit", type=int, default=50)
     args = parser.parse_args()
-    if args.iterations < 1 or args.limit < 1:
-        parser.error("--iterations and --limit must be positive")
+    if args.iterations < 1 or args.date_from > args.date_to:
+        parser.error("--iterations must be positive and date range must be ordered")
 
-    client = MongoClient(args.mongo_url, serverSelectionTimeoutMS=5000)
+    client = MongoClient(args.mongo_url, serverSelectionTimeoutMS=5_000)
     db = client[args.database]
     station = db["station_records_sap"]
     repair = db["repair_records_sap"]
-    cases = [
-        ("default", _group_pipeline(_match(), "KDAUF", args.limit)),
-        (
-            "sales_order",
-            _group_pipeline(_match(KDAUF="SO-REPLACE-ME"), "KDAUF", args.limit),
-        ),
-        (
-            "production_order",
-            _group_pipeline(_match(AUFNR="PO-REPLACE-ME"), "AUFNR", args.limit),
-        ),
-        ("base", _group_pipeline(_match(LGORT="BASE-REPLACE-ME"), "LGORT", args.limit)),
-        (
-            "product_model",
-            _group_pipeline(
-                _match(MAKTX_TH="MODEL-REPLACE-ME"), "MAKTX_TH", args.limit
-            ),
-        ),
-        (
-            "serial_number",
-            _group_pipeline(_match(PCODE="SN-REPLACE-ME"), "PCODE", args.limit),
-        ),
-    ]
-    for name, pipeline in cases:
-        _run_case(station, name, pipeline, args.iterations)
-    _run_case(
-        repair,
-        "repair_details",
-        [
-            {
-                "$match": {
-                    "PCODE": {"$in": ["SN-REPLACE-ME"]},
-                    "ZDATE_WX": {"$gte": YEAR_START, "$lte": YEAR_END},
-                }
-            },
-            {"$sort": {"ZDATE_WX": -1}},
-            {"$limit": 50_001},
-        ],
-        args.iterations,
+    pipeline = station_pass_pipeline(args.date_from, args.date_to)
+    legacy_station = explain_find(station, {})
+    legacy_repair = explain_find(
+        repair, {"ZDATE_WX": {"$gte": args.date_from, "$lte": args.date_to}}
+    )
+    optimized = db.command(
+        "explain",
+        {"aggregate": station.name, "pipeline": pipeline, "cursor": {}, "allowDiskUse": True},
+        verbosity="executionStats",
+    )
+    durations = []
+    for _ in range(args.iterations):
+        started_at = time.perf_counter()
+        list(station.aggregate(pipeline, allowDiskUse=True))
+        durations.append((time.perf_counter() - started_at) * 1000)
+    print(
+        {
+            "iterations": args.iterations,
+            "p50_ms": round(statistics.median(durations), 2),
+            "p95_ms": round(sorted(durations)[max(0, int(args.iterations * 0.95) - 1)], 2),
+            "legacy_station_find": execution_summary(legacy_station),
+            "legacy_repair_find": execution_summary(legacy_repair),
+            "optimized_station_pass_rate": aggregate_execution_summaries(optimized),
+        }
     )
     client.close()
 

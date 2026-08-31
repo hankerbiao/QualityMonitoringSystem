@@ -15,7 +15,7 @@ QualiBoard 品质看板 - 企业级质量数据整合平台：
 See AGENTS.md for the full command reference. Quick reference:
 
 ```bash
-npm run dev      # 开发服务器 (端口 3000，HTTPS 已启用)
+npm run dev      # 开发服务器 (端口 4000)
 npm run build    # 生产构建
 npm run lint     # TypeScript 类型检查 (无 ESLint/Prettier)
 npm run preview  # 预览生产构建
@@ -43,7 +43,6 @@ src/
 │   ├── settingsApi.ts       # 系统配置接口 (统一保存)
 │   ├── authApi.ts           # 认证接口 (OA 登录代理)
 │   ├── aiApi.ts             # AI 分析接口
-│   └── mockData.ts          # 开发用模拟数据
 ├── components/
 │   ├── SettingsModal.tsx    # 系统配置管理弹窗 (MES/机型/邮件/AI Tab)
 │   ├── DefectModal.tsx      # 故障明细弹窗
@@ -63,7 +62,6 @@ src/
 ## Key Conventions
 
 - **路径别名**: `@/*` 映射到项目根目录
-- **Mock API**: 所有 API 调用返回 Promise，用 `delay()` 模拟 500ms 延迟，保留真实后端替换结构
 - **配置管理**: SettingsModal 一次性保存全部配置到后端 `PUT /api/settings`
 - **RTYPage 刷新**: 监听 `settings-saved` 自定义事件，刷新数据
 - **MES 密码**: 明文从后端返回，前端直接显示，支持眼睛图标切换显示/隐藏

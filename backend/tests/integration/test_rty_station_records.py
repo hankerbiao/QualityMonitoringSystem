@@ -127,6 +127,44 @@ async def _seed_rty_data(db):
 
 @pytest.mark.integration
 class TestStationRecordRTY:
+    async def test_station_pass_normalized_fields_follow_existing_rules(self, client, db_clean):
+        await db_clean.station_records_sap.insert_one(
+            {
+                "PCODE": "SN-FALLBACK",
+                "ACTUAL_START_TIME": "",
+                "GSTRS": "20260402",
+                "SPEC": "Line-OP300：描述",
+                "SPEC_DESC": "终检",
+                "station_pass_date": "20260402",
+                "station_code_norm": "OP300",
+                "station_name_norm": "终检",
+            }
+        )
+        await db_clean.repair_records_sap.insert_one(
+            {
+                "PCODE": "SN-FALLBACK",
+                "ZDATE_WX": "20260402",
+                "ZNGGZ": "",
+                "ZNGSPEC": "Line-OP300:备用",
+                "repair_station_code_norm": "OP300",
+            }
+        )
+
+        response = await client.get(
+            "/api/rty/station-pass-rates?dateFrom=2026-04-02&dateTo=2026-04-02"
+        )
+
+        assert response.status_code == 200
+        assert response.json()["data"] == [
+            {
+                "stationCode": "OP300",
+                "stationName": "终检",
+                "inputCount": 1,
+                "defectCount": 1,
+                "passRate": 0.0,
+            }
+        ]
+
     async def test_station_pass_rates_match_station_suffix_and_deduplicate_sns(
         self, client, db_clean
     ):
@@ -138,6 +176,9 @@ class TestStationRecordRTY:
                     "ACTUAL_START_TIME": "2026-02-01 08:00:00",
                     "SPEC": "M-OP205",
                     "SPEC_DESC": "装配",
+                    "station_pass_date": "20260201",
+                    "station_code_norm": "OP205",
+                    "station_name_norm": "装配",
                 },
                 {
                     "PCODE": "SN-1",
@@ -145,6 +186,9 @@ class TestStationRecordRTY:
                     "ACTUAL_START_TIME": "2026-02-02 08:00:00",
                     "SPEC": "M-OP205",
                     "SPEC_DESC": "装配",
+                    "station_pass_date": "20260202",
+                    "station_code_norm": "OP205",
+                    "station_name_norm": "装配",
                 },
                 {
                     "PCODE": "SN-2",
@@ -152,21 +196,47 @@ class TestStationRecordRTY:
                     "ACTUAL_START_TIME": "2026-02-01 08:00:00",
                     "SPEC": "OP205",
                     "SPEC_DESC": "装配",
+                    "station_pass_date": "20260201",
+                    "station_code_norm": "OP205",
+                    "station_name_norm": "装配",
                 },
                 {
                     "PCODE": "SN-3",
                     "GSTRS": "20260201",
                     "ACTUAL_START_TIME": "2026-02-01 08:00:00",
                     "SPEC": "M-OP210",
+                    "station_pass_date": "20260201",
+                    "station_code_norm": "OP210",
+                    "station_name_norm": "",
                 },
             ]
         )
         await db_clean.repair_records_sap.insert_many(
             [
-                {"PCODE": "SN-1", "ZDATE_WX": "20260203", "ZNGGZ": "M-OP205:初检前测"},
-                {"PCODE": "SN-1", "ZDATE_WX": "20260204", "ZNGGZ": "OP205"},
-                {"PCODE": "SN-2", "ZDATE_WX": "20260204", "ZNGGZ": "M-OP210"},
-                {"PCODE": "SN-NOT-PASSED", "ZDATE_WX": "20260204", "ZNGGZ": "M-OP205"},
+                {
+                    "PCODE": "SN-1",
+                    "ZDATE_WX": "20260203",
+                    "ZNGGZ": "M-OP205:初检前测",
+                    "repair_station_code_norm": "OP205",
+                },
+                {
+                    "PCODE": "SN-1",
+                    "ZDATE_WX": "20260204",
+                    "ZNGGZ": "OP205",
+                    "repair_station_code_norm": "OP205",
+                },
+                {
+                    "PCODE": "SN-2",
+                    "ZDATE_WX": "20260204",
+                    "ZNGGZ": "M-OP210",
+                    "repair_station_code_norm": "OP210",
+                },
+                {
+                    "PCODE": "SN-NOT-PASSED",
+                    "ZDATE_WX": "20260204",
+                    "ZNGGZ": "M-OP205",
+                    "repair_station_code_norm": "OP205",
+                },
             ]
         )
 
@@ -195,12 +265,18 @@ class TestStationRecordRTY:
                     "GSTRS": "20251231",
                     "ACTUAL_START_TIME": "2026-01-02 09:00:00",
                     "SPEC": "M-OP205",
+                    "station_pass_date": "20260102",
+                    "station_code_norm": "OP205",
+                    "station_name_norm": "",
                 },
                 {
                     "PCODE": "SN-2025",
                     "GSTRS": "20260101",
                     "ACTUAL_START_TIME": "2025-12-31 09:00:00",
                     "SPEC": "M-OP205",
+                    "station_pass_date": "20251231",
+                    "station_code_norm": "OP205",
+                    "station_name_norm": "",
                 },
             ]
         )
@@ -219,6 +295,9 @@ class TestStationRecordRTY:
                     "PCODE": f"SN-{index}",
                     "ACTUAL_START_TIME": "2026-01-02 09:00:00",
                     "SPEC": "M-OP205",
+                    "station_pass_date": "20260102",
+                    "station_code_norm": "OP205",
+                    "station_name_norm": "",
                 }
                 for index in range(MAX_DETAIL_ROW_COUNT + 1)
             ]

@@ -17,7 +17,7 @@ frontend/
 ## Commands
 
 ```bash
-npm run dev      # Vite dev server port 3000 (binds 0.0.0.0)
+npm run dev      # Vite dev server port 4000 (binds 0.0.0.0)
 npm run build    # Production build to dist/
 npm run lint     # TypeScript 类型检查 (无 ESLint/Prettier)
 npm run preview  # Preview production build

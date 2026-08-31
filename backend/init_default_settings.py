@@ -2,7 +2,6 @@
 """
 初始化默认配置数据到 MongoDB
 
-合并了原 init_db.py 的全部功能（feature_flags），该文件已删除。
 保持独立无依赖（直接使用 pymongo，不依赖 FastAPI/Motor 项目包）。
 
 用法: python init_default_settings.py
@@ -37,17 +36,7 @@ def main():
     configs = db["configs"]
     now = utcnow()
 
-    # 1. MES 系统接入配置
-    mes_config = {
-        "key": "mes_config",
-        "username": "liushy2",
-        "password": "Lsy825516",
-        "updatedAt": now,
-    }
-    configs.update_one({"key": "mes_config"}, {"$set": mes_config}, upsert=True)
-    print("✓ MES 配置已写入: liushy2 / ********")
-
-    # 2. 关键工位影像追溯（两个实时数据源共用凭据）
+    # 1. 关键工位影像追溯（两个实时数据源共用凭据）
     process_record_config = {"key": "process_record_config", "username": "caokp"}
     configs.update_one(
         {"key": "process_record_config"},
@@ -56,7 +45,7 @@ def main():
     )
     print("✓ 关键工位影像追溯默认账号已初始化（密码请在系统设置中保存）")
 
-    # 3. 邮件预警配置
+    # 2. 邮件预警配置
     email_config = {
         "key": "email_alert_config",
         "enabled": True,
@@ -72,7 +61,7 @@ def main():
     )
     print("✓ 邮件预警配置已写入（默认启用）")
 
-    # 4. AI 模型配置
+    # 3. AI 模型配置
     ai_config = {
         "key": "ai_config",
         "apiUrl": "http://10.41.101.220:8000/v1/chat/completions",
@@ -86,15 +75,6 @@ def main():
     print("  - API: http://10.41.101.220:8000/v1/chat/completions")
     print("  - Model: /models/coder/minimax/MiniMax-M2")
 
-    # 5. 功能开关（原 init_db.py）
-    feature_flags = {
-        "key": "feature_flags",
-        "voiceInputEnabled": False,
-        "updatedAt": now,
-    }
-    configs.update_one({"key": "feature_flags"}, {"$set": feature_flags}, upsert=True)
-    print("✓ 功能开关配置已写入（voiceInputEnabled: false）")
-
     # 验证写入
     print("\n当前 configs 集合中的数据:")
     for doc in configs.find():
@@ -107,7 +87,6 @@ def main():
 
     client.close()
     print("\n初始化完成！")
-    print("注：已合并原 init_db.py 的全部配置，该文件已删除。")
 
 
 if __name__ == "__main__":

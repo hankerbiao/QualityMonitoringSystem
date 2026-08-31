@@ -15,7 +15,6 @@ from app.schemas.settings import (
     AIConfigSchema,
     CycleStatsConfig,
     EmailAlertConfig,
-    FeatureFlags,
     ProcessRecordConfig,
     SettingsResponse,
     SettingsUpdateRequest,
@@ -48,7 +47,6 @@ class SettingsService:
                 "process_record_config",
                 "model_targets",
                 "email_alert_config",
-                "feature_flags",
                 "ai_config",
                 "cycle_stats_config",
             )
@@ -57,9 +55,6 @@ class SettingsService:
             processRecords=self.process_records_from_doc(docs["process_record_config"]),
             modelTargets=(docs["model_targets"] or {}).get("targets", {}),
             emailAlert=self.email_from_doc(docs["email_alert_config"]),
-            featureFlags=FeatureFlags(
-                voiceInputEnabled=(docs["feature_flags"] or {}).get("voiceInputEnabled", False)
-            ),
             ai=self.ai_from_doc(docs["ai_config"]),
             cycleStatsConfig=CycleStatsConfig(
                 selectedModels=(docs["cycle_stats_config"] or {}).get("selectedModels", [])
@@ -85,11 +80,6 @@ class SettingsService:
             data = request.emailAlert.model_dump(exclude_none=True)
             if data:
                 updates.append(("email_alert_config", data))
-
-        if request.featureFlags is not None:
-            data = request.featureFlags.model_dump(exclude_none=True)
-            if data:
-                updates.append(("feature_flags", data))
 
         if request.ai is not None:
             data = request.ai.model_dump(exclude_none=True)

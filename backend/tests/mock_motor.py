@@ -528,7 +528,7 @@ class MockMotorCollection:
     async def estimated_document_count(self) -> int:
         return len(self._docs)
 
-    def aggregate(self, pipeline: list[dict]) -> MockAsyncAggregateCursor:
+    def aggregate(self, pipeline: list[dict], **kwargs: Any) -> MockAsyncAggregateCursor:
         return MockAsyncAggregateCursor(self, pipeline)
 
     async def create_index(self, keys: list, **kwargs) -> str:

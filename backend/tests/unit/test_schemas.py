@@ -12,8 +12,6 @@ from app.schemas.settings import (
     AIConfigUpdate,
     EmailAlertConfig,
     EmailAlertConfigUpdate,
-    FeatureFlags,
-    FeatureFlagsUpdate,
     ModelTargetBase,
     ModelTargetsResponse,
     SettingsUpdateRequest,
@@ -107,19 +105,6 @@ class TestEmailAlertConfig:
         update = EmailAlertConfigUpdate(enabled=False)
         assert update.enabled is False
         assert update.emails is None
-
-
-# ─── Feature Flags Schemas ───────────────────────────────────────────────────
-
-
-class TestFeatureFlags:
-    def test_defaults(self):
-        flags = FeatureFlags()
-        assert flags.voiceInputEnabled is False
-
-    def test_update_partial(self):
-        update = FeatureFlagsUpdate(voiceInputEnabled=True)
-        assert update.voiceInputEnabled is True
 
 
 # ─── AI Config Schemas ───────────────────────────────────────────────────────

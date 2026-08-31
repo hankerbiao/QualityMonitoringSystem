@@ -36,11 +36,7 @@ PORT=8010 ./deploy.sh deploy  # 指定端口
 ### 1. 安装依赖
 
 ```bash
-# 使用 uv (推荐)
 uv sync
-
-# 或使用 pip
-pip install -r requirements.txt
 ```
 
 ### 2. 配置环境
@@ -56,11 +52,8 @@ nano .env
 ### 3. 初始化数据库
 
 ```bash
-# 初始化默认配置数据 (MES 账号、机型指标、邮件预警、AI 配置)
+# 初始化默认配置数据
 uv run python init_default_settings.py
-
-# 导入模拟 RTY 数据 (开发环境)
-uv run python import_mock_data.py
 ```
 
 ### 4. 运行服务器
@@ -113,7 +106,6 @@ backend/
 │       ├── __init__.py
 │       └── ai_service.py   # AI 分析服务
 ├── init_default_settings.py  # 初始化默认配置
-├── import_mock_data.py       # 导入模拟数据
 ├── pyproject.toml            # 项目配置 (uv)
 └── .env.example              # 环境变量示例
 ```
@@ -202,16 +194,14 @@ backend/
 |------|------|------|
 | GET | `/api/settings` | 获取全部配置 |
 | PUT | `/api/settings` | 批量更新全部配置 |
-| GET | `/api/settings/mes` | 获取 MES 配置 |
-| PUT | `/api/settings/mes` | 更新 MES 配置 |
+| GET | `/api/settings/process-records` | 获取关键工位影像数据源配置 |
+| PUT | `/api/settings/process-records` | 更新关键工位影像数据源配置 |
 | GET | `/api/settings/model-targets` | 获取机型指标 |
 | PUT | `/api/settings/model-targets` | 批量更新机型指标 |
 | POST | `/api/settings/model-targets/{model}` | 添加/更新单个机型指标 |
 | DELETE | `/api/settings/model-targets/{model}` | 删除机型指标 |
 | GET | `/api/settings/email-alert` | 获取邮件预警配置 |
 | PUT | `/api/settings/email-alert` | 更新邮件预警配置 |
-| GET | `/api/settings/feature-flags` | 获取功能开关 |
-| PUT | `/api/settings/feature-flags` | 更新功能开关 |
 | GET | `/api/settings/ai` | 获取 AI 配置 |
 | PUT | `/api/settings/ai` | 更新 AI 配置 |
 
@@ -266,7 +256,6 @@ uv run ruff format .    # 代码格式化
 
 # 数据库初始化
 uv run python init_default_settings.py   # 初始化默认配置
-uv run python import_mock_data.py         # 导入模拟数据
 ```
 
 ## Docker 部署

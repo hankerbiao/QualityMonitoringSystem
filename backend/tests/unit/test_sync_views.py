@@ -52,3 +52,68 @@ def test_sync_stats_reports_filtered_records() -> None:
     stats = MODULE.SyncStats("view", "collection", "incremental", "run", filtered=3)
 
     assert stats.as_dict()["filtered"] == 3
+
+
+def test_station_pass_normalizers_use_actual_date_and_repair_station_fallback() -> None:
+    assert MODULE.station_pass_fields(
+        {
+            "ACTUAL_START_TIME": "2026-04-02 08:30:00",
+            "GSTRS": "20260101",
+            "SPEC": "M-OP205:装配",
+            "SPEC_DESC": " 装配 ",
+        }
+    ) == {
+        "station_pass_date": "20260402",
+        "station_code_norm": "OP205",
+        "station_name_norm": "装配",
+    }
+    assert (
+        MODULE.station_pass_fields({"ACTUAL_START_TIME": "2026-99-99", "GSTRS": "20260403"})[
+            "station_pass_date"
+        ]
+        == "20260403"
+    )
+    assert MODULE.repair_station_pass_fields({"ZNGGZ": "", "ZNGSPEC": "M-OP205：备用"}) == {
+        "repair_station_code_norm": "OP205"
+    }
+    assert MODULE.repair_station_pass_fields(
+        {"ZNGGZ": "M-OP205:主工位", "ZNGSPEC": "M-OP210:备用"}
+    ) == {"repair_station_code_norm": "OP205"}
+
+
+def test_sync_row_normalization_selects_fields_for_station_and_repair_views() -> None:
+    assert MODULE.normalized_sap_fields(
+        MODULE.VIEW_SPECS["Z_V_ZMES_T_001"],
+        {"ACTUAL_START_TIME": "2026-05-01", "SPEC": "M-OP100", "SPEC_DESC": "测试"},
+    ) == {
+        "station_pass_date": "20260501",
+        "station_code_norm": "OP100",
+        "station_name_norm": "测试",
+    }
+    assert MODULE.normalized_sap_fields(
+        MODULE.VIEW_SPECS["ZSGV_ZZT_WLJL"],
+        {"ZNGGZ": "M-OP100:测试"},
+    ) == {"repair_station_code_norm": "OP100"}
+
+
+def test_future_watermark_is_ignored_for_recovery_scan() -> None:
+    spec = MODULE.ViewSpec(
+        view_id="bom",
+        qualified_name="schema.view",
+        columns=("BUDAT_MKPF",),
+        collection="bom",
+        key_fields=("BUDAT_MKPF",),
+        order_by=("BUDAT_MKPF",),
+        watermark_fields=("BUDAT_MKPF",),
+        start_date_field="BUDAT_MKPF",
+    )
+
+    sql, params = MODULE.build_query(
+        spec,
+        mode="incremental",
+        checkpoint={"watermark": "21000108"},
+        start_date=None,
+    )
+
+    assert " WHERE " not in sql
+    assert params == []

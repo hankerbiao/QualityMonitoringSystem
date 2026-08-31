@@ -10,7 +10,6 @@ const DEFAULT_SETTINGS: SettingsResponse = {
   processRecords: { username: '', password: '', hasPassword: false },
   modelTargets: {},
   emailAlert: { enabled: true, emails: '', triggerCondition: '', weeklyProductionThreshold: 50 },
-  featureFlags: { voiceInputEnabled: false },
   ai: DEFAULT_AI_CONFIG,
   cycleStatsConfig: { selectedModels: [] },
 };

@@ -4,7 +4,6 @@
 包括:
 - 机型指标配置
 - 邮件预警规则配置
-- 功能开关配置
 
 说明:
 - GET 接口一律不返回明文密码；密码以 hasPassword 标志表示。
@@ -26,8 +25,6 @@ from app.schemas.settings import (
     CycleStatsConfig,
     EmailAlertConfig,
     EmailAlertConfigUpdate,
-    FeatureFlags,
-    FeatureFlagsUpdate,
     ModelTargetsResponse,
     ProcessRecordConfig,
     ProcessRecordConfigUpdate,
@@ -255,30 +252,6 @@ async def get_qualified_models(threshold: int = Query(..., ge=0)):
     """查询达到生产量阈值且 RTY 未达标的机型，不触发邮件发送。"""
     result = await get_weekly_production_candidates(threshold)
     return Response(success=True, data=result, message="符合条件的机型已获取")
-
-
-# ============== 功能开关接口 ==============
-
-
-@router.get("/feature-flags", response_model=Response[FeatureFlags])
-async def get_feature_flags():
-    """获取功能开关配置"""
-    doc = await _read_doc("feature_flags")
-    return Response(
-        success=True,
-        data=FeatureFlags(voiceInputEnabled=(doc or {}).get("voiceInputEnabled", False)),
-    )
-
-
-@router.put("/feature-flags", response_model=Response[FeatureFlags])
-async def update_feature_flags(flags: FeatureFlagsUpdate):
-    """更新功能开关配置"""
-    doc = await _save_section("feature_flags", flags)
-    return Response(
-        success=True,
-        data=FeatureFlags(voiceInputEnabled=(doc or {}).get("voiceInputEnabled", False)),
-        message="功能开关配置已更新",
-    )
 
 
 # ============== AI 模型配置接口 ==============

@@ -19,12 +19,13 @@ import json
 import logging
 import os
 import sys
+from collections.abc import Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from pathlib import Path
-from typing import Any, Iterator, Mapping, Sequence
+from typing import Any
 from uuid import uuid4
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -37,6 +38,10 @@ from app.services.order_bom_gstrs import (  # noqa: E402
     OrderBomGstrsLookup,
     build_order_bom_gstrs_lookup,
     normalize_production_order,
+)
+from app.services.station_pass_fields import (  # noqa: E402
+    repair_station_pass_fields,
+    station_pass_fields,
 )
 
 CHECKPOINTS_COLLECTION = "_hana_sync_checkpoints"
@@ -62,7 +67,7 @@ class HanaSettings:
     connection_timeout: int
 
     @classmethod
-    def from_env(cls) -> "HanaSettings":
+    def from_env(cls) -> HanaSettings:
         required = {
             "HANA_ADDRESS": os.getenv("HANA_ADDRESS"),
             "HANA_USER": os.getenv("HANA_USER"),
@@ -105,7 +110,7 @@ class MongoSettings:
     server_selection_timeout_ms: int
 
     @classmethod
-    def from_env(cls) -> "MongoSettings":
+    def from_env(cls) -> MongoSettings:
         uri = os.getenv("MONGODB_URL")
         if not uri:
             raise ConfigurationError("Missing MONGODB_URL")
@@ -155,9 +160,12 @@ VIEW_SPECS: dict[str, ViewSpec] = {
         collection="order_bom_postings_sap",
         key_fields=("MANDT", "MBLNR", "MJAHR", "ZEILE"),
         order_by=("MBLNR", "MJAHR", "ZEILE", "WERKS", "MATNR"),
-        watermark_fields=("FDATU_O",),
+        # FDATU_O/DATE_JH_O contain future planning/sentinel dates (for example
+        # 21000108), so they cannot be used as an ingestion watermark.  The
+        # material-document posting date is monotonic for this view.
+        watermark_fields=("BUDAT_MKPF",),
         index_fields=("AUFNR_1", "VBELN_EX", "MATNR", "FDATU_O"),
-        start_date_field="FDATU_O",
+        start_date_field="BUDAT_MKPF",
     ),
     "ZSGV_ZPP_SERNOLIST": ViewSpec(
         view_id="ZSGV_ZPP_SERNOLIST",
@@ -410,6 +418,20 @@ def build_query(
     conditions: list[str] = []
     params: list[Any] = []
     watermark = checkpoint.get("watermark") if checkpoint else None
+    # A previous version used planned BOM dates and persisted sentinel values
+    # such as 21000108.  Never let a future date suppress all subsequent rows;
+    # the normal start-date guard will provide a bounded recovery scan.
+    if isinstance(watermark, str) and len(watermark) == 8 and watermark.isdigit():
+        if watermark > datetime.now(timezone.utc).strftime("%Y%m%d"):
+            watermark = None
+    elif isinstance(watermark, Mapping):
+        date_value = str(watermark.get("ZDATE") or "")
+        if (
+            len(date_value) == 8
+            and date_value.isdigit()
+            and date_value > datetime.now(timezone.utc).strftime("%Y%m%d")
+        ):
+            watermark = None
     if mode == "incremental" and watermark is not None:
         if spec.watermark_fields == ("ZDATE", "ZTIME"):
             if not isinstance(watermark, Mapping):
@@ -451,6 +473,15 @@ def ensure_indexes(database: Any, spec: ViewSpec) -> None:
     collection.create_index("_source_key", unique=True, name="source_key_unique")
     for field in spec.index_fields:
         collection.create_index(field, name=f"source_{field.lower()}")
+
+
+def normalized_sap_fields(spec: ViewSpec, row: Mapping[str, Any]) -> dict[str, str]:
+    """Return reporting fields derived while a SAP source row is synchronized."""
+    if spec.collection == "station_records_sap":
+        return station_pass_fields(row)
+    if spec.collection == "repair_records_sap":
+        return repair_station_pass_fields(row)
+    return {}
 
 
 def sync_view(
@@ -508,9 +539,8 @@ def sync_view(
                     for values in rows:
                         row = dict(zip(spec.columns, values, strict=True))
                         watermark = max_watermark(spec, watermark, row)
-                        if (
-                            valid_bom_vbelns is not None
-                            and not should_sync_bom_row(row, valid_bom_vbelns)
+                        if valid_bom_vbelns is not None and not should_sync_bom_row(
+                            row, valid_bom_vbelns
                         ):
                             stats.filtered += 1
                             continue
@@ -533,6 +563,7 @@ def sync_view(
                             from pymongo import UpdateOne
 
                             document = {field: to_bson_value(value) for field, value in row.items()}
+                            document.update(normalized_sap_fields(spec, row))
                             if bom_gstrs_lookup is not None:
                                 gstrs_match = bom_gstrs_lookup.resolve(
                                     row.get("AUFNR_1"), row.get("VBELN_EX")
@@ -685,21 +716,35 @@ def main(argv: Sequence[str] | None = None) -> int:
             )
             mongo_client.admin.command("ping")
             database = mongo_client[mongo_settings.database]
+        failures: list[tuple[str, Exception]] = []
         try:
             for view_id in selected:
-                stats = sync_view(
-                    VIEW_SPECS[view_id],
-                    hana_settings,
-                    database,
-                    mode=args.mode,
-                    batch_size=batch_size,
-                    start_date=start_date if VIEW_SPECS[view_id].start_date_field else None,
-                    dry_run=args.dry_run,
-                )
-                logger.info("synchronized %s: %s", view_id, stats.as_dict())
+                try:
+                    stats = sync_view(
+                        VIEW_SPECS[view_id],
+                        hana_settings,
+                        database,
+                        mode=args.mode,
+                        batch_size=batch_size,
+                        start_date=start_date if VIEW_SPECS[view_id].start_date_field else None,
+                        dry_run=args.dry_run,
+                    )
+                    logger.info("synchronized %s: %s", view_id, stats.as_dict())
+                except Exception as exc:
+                    failures.append((view_id, exc))
+                    logger.exception(
+                        "failed to synchronize %s; continuing with remaining views", view_id
+                    )
         finally:
             if mongo_client is not None:
                 mongo_client.close()
+        if failures:
+            logger.error(
+                "HANA synchronization completed with %d failed view(s): %s",
+                len(failures),
+                ", ".join(view_id for view_id, _ in failures),
+            )
+            return 1
         return 0
     except Exception:
         logger.exception("HANA to MongoDB synchronization failed")

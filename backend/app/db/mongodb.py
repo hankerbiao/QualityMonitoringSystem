@@ -66,11 +66,17 @@ async def create_indexes() -> None:
     await mongodb.db.station_records_sap.create_index(
         [("ACTUAL_START_TIME", 1), ("SPEC", 1), ("PCODE", 1)]
     )
+    await mongodb.db.station_records_sap.create_index(
+        [("station_pass_date", 1), ("station_code_norm", 1), ("PCODE", 1)]
+    )
     await mongodb.db.repair_records_sap.create_index([("PCODE", 1), ("ZDATE_WX", 1)])
     await mongodb.db.repair_records_sap.create_index([("AUFNR", 1), ("ZDATE_WX", 1), ("ZJXMC", 1)])
     await mongodb.db.repair_records_sap.create_index([("VBELN", 1)])
     await mongodb.db.repair_records_sap.create_index(
         [("ZDATE_WX", 1), ("ZNGSPEC", 1), ("PCODE", 1)]
+    )
+    await mongodb.db.repair_records_sap.create_index(
+        [("PCODE", 1), ("repair_station_code_norm", 1), ("ZDATE_WX", 1)]
     )
     await mongodb.db.serial_bindings_sap.create_index([("AUFNR_HEAD", 1), ("AUFNR_ITEM", 1)])
 

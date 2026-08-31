@@ -1,8 +1,8 @@
 # Docker deployment
 
 The Compose project runs the React production build behind Nginx and the
-FastAPI application as separate containers. Nginx forwards `/api`, `/health`,
-and `/ws-voice`; MongoDB remains the existing external service at port `27019`.
+FastAPI application as separate containers. Nginx forwards `/api` and `/health`;
+MongoDB remains the existing external service at port `27019`.
 
 ## First deployment
 
