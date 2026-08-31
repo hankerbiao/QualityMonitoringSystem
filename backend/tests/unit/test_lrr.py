@@ -22,7 +22,7 @@ def test_repair_query_matches_sales_order_line_items():
     assert query["$or"][0]["$or"][1] == {"VBELN": {"$regex": r"^0*(?:100001971)(?:--\d+)?$"}}
 
 
-def test_production_order_lrr_uses_all_bom_materials_and_order_faults():
+def test_production_order_lrr_uses_all_bom_materials_and_production_order_faults():
     rows, _ = aggregate_lrr(
         [
             {"AUFNR_1": "1", "VBELN_EX": "9", "MATNR": "00000001", "MENGE_A": 10},
@@ -40,8 +40,20 @@ def test_production_order_lrr_uses_all_bom_materials_and_order_faults():
     assert by_order["000000000001"].productionOrder == "000000000001"
     assert by_order["000000000001"].salesOrder == "9"
     assert by_order["000000000001"].issuedQuantity == 11
-    assert by_order["000000000001"].faultCount == 2
-    assert by_order["000000000001"].lrrRate == 18.18
+    assert by_order["000000000001"].faultCount == 1
+    assert by_order["000000000001"].lrrRate == 9.09
+
+
+def test_production_order_lrr_does_not_fan_out_sales_only_faults():
+    rows, _ = aggregate_lrr(
+        [
+            {"AUFNR_1": "1", "VBELN_EX": "9", "MENGE_A": 2},
+            {"AUFNR_1": "2", "VBELN_EX": "9", "MENGE_A": 3},
+        ],
+        [{"_id": "sales-only", "mfg_order": "", "sale_no": "0009"}],
+    )
+
+    assert {row.faultCount for row in rows} == {0}
 
 
 def test_sales_order_lrr_groups_all_related_production_orders_and_deduplicates_faults():
@@ -89,3 +101,13 @@ def test_list_aggregation_accepts_compacted_repair_counts():
 
     assert rows[0].faultCount == 3
     assert rows[0].lrrRate == 30
+
+
+def test_lrr_date_filters_use_compact_sap_dates():
+    assert _bom_query(None, None, "2026-01-01", "2026-01-31") == {
+        "BUDAT_MKPF": {"$gte": "20260101", "$lte": "20260131"}
+    }
+    assert _repair_query([], [], "2026-01-01", "2026-01-31") == {
+        "_id": "__none__",
+        "ZDATE_WX": {"$gte": "20260101", "$lte": "20260131"},
+    }

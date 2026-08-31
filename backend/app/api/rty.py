@@ -107,7 +107,7 @@ async def _station_pass_rates(
     start = _validate_date(date_from).replace("-", "") if date_from else REPAIR_YEAR_START
     end = _validate_date(date_to).replace("-", "") if date_to else REPAIR_YEAR_END
     if start > end:
-        return []
+        raise HTTPException(status_code=422, detail="开始日期不能晚于结束日期")
 
     pipeline = [
         {

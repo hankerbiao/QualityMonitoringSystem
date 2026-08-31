@@ -1,5 +1,5 @@
 import { useCallback, useMemo, useState } from 'react';
-import { ArrowLeft, CalendarDays, Download, Factory, Gauge, RefreshCw, Search, Wrench } from 'lucide-react';
+import { ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CalendarDays, Download, Factory, Gauge, RefreshCw, Search, Wrench } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { rtyApi } from '../api/rtyApi';
@@ -29,6 +29,15 @@ function rateColor(rate: number) {
   return { text: 'text-red-700', bar: '#ef4444' };
 }
 
+type SortField = 'stationCode' | 'inputCount' | 'defectCount' | 'passRate';
+
+const sortLabels: Record<SortField, string> = {
+  stationCode: '工位编码',
+  inputCount: '过站量',
+  defectCount: '维修 SN',
+  passRate: '直通率',
+};
+
 export default function StationPassRatePage() {
   const navigate = useNavigate();
   const [initialDateRange] = useState(defaultDateRange);
@@ -39,6 +48,8 @@ export default function StationPassRatePage() {
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [error, setError] = useState('');
+  const [sortField, setSortField] = useState<SortField>('passRate');
+  const [sortDescending, setSortDescending] = useState(true);
 
   const load = useCallback(async () => {
     if (dateFrom > dateTo) {
@@ -81,19 +92,46 @@ export default function StationPassRatePage() {
     );
   }, [rows, search]);
 
+  const sortedRows = useMemo(() => {
+    return [...filteredRows].sort((left, right) => {
+      const comparison = sortField === 'stationCode'
+        ? left.stationCode.localeCompare(right.stationCode, 'zh-CN')
+        : left[sortField] - right[sortField];
+      return sortDescending ? -comparison : comparison;
+    });
+  }, [filteredRows, sortDescending, sortField]);
+
   const summary = useMemo(() => {
-    const inputCount = rows.reduce((sum, row) => sum + row.inputCount, 0);
-    const defectCount = rows.reduce((sum, row) => sum + row.defectCount, 0);
+    const inputCount = sortedRows.reduce((sum, row) => sum + row.inputCount, 0);
+    const defectCount = sortedRows.reduce((sum, row) => sum + row.defectCount, 0);
     return {
-      stationCount: rows.length,
+      stationCount: sortedRows.length,
       inputCount,
       defectCount,
-      passRate: inputCount ? ((inputCount - defectCount) / inputCount) * 100 : 100,
+      passRate: inputCount ? ((inputCount - defectCount) / inputCount) * 100 : null,
     };
-  }, [rows]);
+  }, [sortedRows]);
+
+  const toggleSort = (field: SortField) => {
+    if (sortField === field) {
+      setSortDescending((current) => !current);
+    } else {
+      setSortField(field);
+      setSortDescending(field !== 'stationCode');
+    }
+  };
+
+  const sortHeader = (field: SortField, suffix = '', className = '') => {
+    const Icon = sortField === field ? (sortDescending ? ArrowDown : ArrowUp) : ArrowUpDown;
+    return <th className={`px-4 py-3 ${className}`} aria-sort={sortField === field ? (sortDescending ? 'descending' : 'ascending') : 'none'}>
+      <button type="button" onClick={() => toggleSort(field)} className="inline-flex items-center gap-1 hover:text-cyan-700" title={`按${sortLabels[field]}排序`}>
+        {sortLabels[field]}{suffix}<Icon className="size-3.5" />
+      </button>
+    </th>;
+  };
 
   const exportRows = () => {
-    const data = filteredRows.map((row) => ({
+    const data = sortedRows.map((row) => ({
       工位编码: row.stationCode,
       工位名称: row.stationName,
       过站量: row.inputCount,
@@ -171,6 +209,9 @@ export default function StationPassRatePage() {
               <Search className="size-4" />{loading ? '正在计算' : '搜索'}
             </button>
           </div>
+          <p className="mt-3 border-t border-slate-100 pt-3 text-xs leading-5 text-slate-500">
+            统计口径：分母为统计期内按“工位 + SN”去重的过站记录；分子为同一 SN 在统计期内存在且工位匹配的维修记录。该指标用于工位异常监控，不等同于严格首过直通率。
+          </p>
         </section>
 
         {error && <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
@@ -182,7 +223,7 @@ export default function StationPassRatePage() {
             { label: '工位数', value: summary.stationCount, detail: '有过站记录的工位', icon: Factory, tint: 'text-cyan-700 bg-cyan-50' },
             { label: '过站量', value: summary.inputCount, detail: '去重后的过站 SN', icon: Gauge, tint: 'text-blue-700 bg-blue-50' },
             { label: '维修 SN 数', value: summary.defectCount, detail: '匹配工位的维修 SN', icon: Wrench, tint: 'text-red-700 bg-red-50' },
-            { label: '整体直通率', value: `${summary.passRate.toFixed(2)}%`, detail: '（过站量 - 维修 SN）÷ 过站量', icon: Gauge, tint: 'text-emerald-700 bg-emerald-50' },
+            { label: '当前筛选直通率', value: summary.passRate == null ? '-' : `${summary.passRate.toFixed(2)}%`, detail: '（过站量 - 维修 SN）÷ 过站量', icon: Gauge, tint: 'text-emerald-700 bg-emerald-50' },
           ].map(({ label, value, detail, icon: Icon, tint }) => (
             <div key={label} className="flex items-center gap-3 rounded-md border border-slate-200 bg-white px-4 py-3 shadow-sm">
               <div className={`flex size-9 shrink-0 items-center justify-center rounded-md ${tint}`}><Icon className="size-4" /></div>
@@ -193,14 +234,20 @@ export default function StationPassRatePage() {
 
         <section className="flex items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-4 py-3 shadow-sm">
           <div className="relative w-full max-w-sm"><Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索工位编码或名称" className="h-9 w-full rounded-md border border-slate-300 bg-white pl-8 pr-3 text-sm focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-200" /></div>
-          <span className="shrink-0 text-xs text-slate-400">{filteredRows.length} / {rows.length} 个工位</span>
+          <span className="shrink-0 text-xs text-slate-400">当前显示 {sortedRows.length} / {rows.length} 个工位</span>
         </section>
 
         <section className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
           <div className="overflow-auto"><table className="w-full min-w-[720px] text-left text-sm">
-            <thead className="sticky top-0 z-[1] border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600"><tr><th className="px-4 py-3">工位编码</th><th className="px-4 py-3">工位名称</th><th className="px-4 py-3 text-right">过站量（分母）</th><th className="px-4 py-3 text-right">维修 SN（分子）</th><th className="px-4 py-3 text-right">直通率</th></tr></thead>
+            <thead className="sticky top-0 z-[1] border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600"><tr>
+              {sortHeader('stationCode')}
+              <th className="px-4 py-3">工位名称</th>
+              {sortHeader('inputCount', '（分母）', 'text-right')}
+              {sortHeader('defectCount', '（分子）', 'text-right')}
+              {sortHeader('passRate', '', 'text-right')}
+            </tr></thead>
             <tbody className="divide-y divide-slate-100 text-xs">
-              {loading ? <tr><td colSpan={5} className="px-4 py-14 text-center text-slate-500">正在计算工位过站量与维修 SN 匹配关系...</td></tr> : error ? <tr><td colSpan={5} className="px-4 py-14 text-center text-red-500">加载失败，请调整条件后重新搜索</td></tr> : !hasSearched ? <tr><td colSpan={5} className="px-4 py-14 text-center text-slate-500">请选择统计日期范围后点击搜索</td></tr> : filteredRows.length === 0 ? <tr><td colSpan={5} className="px-4 py-14 text-center text-slate-500">暂无符合条件的工位数据</td></tr> : filteredRows.map((row) => { const color = rateColor(row.passRate); return <tr key={row.stationCode} className="hover:bg-slate-50"><td className="px-4 py-3 font-mono font-semibold text-slate-800">{row.stationCode}</td><td className="px-4 py-3 text-slate-600">{row.stationName || '-'}</td><td className="px-4 py-3 text-right font-mono">{formatNumber(row.inputCount)}</td><td className="px-4 py-3 text-right font-mono text-red-600">{formatNumber(row.defectCount)}</td><td className="px-4 py-3"><div className="flex items-center justify-end gap-3"><div className="h-1.5 w-28 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.max(0, row.passRate))}%`, backgroundColor: color.bar }} /></div><span className={`w-16 text-right font-mono font-semibold ${color.text}`}>{row.passRate.toFixed(2)}%</span></div></td></tr>; })}
+              {loading ? <tr><td colSpan={5} className="px-4 py-14 text-center text-slate-500">正在计算工位过站量与维修 SN 匹配关系...</td></tr> : error ? <tr><td colSpan={5} className="px-4 py-14 text-center text-red-500">加载失败，请调整条件后重新搜索</td></tr> : !hasSearched ? <tr><td colSpan={5} className="px-4 py-14 text-center text-slate-500">请选择统计日期范围后点击搜索</td></tr> : sortedRows.length === 0 ? <tr><td colSpan={5} className="px-4 py-14 text-center text-slate-500">暂无符合条件的工位数据</td></tr> : sortedRows.map((row) => { const color = rateColor(row.passRate); return <tr key={row.stationCode} className="hover:bg-slate-50"><td className="px-4 py-3 font-mono font-semibold text-slate-800">{row.stationCode}</td><td className="px-4 py-3 text-slate-600">{row.stationName || '-'}</td><td className="px-4 py-3 text-right font-mono">{formatNumber(row.inputCount)}</td><td className="px-4 py-3 text-right font-mono text-red-600">{formatNumber(row.defectCount)}</td><td className="px-4 py-3 text-right"><div className="flex items-center justify-end gap-3"><div className="h-1.5 w-28 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.max(0, row.passRate))}%`, backgroundColor: color.bar }} /></div><span className={`w-16 text-right font-mono font-semibold ${color.text}`}>{row.passRate.toFixed(2)}%</span></div></td></tr>; })}
             </tbody>
           </table></div>
         </section>

@@ -6,7 +6,9 @@ export interface LRRFilters {
   groupBy?: LRROrderDimension;
   productionOrder?: string | null;
   salesOrder?: string | null;
-  storageLocation?: string | null;
+  dateFrom?: string | null;
+  dateTo?: string | null;
+  orderKeyword?: string | null;
   sortBy?: LRRSortField;
   sortDir?: LRRSortDir;
 }
@@ -54,4 +56,10 @@ export interface LRRFaultDetail {
   faultType: string;
   faultDesc: string;
   repairTime: string;
+}
+
+export interface LRRFaultDetailsResponse {
+  items: LRRFaultDetail[];
+  total: number;
+  truncated: boolean;
 }

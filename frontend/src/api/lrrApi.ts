@@ -1,6 +1,7 @@
 import type {
   LRRFilters,
   LRRFaultDetail,
+  LRRFaultDetailsResponse,
   LRRListResponse,
   LRROptions,
 } from '../types';
@@ -34,12 +35,12 @@ export const lrrApi = {
   },
 
   /** 故障明细(用于导出)，返回全量命中记录 */
-  async getFaultDetails(filters: LRRFilters = {}, limit = 20000): Promise<LRRFaultDetail[]> {
+  async getFaultDetails(filters: LRRFilters = {}, limit = 50000): Promise<LRRFaultDetailsResponse> {
     const qs = buildQuery(filters, { limit });
     const res = await apiFetch(`/api/lrr/fault-details${qs}`);
     if (!res.ok) throw new Error('LRR 故障明细加载失败');
-    return (await res.json()) as LRRFaultDetail[];
+    return (await res.json()) as LRRFaultDetailsResponse;
   },
 };
 
-export type { LRRFilters, LRRFaultDetail, LRRListResponse, LRROptions };
+export type { LRRFilters, LRRFaultDetail, LRRFaultDetailsResponse, LRRListResponse, LRROptions };

@@ -42,7 +42,10 @@ export const rtyApi = {
     return cachedOption(`station-pass-rates:${suffix}`, async () => {
       const res = await apiFetch(`/api/rty/station-pass-rates${suffix ? `?${suffix}` : ''}`);
       const json = await res.json();
-      return json.success ? (json.data as StationPassRate[]) : [];
+      if (!res.ok || !json.success || !Array.isArray(json.data)) {
+        throw new Error(json.error || json.message || '工位过站数据加载失败');
+      }
+      return json.data as StationPassRate[];
     });
   },
 

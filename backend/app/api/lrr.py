@@ -5,15 +5,23 @@ from __future__ import annotations
 import asyncio
 import re
 from collections import defaultdict
+from datetime import datetime
 from decimal import Decimal, InvalidOperation
 from typing import Any
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.core.logger import audit_log
 from app.db.mongodb import get_database
 from app.models.documents import Collections
-from app.schemas.lrr import LRRData, LRRFaultDetail, LRRListResponse, LRROptions, LRRSummary
+from app.schemas.lrr import (
+    LRRData,
+    LRRFaultDetail,
+    LRRFaultDetailsResponse,
+    LRRListResponse,
+    LRROptions,
+    LRRSummary,
+)
 
 router = APIRouter()
 
@@ -48,8 +56,30 @@ def _variants(value: str, normalizer) -> list[str]:
     return list(dict.fromkeys(item for item in (raw, normalized) if item))
 
 
+def _compact_date(value: str | None, label: str) -> str | None:
+    if not value:
+        return None
+    try:
+        return datetime.strptime(value, "%Y-%m-%d").strftime("%Y%m%d")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=f"{label}必须是 YYYY-MM-DD") from exc
+
+
+def _date_query(field: str, date_from: str | None, date_to: str | None) -> dict[str, Any]:
+    start = _compact_date(date_from, "开始日期")
+    end = _compact_date(date_to, "结束日期")
+    if start and end and start > end:
+        raise HTTPException(status_code=422, detail="开始日期不能晚于结束日期")
+    bounds = {key: value for key, value in (("$gte", start), ("$lte", end)) if value}
+    return {field: bounds} if bounds else {}
+
+
 def _bom_query(
-    production_order: str | None, sales_order: str | None, storage_location: str | None
+    production_order: str | None,
+    sales_order: str | None,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    order_keyword: str | None = None,
 ) -> dict:
     query: dict[str, Any] = {}
     if production_order:
@@ -60,12 +90,31 @@ def _bom_query(
             query["VBELN_EX"] = {"$regex": rf"^0*{re.escape(normalized_sales_order)}(?:--\d+)?$"}
         else:
             query["VBELN_EX"] = {"$in": _variants(sales_order, normalize_sales_order)}
-    if storage_location:
-        query["LGORT"] = storage_location.strip()
+    keyword = str(order_keyword or "").strip()
+    if keyword:
+        normalized_sales_order = normalize_sales_order(keyword)
+        keyword_conditions: list[dict[str, Any]] = [
+            {"AUFNR_1": {"$in": _variants(keyword, normalize_production_order)}}
+        ]
+        if normalized_sales_order.isdigit():
+            keyword_conditions.append(
+                {"VBELN_EX": {"$regex": rf"^0*{re.escape(normalized_sales_order)}(?:--\d+)?$"}}
+            )
+        else:
+            keyword_conditions.append(
+                {"VBELN_EX": {"$in": _variants(keyword, normalize_sales_order)}}
+            )
+        query["$or"] = keyword_conditions
+    query.update(_date_query("BUDAT_MKPF", date_from, date_to))
     return query
 
 
-def _repair_query(order_values: list[str], sale_values: list[str]) -> dict:
+def _repair_query(
+    order_values: list[str],
+    sale_values: list[str],
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> dict:
     """Build the repair-record query for a set of BOM order references."""
     branches = []
     if order_values:
@@ -99,7 +148,9 @@ def _repair_query(order_values: list[str], sale_values: list[str]) -> dict:
             alternatives = "|".join(re.escape(sale) for sale in normalized_numeric_sales)
             sales_conditions.append({"VBELN": {"$regex": rf"^0*(?:{alternatives})(?:--\d+)?$"}})
         branches.append({"$or": sales_conditions})
-    return {"$or": branches} if branches else {"_id": "__none__"}
+    query: dict[str, Any] = {"$or": branches} if branches else {"_id": "__none__"}
+    query.update(_date_query("ZDATE_WX", date_from, date_to))
+    return query
 
 
 def aggregate_lrr(
@@ -154,11 +205,15 @@ def aggregate_lrr(
         fault_id = str(fault.get("_id") or id(fault))
         production_order = normalize_production_order(fault.get("mfg_order") or fault.get("AUFNR"))
         sales_order = normalize_sales_order(fault.get("sale_no") or fault.get("VBELN"))
-        matched_groups = set()
-        if production_order:
-            matched_groups.update(groups_by_production_order.get(production_order, set()))
-        if sales_order:
-            matched_groups.update(groups_by_sales_order.get(sales_order, set()))
+        if group_by == "productionOrder":
+            # A sales order can span several production orders. Counting a sales-only
+            # repair in every linked order would inflate both row and summary LRR.
+            matched_groups = groups_by_production_order.get(production_order, set())
+        elif sales_order:
+            matched_groups = groups_by_sales_order.get(sales_order, set())
+        else:
+            candidate_groups = groups_by_production_order.get(production_order, set())
+            matched_groups = candidate_groups if len(candidate_groups) == 1 else set()
         for order_no in sorted(matched_groups):
             link = (fault_id, order_no)
             if link in seen_links:
@@ -214,7 +269,10 @@ def _sort_rows(rows: list[LRRData], sort_by: str, sort_dir: str) -> list[LRRData
 async def _load_bom_and_repairs(
     production_order: str | None,
     sales_order: str | None,
-    storage_location: str | None,
+    date_from: str | None,
+    date_to: str | None,
+    order_keyword: str | None,
+    group_by: str,
     *,
     include_fault_details: bool = True,
 ):
@@ -231,7 +289,7 @@ async def _load_bom_and_repairs(
     bom_docs = (
         await db[Collections.ORDER_BOM_POSTINGS_SAP]
         .find(
-            _bom_query(production_order, sales_order, storage_location),
+            _bom_query(production_order, sales_order, date_from, date_to, order_keyword),
             projection=projection,
         )
         .to_list(length=None)
@@ -250,7 +308,12 @@ async def _load_bom_and_repairs(
             if normalize_sales_order(d.get("VBELN_EX"))
         }
     )
-    repair_query = _repair_query(order_values, sale_values)
+    repair_query = _repair_query(
+        order_values,
+        sale_values if group_by == "salesOrder" else [],
+        date_from,
+        date_to,
+    )
     repair_projection: dict[str, int] = {
         "_id": 1,
         "AUFNR": 1,
@@ -276,7 +339,10 @@ async def _load_bom_and_repairs(
 async def _load_lrr_list_data(
     production_order: str | None,
     sales_order: str | None,
-    storage_location: str | None,
+    date_from: str | None,
+    date_to: str | None,
+    order_keyword: str | None,
+    group_by: str,
 ) -> tuple[list[dict], list[dict]]:
     """Load compact BOM and repair aggregates for the paginated dashboard."""
     db = get_database()
@@ -284,7 +350,11 @@ async def _load_lrr_list_data(
         await db[Collections.ORDER_BOM_POSTINGS_SAP]
         .aggregate(
             [
-                {"$match": _bom_query(production_order, sales_order, storage_location)},
+                {
+                    "$match": _bom_query(
+                        production_order, sales_order, date_from, date_to, order_keyword
+                    )
+                },
                 {
                     "$group": {
                         "_id": {
@@ -335,7 +405,14 @@ async def _load_lrr_list_data(
         await db[Collections.REPAIR_RECORDS_SAP]
         .aggregate(
             [
-                {"$match": _repair_query(order_values, sale_values)},
+                {
+                    "$match": _repair_query(
+                        order_values,
+                        sale_values if group_by == "salesOrder" else [],
+                        date_from,
+                        date_to,
+                    )
+                },
                 {
                     "$group": {
                         "_id": {"productionOrder": "$AUFNR", "salesOrder": "$VBELN"},
@@ -365,12 +442,16 @@ async def get_lrr_list(
     limit: int = Query(50, ge=1, le=500),
     productionOrder: str | None = Query(None),
     salesOrder: str | None = Query(None),
-    storageLocation: str | None = Query(None),
+    dateFrom: str | None = Query(None, description="BOM 过账和维修日期起始日 (YYYY-MM-DD)"),
+    dateTo: str | None = Query(None, description="BOM 过账和维修日期截止日 (YYYY-MM-DD)"),
+    orderKeyword: str | None = Query(None, max_length=64),
     groupBy: str = Query("productionOrder", pattern="^(productionOrder|salesOrder)$"),
     sortBy: str = Query("lrrRate"),
     sortDir: str = Query("desc"),
 ):
-    bom_docs, repair_docs = await _load_lrr_list_data(productionOrder, salesOrder, storageLocation)
+    bom_docs, repair_docs = await _load_lrr_list_data(
+        productionOrder, salesOrder, dateFrom, dateTo, orderKeyword, groupBy
+    )
     rows, _ = aggregate_lrr(bom_docs, repair_docs, group_by=groupBy, include_details=False)
     rows = _sort_rows(rows, sortBy, sortDir)
     issued_total = sum((quantity(row.issuedQuantity) for row in rows), Decimal(0))
@@ -417,18 +498,22 @@ async def get_lrr_options(request: Request):
     )
 
 
-@router.get("/fault-details", response_model=list[LRRFaultDetail])
+@router.get("/fault-details", response_model=LRRFaultDetailsResponse)
 @audit_log("QUERY", "lrr_fault_details")
 async def get_lrr_fault_details(
     request: Request,
     productionOrder: str | None = Query(None),
     salesOrder: str | None = Query(None),
-    storageLocation: str | None = Query(None),
+    dateFrom: str | None = Query(None),
+    dateTo: str | None = Query(None),
+    orderKeyword: str | None = Query(None, max_length=64),
     groupBy: str = Query("productionOrder", pattern="^(productionOrder|salesOrder)$"),
-    limit: int = Query(20000, ge=1, le=50000),
+    limit: int = Query(50000, ge=1, le=50000),
 ):
     bom_docs, repair_docs = await _load_bom_and_repairs(
-        productionOrder, salesOrder, storageLocation
+        productionOrder, salesOrder, dateFrom, dateTo, orderKeyword, groupBy
     )
     _, details = aggregate_lrr(bom_docs, repair_docs, group_by=groupBy)
-    return details[:limit]
+    return LRRFaultDetailsResponse(
+        items=details[:limit], total=len(details), truncated=len(details) > limit
+    )

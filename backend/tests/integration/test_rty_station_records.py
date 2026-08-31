@@ -288,6 +288,14 @@ class TestStationRecordRTY:
         assert response.status_code == 200
         assert response.json()["data"][0]["inputCount"] == 1
 
+    async def test_station_pass_rates_reject_reverse_date_range(self, client, db_clean):
+        response = await client.get(
+            "/api/rty/station-pass-rates?dateFrom=2026-02-02&dateTo=2026-02-01"
+        )
+
+        assert response.status_code == 422
+        assert response.json()["detail"] == "开始日期不能晚于结束日期"
+
     async def test_station_pass_rates_supports_more_than_raw_row_limit(self, client, db_clean):
         await db_clean.station_records_sap.insert_many(
             [

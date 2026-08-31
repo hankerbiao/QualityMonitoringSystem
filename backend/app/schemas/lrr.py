@@ -30,6 +30,12 @@ class LRRListResponse(BaseModel):
     summary: LRRSummary = Field(default_factory=LRRSummary)
 
 
+class LRRFaultDetailsResponse(BaseModel):
+    items: list["LRRFaultDetail"] = Field(default_factory=list)
+    total: int = 0
+    truncated: bool = False
+
+
 class LRROptions(BaseModel):
     productionOrders: list[str] = Field(default_factory=list)
     salesOrders: list[str] = Field(default_factory=list)

@@ -1,36 +1,33 @@
+import { useEffect, useState } from 'react';
 import { Filter, RotateCcw } from 'lucide-react';
-import type { LRRFilters, LRROptions } from '../../types';
+import type { LRRFilters } from '../../types';
 
 interface Props {
   filters: LRRFilters;
-  options: LRROptions;
   onChange: (patch: Partial<LRRFilters>) => void;
   onReset: () => void;
 }
 
-function Select({ label, value, options, onChange, placeholder }: {
-  label: string;
+function DebouncedOrderInput({ value, onChange, placeholder }: {
   value: string | null | undefined;
-  options: string[];
   onChange: (value: string | null) => void;
   placeholder: string;
 }) {
-  return (
-    <label className="flex min-w-0 flex-col gap-1 text-[11px] text-slate-500">
-      {label}
-      <select value={value ?? ''} onChange={(event) => onChange(event.target.value || null)} className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200">
-        <option value="">{placeholder}</option>
-        {options.map((option) => <option key={option} value={option}>{option}</option>)}
-      </select>
-    </label>
-  );
+  const [draft, setDraft] = useState(value ?? '');
+
+  useEffect(() => { setDraft(value ?? ''); }, [value]);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      if (draft !== (value ?? '')) onChange(draft || null);
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [draft, onChange, value]);
+
+  return <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={placeholder} className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200" />;
 }
 
-export default function LRRFilters({ filters, options, onChange, onReset }: Props) {
-  const hasActive = Boolean(filters.productionOrder || filters.salesOrder || filters.storageLocation);
-  const productionOrders = Array.isArray(options?.productionOrders) ? options.productionOrders : [];
-  const salesOrders = Array.isArray(options?.salesOrders) ? options.salesOrders : [];
-  const storageLocations = Array.isArray(options?.storageLocations) ? options.storageLocations : [];
+export default function LRRFilters({ filters, onChange, onReset }: Props) {
+  const hasActive = Boolean(filters.productionOrder || filters.salesOrder || filters.dateFrom || filters.dateTo || filters.orderKeyword);
   return (
     <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
       <div className="mb-2.5 flex items-center justify-between">
@@ -41,18 +38,23 @@ export default function LRRFilters({ filters, options, onChange, onReset }: Prop
         <button type="button" onClick={() => onChange({ groupBy: 'productionOrder' })} className={`h-7 rounded px-3 text-xs font-medium ${filters.groupBy !== 'salesOrder' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>生产订单</button>
         <button type="button" onClick={() => onChange({ groupBy: 'salesOrder' })} className={`h-7 rounded px-3 text-xs font-medium ${filters.groupBy === 'salesOrder' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>销售订单</button>
       </div>
-      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
         <label className="flex min-w-0 flex-col gap-1 text-[11px] text-slate-500">
           生产订单
-          <input value={filters.productionOrder ?? ''} onChange={(event) => onChange({ productionOrder: event.target.value || null })} placeholder="输入或选择生产订单" list="lrr-production-orders" className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200" />
-          <datalist id="lrr-production-orders">{productionOrders.map((option) => <option key={option} value={option} />)}</datalist>
+          <DebouncedOrderInput value={filters.productionOrder} onChange={(value) => onChange({ productionOrder: value })} placeholder="精确生产订单" />
         </label>
         <label className="flex min-w-0 flex-col gap-1 text-[11px] text-slate-500">
           销售订单
-          <input value={filters.salesOrder ?? ''} onChange={(event) => onChange({ salesOrder: event.target.value || null })} placeholder="输入或选择销售订单" list="lrr-sales-orders" className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200" />
-          <datalist id="lrr-sales-orders">{salesOrders.map((option) => <option key={option} value={option} />)}</datalist>
+          <DebouncedOrderInput value={filters.salesOrder} onChange={(value) => onChange({ salesOrder: value })} placeholder="精确销售订单" />
         </label>
-        <Select label="库存点" value={filters.storageLocation} options={storageLocations} onChange={(value) => onChange({ storageLocation: value })} placeholder="全部库存点" />
+        <label className="flex min-w-0 flex-col gap-1 text-[11px] text-slate-500">
+          统计开始日期
+          <input type="date" value={filters.dateFrom ?? ''} max={filters.dateTo ?? undefined} onChange={(event) => onChange({ dateFrom: event.target.value || null })} className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200" />
+        </label>
+        <label className="flex min-w-0 flex-col gap-1 text-[11px] text-slate-500">
+          统计结束日期
+          <input type="date" value={filters.dateTo ?? ''} min={filters.dateFrom ?? undefined} onChange={(event) => onChange({ dateTo: event.target.value || null })} className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200" />
+        </label>
       </div>
     </div>
   );
