@@ -3,11 +3,17 @@ export interface MetadataColumn {
   label: string;
 }
 
+export interface MetadataFilter {
+  key: string;
+  label: string;
+}
+
 export interface MetadataTableResponse {
   key: string;
   title: string;
   description: string;
   columns: MetadataColumn[];
+  filters: MetadataFilter[];
   total: number;
   page: number;
   page_size: number;

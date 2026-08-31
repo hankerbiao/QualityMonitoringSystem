@@ -20,11 +20,18 @@ class MetadataColumn(BaseModel):
     label: str
 
 
+class MetadataFilter(BaseModel):
+    key: str
+    label: str
+    field: str
+
+
 class MetadataTableDefinition(BaseModel):
     key: str
     title: str
     description: str
     columns: list[MetadataColumn]
+    filters: list[MetadataFilter] = Field(default_factory=list)
 
 
 class MetadataTableResponse(MetadataTableDefinition):
@@ -89,6 +96,11 @@ TABLE_DEFINITIONS: dict[str, MetadataTableDefinition] = {
             MetadataColumn(key="scs_enrichment.warranty_end_date", label="补采过保日期"),
             MetadataColumn(key="scs_enrichment.status", label="补全状态"),
         ],
+        filters=[
+            MetadataFilter(
+                key="salesOrder", label="销售订单", field="scs_enrichment.sales_order"
+            ),
+        ],
     ),
     Collections.SCS_CHANGE_RESULTS: MetadataTableDefinition(
         key=Collections.SCS_CHANGE_RESULTS,
@@ -122,6 +134,10 @@ TABLE_DEFINITIONS: dict[str, MetadataTableDefinition] = {
             MetadataColumn(key="TYPE", label="记录类型"),
             MetadataColumn(key="_synced_at", label="同步时间"),
         ],
+        filters=[
+            MetadataFilter(key="productionOrder", label="生产订单", field="AUFNR_1"),
+            MetadataFilter(key="salesOrder", label="销售订单", field="VBELN_EX"),
+        ],
     ),
     Collections.SERIAL_BINDINGS_SAP: MetadataTableDefinition(
         key=Collections.SERIAL_BINDINGS_SAP,
@@ -154,6 +170,11 @@ TABLE_DEFINITIONS: dict[str, MetadataTableDefinition] = {
             MetadataColumn(key="ZSOURCE", label="数据来源"),
             MetadataColumn(key="_synced_at", label="同步时间"),
         ],
+        filters=[
+            MetadataFilter(key="productionOrder", label="生产订单", field="AUFNR"),
+            MetadataFilter(key="salesOrder", label="销售订单", field="VBELN"),
+            MetadataFilter(key="productModel", label="机型", field="ZJXMC"),
+        ],
     ),
     Collections.STATION_RECORDS_SAP: MetadataTableDefinition(
         key=Collections.STATION_RECORDS_SAP,
@@ -172,6 +193,10 @@ TABLE_DEFINITIONS: dict[str, MetadataTableDefinition] = {
             MetadataColumn(key="UNAME", label="操作人"),
             MetadataColumn(key="_synced_at", label="同步时间"),
         ],
+        filters=[
+            MetadataFilter(key="productionOrder", label="生产订单", field="AUFNR"),
+            MetadataFilter(key="productModel", label="机型", field="MAKTX_TH"),
+        ],
     ),
 }
 
@@ -187,6 +212,26 @@ def _search_query(definition: MetadataTableDefinition, search: str) -> dict[str,
             if not column.key.startswith("_")
         ]
     }
+
+
+def _table_query(
+    definition: MetadataTableDefinition,
+    search: str,
+    filter_values: dict[str, str | None],
+) -> dict[str, Any]:
+    clauses: list[dict[str, Any]] = []
+    search_query = _search_query(definition, search)
+    if search_query:
+        clauses.append(search_query)
+    for table_filter in definition.filters:
+        value = (filter_values.get(table_filter.key) or "").strip()
+        if value:
+            clauses.append(
+                {table_filter.field: {"$regex": re.escape(value), "$options": "i"}}
+            )
+    if not clauses:
+        return {}
+    return clauses[0] if len(clauses) == 1 else {"$and": clauses}
 
 
 def _serialize_value(value: Any) -> Any:
@@ -227,13 +272,24 @@ async def get_metadata_table(
     page: int = Query(1, ge=1),
     page_size: int = Query(25, ge=10, le=100),
     search: str = Query("", max_length=80),
+    productionOrder: str | None = Query(None, max_length=80),
+    salesOrder: str | None = Query(None, max_length=80),
+    productModel: str | None = Query(None, max_length=80),
 ) -> MetadataTableResponse:
     definition = TABLE_DEFINITIONS.get(table_name)
     if definition is None:
         raise HTTPException(status_code=404, detail="不支持查看该数据表")
 
     collection = get_database()[table_name]
-    query = _search_query(definition, search.strip())
+    query = _table_query(
+        definition,
+        search.strip(),
+        {
+            "productionOrder": productionOrder,
+            "salesOrder": salesOrder,
+            "productModel": productModel,
+        },
+    )
     if query:
         total = await collection.count_documents(query)
     else:

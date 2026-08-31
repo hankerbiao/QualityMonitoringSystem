@@ -1,5 +1,6 @@
 from app.api.lrr import (
     _bom_query,
+    _repair_query,
     aggregate_lrr,
     normalize_production_order,
     normalize_sales_order,
@@ -13,6 +14,12 @@ def test_order_normalization_matches_bom_and_fault_values():
 
 def test_sales_order_filter_matches_bom_values_with_leading_zeroes():
     assert _bom_query(None, "40003952", None) == {"VBELN_EX": {"$regex": r"^0*40003952(?:--\d+)?$"}}
+
+
+def test_repair_query_matches_sales_order_line_items():
+    query = _repair_query([], ["0100001971"])
+
+    assert query["$or"][0]["$or"][1] == {"VBELN": {"$regex": r"^0*(?:100001971)(?:--\d+)?$"}}
 
 
 def test_production_order_lrr_uses_all_bom_materials_and_order_faults():
@@ -71,3 +78,14 @@ def test_list_aggregation_skips_export_only_fault_details():
 
     assert rows[0].faultCount == 1
     assert details == []
+
+
+def test_list_aggregation_accepts_compacted_repair_counts():
+    rows, _ = aggregate_lrr(
+        [{"AUFNR_1": "1", "VBELN_EX": "9", "MENGE_A": 10}],
+        [{"_id": "repairs:1:9", "mfg_order": "1", "sale_no": "9", "_fault_count": 3}],
+        include_details=False,
+    )
+
+    assert rows[0].faultCount == 3
+    assert rows[0].lrrRate == 30

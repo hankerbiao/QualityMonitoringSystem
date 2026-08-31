@@ -65,6 +65,43 @@ def _bom_query(
     return query
 
 
+def _repair_query(order_values: list[str], sale_values: list[str]) -> dict:
+    """Build the repair-record query for a set of BOM order references."""
+    branches = []
+    if order_values:
+        branches.append(
+            {
+                "AUFNR": {
+                    "$in": sorted(
+                        {
+                            variant
+                            for order in order_values
+                            for variant in _variants(order, normalize_production_order)
+                        }
+                    )
+                }
+            }
+        )
+    if sale_values:
+        sales_match = sorted(
+            {variant for sale in sale_values for variant in _variants(sale, normalize_sales_order)}
+        )
+        normalized_numeric_sales = sorted(
+            {
+                normalize_sales_order(sale)
+                for sale in sale_values
+                if normalize_sales_order(sale).isdigit()
+            },
+            key=lambda value: (-len(value), value),
+        )
+        sales_conditions: list[dict[str, Any]] = [{"VBELN": {"$in": sales_match}}]
+        if normalized_numeric_sales:
+            alternatives = "|".join(re.escape(sale) for sale in normalized_numeric_sales)
+            sales_conditions.append({"VBELN": {"$regex": rf"^0*(?:{alternatives})(?:--\d+)?$"}})
+        branches.append({"$or": sales_conditions})
+    return {"$or": branches} if branches else {"_id": "__none__"}
+
+
 def aggregate_lrr(
     bom_docs: list[dict],
     fault_docs: list[dict],
@@ -127,7 +164,7 @@ def aggregate_lrr(
             if link in seen_links:
                 continue
             seen_links.add(link)
-            fault_counts[order_no] += 1
+            fault_counts[order_no] += int(fault.get("_fault_count", 1))
             if include_details:
                 group = active_groups[order_no]
                 details.append(
@@ -213,41 +250,7 @@ async def _load_bom_and_repairs(
             if normalize_sales_order(d.get("VBELN_EX"))
         }
     )
-    orders = {normalize_production_order(value) for value in order_values}
-    sales = {normalize_sales_order(value) for value in sale_values}
-    branches = []
-    if orders:
-        branches.append(
-            {
-                "AUFNR": {
-                    "$in": sorted(
-                        {
-                            variant
-                            for order in order_values
-                            for variant in _variants(order, normalize_production_order)
-                        }
-                    )
-                }
-            }
-        )
-    if sales:
-        sales_match = sorted(
-            {variant for sale in sale_values for variant in _variants(sale, normalize_sales_order)}
-        )
-        normalized_numeric_sales = sorted(
-            {
-                normalize_sales_order(sale)
-                for sale in sale_values
-                if normalize_sales_order(sale).isdigit()
-            },
-            key=lambda value: (-len(value), value),
-        )
-        sales_conditions: list[dict[str, Any]] = [{"VBELN": {"$in": sales_match}}]
-        if normalized_numeric_sales:
-            alternatives = "|".join(re.escape(sale) for sale in normalized_numeric_sales)
-            sales_conditions.append({"VBELN": {"$regex": rf"^0*(?:{alternatives})(?:--\d+)?$"}})
-        branches.append({"$or": sales_conditions})
-    repair_query = {"$or": branches} if branches else {"_id": "__none__"}
+    repair_query = _repair_query(order_values, sale_values)
     repair_projection: dict[str, int] = {
         "_id": 1,
         "AUFNR": 1,
@@ -270,6 +273,90 @@ async def _load_bom_and_repairs(
     return bom_docs, repairs
 
 
+async def _load_lrr_list_data(
+    production_order: str | None,
+    sales_order: str | None,
+    storage_location: str | None,
+) -> tuple[list[dict], list[dict]]:
+    """Load compact BOM and repair aggregates for the paginated dashboard."""
+    db = get_database()
+    bom_docs = (
+        await db[Collections.ORDER_BOM_POSTINGS_SAP]
+        .aggregate(
+            [
+                {"$match": _bom_query(production_order, sales_order, storage_location)},
+                {
+                    "$group": {
+                        "_id": {
+                            "productionOrder": "$AUFNR_1",
+                            "salesOrder": "$VBELN_EX",
+                            "storageLocation": "$LGORT",
+                        },
+                        "MENGE_A": {
+                            "$sum": {
+                                "$convert": {
+                                    "input": "$MENGE_A",
+                                    "to": "decimal",
+                                    "onError": 0,
+                                    "onNull": 0,
+                                }
+                            }
+                        },
+                    }
+                },
+                {
+                    "$project": {
+                        "_id": 0,
+                        "AUFNR_1": "$_id.productionOrder",
+                        "VBELN_EX": "$_id.salesOrder",
+                        "LGORT": "$_id.storageLocation",
+                        "MENGE_A": 1,
+                    }
+                },
+            ]
+        )
+        .to_list(length=None)
+    )
+    order_values = sorted(
+        {
+            str(doc.get("AUFNR_1") or "").strip()
+            for doc in bom_docs
+            if normalize_production_order(doc.get("AUFNR_1"))
+        }
+    )
+    sale_values = sorted(
+        {
+            str(doc.get("VBELN_EX") or "").strip()
+            for doc in bom_docs
+            if normalize_sales_order(doc.get("VBELN_EX"))
+        }
+    )
+    repairs = (
+        await db[Collections.REPAIR_RECORDS_SAP]
+        .aggregate(
+            [
+                {"$match": _repair_query(order_values, sale_values)},
+                {
+                    "$group": {
+                        "_id": {"productionOrder": "$AUFNR", "salesOrder": "$VBELN"},
+                        "_fault_count": {"$sum": 1},
+                    }
+                },
+                {
+                    "$project": {
+                        "_id": 0,
+                        "AUFNR": "$_id.productionOrder",
+                        "VBELN": "$_id.salesOrder",
+                        "_fault_count": 1,
+                    }
+                },
+            ]
+        )
+        .to_list(length=None)
+    )
+    return bom_docs, repairs
+
+
 @router.get("/list", response_model=LRRListResponse)
 @audit_log("QUERY", "lrr_list")
 async def get_lrr_list(
@@ -283,9 +370,7 @@ async def get_lrr_list(
     sortBy: str = Query("lrrRate"),
     sortDir: str = Query("desc"),
 ):
-    bom_docs, repair_docs = await _load_bom_and_repairs(
-        productionOrder, salesOrder, storageLocation, include_fault_details=False
-    )
+    bom_docs, repair_docs = await _load_lrr_list_data(productionOrder, salesOrder, storageLocation)
     rows, _ = aggregate_lrr(bom_docs, repair_docs, group_by=groupBy, include_details=False)
     rows = _sort_rows(rows, sortBy, sortDir)
     issued_total = sum((quantity(row.issuedQuantity) for row in rows), Decimal(0))

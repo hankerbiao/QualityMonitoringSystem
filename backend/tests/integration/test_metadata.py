@@ -81,3 +81,45 @@ async def test_scs_metadata_uses_nested_raw_and_enrichment_fields(
         "data.产品/备件名称",
         "scs_enrichment.sales_order",
     }
+
+
+@pytest.mark.integration
+@pytest.mark.parametrize(
+    ("table_name", "document", "query"),
+    [
+        (
+            "order_bom_postings_sap",
+            {"AUFNR_1": "PO-001", "VBELN_EX": "SO-001"},
+            "productionOrder=PO-001&salesOrder=SO-001",
+        ),
+        (
+            "station_records_sap",
+            {"AUFNR": "PO-002", "MAKTX_TH": "Model-X"},
+            "productionOrder=PO-002&productModel=Model-X",
+        ),
+        (
+            "repair_records_sap",
+            {"AUFNR": "PO-003", "VBELN": "SO-003", "ZJXMC": "Model-Y"},
+            "productionOrder=PO-003&salesOrder=SO-003&productModel=Model-Y",
+        ),
+        (
+            "scs_doa_results",
+            {"scs_enrichment": {"sales_order": "SO-004"}},
+            "salesOrder=SO-004",
+        ),
+    ],
+)
+async def test_metadata_table_applies_configured_filters(
+    client, db_clean, make_test_access_token, table_name, document, query
+):
+    await db_clean[table_name].insert_many([document, {"unrelated": "record"}])
+
+    response = await client.get(
+        f"/api/metadata/tables/{table_name}?page=1&page_size=10&{query}",
+        headers={"Authorization": f"Bearer {make_test_access_token('metadata-user')}"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] == 1
+    assert body["filters"]

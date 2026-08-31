@@ -5,8 +5,19 @@ import * as XLSX from 'xlsx';
 import { rtyApi } from '../api/rtyApi';
 import type { StationPassRate } from '../types';
 
-const DEFAULT_FROM = '2026-01-01';
-const DEFAULT_TO = '2026-12-31';
+function formatDateInput(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+function defaultDateRange(): { from: string; to: string } {
+  const to = new Date();
+  const from = new Date(to);
+  from.setDate(from.getDate() - 29);
+  return { from: formatDateInput(from), to: formatDateInput(to) };
+}
 
 function formatNumber(value: number) {
   return value.toLocaleString('zh-CN');
@@ -20,8 +31,9 @@ function rateColor(rate: number) {
 
 export default function StationPassRatePage() {
   const navigate = useNavigate();
-  const [dateFrom, setDateFrom] = useState(DEFAULT_FROM);
-  const [dateTo, setDateTo] = useState(DEFAULT_TO);
+  const [initialDateRange] = useState(defaultDateRange);
+  const [dateFrom, setDateFrom] = useState(initialDateRange.from);
+  const [dateTo, setDateTo] = useState(initialDateRange.to);
   const [rows, setRows] = useState<StationPassRate[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
