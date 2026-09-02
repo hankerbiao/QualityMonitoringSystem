@@ -12,7 +12,6 @@ from fastapi import HTTPException
 
 from app.models.documents import Collections
 from app.schemas.settings import (
-    AIConfigSchema,
     CycleStatsConfig,
     EmailAlertConfig,
     ProcessRecordConfig,
@@ -47,7 +46,6 @@ class SettingsService:
                 "process_record_config",
                 "model_targets",
                 "email_alert_config",
-                "ai_config",
                 "cycle_stats_config",
             )
         }
@@ -55,7 +53,6 @@ class SettingsService:
             processRecords=self.process_records_from_doc(docs["process_record_config"]),
             modelTargets=(docs["model_targets"] or {}).get("targets", {}),
             emailAlert=self.email_from_doc(docs["email_alert_config"]),
-            ai=self.ai_from_doc(docs["ai_config"]),
             cycleStatsConfig=CycleStatsConfig(
                 selectedModels=(docs["cycle_stats_config"] or {}).get("selectedModels", [])
             ),
@@ -80,13 +77,6 @@ class SettingsService:
             data = request.emailAlert.model_dump(exclude_none=True)
             if data:
                 updates.append(("email_alert_config", data))
-
-        if request.ai is not None:
-            data = request.ai.model_dump(exclude_none=True)
-            if not data.get("apiKey"):
-                data.pop("apiKey", None)
-            if data:
-                updates.append(("ai_config", data))
 
         if request.cycleStatsConfig is not None:
             updates.append(("cycle_stats_config", {"selectedModels": request.cycleStatsConfig.selectedModels}))
@@ -122,18 +112,4 @@ class SettingsService:
             emails=doc.get("emails", ""),
             triggerCondition=doc.get("triggerCondition", ""),
             weeklyProductionThreshold=doc.get("weeklyProductionThreshold", 50),
-        )
-
-    @staticmethod
-    def ai_from_doc(doc: dict[str, Any] | None) -> AIConfigSchema:
-        if not doc:
-            return AIConfigSchema(
-                apiUrl="", modelId="", apiKey="", hasApiKey=False, maxTokens=4096
-            )
-        return AIConfigSchema(
-            apiUrl=doc.get("apiUrl", ""),
-            modelId=doc.get("modelId", ""),
-            apiKey="",
-            hasApiKey=bool(doc.get("apiKey")),
-            maxTokens=doc.get("maxTokens", 4096),
         )

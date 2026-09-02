@@ -26,6 +26,19 @@ export interface StationPassRate {
   passRate: number;
 }
 
+export interface StationPassDetail {
+  id: string;
+  sn: string;
+  stationCode: string;
+  stationName: string;
+  passDate: string;
+  status: 'passed' | 'defect';
+  repairTime: string;
+  defectCode: string;
+  description: string;
+  repairPerson: string;
+}
+
 export interface DefectDetail {
   id: string;
   defectCode: string;

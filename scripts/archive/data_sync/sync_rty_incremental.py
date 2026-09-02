@@ -3,8 +3,8 @@
 
 Examples (from repository root)::
 
-    uv run --project backend python scripts/sync_rty_incremental.py bootstrap --start-date 2026-01-01
-    uv run --project backend python scripts/sync_rty_incremental.py run
+    uv run --project backend python scripts/archive/data_sync/sync_rty_incremental.py bootstrap --start-date 2026-01-01
+    uv run --project backend python scripts/archive/data_sync/sync_rty_incremental.py run
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from contextlib import contextmanager
 from datetime import date
 from pathlib import Path
 
-BACKEND_DIR = Path(__file__).resolve().parent.parent / "backend"
+BACKEND_DIR = Path(__file__).resolve().parents[3] / "backend"
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app.db.mongodb import close_mongo_connection, connect_to_mongo  # noqa: E402

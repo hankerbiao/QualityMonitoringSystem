@@ -1,6 +1,6 @@
 # QualiBoard 质量监控系统
 
-QualiBoard 是面向生产质量团队的一体化监控平台，聚合 MES、SAP、SCS 等业务数据，围绕 RTY、LRR、DOA、MFR 等核心指标提供质量看板、明细追溯、系统配置、邮件预警与 AI 分析能力。
+QualiBoard 是面向生产质量团队的一体化监控平台，聚合 MES、SAP、SCS 等业务数据，围绕 RTY、LRR、DOA、MFR 等核心指标提供质量看板、明细追溯、系统配置与邮件预警能力。
 
 ## 项目概览
 
@@ -21,7 +21,6 @@ QualiBoard 是面向生产质量团队的一体化监控平台，聚合 MES、SA
 | DOA | 开箱报修率 | SAP + SCS | 开发中 |
 | MFR | 月化故障率 | SCS 换件记录 | 开发中 |
 | Settings | 系统配置 | MongoDB `configs` | 已实现 |
-| AI | 智能分析助手 | 配置化 LLM 接口 | 已实现 |
 | Alert | 邮件预警 | 邮件代理 + 签名报表链接 | 部分实现 |
 
 ## 本地登录配置
@@ -187,7 +186,6 @@ QualityMonitoringSystem/
 | `GET/PUT` | `/api/settings/mes` | MES 接入配置 |
 | `GET/PUT` | `/api/settings/model-targets` | 机型目标配置 |
 | `GET/PUT` | `/api/settings/email-alert` | 邮件预警配置 |
-| `GET/PUT` | `/api/settings/ai` | AI 配置 |
 
 ## MongoDB Collections
 
@@ -197,7 +195,7 @@ QualityMonitoringSystem/
 |---|---|---|
 | `machine_info` | MES 机器信息 | `sn`, `sale_no`, `mfg_order`, `factory`, `product_family` |
 | `fault_info` | 故障明细 | `sn`, `fault_category`, `fault_desc`, `repair_time` |
-| `configs` | 系统配置 | `key`: `mes_config`, `model_targets`, `email_alert_config`, `ai_config` |
+| `configs` | 系统配置 | `key`: `mes_config`, `model_targets`, `email_alert_config` |
 | `sales_orders_sap` | SAP 双来源销售订单（SG/KK 同步） | `aufnr`, `gstrs_date`, `quantity`, `data.CPXH`, `data.LGORT` |
 | `order_bom_postings_sap` | SAP 订单 BOM 发料与过账明细 | `AUFNR_1`, `VBELN_EX`, `MATNR`, `MENGE`, `BUDAT_MKPF` |
 | `serial_bindings_sap` | SAP 整机与部件序列号绑定关系 | `ZCODE_HEAD`, `ZCODE_ITEM`, `AUFNR_HEAD`, `AUFNR_ITEM` |
@@ -225,14 +223,14 @@ QualityMonitoringSystem/
 ```text
 销售订单（SAP 双来源 SG/KK 同步）
   -> sales_orders_sap（按 aufnr 去重，data.GSTRS 归一化为 gstrs_date，data.GAMNG 归一化为 quantity）
-  -> 日常任务: scripts/sync_rty_incremental.py；手工范围同步: scripts/maintenance/sync_sales_orders_range.py 或 POST /api/sales-orders/sync
+  -> 历史同步脚本已归档至 scripts/archive/data_sync/；当前运行时通过数据网关读取
 
 机器 / 故障 / 装配（MES 采集）
   -> machine_info / fault_info / assembly_records
   -> 注：MES 采集链路已于 2026-08-18 下线，集合数据保留，供 RTY / LRR / 告警报表实时聚合
 ```
 
-SCS DOA 采集统一使用 `scripts/sync_scs_incremental.py`：首次运行提供
+历史 SCS DOA 采集脚本位于 `scripts/archive/data_sync/sync_scs_incremental.py`：首次运行提供
 `--start-date`，后续运行从 `scs_doa_incremental_progress` 的水位线继续，并可使用
 `--lookback-days` 回看边界日期。脚本写入 `scs_doa_results` 时同步维护
 `scs_enrichment.accepted_date`（`YYYY-MM-DD`）；原始 `data.受理时间` 继续保留用于展示。
@@ -248,7 +246,6 @@ MFR（整机现网月化故障率）通过 `/api/mfr/dashboard` 提供，按自�
 ## 关键注意事项
 
 - `ProtectedLayout` 必须等待 `isAuthLoaded=true` 后再判断登录状态，避免刷新后误跳登录页。
-- AI 配置中的 `apiKey` 存储在后端，不返回前端；前端只使用 `hasApiKey` 判断配置状态。
 - Tailwind v4 使用 CSS-first 配置，入口在 `frontend/src/index.css`。
 - MongoDB 默认地址为 `10.17.154.252:27019`，本地或生产环境请以 `.env` 为准。
 - OA 回调接口仍保留兼容旧流程，但当前前端登录页使用本地账号密码登录。

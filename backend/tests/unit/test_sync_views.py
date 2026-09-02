@@ -6,7 +6,13 @@ import importlib.util
 import sys
 from pathlib import Path
 
-SCRIPT_PATH = Path(__file__).resolve().parents[3] / "scripts" / "sync_views.py"
+SCRIPT_PATH = (
+    Path(__file__).resolve().parents[3]
+    / "scripts"
+    / "archive"
+    / "data_sync"
+    / "sync_views.py"
+)
 SPEC = importlib.util.spec_from_file_location("sync_views", SCRIPT_PATH)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)

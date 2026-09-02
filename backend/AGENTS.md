@@ -26,8 +26,7 @@ app/
 ├── auth_service.py      # OA JWT 验签，Session 创建/验证，双 token 管理
 ├── api/
 │   ├── rty.py          # RTY 列表、工位投入与维修故障明细接口
-│   ├── settings.py     # 设置、影像数据源、机型指标、邮件预警和 AI 接口
-│   ├── ai.py           # POST /api/ai/analyze
+│   ├── settings.py     # 设置、影像数据源、机型指标和邮件预警接口
 │   └── auth.py         # OA callback, /me, /logout, /refresh
 ├── core/
 │   ├── config.py       # pydantic-settings (MongoDB 27019, OA JWT secret)
@@ -39,7 +38,7 @@ app/
 ## Key Conventions
 
 - **MongoDB 端口**: 27019 (非默认 27017)
-- **配置存储**: configs 集合，key-value 文档 (mes_config, model_targets, email_alert_config, ai_config)
+- **配置存储**: configs 集合，key-value 文档 (mes_config, model_targets, email_alert_config)
 - **Session**: sessions 集合，TTL 索引 30 天
 - **OA 登录**: JWT 验签 → Session 创建 → 302 重定向前端
 - **统一响应**: `Response[T]` (success, message, data, error)
@@ -73,5 +72,4 @@ app/
 | GET | /api/rty/{id}/inputs | 投入明细 |
 | GET | /api/rty/cycle-stats | 周期统计 |
 | GET/PUT | /api/settings | 获取/更新全部配置 |
-| POST | /api/ai/analyze | AI 数据分析 |
 | GET | /health | 健康检查 |

@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # MongoDB 配置
     MONGODB_URL: str = "mongodb://10.17.154.252:27019"
     MONGODB_DB_NAME: str = "quality_monitoring"
+    # Optional read-only data gateway for SAP/HANA-backed dashboard data.
+    # Empty keeps the legacy in-process MongoDB path active during migration.
+    DATA_GATEWAY_URL: str = ""
+    DATA_GATEWAY_TIMEOUT_SECONDS: float = 15.0
     PROCESS_RECORD_CREDENTIAL_KEY: str = ""
 
     # API 配置
@@ -73,7 +77,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=True,
-        # HANA variables in backend/.env are consumed by scripts/sync_views.py.
+        # Legacy HANA variables are consumed only by scripts/archive/data_sync/sync_views.py.
         extra="ignore",
     )
 

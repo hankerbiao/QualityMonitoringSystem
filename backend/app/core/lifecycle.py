@@ -5,6 +5,7 @@ from typing import Any
 from app.core.config import Settings
 from app.core.logger import log_error, log_info, setup_logger
 from app.db.mongodb import close_mongo_connection, connect_to_mongo
+from app.services.data_gateway_client import data_gateway
 from app.services.process_record_service import process_record_gateway
 from app.services.weekly_alert import run_weekly_production_check
 
@@ -83,6 +84,7 @@ async def shutdown_infrastructure(scheduler: Any | None) -> None:
     shutdown_scheduler(scheduler)
     log_info("关闭 MongoDB 连接...")
     await process_record_gateway.close()
+    await data_gateway.close()
     await close_mongo_connection()
     log_info("QualiBoard API 已关闭")
     log_info("=" * 60)

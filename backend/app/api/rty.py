@@ -11,8 +11,16 @@ from app.core.logger import audit_log, log_info
 from app.db.mongodb import get_database
 from app.models.documents import Collections
 from app.schemas.common import PaginatedResponse, Response
-from app.schemas.rty import DefectDetail, RTYData, SalesOrderSummary, StationPassRate
+from app.schemas.rty import (
+    DefectDetail,
+    RTYData,
+    SalesOrderSummary,
+    StationPassDetail,
+    StationPassRate,
+)
+from app.services import rty_gateway
 from app.services import rty_queries as _rty_queries
+from app.services.data_gateway_client import DataGatewayError
 from app.services.rty_queries import (
     COMPOSITE_MODEL_ITEMS,
     MAX_BINDING_ROW_COUNT,
@@ -20,6 +28,8 @@ from app.services.rty_queries import (
     MAX_DETAIL_ROW_COUNT,
     REPAIR_YEAR_END,
     REPAIR_YEAR_START,
+    YEAR_END,
+    YEAR_START,
 )
 from app.services.rty_queries import (
     build_sales_filter as _sales_filter,
@@ -581,7 +591,13 @@ async def get_rty_cycle_data(
     customer: str | None = Query(None, description="客户 ID (data.KID)"),
 ):
     """Return monthly/model aggregates for the cycle dashboard in one request."""
-    rows = await _cycle_data(get_database(), orderScope, customer)
+    if rty_gateway.data_gateway.enabled:
+        targets_doc = await get_database()[Collections.CONFIGS].find_one({"key": "model_targets"})
+        rows = await rty_gateway.cycle_data(
+            orderScope, customer, (targets_doc or {}).get("targets", {})
+        )
+    else:
+        rows = await _cycle_data(get_database(), orderScope, customer)
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 条周期统计数据")
 
 
@@ -591,8 +607,103 @@ async def get_station_pass_rates(
     dateTo: str | None = Query(None, description="过站日期截止日 (YYYY-MM-DD)"),
 ):
     """Return station-level pass rates, matching station SPEC to repair ZNGGZ."""
-    rows = await _station_pass_rates(get_database(), dateFrom, dateTo)
+    rows = (
+        await rty_gateway.station_rates(dateFrom, dateTo)
+        if rty_gateway.data_gateway.enabled
+        else await _station_pass_rates(get_database(), dateFrom, dateTo)
+    )
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 个工位")
+
+
+@router.get("/station-pass-details", response_model=Response[list[StationPassDetail]])
+async def get_station_pass_details(
+    stationCode: str = Query(..., min_length=1),
+    dateFrom: str | None = Query(None),
+    dateTo: str | None = Query(None),
+    detailType: Literal["input", "defect"] = Query("input"),
+):
+    """Return deduplicated station SN details for table drill-down."""
+    start = _validate_date(dateFrom).replace("-", "") if dateFrom else REPAIR_YEAR_START
+    end = _validate_date(dateTo).replace("-", "") if dateTo else REPAIR_YEAR_END
+    if start > end:
+        raise HTTPException(status_code=422, detail="开始日期不能晚于结束日期")
+    station = stationCode.strip()
+    if rty_gateway.data_gateway.enabled:
+        try:
+            details = await rty_gateway.station_details(station, dateFrom, dateTo, detailType)
+            return Response(success=True, data=details, message=f"查询到 {len(details)} 条明细")
+        except DataGatewayError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+    db = get_database()
+    records = (
+        await db[Collections.STATION_RECORDS_SAP]
+        .find(
+            {
+                "station_pass_date": {"$gte": start, "$lte": end},
+                "station_code_norm": station,
+                "PCODE": {"$nin": [None, ""]},
+            },
+            {"PCODE": 1, "station_code_norm": 1, "station_name_norm": 1, "station_pass_date": 1},
+        )
+        .to_list(length=MAX_DETAIL_ROW_COUNT + 1)
+    )
+    if len(records) > MAX_DETAIL_ROW_COUNT:
+        raise HTTPException(status_code=413, detail="过站明细超过上限 50000，请缩小筛选范围")
+    unique: dict[str, dict[str, Any]] = {}
+    for row in records:
+        sn = str(row.get("PCODE") or "").strip()
+        if sn:
+            unique.setdefault(sn, row)
+    if detailType == "input":
+        details = [
+            StationPassDetail(
+                id=f"{station}:{sn}",
+                sn=sn,
+                stationCode=station,
+                stationName=str(row.get("station_name_norm") or ""),
+                passDate=str(row.get("station_pass_date") or ""),
+                status="passed",
+            )
+            for sn, row in unique.items()
+        ]
+    else:
+        repairs = (
+            await db[Collections.REPAIR_RECORDS_SAP]
+            .find(
+                {
+                    "ZDATE_WX": {"$gte": start, "$lte": end},
+                    "repair_station_code_norm": station,
+                    "PCODE": {"$in": list(unique)},
+                },
+                {"PCODE": 1, "ZDATE_WX": 1, "ZTIME": 1, "ZNGWD": 1, "ZWXWD": 1, "ZUSER": 1},
+            )
+            .to_list(length=MAX_DETAIL_ROW_COUNT + 1)
+        )
+        if len(repairs) > MAX_DETAIL_ROW_COUNT:
+            raise HTTPException(status_code=413, detail="维修明细超过上限 50000，请缩小筛选范围")
+        seen: set[str] = set()
+        details = []
+        for row in repairs:
+            sn = str(row.get("PCODE") or "").strip()
+            if not sn or sn in seen:
+                continue
+            seen.add(sn)
+            details.append(
+                StationPassDetail(
+                    id=f"{station}:{sn}:defect",
+                    sn=sn,
+                    stationCode=station,
+                    stationName=str(unique.get(sn, {}).get("station_name_norm") or ""),
+                    passDate=str(unique.get(sn, {}).get("station_pass_date") or ""),
+                    status="defect",
+                    repairTime=f"{row.get('ZDATE_WX') or ''} {row.get('ZTIME') or ''}".strip(),
+                    defectCode=str(row.get("ZNGWD") or ""),
+                    description=str(row.get("ZWXWD") or ""),
+                    repairPerson=str(row.get("ZUSER") or ""),
+                )
+            )
+    details.sort(key=lambda item: item.passDate, reverse=True)
+    return Response(success=True, data=details, message=f"查询到 {len(details)} 条明细")
 
 
 @router.get("/list", response_model=PaginatedResponse[RTYData])
@@ -617,6 +728,27 @@ async def get_rty_list(
     db = get_database()
     targets_doc = await db[Collections.CONFIGS].find_one({"key": "model_targets"})
     targets = (targets_doc or {}).get("targets", {}) or {}
+    if rty_gateway.data_gateway.enabled:
+        try:
+            return await rty_gateway.rty_list(
+                {
+                    "salesOrder": salesOrder or "",
+                    "productionOrder": productionOrder or "",
+                    "serialNumber": serialNumber or "",
+                    "base": base or "",
+                    "productModel": productModel or "",
+                    "customer": customer or "",
+                    "dateFrom": dateFrom or YEAR_START,
+                    "dateTo": dateTo or YEAR_END,
+                    "orderScope": orderScope,
+                    "calculationMethod": calculationMethod or "",
+                },
+                page,
+                limit,
+                targets,
+            )
+        except DataGatewayError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
     sales_filter = await _sales_filter(
         db,
         sales_order=salesOrder,
@@ -688,6 +820,30 @@ async def get_defect_details_by_filters(
 ):
     del request
     db = get_database()
+    if rty_gateway.data_gateway.enabled:
+        try:
+            orders = await rty_gateway._orders(
+                {
+                    "salesOrder": salesOrder or "",
+                    "productionOrder": productionOrder or "",
+                    "serialNumber": serialNumber or "",
+                    "base": base or "",
+                    "productModel": productModel or "",
+                    "customer": customer or "",
+                    "dateFrom": dateFrom or YEAR_START,
+                    "dateTo": dateTo or YEAR_END,
+                    "orderScope": orderScope,
+                }
+            )
+            return Response(
+                success=True,
+                data=await rty_gateway.details_by_orders(
+                    {row["aufnr"] for row in orders}, productModel
+                ),
+                message="网关故障明细查询完成",
+            )
+        except DataGatewayError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
     sales_filter = await _sales_filter(
         db,
         sales_order=salesOrder,
@@ -719,6 +875,18 @@ async def get_defect_details(sns: str = Query(..., description="机器序列号�
     sn_list = _split_values(sns)
     if not sn_list:
         return Response(success=True, data=[], message="无 SN 参数")
+    if rty_gateway.data_gateway.enabled:
+        try:
+            rows = await rty_gateway._faults(
+                {"sns": ",".join(sn_list), "dateFrom": REPAIR_YEAR_START, "dateTo": REPAIR_YEAR_END}
+            )
+            return Response(
+                success=True,
+                data=[rty_gateway.to_detail(row) for row in rty_gateway._dedup_faults(rows)],
+                message=f"查询到 {len(rows)} 条维修故障记录",
+            )
+        except DataGatewayError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
     db = get_database()
     repairs = (
         await db[Collections.REPAIR_RECORDS_SAP]
@@ -740,6 +908,15 @@ async def get_defect_details(sns: str = Query(..., description="机器序列号�
 
 @router.get("/defects/by-order", response_model=Response[list[DefectDetail]])
 async def get_defect_details_by_order(productionOrder: str = Query(..., description="生产订单号")):
+    if rty_gateway.data_gateway.enabled:
+        try:
+            return Response(
+                success=True,
+                data=await rty_gateway.details_by_orders(set(_split_values(productionOrder))),
+                message="网关故障明细查询完成",
+            )
+        except DataGatewayError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
     db = get_database()
     details = await _repair_details_for_orders(db, set(_split_values(productionOrder)))
     return Response(success=True, data=details, message=f"查询到 {len(details)} 条维修故障记录")
@@ -750,6 +927,15 @@ async def get_sales_order_summary(
     salesOrders: str = Query(..., description="销售订单号列表，逗号分隔"),
     orderScope: OrderScopeQuery = "normal",
 ):
+    if rty_gateway.data_gateway.enabled:
+        try:
+            return Response(
+                success=True,
+                data=await rty_gateway.sales_order_summary(_split_values(salesOrders), orderScope),
+                message="网关销售订单汇总完成",
+            )
+        except DataGatewayError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
     db = get_database()
     summaries: list[SalesOrderSummary] = []
     for order in _split_values(salesOrders):
@@ -784,6 +970,12 @@ async def get_production_orders_by_sales_order(
     salesOrder: str = Query(..., description="销售订单号 (VBELN)"),
     orderScope: OrderScopeQuery = "normal",
 ):
+    if rty_gateway.data_gateway.enabled:
+        try:
+            rows = await rty_gateway._orders({"salesOrder": salesOrder, "orderScope": orderScope})
+            return Response(success=True, data=sorted({row["aufnr"] for row in rows}))
+        except DataGatewayError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
     db = get_database()
     docs = (
         await db[Collections.SALES_ORDERS_SAP]
@@ -795,6 +987,21 @@ async def get_production_orders_by_sales_order(
 
 @router.get("/product-models", response_model=Response[list[dict]])
 async def get_product_models(orderScope: OrderScopeQuery = "normal"):
+    if rty_gateway.data_gateway.enabled:
+        rows = await rty_gateway._orders(
+            {"orderScope": orderScope, "dateFrom": YEAR_START, "dateTo": YEAR_END}
+        )
+        counts: dict[str, float] = {}
+        for row in rows:
+            model = str((row["data"] or {}).get("MAKTX_TH") or "").strip()
+            if model:
+                counts[model] = counts.get(model, 0) + _wmeng_value(
+                    (row["data"] or {}).get("WMENG")
+                )
+        return Response(
+            success=True,
+            data=[{"model": key, "count": round(value)} for key, value in sorted(counts.items())],
+        )
     docs = await _option_totals(get_database(), "data.MAKTX_TH", orderScope)
     return Response(
         success=True,
@@ -804,6 +1011,19 @@ async def get_product_models(orderScope: OrderScopeQuery = "normal"):
 
 @router.get("/bases", response_model=Response[list[dict]])
 async def get_bases(orderScope: OrderScopeQuery = "normal"):
+    if rty_gateway.data_gateway.enabled:
+        rows = await rty_gateway._orders(
+            {"orderScope": orderScope, "dateFrom": YEAR_START, "dateTo": YEAR_END}
+        )
+        counts: dict[str, float] = {}
+        for row in rows:
+            base = str((row["data"] or {}).get("LGORT") or "").strip()
+            if base:
+                counts[base] = counts.get(base, 0) + _wmeng_value((row["data"] or {}).get("WMENG"))
+        return Response(
+            success=True,
+            data=[{"base": key, "count": round(value)} for key, value in sorted(counts.items())],
+        )
     docs = await _option_totals(get_database(), "data.LGORT", orderScope)
     return Response(
         success=True,
@@ -813,6 +1033,20 @@ async def get_bases(orderScope: OrderScopeQuery = "normal"):
 
 @router.get("/customers", response_model=Response[list[str]])
 async def get_customers(orderScope: OrderScopeQuery = "normal"):
+    if rty_gateway.data_gateway.enabled:
+        rows = await rty_gateway._orders(
+            {"orderScope": orderScope, "dateFrom": YEAR_START, "dateTo": YEAR_END}
+        )
+        return Response(
+            success=True,
+            data=sorted(
+                {
+                    str((row["data"] or {}).get("KID") or "").strip()
+                    for row in rows
+                    if str((row["data"] or {}).get("KID") or "").strip()
+                }
+            ),
+        )
     docs = await _option_totals(get_database(), "data.KID", orderScope)
     return Response(success=True, data=[str(doc["_id"]) for doc in docs])
 
@@ -820,6 +1054,35 @@ async def get_customers(orderScope: OrderScopeQuery = "normal"):
 @router.get("/filter-options", response_model=Response[dict[str, list]])
 async def get_filter_options(orderScope: OrderScopeQuery = "normal"):
     """Load all detail filters with one database round trip from the browser."""
+    if rty_gateway.data_gateway.enabled:
+        rows = await rty_gateway._orders(
+            {"orderScope": orderScope, "dateFrom": YEAR_START, "dateTo": YEAR_END}
+        )
+        models: dict[str, float] = {}
+        bases: dict[str, float] = {}
+        customers: set[str] = set()
+        for row in rows:
+            data = row["data"]
+            quantity = _wmeng_value(data.get("WMENG"))
+            model = str(data.get("MAKTX_TH") or "").strip()
+            base = str(data.get("LGORT") or "").strip()
+            customer = str(data.get("KID") or "").strip()
+            if model:
+                models[model] = models.get(model, 0) + quantity
+            if base:
+                bases[base] = bases.get(base, 0) + quantity
+            if customer:
+                customers.add(customer)
+        return Response(
+            success=True,
+            data={
+                "productModels": [
+                    {"model": k, "count": round(v)} for k, v in sorted(models.items())
+                ],
+                "bases": [{"base": k, "count": round(v)} for k, v in sorted(bases.items())],
+                "customers": sorted(customers),
+            },
+        )
     db = get_database()
     models, bases, customers = await asyncio.gather(
         _option_totals(db, "data.MAKTX_TH", orderScope),
@@ -846,6 +1109,22 @@ async def get_sales_orders(
     limit: int = Query(10, ge=1, le=50),
     orderScope: OrderScopeQuery = "normal",
 ):
+    if rty_gateway.data_gateway.enabled:
+        rows = await rty_gateway._orders(
+            {"orderScope": orderScope, "dateFrom": YEAR_START, "dateTo": YEAR_END}
+        )
+        orders = sorted(
+            {
+                str((row["data"] or {}).get("VBELN") or "").strip()
+                for row in rows
+                if str((row["data"] or {}).get("VBELN") or "").strip()
+            }
+        )
+        if q:
+            orders = [order for order in orders if q.lower() in order.lower()]
+        return Response(
+            success=True, data=orders[:limit], message=f"返回 {min(limit, len(orders))} 条"
+        )
     docs = await _option_totals(get_database(), "data.VBELN", orderScope)
     orders = [str(doc["_id"]) for doc in docs]
     if q:

@@ -7,9 +7,9 @@ import type { RTYData, RTYFilterParams } from '../types';
 import { useModelTargets } from '../context/ModelTargetsContext';
 import DefectModal from '../components/DefectModal';
 import AlertConfigModal from '../components/AlertConfigModal';
-import { AIChatPanel } from '../components/AIChatWindow';
 import { FilterPanel } from '../components/rty';
 import { SortIcon } from '../components/shared/SortIcon';
+import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
 
 const DEFAULT_FILTERS: RTYFilterParams = {
   dateRange: { from: undefined, to: undefined },
@@ -57,7 +57,6 @@ export default function RTYPage() {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [defectModalData, setDefectModalData] = useState<{ filters: RTYFilterParams; label: string } | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [aiChatOpen, setAiChatOpen] = useState(false);
 
   // 机器SN弹窗状态
   const [snModalOpen, setSnModalOpen] = useState(false);
@@ -186,6 +185,7 @@ export default function RTYPage() {
           <h1 className="text-lg font-semibold text-slate-800">QualiBoard 品质看板 — RTY 整机综合直通率</h1>
           <span className="rounded-sm border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">2026 · 销售订单 WMENG 入库数量</span>
         </div>
+        <DashboardSwitcher />
       </header>
 
       <main className="flex-1 flex flex-col p-4 max-w-[1800px] mx-auto w-full overflow-auto">
@@ -240,7 +240,6 @@ export default function RTYPage() {
                   onFiltersChange={setFilters}
                   onSearch={() => fetchData(1)}
                   onAlertModalOpen={() => setDetailOpen(false)}
-                  onAiChatOpen={() => setAiChatOpen(true)}
                   onExportConfirm={handleExport}
                 />
 
@@ -469,8 +468,6 @@ export default function RTYPage() {
           </div>
         )}
       </main>
-
-      {aiChatOpen && <AIChatPanel rtyData={data} onClose={() => setAiChatOpen(false)} />}
 
       {/* 故障明细 */}
       {defectModalData && (

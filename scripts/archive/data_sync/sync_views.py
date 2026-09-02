@@ -3,7 +3,7 @@
 
 Run from the repository root::
 
-    uv run --project backend python -m scripts.sync_views --mode incremental \
+    uv run --project backend python scripts/archive/data_sync/sync_views.py --mode incremental \
       --include-undated --view ZSGV_ZSD124 --view ZSGV_ZPP_SERNOLIST \
       --view ZSGV_ZZT_WLJL --view Z_V_ZMES_T_001
 
@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 from uuid import uuid4
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parents[3]
 DEFAULT_ENV_FILE = PROJECT_ROOT / "backend" / ".env"
 BACKEND_DIR = PROJECT_ROOT / "backend"
 if str(BACKEND_DIR) not in sys.path:

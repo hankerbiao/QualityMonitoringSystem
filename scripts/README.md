@@ -1,128 +1,27 @@
-# 数据采集脚本
+# 脚本目录
 
-完整的安装、首次同步、增量同步、定时任务和故障排查说明见
-[`docs/sync-scripts.md`](../docs/sync-scripts.md)。本文件只保留脚本职责索引。
+## 数据同步脚本已归档
 
-## 推荐运行流程
+所有会访问 SAP、HANA 或 SCS，并向本项目 MongoDB 写入业务原始数据的脚本，均已移至
+[`archive/data_sync/`](archive/data_sync/)。这些脚本不属于当前系统运行时，不得加入
+cron、systemd timer 或其他自动调度。
 
-### HANA 质量视图同步
+归档脚本仅用于已审批的历史数据恢复、离线迁移或审计。执行前必须确认：
 
-`sync_views.py` 将 SAP HANA 的四个质量视图写入本项目的 MongoDB 集合：
-`order_bom_postings_sap`、`serial_bindings_sap`、`repair_records_sap`、
-`station_records_sap`。脚本为单文件实现。
+- 数据网关无法提供所需历史数据；
+- 已完成目标集合备份；
+- 已明确执行范围和回滚方案。
 
-先在 `backend/.env` 配置 `HANA_ADDRESS`、`HANA_PORT`、`HANA_USER`、
-`HANA_PASSWORD`、`HANA_CONNECT_TIMEOUT`；MongoDB 继续使用本项目已有的
-`MONGODB_URL` 和 `MONGODB_DB_NAME`。安装依赖后，先执行只读验证：
+归档内容及历史目标集合见 [`archive/data_sync/README.md`](archive/data_sync/README.md)。
 
-```bash
-uv sync --project backend
-uv run --project backend python -m scripts.sync_views \
-  --dry-run --view ZSGV_ZSD124 --start-date 2026-01-01
-```
+## 当前保留脚本
 
-正常增量同步四个视图：
-
-```bash
-uv run --project backend python -m scripts.sync_views \
-  --mode incremental \
-  --include-undated \
-  --view ZSGV_ZSD124 \
-  --view ZSGV_ZPP_SERNOLIST \
-  --view ZSGV_ZZT_WLJL \
-  --view Z_V_ZMES_T_001
-```
-
-每个集合以来源业务键幂等更新，不会清空历史记录。水位线和运行审计分别保存在
-`_hana_sync_checkpoints`、`_hana_sync_runs`。进程环境变量优先于 `backend/.env` 配置。
-订单 BOM 同步会保留缺失 `AUFNR_1` 的记录；其余记录的 `VBELN_EX` 必须存在于
-销售订单看板 `sales_orders_sap.data.VBELN`。不匹配记录会在运行统计的 `filtered`
-字段中体现。写入时以 `AUFNR_1` 优先、`VBELN_EX` 兜底关联销售订单看板，并将对应的
-`data.GSTRS` 同步到 BOM 文档的 `GSTRS` 字段。历史 BOM 数据可先预览、再执行回填：
-
-```bash
-uv run --project backend python scripts/maintenance/backfill_order_bom_gstrs.py
-uv run --project backend python scripts/maintenance/backfill_order_bom_gstrs.py --apply
-```
-
-RTY（SAP 销售订单 + 维修记录补全）统一使用 `sync_rty_incremental.py`：
-
-```bash
-cd /Users/libiao/Desktop/github/QualityMonitoringSystem
-
-# 首次迁移：SG、KK 均成功后分别建立水位线
-uv run --project backend python scripts/sync_rty_incremental.py \
-  bootstrap --start-date 2026-01-01
-
-# 每日增量（默认回看 7 天）
-uv run --project backend python scripts/sync_rty_incremental.py run
-```
-
-可选参数：`--only sales|repair`、`--dry-run`、`--lookback-days N`。
-产品层次从 `RTY_SYNC_PRODH_LIST`（逗号分隔，默认 `00100`）读取，锁文件从
-`RTY_SYNC_LOCK_PATH` 读取。任务输出 JSON；任一来源失败返回非零退出码。
-水位线在 `rty_sync_checkpoints`，运行审计在 `rty_sync_runs`。
-
-SCS DOA 只使用 `sync_scs_incremental.py` 作为调度入口。它同时支持首次同步和后续增量同步：
-
-```bash
-cd /Users/libiao/Desktop/github/QualityMonitoringSystem
-
-# 首次同步：历史集合为空时必须提供起始日期
-SCS_USERNAME='账号' SCS_PASSWORD='密码' \
-uv run --project backend python scripts/sync_scs_incremental.py \
-  --start-date 2026-01-01
-
-# 后续定时增量：从 MongoDB 水位线继续，必要时回看当天/前一天
-SCS_USERNAME='账号' SCS_PASSWORD='密码' \
-uv run --project backend python scripts/sync_scs_incremental.py \
-  --lookback-days 1 --retry-failed
-```
-
-如果数据库中已经存在旧版 DOA 数据且尚未生成 `scs_key`，首次运行时追加
-`--migrate-keys`；该选项会合并旧重复记录，执行前应先备份。首次同步成功后，
-`--start-date` 不再需要。水位线保存在
-`scs_doa_incremental_progress`，只有列表和详情补采全部成功才会推进。
-使用 cron、systemd timer 或其他调度器时，只调度上面的增量命令；脚本自身带有单实例锁。
-
-## 文件职责
-
-| 文件 | 类型 | 用途 |
+| 文件 | 用途 | 写入数据库 |
 |---|---|---|
-| `sync_scs_incremental.py` | **日常入口** | SCS DOA 首次同步、增量同步、详情补采、失败重试 |
-| `scs_sync_lib.py` | 内部模块 | SCS 登录、日期查询、稳定键、水位线、幂等写入和进程锁 |
-| `enrich_scs_doa_sales_orders.py` | 内部模块/兼容入口 | 产品实体详情解析和补采函数；被增量入口导入。单独运行只用于历史数据补采，不纳入定时任务 |
-| `spider_scs.py` | 兼容模块/旧入口 | 提供 DOA 页面解析和请求函数，也被其他脚本复用。旧的全量 CLI 不应再作为日常任务运行 |
-| `maintenance/migrate_scs_doa_keys.py` | 一次性维护 | 为历史 DOA 数据生成 `scs_key` 并清理旧重复记录。优先使用增量入口的 `--migrate-keys` |
-| `sync_rty_incremental.py` | **RTY 日常入口** | SAP 销售订单水位线增量 + 维修订单/客户补全 |
-| `maintenance/sync_sales_orders_range.py` | 兼容旧入口 | 历史按日期范围同步；不应再用于日常调度 |
-| `spider_change_result.py` | 独立业务入口 | SCS 换件登记同步到 `scs_change_results`，与 DOA 查询接口和水位线不同，不合并 |
-| `maintenance/backfill_repair_orders.py` | 一次性维护 | 按维修记录 `PCODE` 回填 `repair_records_sap` 的生产订单和销售订单；默认只统计，传 `--apply` 才写库 |
-| `maintenance/backfill_repair_orders_from_sap_sn.py` | 一次性维护 | 合并缺失订单字段的 SN，分批调用 SAP `ZSIMS_CL_INBOUND_SN_INFO` 回填；默认只统计，传 `--apply` 才写库 |
-| `maintenance/backfill_repair_customers.py` | 一次性维护 | 按生产订单回填维修记录客户；已由 RTY 统一同步任务覆盖 |
-| `maintenance/benchmark_rty.py` | 手工诊断 | 只读 RTY 查询性能与执行计划基准 |
-| `maintenance/clean_order_bom_by_sales_orders.py` | 一次性维护 | 清理有 `AUFNR_1` 但销售订单不在看板中的 BOM 记录；默认 dry-run，`--apply` 才删除 |
-| `maintenance/backfill_order_bom_gstrs.py` | 一次性维护 | 从销售订单看板按生产订单优先、销售订单兜底回填 BOM `GSTRS`；默认 dry-run，`--apply` 才写入 |
+| `export_doa_is_5000.py` | 导出已有 DOA 数据到 Excel | 否 |
+| `export_station_records.py` | 导出已有工位记录到 Excel | 否 |
+| `maintenance/benchmark_rty.py` | RTY 查询性能诊断 | 否 |
 
-## 迁移和清理说明
+`maintenance/` 的约束见 [`maintenance/README.md`](maintenance/README.md)。
 
-- `maintenance/migrate_scs_doa_keys.py` 是一次性维护脚本，不应放进定时任务。已有数据出现重复键时，先备份并运行一次；正常情况下直接使用 `--migrate-keys` 即可。
-- `spider_scs.py` 和 `enrich_scs_doa_sales_orders.py` 目前仍被其他模块导入，不能直接删除。它们可以在后续重构中移动到 `scripts/lib/`，但不影响当前调度流程。
-- RTY 日常任务不包含 SCS、换件登记或工位影像同步；这些链路保持原样。
-- RTY 增量任务按 SG/KK 来源独立推进水位线。单来源失败时，成功来源仍写入并推进，失败来源下次从旧水位线回看 7 天重试。
-- `maintenance/sync_sales_orders_range.py` 与 `spider_change_result.py` 访问不同 SCS/SAP 数据源，强行合并会让失败重试、水位线和凭据配置相互耦合，保持独立更安全。
-- `maintenance/backfill_repair_orders.py` 仅填充空的 `AUFNR`、`VBELN`，不会覆盖原始订单号。它会把来源和冲突候选值写入 `order_backfill`，并在 `repair_order_backfill_runs` 记录实际执行摘要。先运行默认 dry-run，确认统计后再传 `--apply`。
-- `maintenance/backfill_repair_orders_from_sap_sn.py` 会先合并两个字段缺失记录的唯一 `PCODE`，再按批次同时请求 SG/KK，避免同一 SN 重复调用。实际执行摘要写入 `repair_sn_api_backfill_runs`。
-- `maintenance/backfill_repair_customers.py` 仅保留历史手工补数兼容能力；日常任务使用 `sync_rty_incremental.py run`，避免重复维护两套回填逻辑。
-- `maintenance/benchmark_rty.py` 只读数据库，供迁移评审或性能回归时手工运行。
-- `scripts/__pycache__/`、`.DS_Store` 等本地生成文件不属于源码，不要提交。
-
-## 常用检查
-
-```bash
-# 检查增量任务是否存在重复稳定键
-uv run --project backend python -m compileall scripts
-
-# 查看 DOA 增量水位线
-db.scs_doa_incremental_progress.findOne({ _id: 'scs_doa_incremental' })
-```
+本地生成的 `__pycache__/`、`.DS_Store` 等文件不属于源码，也不应提交。

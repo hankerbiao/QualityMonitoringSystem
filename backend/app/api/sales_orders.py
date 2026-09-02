@@ -8,10 +8,8 @@ import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import JSONResponse
 
 from app.api.auth import get_current_user
-from app.repositories import sales_order_repository as repo
 from app.schemas.sales_order import (
     SalesOrderDocument,
     SalesOrderFilterOptions,
@@ -20,8 +18,7 @@ from app.schemas.sales_order import (
     SalesOrderSyncRequest,
     SalesOrderSyncResponse,
 )
-from app.services.rty_sync_service import RtySyncService
-from app.services.sap_sales_order_service import SapSalesOrderService, SourceFetchResult
+from app.services.data_gateway_client import data_gateway
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +40,69 @@ def _serialize_order(doc: dict) -> SalesOrderDocument:
     )
 
 
+def _serialize_gateway_order(item: dict) -> SalesOrderDocument:
+    """Adapt the gateway's compact order summary to the existing BFF schema."""
+    source = str(item.get("source") or "")
+    aufnr = str(item.get("aufnr") or "")
+    data = {
+        "VBELN": item.get("salesOrder") or "",
+        "KID": item.get("customerId") or "",
+        "NAME1_ZU": item.get("finalUser") or "",
+        "MAKTX": item.get("materialDescription") or "",
+        "MAKTX_TH": item.get("productionModel") or "",
+        "LGORT": item.get("inventoryLocation") or "",
+        "GSTRS": item.get("plannedStartDate") or "",
+    }
+    return SalesOrderDocument(
+        id=str(item.get("id") or f"{source}:{aufnr}"),
+        aufnr=aufnr,
+        data=data,
+        source_records={},
+        sources=[source] if source else [],
+        quantity=float(item.get("orderQuantity") or 0),
+        gstrs_date=item.get("plannedStartDate") or None,
+        first_seen_at=None,
+        last_synced_at=None,
+        sync_count=0,
+    )
+
+
+async def _query_gateway_orders(
+    *,
+    page: int,
+    limit: int,
+    date_from: str | None,
+    date_to: str | None,
+    keyword: str | None,
+) -> SalesOrdersQueryResponse:
+    payload = await data_gateway.orders(
+        page=page,
+        page_size=min(limit, 100),
+        keyword=keyword or "",
+        gstrsFrom=date_from or "",
+        gstrsTo=date_to or "",
+    )
+    items = [_serialize_gateway_order(item) for item in payload.get("items", [])]
+    stats_payload = await data_gateway.order_stats(
+        keyword=keyword or "",
+        gstrsFrom=date_from or "",
+        gstrsTo=date_to or "",
+    )
+    total = int(payload.get("total") or 0)
+    return SalesOrdersQueryResponse(
+        items=items,
+        total=total,
+        page=int(payload.get("page") or page),
+        limit=int(payload.get("pageSize") or limit),
+        has_more=(int(payload.get("page") or page) * int(payload.get("pageSize") or limit)) < total,
+        stats=SalesOrderStatsResponse(
+            total=total,
+            total_quantity=float(stats_payload.get("orderQuantity") or 0),
+        ),
+        filterOptions=SalesOrderFilterOptions(),
+    )
+
+
 @router.post("/sync", response_model=SalesOrderSyncResponse)
 async def sync_sales_orders(
     payload: SalesOrderSyncRequest,
@@ -55,58 +115,8 @@ async def sync_sales_orders(
     - 单来源失败 → 成功来源继续入库，partial_success=true
     - MongoDB 写入失败 → 500，不返回伪成功结果
     """
-    service = RtySyncService(sales_service=SapSalesOrderService())
-    try:
-        sync_result = await service.sync_sales_range(
-            payload.start_date, payload.end_date, payload.prodh_list
-        )
-    except Exception as exc:
-        logger.exception("Sales order sync DB write failed")
-        raise HTTPException(status_code=500, detail=f"Database write failed: {exc}") from exc
-    results: dict[str, SourceFetchResult] = sync_result["results"]
-
-    successful = [s for s in results if results[s].success]
-    if not successful:
-        # 两个来源都失败：返回 502，不执行数据库写入
-        return JSONResponse(
-            status_code=502,
-            content={
-                "detail": {
-                    "message": "Both SAP sources failed",
-                    "sources": {s: {"success": False, "error": results[s].error} for s in results},
-                }
-            },
-        )
-
-    partial_success = len(successful) < len(results)
-
-    inserted = sync_result["inserted"]
-    updated = sync_result["updated"]
-    aufnr_sources = sync_result["aufnr_sources"]
-    per_source = sync_result["per_source"]
-
-    order_docs = await repo.get_orders_by_aufnrs(list(aufnr_sources.keys()))
-    orders = [_serialize_order(d) for d in sorted(order_docs, key=lambda x: x.get("aufnr", ""))]
-
-    total_fetched = sum(s.fetched_count for s in per_source.values())
-    total_skipped = sum(s.skipped_count for s in per_source.values())
-    total_unique = len(aufnr_sources)
-
-    return SalesOrderSyncResponse(
-        success=True,
-        partial_success=partial_success,
-        date_range={
-            "start_date": payload.start_date.isoformat(),
-            "end_date": payload.end_date.isoformat(),
-        },
-        sources=per_source,
-        total_fetched=total_fetched,
-        total_unique=total_unique,
-        total_skipped=total_skipped,
-        inserted=inserted,
-        updated=updated,
-        orders=orders,
-    )
+    del payload
+    raise HTTPException(status_code=410, detail="销售订单同步已迁移至数据网关，请调用网关同步任务")
 
 
 @router.get("/query", response_model=SalesOrdersQueryResponse)
@@ -127,30 +137,12 @@ async def query_sales_orders(
     归一化后的日期做时间范围筛选，按订单号 (AUFNR) 模糊搜索。
     结果按 aufnr 升序。
     """
-    docs, total, has_more = await repo.query_sales_orders(
-        cp_xh=cp_xh,
-        lgort=lgort,
-        date_from=date_from,
-        date_to=date_to,
-        keyword=keyword,
-        page=page,
-        page_size=limit,
-    )
-    items = [_serialize_order(d) for d in docs]
-    stats = await repo.aggregate_sales_orders(
-        cp_xh=cp_xh,
-        lgort=lgort,
-        date_from=date_from,
-        date_to=date_to,
-        keyword=keyword,
-    )
-    options = await repo.list_sales_order_filter_options()
-    return SalesOrdersQueryResponse(
-        items=items,
-        total=total,
-        page=page,
-        limit=limit,
-        has_more=has_more,
-        stats=SalesOrderStatsResponse(**stats),
-        filterOptions=SalesOrderFilterOptions(**options),
+    if not data_gateway.enabled:
+        raise HTTPException(status_code=503, detail="DATA_GATEWAY_URL 未配置")
+    if cp_xh or lgort:
+        raise HTTPException(
+            status_code=400, detail="销售订单查询请使用数据网关 productModel/base 参数"
+        )
+    return await _query_gateway_orders(
+        page=page, limit=limit, date_from=date_from, date_to=date_to, keyword=keyword
     )

@@ -61,20 +61,6 @@ def main():
     )
     print("✓ 邮件预警配置已写入（默认启用）")
 
-    # 3. AI 模型配置
-    ai_config = {
-        "key": "ai_config",
-        "apiUrl": "http://10.41.101.220:8000/v1/chat/completions",
-        "modelId": "/models/coder/minimax/MiniMax-M2",
-        "apiKey": "",
-        "maxTokens": 4096,
-        "updatedAt": now,
-    }
-    configs.update_one({"key": "ai_config"}, {"$set": ai_config}, upsert=True)
-    print("✓ AI 模型配置已写入")
-    print("  - API: http://10.41.101.220:8000/v1/chat/completions")
-    print("  - Model: /models/coder/minimax/MiniMax-M2")
-
     # 验证写入
     print("\n当前 configs 集合中的数据:")
     for doc in configs.find():

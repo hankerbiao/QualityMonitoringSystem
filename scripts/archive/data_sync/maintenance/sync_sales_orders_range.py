@@ -6,11 +6,11 @@
   cd backend
 
   # 同步 2026 年上半年（默认）
-  uv run --project backend python scripts/maintenance/sync_sales_orders_range.py
+  uv run --project backend python scripts/archive/data_sync/maintenance/sync_sales_orders_range.py
 
   # 自定义范围 / 产品层次
-  uv run --project backend python scripts/maintenance/sync_sales_orders_range.py --start 2026-01-01 --end 2026-03-31
-  uv run --project backend python scripts/maintenance/sync_sales_orders_range.py --prodh-list 00100 00200
+  uv run --project backend python scripts/archive/data_sync/maintenance/sync_sales_orders_range.py --start 2026-01-01 --end 2026-03-31
+  uv run --project backend python scripts/archive/data_sync/maintenance/sync_sales_orders_range.py --prodh-list 00100 00200
   # 默认已带 PRODH_LIST=["00100"] 过滤；如需全量拉取，用 --prodh-list 后不加参数
 
 复用 SapSalesOrderService.fetch_all + repository 的聚合/upsert，
@@ -23,7 +23,7 @@ import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 
-BACKEND_DIR = Path(__file__).resolve().parents[2] / "backend"
+BACKEND_DIR = Path(__file__).resolve().parents[4] / "backend"
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app.db.mongodb import close_mongo_connection, connect_to_mongo  # noqa: E402

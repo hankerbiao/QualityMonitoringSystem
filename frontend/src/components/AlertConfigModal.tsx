@@ -1,5 +1,5 @@
-import { useState, useMemo, useEffect, useCallback } from 'react';
-import { X, Bell, Calendar, Filter, Loader2, FileText, Users } from 'lucide-react';
+import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { X, Bell, Calendar, ChevronDown, Loader2, FileText, Search, Users } from 'lucide-react';
 import {
   ComposedChart,
   Line,
@@ -40,6 +40,111 @@ type ScopeSummaryRow = {
 
 // 预定义一些颜色，用于图表中的不同机型
 const COLORS = ['#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444', '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16'];
+
+type CycleFilterOption = {
+  value: string;
+};
+
+/** 与销售订单看板一致的可搜索多选下拉控件。 */
+function CycleMultiSelect({
+  label,
+  placeholder,
+  options,
+  selected,
+  onChange,
+}: {
+  label: string;
+  placeholder: string;
+  options: CycleFilterOption[];
+  selected: string[];
+  onChange: (values: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const filteredOptions = normalizedQuery
+    ? options.filter((option) => option.value.toLocaleLowerCase().includes(normalizedQuery))
+    : options;
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        type="button"
+        onClick={() => {
+          setOpen((current) => {
+            if (!current) setQuery('');
+            return !current;
+          });
+        }}
+        className={`flex h-9 min-w-40 items-center justify-between gap-2 rounded-md border bg-white px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+          selected.length > 0 ? 'border-blue-400 text-slate-800' : 'border-slate-200 text-slate-500 hover:border-slate-300'
+        }`}
+      >
+        <span className="truncate">{selected.length > 0 ? `${label} (${selected.length})` : placeholder}</span>
+        <ChevronDown className={`size-4 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
+      </button>
+
+      {open && (
+        <div className="absolute left-0 top-full z-30 mt-1 w-72 overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg shadow-slate-900/10">
+          <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-3 py-2">
+            <span className="text-xs font-medium text-slate-500">{label}</span>
+            <div className="flex items-center gap-3 text-xs">
+              <button type="button" onClick={() => onChange(filteredOptions.map((option) => option.value))} className="font-medium text-blue-600 hover:text-blue-700">
+                全选
+              </button>
+              <button type="button" onClick={() => onChange([])} className="font-medium text-slate-500 hover:text-slate-700">
+                清空
+              </button>
+            </div>
+          </div>
+          <div className="border-b border-slate-100 px-3 py-2">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" aria-hidden="true" />
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={`搜索${label}…`}
+                className="h-8 w-full rounded-md border border-slate-200 bg-slate-50 pl-8 pr-3 text-xs text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-500/15"
+              />
+            </div>
+          </div>
+          <div className="max-h-60 overflow-y-auto py-1">
+            {options.length === 0 ? (
+              <p className="px-3 py-4 text-center text-xs text-slate-400">暂无可选项目</p>
+            ) : filteredOptions.length === 0 ? (
+              <p className="px-3 py-4 text-center text-xs text-slate-400">无匹配“{query.trim()}”的项目</p>
+            ) : (
+              filteredOptions.map((option) => (
+                <label key={option.value} className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-sm text-slate-700 transition-colors hover:bg-blue-50/60">
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(option.value)}
+                    onChange={() => onChange(selected.includes(option.value) ? selected.filter((value) => value !== option.value) : [...selected, option.value])}
+                    className="size-3.5 rounded border-slate-300 accent-blue-600"
+                  />
+                  <span className="truncate font-mono text-xs">{option.value}</span>
+                </label>
+              ))
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function formatMonth(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
@@ -90,9 +195,7 @@ export default function AlertConfigModal({
   
   // 机型筛选状态
   const [selectedModels, setSelectedModels] = useState<Set<string> | null>(null);
-  const [showModelFilter, setShowModelFilter] = useState(false);
   const [selectedBases, setSelectedBases] = useState<Set<string> | null>(null);
-  const [showBaseFilter, setShowBaseFilter] = useState(false);
   const [selectedCustomer, setSelectedCustomer] = useState('');
   const [customerList, setCustomerList] = useState<string[]>([]);
   const [showCustomerFilter, setShowCustomerFilter] = useState(false);
@@ -162,8 +265,17 @@ export default function AlertConfigModal({
     return filterCycleData(allRawData, timeFilter, customStart, customEnd, selectedBases);
   }, [allRawData, timeFilter, customStart, customEnd, selectedBases]);
 
-  const baseOptions = useMemo(
-    () => Array.from(new Set(allRawData.map(item => item.base).filter(Boolean))).sort(),
+  const modelOptions = useMemo<CycleFilterOption[]>(
+    () => Array.from(new Set(allRawData.map((item) => item.productModel).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b))
+      .map((value) => ({ value })),
+    [allRawData],
+  );
+
+  const baseOptions = useMemo<CycleFilterOption[]>(
+    () => Array.from(new Set(allRawData.map((item) => item.base).filter(Boolean)))
+      .sort((a, b) => a.localeCompare(b))
+      .map((value) => ({ value })),
     [allRawData],
   );
 
@@ -277,36 +389,6 @@ export default function AlertConfigModal({
   );
 
   // 机型选择/取消的辅助函数
-  const toggleModel = (model: string) => {
-    setSelectedModels(prev => {
-      const newSet = prev ? new Set(prev) : new Set(trendModels);
-      if (newSet.has(model)) {
-        newSet.delete(model);
-      } else {
-        newSet.add(model);
-      }
-      return newSet;
-    });
-  };
-
-  const selectAllModels = () => setSelectedModels(null);
-  const clearAllModels = () => setSelectedModels(new Set());
-
-  const toggleBase = (base: string) => {
-    setSelectedBases(previous => {
-      const next = previous ? new Set(previous) : new Set(baseOptions);
-      if (next.has(base)) {
-        next.delete(base);
-      } else {
-        next.add(base);
-      }
-      return next;
-    });
-  };
-
-  const selectAllBases = () => setSelectedBases(null);
-  const clearAllBases = () => setSelectedBases(new Set());
-
   const handleSaveFilter = async () => {
     try {
       const config: CycleStatsConfig = {
@@ -475,123 +557,34 @@ export default function AlertConfigModal({
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 {/* 机型筛选 */}
-                <div className="relative">
-                  <button 
-                    onClick={() => setShowModelFilter(!showModelFilter)}
-                    className={`flex items-center gap-1.5 px-3 py-1 text-xs rounded-sm border ${showModelFilter || selectedModels !== null ? 'bg-blue-50 border-blue-200 text-blue-700 font-medium' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-                  >
-                    <Filter className="w-3 h-3" />
-                    机型筛选
-                    {selectedModels !== null && (
-                      <span className="ml-1 px-1.5 py-0.5 bg-blue-600 text-white rounded text-[10px]">
-                        {selectedModels.size}
-                      </span>
-                    )}
-                  </button>
-                  
-                  {showModelFilter && (
-                    <div className="absolute top-full right-0 mt-1 bg-white border border-slate-200 rounded-sm shadow-lg z-10 p-3 min-w-48">
-                      <div className="flex gap-2 mb-2 pb-2 border-b border-slate-100">
-                        <button 
-                          onClick={selectAllModels}
-                          className="text-xs text-blue-600 hover:text-blue-800"
-                        >
-                          全选
-                        </button>
-                        <button 
-                          onClick={clearAllModels}
-                          className="text-xs text-slate-500 hover:text-slate-700"
-                        >
-                          清空
-                        </button>
-                      </div>
-                      <div className="max-h-40 overflow-y-auto space-y-1">
-                        {trendModels.map(model => {
-                          const isSelected = selectedModels === null || selectedModels.has(model);
-                          return (
-                            <label key={model} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 px-1 py-0.5 rounded">
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => toggleModel(model)}
-                                className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600"
-                              />
-                              <span className="text-xs text-slate-700 truncate" title={model}>{model}</span>
-                            </label>
-                          );
-                        })}
-                      </div>
-                      <div className="mt-2 pt-2 border-t border-slate-100">
-                        <button
-                          onClick={handleSaveFilter}
-                          className="w-full px-2 py-1 text-xs bg-blue-600 text-white rounded-sm hover:bg-blue-700 transition-colors font-medium"
-                        >
-                          保存筛选
-                        </button>
-                        {filterSaved && (
-                          <p className="text-[10px] text-emerald-600 mt-1 text-center font-medium">✓ 已保存</p>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <CycleMultiSelect
+                  label="机型"
+                  placeholder="选择机型"
+                  options={modelOptions}
+                  selected={selectedModels === null ? [] : Array.from(selectedModels)}
+                  onChange={(values) => {
+                    setSelectedModels(values.length === 0 || values.length === modelOptions.length ? null : new Set(values));
+                  }}
+                />
+                <button
+                  type="button"
+                  onClick={handleSaveFilter}
+                  className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
+                >
+                  保存筛选
+                </button>
+                {filterSaved && <span className="text-xs font-medium text-emerald-600">已保存</span>}
 
                 {/* 生产基地筛选：影响整个周期统计口径 */}
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setShowBaseFilter(!showBaseFilter)}
-                    className={`flex items-center gap-1.5 px-3 py-1 text-xs rounded-sm border ${showBaseFilter || (selectedBases?.size ?? 0) > 0 ? 'bg-blue-50 border-blue-200 text-blue-700 font-medium' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-                  >
-                    <Filter className="w-3 h-3" />
-                    生产基地
-                    {selectedBases && selectedBases.size > 0 && (
-                      <span className="ml-1 px-1.5 py-0.5 bg-blue-600 text-white rounded text-[10px]">
-                        {selectedBases.size}
-                      </span>
-                    )}
-                  </button>
-
-                  {showBaseFilter && (
-                    <div className="absolute top-full right-0 mt-1 bg-white border border-slate-200 rounded-sm shadow-lg z-10 p-3 min-w-48">
-                      <div className="flex gap-2 mb-2 pb-2 border-b border-slate-100">
-                        <button
-                          type="button"
-                          onClick={selectAllBases}
-                          className="text-xs text-blue-600 hover:text-blue-800"
-                        >
-                          全部基地
-                        </button>
-                        <button
-                          type="button"
-                          onClick={clearAllBases}
-                          className="text-xs text-slate-500 hover:text-slate-700"
-                        >
-                          清空
-                        </button>
-                      </div>
-                      <div className="max-h-40 overflow-y-auto space-y-1">
-                        {baseOptions.map(base => {
-                          const isSelected = selectedBases === null || selectedBases.has(base);
-                          return (
-                            <label key={base} className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 px-1 py-0.5 rounded">
-                              <input
-                                type="checkbox"
-                                checked={isSelected}
-                                onChange={() => toggleBase(base)}
-                                className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600"
-                              />
-                              <span className="text-xs text-slate-700 truncate" title={base}>{base}</span>
-                            </label>
-                          );
-                        })}
-                        {baseOptions.length === 0 && (
-                          <p className="px-1 py-2 text-xs text-slate-400">暂无基地数据</p>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <CycleMultiSelect
+                  label="基地"
+                  placeholder="选择基地"
+                  options={baseOptions}
+                  selected={selectedBases === null ? [] : Array.from(selectedBases)}
+                  onChange={(values) => {
+                    setSelectedBases(values.length === 0 || values.length === baseOptions.length ? null : new Set(values));
+                  }}
+                />
 
                 {/* 客户筛选 */}
                 <div className="relative">

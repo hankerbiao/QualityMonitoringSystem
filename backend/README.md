@@ -83,8 +83,7 @@ backend/
 │   ├── api/                 # API 路由
 │   │   ├── __init__.py
 │   │   ├── rty.py          # RTY 数据接口 (列表、明细、周期统计)
-│   │   ├── settings.py     # 系统配置接口 (MES/机型指标/邮件/AI)
-│   │   ├── ai.py           # AI 分析接口
+│   │   ├── settings.py     # 系统配置接口 (MES/机型指标/邮件)
 │   │   └── auth.py         # 认证接口 (OA 回调、登出)
 │   ├── core/               # 核心模块
 │   │   ├── __init__.py
@@ -101,10 +100,8 @@ backend/
 │   │   ├── common.py       # 通用响应 (Response[T])
 │   │   ├── rty.py          # RTY 数据结构
 │   │   ├── settings.py     # 设置结构
-│   │   └── ai.py           # AI 结构
 │   └── services/           # 业务服务
 │       ├── __init__.py
-│       └── ai_service.py   # AI 分析服务
 ├── init_default_settings.py  # 初始化默认配置
 ├── pyproject.toml            # 项目配置 (uv)
 └── .env.example              # 环境变量示例
@@ -113,6 +110,32 @@ backend/
 ## 数据库
 
 ### MongoDB 配置
+
+### 独立数据网关（迁移阶段）
+
+可通过 `DATA_GATEWAY_URL` 配置独立产线故障数据网关，例如
+`http://127.0.0.1:18080`。当前配置为空时，RTY/LRR/DOA/MFR 继续使用现有
+FastAPI + MongoDB 实现；配置后，LRR 的 BOM、维修故障和订单主数据读取改走网关，
+LRR 分组、数量、故障关联和比率计算仍在本服务完成。可通过认证接口检查连通性：
+`GET /api/data-gateway/status`。
+
+网关原始查询代理已提供：
+
+- `GET /api/data-gateway/faults`
+- `GET /api/data-gateway/orders`
+- `GET /api/data-gateway/views/{view_id}`
+
+销售订单看板的 `GET /api/sales-orders/query` 已支持分阶段切换：配置
+`DATA_GATEWAY_URL` 且未使用机型/基地多选筛选时，列表、日期和关键词查询走网关
+`/api/orders` 与 `/api/orders/stats`，并适配为原有前端响应结构。机型/基地多选
+仍暂时不支持这些多选参数，因为当前网关契约没有等价的多选过滤和维度统计字段；
+请求参数不满足网关契约时直接返回 400。网关请求失败统一返回 502，绝不回退本地
+MongoDB。未配置 `DATA_GATEWAY_URL` 时才使用旧实现。
+
+这些接口用于分阶段迁移业务聚合，不改变现有看板 API 契约。LRR 单次读取最多处理
+250,000 条网关原始记录；无日期或过宽范围会返回 502，调用方应缩小日期、月份或
+物料筛选范围。网关不可用时返回 502，超时和无效响应会转换为统一错误；认证、设置、
+Session、邮件和 MES 影像仍由本服务负责。
 
 - **端口**: 27019 (非默认端口)
 - **数据库**: quality_monitoring
@@ -125,7 +148,6 @@ backend/
 | `mes_config` | MES 系统接入 (username, password) |
 | `model_targets` | 机型指标 (targets: {机型: 目标值}) |
 | `email_alert_config` | 邮件预警 (enabled, emails, triggerCondition, weeklyProductionThreshold) |
-| `ai_config` | AI 模型配置 (apiUrl, modelId, apiKey, maxTokens) |
 
 ### Session 存储
 
@@ -202,14 +224,6 @@ backend/
 | DELETE | `/api/settings/model-targets/{model}` | 删除机型指标 |
 | GET | `/api/settings/email-alert` | 获取邮件预警配置 |
 | PUT | `/api/settings/email-alert` | 更新邮件预警配置 |
-| GET | `/api/settings/ai` | 获取 AI 配置 |
-| PUT | `/api/settings/ai` | 更新 AI 配置 |
-
-### AI 分析 (AI)
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/ai/analyze` | 数据分析 |
 
 ## 环境变量
 

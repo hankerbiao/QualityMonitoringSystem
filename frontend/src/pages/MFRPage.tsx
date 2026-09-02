@@ -4,6 +4,7 @@ import { BarChart3, CalendarDays, Database, ExternalLink, Home, Info, RefreshCw,
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { mfrApi } from '../api/mfrApi';
 import type { MFRDashboard, MFRFilters } from '../types/mfr';
+import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
 
 function currentMonth(): string {
   return new Date().toISOString().slice(0, 7);
@@ -54,7 +55,7 @@ export default function MFRPage() {
   return <div className="min-h-screen bg-slate-100 text-slate-800">
     <header className="border-b border-slate-200 bg-white"><div className="mx-auto flex min-h-16 max-w-7xl items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
       <div className="flex min-w-0 items-center gap-3"><Link to="/" aria-label="返回首页" title="返回首页" className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-300 px-2.5 py-1.5 text-sm font-medium text-slate-700 hover:border-rose-300 hover:bg-rose-50 hover:text-rose-700"><Home className="size-4" />返回首页</Link><div><h1 className="text-lg font-semibold text-slate-950">MFR 整机现网月化故障率</h1><p className="text-xs text-slate-500">故障数 ÷ 统计时间点在保整机数量 × 100%</p></div></div>
-      <button type="button" onClick={() => void load()} disabled={loading} aria-label="刷新数据" title="刷新数据" className="inline-flex size-9 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-50"><RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} /></button>
+      <div className="flex items-center gap-2"><DashboardSwitcher /><button type="button" onClick={() => void load()} disabled={loading} aria-label="刷新数据" title="刷新数据" className="inline-flex size-9 items-center justify-center rounded-md border border-slate-300 text-slate-600 hover:bg-slate-50 disabled:opacity-50"><RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} /></button></div>
     </div></header>
     <main className="mx-auto max-w-7xl space-y-4 px-4 py-5 sm:px-6 lg:px-8">
       <section className="rounded-md border border-slate-200 bg-white p-4 shadow-sm"><div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800"><CalendarDays className="size-4 text-rose-600" />统计范围</div><div className="grid gap-3 sm:grid-cols-3"><label className="text-xs font-medium text-slate-700">开始月份<input type="month" value={selectedFrom} onChange={e => setSelectedFrom(e.target.value)} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" /></label><label className="text-xs font-medium text-slate-700">结束月份<input type="month" value={selectedTo} onChange={e => setSelectedTo(e.target.value)} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" /></label><label className="text-xs font-medium text-slate-700">机型<input value={model} onChange={e => setModel(e.target.value)} placeholder="全部机型" className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" /></label></div></section>

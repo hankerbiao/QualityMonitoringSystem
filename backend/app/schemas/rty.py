@@ -2,6 +2,8 @@
 RTY (整机综合直通率) 相关 Pydantic 模型
 """
 
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 # ============== RTY 数据模型 ==============
@@ -55,6 +57,21 @@ class StationPassRate(BaseModel):
     inputCount: int = Field(..., ge=0, description="该工位去重后的过站 SN 数")
     defectCount: int = Field(..., ge=0, description="该工位去重后的维修 SN 数")
     passRate: float = Field(..., ge=0, le=100, description="过站直通率百分比")
+
+
+class StationPassDetail(BaseModel):
+    """工位过站/维修 SN 明细。"""
+
+    id: str
+    sn: str
+    stationCode: str
+    stationName: str = ""
+    passDate: str = ""
+    status: Literal["passed", "defect"]
+    repairTime: str = ""
+    defectCode: str = ""
+    description: str = ""
+    repairPerson: str = ""
 
 
 # ============== 故障明细模型 ==============

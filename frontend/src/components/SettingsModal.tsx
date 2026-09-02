@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Settings, Save, BellRing, Target, X, CheckCircle, Bot, Loader2, Camera } from 'lucide-react';
+import { Settings, Save, BellRing, Target, X, CheckCircle, Loader2, Camera } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
-import { ModelTargetsTab, EmailAlertTab, AIConfigTab, ProcessRecordConfigTab } from './settings';
+import { ModelTargetsTab, EmailAlertTab, ProcessRecordConfigTab } from './settings';
 import type { ProcessRecordConfig } from '../types';
 
 interface SettingsModalProps {
@@ -9,13 +9,12 @@ interface SettingsModalProps {
   onSaved: () => void;
 }
 
-type TabKey = 'processRecords' | 'rty' | 'email' | 'ai';
+type TabKey = 'processRecords' | 'rty' | 'email';
 
 const TABS: { key: TabKey; label: string; icon: typeof Save }[] = [
   { key: 'processRecords', label: '影像数据源', icon: Camera },
   { key: 'rty', label: '机型指标配置', icon: Target },
   { key: 'email', label: '邮件预警规则', icon: BellRing },
-  { key: 'ai', label: 'AI 配置', icon: Bot },
 ];
 
 export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) {
@@ -31,7 +30,6 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
 
   const [processRecordConfig, setProcessRecordConfig] = useState<ProcessRecordConfig>({ username: '', password: '', hasPassword: false });
   const [emailConfig, setEmailConfig] = useState({ enabled: true, emails: '', triggerCondition: '', weeklyProductionThreshold: 50 });
-  const [aiConfig, setAiConfig] = useState({ apiUrl: '', modelId: '', apiKey: '', maxTokens: 4096, hasApiKey: false });
   const [modelTargets, setModelTargets] = useState<Record<string, number>>({});
 
   useEffect(() => {
@@ -43,7 +41,6 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
       triggerCondition: settings.emailAlert.triggerCondition ?? '',
       weeklyProductionThreshold: settings.emailAlert.weeklyProductionThreshold ?? 50,
     });
-    setAiConfig(settings.ai);
   }, [settings]);
 
   const handleSave = async () => {
@@ -53,7 +50,6 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
         processRecords: { username: processRecordConfig.username, password: processRecordConfig.password },
         modelTargets,
         emailAlert: emailConfig,
-        ai: aiConfig,
       });
       setSaved(true);
       onSaved();
@@ -133,9 +129,6 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
             )}
             {activeTab === 'email' && (
               <EmailAlertTab config={emailConfig} onChange={setEmailConfig} />
-            )}
-            {activeTab === 'ai' && (
-              <AIConfigTab config={aiConfig} onChange={setAiConfig} />
             )}
           </div>
         </div>

@@ -18,7 +18,7 @@ from typing import Any
 
 from pymongo import UpdateOne
 
-BACKEND_DIR = Path(__file__).resolve().parents[2] / "backend"
+BACKEND_DIR = Path(__file__).resolve().parents[4] / "backend"
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app.db.mongodb import close_mongo_connection, connect_to_mongo, get_database  # noqa: E402

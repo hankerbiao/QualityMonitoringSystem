@@ -1,4 +1,4 @@
-import { DefectDetail, RTYData, RTYFilterParams, SalesOrderSummary, PaginatedRTYResponse, StationPassRate } from '../types';
+import { DefectDetail, RTYData, RTYFilterParams, SalesOrderSummary, PaginatedRTYResponse, StationPassDetail, StationPassRate } from '../types';
 import { apiFetch } from './authApi';
 
 const RTY_LIST_CACHE_TTL_MS = 2_000;
@@ -47,6 +47,16 @@ export const rtyApi = {
       }
       return json.data as StationPassRate[];
     });
+  },
+
+  async getStationPassDetails(stationCode: string, dateFrom?: string, dateTo?: string, detailType: 'input' | 'defect' = 'input'): Promise<StationPassDetail[]> {
+    const qs = new URLSearchParams({ stationCode, detailType });
+    if (dateFrom) qs.set('dateFrom', dateFrom);
+    if (dateTo) qs.set('dateTo', dateTo);
+    const res = await apiFetch(`/api/rty/station-pass-details?${qs}`);
+    const json = await res.json();
+    if (!res.ok || !json.success || !Array.isArray(json.data)) throw new Error(json.error || json.message || '工位明细加载失败');
+    return json.data as StationPassDetail[];
   },
 
   async getCycleData(

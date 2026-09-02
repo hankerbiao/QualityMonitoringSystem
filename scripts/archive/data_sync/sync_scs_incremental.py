@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Incrementally synchronize SCS DOA records and product entities.
+"""Archived incremental synchronization for SCS DOA records and product entities.
 
 The command is intentionally cron-friendly: it is single-instance, keeps its
 watermark in MongoDB, and only advances that watermark after all required
@@ -202,7 +202,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                     ensure_indexes(collection)
                 except DuplicateKeyError as exc:
                     raise RuntimeError(
-                        "scs_key 存在重复记录，请先运行 scripts/maintenance/migrate_scs_doa_keys.py "
+                        "scs_key 存在重复记录，请先运行 scripts/archive/data_sync/maintenance/migrate_scs_doa_keys.py "
                         "或使用 --migrate-keys"
                     ) from exc
 

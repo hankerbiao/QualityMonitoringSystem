@@ -18,7 +18,6 @@ class TestGetAllSettings:
         assert data["data"]["processRecords"]["hasPassword"] is False
         assert data["data"]["modelTargets"] == {}
         assert data["data"]["emailAlert"]["enabled"] is True
-        assert data["data"]["ai"]["apiUrl"] == ""
         assert data["data"]["cycleStatsConfig"]["selectedModels"] == []
 
     async def test_unified_update_includes_cycle_stats_and_keeps_secrets_masked(self, client, db_clean):
@@ -27,15 +26,12 @@ class TestGetAllSettings:
             json={
                 "modelTargets": {"X1": 98.5},
                 "cycleStatsConfig": {"selectedModels": ["X1"]},
-                "ai": {"apiUrl": "https://example.test", "apiKey": "secret"},
             },
         )
         assert response.status_code == 200
         data = response.json()["data"]
         assert data["modelTargets"] == {"X1": 98.5}
         assert data["cycleStatsConfig"] == {"selectedModels": ["X1"]}
-        assert data["ai"]["apiKey"] == ""
-        assert data["ai"]["hasApiKey"] is True
 
     async def test_removed_feature_flags_are_rejected(self, client, db_clean):
         response = await client.put(
@@ -169,67 +165,3 @@ class TestEmailAlert:
     async def test_empty_update_returns_400(self, client, db_clean):
         response = await client.put("/api/settings/email-alert", json={})
         assert response.status_code == 400
-
-@pytest.mark.integration
-class TestAIConfig:
-    """Tests for AI model config"""
-
-    async def test_get_default_ai_config(self, client, db_clean):
-        response = await client.get("/api/settings/ai")
-        assert response.status_code == 200
-        data = response.json()["data"]
-        assert data["apiUrl"] == ""
-        assert data["apiKey"] == ""  # Never returned in plaintext
-
-    async def test_update_ai_config(self, client, db_clean):
-        response = await client.put(
-            "/api/settings/ai",
-            json={
-                "apiUrl": "https://api.example.com/v1/chat/completions",
-                "modelId": "gpt-4o-mini",
-                "apiKey": "sk-secret-key",
-                "maxTokens": 8192,
-            },
-        )
-        assert response.status_code == 200
-        data = response.json()["data"]
-        assert data["apiUrl"] == "https://api.example.com/v1/chat/completions"
-        assert data["modelId"] == "gpt-4o-mini"
-        assert data["apiKey"] == ""  # Masked
-        assert data["hasApiKey"] is True
-        assert data["maxTokens"] == 8192
-
-        get_response = await client.get("/api/settings")
-        all_ai = get_response.json()["data"]["ai"]
-        assert all_ai["apiKey"] == ""
-        assert all_ai["hasApiKey"] is True
-
-    async def test_partial_ai_update(self, client, db_clean):
-        # Set initial
-        await client.put("/api/settings/ai", json={"apiUrl": "https://old.com", "modelId": "old-model"})
-        # Update only modelId
-        response = await client.put("/api/settings/ai", json={"modelId": "new-model"})
-        data = response.json()["data"]
-        assert data["apiUrl"] == "https://old.com"
-        assert data["modelId"] == "new-model"
-
-    async def test_empty_api_key_preserves_existing_key(self, client, db_clean):
-        await client.put(
-            "/api/settings/ai",
-            json={"apiUrl": "https://api.example.com", "modelId": "model", "apiKey": "secret"},
-        )
-
-        single_response = await client.put("/api/settings/ai", json={"apiKey": ""})
-        assert single_response.status_code == 200
-        assert single_response.json()["data"]["apiKey"] == ""
-        assert single_response.json()["data"]["hasApiKey"] is True
-
-        response = await client.put(
-            "/api/settings",
-            json={"ai": {"apiUrl": "https://api.example.com", "modelId": "new-model", "apiKey": ""}},
-        )
-
-        assert response.status_code == 200
-        assert response.json()["data"]["ai"]["hasApiKey"] is True
-        stored = await db_clean.configs.find_one({"key": "ai_config"})
-        assert stored["apiKey"] == "secret"

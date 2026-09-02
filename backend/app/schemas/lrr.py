@@ -12,6 +12,10 @@ class LRRData(BaseModel):
     issuedQuantity: float = 0.0
     faultCount: int = 0
     lrrRate: float | None = None
+    materialNumber: str = ""
+    base: str = ""
+    customerId: str = ""
+    month: str = ""
 
 
 class LRRSummary(BaseModel):
@@ -40,6 +44,9 @@ class LRROptions(BaseModel):
     productionOrders: list[str] = Field(default_factory=list)
     salesOrders: list[str] = Field(default_factory=list)
     storageLocations: list[str] = Field(default_factory=list)
+    materialNumbers: list[str] = Field(default_factory=list)
+    bases: list[str] = Field(default_factory=list)
+    customerIds: list[str] = Field(default_factory=list)
 
 
 class LRRFaultDetail(BaseModel):
@@ -52,3 +59,6 @@ class LRRFaultDetail(BaseModel):
     faultType: str = ""
     faultDesc: str = ""
     repairTime: str = ""
+    materialNumber: str = ""
+    base: str = ""
+    customerId: str = ""

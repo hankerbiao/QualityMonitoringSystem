@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to AI coding assistants when working with code in this repository.
+This file provides development guidance for this repository.
 
 ## Project Overview
 
@@ -42,9 +42,8 @@ src/
 │   ├── rtyApi.ts            # RTY 数据接口 (带过滤参数)
 │   ├── settingsApi.ts       # 系统配置接口 (统一保存)
 │   ├── authApi.ts           # 认证接口 (OA 登录代理)
-│   ├── aiApi.ts             # AI 分析接口
 ├── components/
-│   ├── SettingsModal.tsx    # 系统配置管理弹窗 (MES/机型/邮件/AI Tab)
+│   ├── SettingsModal.tsx    # 系统配置管理弹窗 (MES/机型/邮件)
 │   ├── DefectModal.tsx      # 故障明细弹窗
 │   ├── InputModal.tsx       # 投入明细弹窗
 │   ├── AlertConfigModal.tsx # 预警配置弹窗
@@ -82,11 +81,10 @@ src/
 
 ## 系统配置管理 (SettingsModal)
 
-四个 Tab：
+三个 Tab：
 - **MES 系统接入**: username + password 明文显示，眼睛图标切换
 - **机型指标配置**: 添加/删除机型目标值
 - **邮件预警规则**: enabled + emails + attachReport
-- **AI 模型配置**: apiUrl + modelId + apiKey + maxTokens
 
 ## Environment Variables
 
@@ -94,7 +92,7 @@ src/
 # .env.development
 VITE_API_BASE_URL=http://localhost:4001
 
-# AI Studio 模式 (禁用 HMR)
+# 可选：禁用 HMR
 DISABLE_HMR=true
 ```
 
@@ -102,6 +100,5 @@ DISABLE_HMR=true
 
 - LRR、DOA、MFR 模块页面
 - 邮件预警发送功能
-- AI 助手集成真实 LLM API
 - MES 密码加密存储
 - 生产环境 CORS 域名限制

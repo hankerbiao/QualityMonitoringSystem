@@ -3,11 +3,11 @@
 
 从仓库根目录执行：
     SCS_USERNAME=<username> SCS_PASSWORD=<password> \\
-        uv run --project backend python scripts/spider_change_result.py
+        uv run --project backend python scripts/archive/data_sync/spider_change_result.py
 
 按页面分页采集 ``PM_sp_change_Result_01.pml`` 的完整表格，保存到 MongoDB
 集合 ``scs_change_results``。登录、请求间隔、页面解析与断点续传均复用
-``scripts/spider_scs.py`` 的成熟逻辑；每两页请求之间随机间隔 5-10 秒。
+``scripts/archive/data_sync/spider_scs.py`` 的成熟逻辑；每两页请求之间随机间隔 5-10 秒。
 
 同一登记记录（服务单号+客户+设备+PN+SN+原厂原码+操作人+操作时间）以稳定键
 ``record_key`` 幂等保存，重复运行不会产生重复文档。

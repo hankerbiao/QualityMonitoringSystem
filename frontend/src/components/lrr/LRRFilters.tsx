@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
-import { Filter, RotateCcw } from 'lucide-react';
-import type { LRRFilters } from '../../types';
+import { Filter, RotateCcw, Search } from 'lucide-react';
+import { lrrApi } from '../../api/lrrApi';
+import type { LRRFilters, LRROptions } from '../../types';
 
 interface Props {
   filters: LRRFilters;
@@ -8,54 +9,37 @@ interface Props {
   onReset: () => void;
 }
 
-function DebouncedOrderInput({ value, onChange, placeholder }: {
-  value: string | null | undefined;
-  onChange: (value: string | null) => void;
-  placeholder: string;
-}) {
-  const [draft, setDraft] = useState(value ?? '');
+export default function LRRFilters({ filters, onChange, onReset }: Props) {
+  const [options, setOptions] = useState<LRROptions>({ materialNumbers: [], bases: [], customerIds: [] });
+  const [materialDraft, setMaterialDraft] = useState(filters.materialNumber ?? '');
 
-  useEffect(() => { setDraft(value ?? ''); }, [value]);
+  useEffect(() => { lrrApi.getOptions().then(setOptions).catch(() => undefined); }, []);
+  useEffect(() => setMaterialDraft(filters.materialNumber ?? ''), [filters.materialNumber]);
   useEffect(() => {
     const timeout = window.setTimeout(() => {
-      if (draft !== (value ?? '')) onChange(draft || null);
+      const value = materialDraft.trim() || null;
+      if (value !== (filters.materialNumber ?? null)) onChange({ materialNumber: value });
     }, 300);
     return () => window.clearTimeout(timeout);
-  }, [draft, onChange, value]);
+  }, [materialDraft, filters.materialNumber, onChange]);
 
-  return <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder={placeholder} className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200" />;
-}
+  const hasActive = Boolean(filters.materialNumber || filters.base || filters.customerId || filters.month || filters.dateFrom || filters.dateTo);
+  const inputClass = 'h-9 rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-400 focus:ring-2 focus:ring-blue-200';
 
-export default function LRRFilters({ filters, onChange, onReset }: Props) {
-  const hasActive = Boolean(filters.productionOrder || filters.salesOrder || filters.dateFrom || filters.dateTo || filters.orderKeyword);
   return (
-    <div className="rounded-lg border border-slate-200 bg-white p-3 shadow-sm">
-      <div className="mb-2.5 flex items-center justify-between">
-        <div className="flex items-center gap-1.5 text-sm font-semibold text-slate-700"><Filter className="h-4 w-4 text-blue-600" />订单 BOM 筛选</div>
-        <button type="button" onClick={onReset} disabled={!hasActive} className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs text-slate-500 transition-colors hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"><RotateCcw className="h-3 w-3" />重置</button>
+    <section className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
+      <div className="mb-3 flex items-center justify-between">
+        <div className="flex items-center gap-2 text-sm font-semibold text-slate-800"><Filter className="size-4 text-blue-600" />LRR 数据筛选</div>
+        <button type="button" onClick={onReset} disabled={!hasActive} className="inline-flex items-center gap-1 rounded px-2 py-1 text-xs font-medium text-slate-500 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"><RotateCcw className="size-3.5" />重置</button>
       </div>
-      <div className="mb-3 flex items-center gap-1 rounded-md border border-slate-200 bg-slate-50 p-1" role="group" aria-label="LRR 统计维度">
-        <button type="button" onClick={() => onChange({ groupBy: 'productionOrder' })} className={`h-7 rounded px-3 text-xs font-medium ${filters.groupBy !== 'salesOrder' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>生产订单</button>
-        <button type="button" onClick={() => onChange({ groupBy: 'salesOrder' })} className={`h-7 rounded px-3 text-xs font-medium ${filters.groupBy === 'salesOrder' ? 'bg-white text-blue-700 shadow-sm' : 'text-slate-500 hover:text-slate-700'}`}>销售订单</button>
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6">
+        <label className="flex flex-col gap-1 text-[11px] font-medium text-slate-500">统计月份<input type="month" value={filters.month ?? ''} onChange={(e) => onChange({ month: e.target.value || null })} className={inputClass} /></label>
+        <label className="flex flex-col gap-1 text-[11px] font-medium text-slate-500">开始日期<input type="date" value={filters.dateFrom ?? ''} max={filters.dateTo ?? undefined} onChange={(e) => onChange({ dateFrom: e.target.value || null })} className={inputClass} /></label>
+        <label className="flex flex-col gap-1 text-[11px] font-medium text-slate-500">结束日期<input type="date" value={filters.dateTo ?? ''} min={filters.dateFrom ?? undefined} onChange={(e) => onChange({ dateTo: e.target.value || null })} className={inputClass} /></label>
+        <label className="flex flex-col gap-1 text-[11px] font-medium text-slate-500">物料号搜索<div className="relative"><Search className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><input type="search" value={materialDraft} onChange={(e) => setMaterialDraft(e.target.value)} placeholder="输入物料号" className={`${inputClass} w-full pl-8`} /></div></label>
+        <label className="flex flex-col gap-1 text-[11px] font-medium text-slate-500">生产订单基地<select value={filters.base ?? ''} onChange={(e) => onChange({ base: e.target.value || null })} className={inputClass}><option value="">全部基地</option>{options.bases.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
+        <label className="flex flex-col gap-1 text-[11px] font-medium text-slate-500">客户 ID<select value={filters.customerId ?? ''} onChange={(e) => onChange({ customerId: e.target.value || null })} className={inputClass}><option value="">全部客户</option>{options.customerIds.map((value) => <option key={value} value={value}>{value}</option>)}</select></label>
       </div>
-      <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
-        <label className="flex min-w-0 flex-col gap-1 text-[11px] text-slate-500">
-          生产订单
-          <DebouncedOrderInput value={filters.productionOrder} onChange={(value) => onChange({ productionOrder: value })} placeholder="精确生产订单" />
-        </label>
-        <label className="flex min-w-0 flex-col gap-1 text-[11px] text-slate-500">
-          销售订单
-          <DebouncedOrderInput value={filters.salesOrder} onChange={(value) => onChange({ salesOrder: value })} placeholder="精确销售订单" />
-        </label>
-        <label className="flex min-w-0 flex-col gap-1 text-[11px] text-slate-500">
-          统计开始日期
-          <input type="date" value={filters.dateFrom ?? ''} max={filters.dateTo ?? undefined} onChange={(event) => onChange({ dateFrom: event.target.value || null })} className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200" />
-        </label>
-        <label className="flex min-w-0 flex-col gap-1 text-[11px] text-slate-500">
-          统计结束日期
-          <input type="date" value={filters.dateTo ?? ''} min={filters.dateFrom ?? undefined} onChange={(event) => onChange({ dateTo: event.target.value || null })} className="h-9 rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-700 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200" />
-        </label>
-      </div>
-    </div>
+    </section>
   );
 }

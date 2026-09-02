@@ -27,29 +27,12 @@ export interface EmailAlertConfig {
   weeklyProductionThreshold: number;
 }
 
-export interface AIConfig {
-  apiUrl: string;
-  modelId: string;
-  apiKey: string;
-  hasApiKey: boolean;
-  maxTokens: number;
-}
-
 export interface SettingsResponse {
   processRecords: ProcessRecordConfig;
   modelTargets: ModelTargets;
   emailAlert: EmailAlertConfig;
-  ai: AIConfig;
   cycleStatsConfig: CycleStatsConfig;
 }
-
-export const DEFAULT_AI_CONFIG: AIConfig = {
-  apiUrl: '',
-  modelId: '',
-  apiKey: '',
-  hasApiKey: false,
-  maxTokens: 4096,
-};
 
 // 不再硬编码兜底目标率：目标直通率由后端按 configs.model_targets 提供，未配置默认 100。
 // 保留空对象，避免开发者误把这些假值当成真实配置。
@@ -58,8 +41,6 @@ export const DEFAULT_MODEL_TARGETS: ModelTargets = {};
 export interface SettingsContextType {
   settings: SettingsResponse;
   updateSettings: (config: SettingsUpdate) => Promise<void>;
-  ai: AIConfig;
-  updateAI: (config: Partial<AIConfig>) => Promise<void>;
   loading: boolean;
 }
 
@@ -67,7 +48,6 @@ export interface SettingsUpdate {
   processRecords?: Partial<ProcessRecordConfig>;
   modelTargets?: ModelTargets;
   emailAlert?: Partial<EmailAlertConfig>;
-  ai?: Partial<AIConfig>;
   cycleStatsConfig?: CycleStatsConfig;
 }
 

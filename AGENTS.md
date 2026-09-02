@@ -5,7 +5,7 @@
 ```
 QualityMonitoringSystem/
 ├── frontend/           # React + Vite + TypeScript + Tailwind v4
-├── backend/            # FastAPI (RTY + Settings + OA 登录 + AI)
+├── backend/            # FastAPI (RTY + Settings + OA 登录)
 └── docker/             # Reserved
 ```
 
@@ -51,7 +51,7 @@ uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 4001
 |--------|------|----------|
 | `machine_info` | 机器信息 | `sn`(序列号), `sale_no`(销售订单号), `mfg_order`(生产订单号), `factory`(基地), `product_family`(生产机型) |
 | `fault_info` | 故障信息 | `sn`(关联机器), `fault_category`(故障分类), `repair_time`(维修时间) |
-| `configs` | 配置信息 | `key`: model_targets/mes_config/email_alert_config/ai_config |
+| `configs` | 配置信息 | `key`: model_targets/mes_config/email_alert_config |
 | `sessions` | Session存储 | TTL索引30天 |
 
 **字段映射** (machine_info 集合):
@@ -68,15 +68,13 @@ uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 4001
 
 - **Auth Flow**: `ProtectedLayout` 必须在 `isAuthLoaded` 为 true 后才检查登录状态
 - **Backend host**: OA callback 从外部 IP 访问后端，必须加 `--host 0.0.0.0`
-- **AI apiKey 安全**: 存储在 MongoDB，从不返回前端；前端用 `hasApiKey` 字段判断
 - **Tailwind v4**: CSS-first 配置，在 `index.css` 中使用 `@import "tailwindcss"`
 - **HMR**: `DISABLE_HMR=true` 时禁用热更新
 
 ## API Integration Status
 
 - ✅ RTY 数据 + 图表 + Excel 导出
-- ✅ Settings 管理 (MES/机型指标/邮件预警/AI)
+- ✅ Settings 管理 (MES/机型指标/邮件预警)
 - ✅ OA 登录 + 双 Token 自动刷新
-- ✅ AI 分析 + Markdown 对话 + 思考过程折叠展示
 - 🚧 LRR/DOA/MFR 页面
 - 🚧 邮件发送

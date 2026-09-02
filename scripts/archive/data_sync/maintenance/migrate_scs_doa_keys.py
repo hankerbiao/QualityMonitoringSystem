@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Backfill stable SCS DOA keys before enabling incremental synchronization."""
+"""Archived backfill of stable SCS DOA keys."""
 
 from __future__ import annotations
 

@@ -20,8 +20,6 @@ from app.models.documents import Collections
 from app.schemas.common import Response
 from app.schemas.process_records import ProcessRecordConnectionTest
 from app.schemas.settings import (
-    AIConfigSchema,
-    AIConfigUpdate,
     CycleStatsConfig,
     EmailAlertConfig,
     EmailAlertConfigUpdate,
@@ -72,10 +70,6 @@ def _process_records_from_doc(doc: dict | None) -> ProcessRecordConfig:
 
 def _email_from_doc(doc: dict | None) -> EmailAlertConfig:
     return SettingsService.email_from_doc(doc)
-
-
-def _ai_from_doc(doc: dict | None) -> AIConfigSchema:
-    return SettingsService.ai_from_doc(doc)
 
 
 # ============== 统一设置接口 ==============
@@ -252,27 +246,6 @@ async def get_qualified_models(threshold: int = Query(..., ge=0)):
     """查询达到生产量阈值且 RTY 未达标的机型，不触发邮件发送。"""
     result = await get_weekly_production_candidates(threshold)
     return Response(success=True, data=result, message="符合条件的机型已获取")
-
-
-# ============== AI 模型配置接口 ==============
-
-
-@router.get("/ai", response_model=Response[AIConfigSchema])
-async def get_ai_config():
-    """获取 AI 模型配置（不返回明文 apiKey）"""
-    return Response(success=True, data=_ai_from_doc(await _read_doc("ai_config")))
-
-
-@router.put("/ai", response_model=Response[AIConfigSchema])
-async def update_ai_config(config: AIConfigUpdate):
-    """更新 AI 模型配置"""
-    if not config.apiKey:
-        config.apiKey = None
-    if config.model_dump(exclude_none=True):
-        doc = await _save_section("ai_config", config)
-    else:
-        doc = await _read_doc("ai_config")
-    return Response(success=True, data=_ai_from_doc(doc), message="AI 模型配置已更新")
 
 
 # ============== 周期统计看板配置接口 ==============

@@ -77,24 +77,6 @@ class EmailAlertConfigUpdate(BaseModel):
     weeklyProductionThreshold: int | None = None
 
 
-# ============== AI 模型配置 ==============
-
-
-class AIConfigSchema(BaseModel):
-    apiUrl: str = Field("", description="AI API 地址")
-    modelId: str = Field("", description="模型 ID")
-    apiKey: str = Field("", description="API Key (仅写入，不返回)")
-    hasApiKey: bool = Field(False, description="API Key 是否已配置")
-    maxTokens: int = Field(4096, ge=1, le=32768, description="最大 Token 数")
-
-
-class AIConfigUpdate(BaseModel):
-    apiUrl: str | None = None
-    modelId: str | None = None
-    apiKey: str | None = None
-    maxTokens: int | None = None
-
-
 # ============== 周期统计看板配置 ==============
 
 
@@ -115,7 +97,6 @@ class SettingsResponse(BaseModel):
     processRecords: ProcessRecordConfig
     modelTargets: dict[str, float] = Field(default_factory=dict)
     emailAlert: EmailAlertConfig
-    ai: AIConfigSchema
     cycleStatsConfig: CycleStatsConfig = Field(default_factory=CycleStatsConfig)
 
 
@@ -127,5 +108,4 @@ class SettingsUpdateRequest(BaseModel):
     processRecords: ProcessRecordConfigUpdate | None = None
     modelTargets: dict[str, float] | None = None
     emailAlert: EmailAlertConfigUpdate | None = None
-    ai: AIConfigUpdate | None = None
     cycleStatsConfig: CycleStatsConfig | None = None

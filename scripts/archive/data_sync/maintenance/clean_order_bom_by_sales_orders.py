@@ -3,8 +3,8 @@
 
 Run from the repository root:
 
-    uv run --project backend python scripts/maintenance/clean_order_bom_by_sales_orders.py
-    uv run --project backend python scripts/maintenance/clean_order_bom_by_sales_orders.py --apply
+    uv run --project backend python scripts/archive/data_sync/maintenance/clean_order_bom_by_sales_orders.py
+    uv run --project backend python scripts/archive/data_sync/maintenance/clean_order_bom_by_sales_orders.py --apply
 
 Rows without ``AUFNR_1`` are retained. The default is a read-only dry run.
 ``--apply`` deletes only records whose inspected fields are unchanged, then
@@ -24,7 +24,7 @@ from typing import Any
 
 from pymongo import DeleteOne
 
-BACKEND_DIR = Path(__file__).resolve().parents[2] / "backend"
+BACKEND_DIR = Path(__file__).resolve().parents[4] / "backend"
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app.db.mongodb import close_mongo_connection, connect_to_mongo, get_database  # noqa: E402

@@ -105,12 +105,8 @@ async def create_indexes() -> None:
     )
     await mongodb.db.order_bom_postings_sap.create_index([("BUDAT_MKPF", 1), ("AUFNR_1", 1)])
 
-    # 销售订单双来源同步集合：aufnr 跨来源唯一业务键
-    from app.repositories import sales_order_repository
-
-    await sales_order_repository.init_sales_orders_index()
-    await mongodb.db.sales_orders_sap.create_index([("data.VBELN", 1)])
-    await mongodb.db.sales_orders_sap.create_index([("data.KID", 1), ("data.MAKTX_TH", 1)])
+    # Sales orders are owned by the independent data gateway.  The application
+    # database deliberately does not create or maintain a local copy.
     # RTY unified synchronization audit and source-level checkpoints.
     await mongodb.db.rty_sync_checkpoints.create_index("updated_at")
     await mongodb.db.rty_sync_runs.create_index([("started_at", -1)])

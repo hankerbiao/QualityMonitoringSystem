@@ -3,8 +3,8 @@
 
 Run from the repository root:
 
-    uv run --project backend python scripts/maintenance/backfill_order_bom_gstrs.py
-    uv run --project backend python scripts/maintenance/backfill_order_bom_gstrs.py --apply
+    uv run --project backend python scripts/archive/data_sync/maintenance/backfill_order_bom_gstrs.py
+    uv run --project backend python scripts/archive/data_sync/maintenance/backfill_order_bom_gstrs.py --apply
 
 The default is a read-only dry run. ``--apply`` updates ``GSTRS`` only when a
 unique match is found, preferring ``AUFNR_1`` and falling back to ``VBELN_EX``.
@@ -23,7 +23,7 @@ from typing import Any
 
 from pymongo import UpdateOne
 
-BACKEND_DIR = Path(__file__).resolve().parents[2] / "backend"
+BACKEND_DIR = Path(__file__).resolve().parents[4] / "backend"
 sys.path.insert(0, str(BACKEND_DIR))
 
 from app.db.mongodb import close_mongo_connection, connect_to_mongo, get_database  # noqa: E402

@@ -58,7 +58,6 @@ frontend/
 │   │   ├── rtyApi.ts           # RTY 数据接口
 │   │   ├── settingsApi.ts      # 系统配置接口
 │   │   ├── authApi.ts          # 认证接口 (OA 登录)
-│   │   ├── aiApi.ts            # AI 分析接口
 │   ├── components/             # 可复用组件
 │   │   ├── SettingsModal.tsx   # 系统配置管理弹窗
 │   │   ├── DefectModal.tsx     # 故障明细弹窗
@@ -75,7 +74,7 @@ frontend/
 │   └── index.css               # Tailwind v4 入口
 ├── docs/
 │   └── design.md               # 系统设计文档
-├── AGENTS.md                   # AI 助手指令
+├── AGENTS.md                   # 项目协作指令
 └── README.md
 ```
 
@@ -88,14 +87,13 @@ frontend/
 - **过滤条件**：时间范围、统计方式(整体/过站)、计算方法(普通/复合机型)、基地、客户、订单等
 - **周期统计**：累计投入、综合平均、直通率趋势图
 - **表格操作**：排序、故障/投入明细穿透、字段选择导出 Excel
-- **系统配置管理**：MES 接入、机型指标、邮件预警、AI 配置
+- **系统配置管理**：MES 接入、机型指标、邮件预警
 - **密码可见性切换**：系统配置中 MES 密码支持明文显示
 
 ### 开发中
 
 - LRR、DOA、MFR 模块页面
 - 邮件预警发送功能
-- AI 智能分析助手
 
 ## API 接口
 
@@ -131,14 +129,6 @@ frontend/
 | PUT | `/api/settings/model-targets` | 更新机型指标 |
 | GET | `/api/settings/email-alert` | 获取邮件预警配置 |
 | PUT | `/api/settings/email-alert` | 更新邮件预警配置 |
-| GET | `/api/settings/ai` | 获取 AI 配置 |
-| PUT | `/api/settings/ai` | 更新 AI 配置 |
-
-### AI 接口
-
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| POST | `/api/ai/analyze` | AI 数据分析 |
 
 ## 认证流程 (双 Token)
 
@@ -162,6 +152,5 @@ VITE_API_BASE_URL=http://localhost:4001
 
 - [ ] 接入 LRR、DOA、MFR 模块
 - [ ] 实现邮件预警发送
-- [ ] AI 助手集成真实 LLM API
 - [ ] 生产环境 CORS 域名限制
 - [ ] MES 密码加密存储

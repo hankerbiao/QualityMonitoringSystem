@@ -38,7 +38,6 @@ interface FilterPanelProps {
   onFiltersChange: (filters: RTYFilterParams) => void;
   onSearch: () => void;
   onAlertModalOpen: () => void;
-  onAiChatOpen: () => void;
   onExportConfirm: (selectedColumns: Record<string, boolean>) => void;
 }
 
@@ -47,7 +46,6 @@ export function FilterPanel({
   onFiltersChange,
   onSearch,
   onAlertModalOpen,
-  onAiChatOpen,
   onExportConfirm,
 }: FilterPanelProps) {
   const [filters, setFilters] = useState<RTYFilterParams>(initialFilters);
@@ -359,13 +357,6 @@ export function FilterPanel({
                 />
               )}
             </div>
-            <button
-              onClick={onAiChatOpen}
-              className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-4 py-1.5 rounded-sm text-xs font-medium transition-colors flex items-center shadow-sm"
-            >
-              <span className="mr-1.5 text-purple-500 font-bold">AI</span>
-              智能分析
-            </button>
           </div>
         </div>
       </div>

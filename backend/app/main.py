@@ -9,9 +9,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api import (
-    ai,
     alert_report,
     auth,
+    data_gateway,
     doa,
     lrr,
     metadata,
@@ -27,6 +27,7 @@ from app.core.config import get_settings, validate_security_settings
 from app.core.lifecycle import shutdown_infrastructure, startup_infrastructure
 from app.core.logger import log_error
 from app.core.middleware import RequestContextMiddleware, UsageTrackingMiddleware
+from app.services.data_gateway_client import DataGatewayError
 
 
 @asynccontextmanager
@@ -78,7 +79,7 @@ app.include_router(metadata.router, prefix="/api/metadata", tags=["Metadata"])
 app.include_router(doa.router, prefix="/api/doa", tags=["DOA"])
 app.include_router(alert_report.router, prefix="/api/alert-report", tags=["AlertReport"])
 app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
-app.include_router(ai.router, prefix="/api/ai", tags=["AI"])
+app.include_router(data_gateway.router, prefix="/api/data-gateway", tags=["Data Gateway"])
 app.include_router(
     process_records.router,
     prefix="/api/process-records",
@@ -110,6 +111,21 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     return JSONResponse(
         status_code=exc.status_code,
         content={"success": False, "error": str(exc.detail)},
+    )
+
+
+@app.exception_handler(DataGatewayError)
+async def data_gateway_exception_handler(request: Request, exc: DataGatewayError):
+    """Never fall back to local MongoDB after a configured gateway fails."""
+    status_code = exc.status_code if exc.status_code and 400 <= exc.status_code < 500 else 502
+    log_error(
+        f"Data gateway error: {exc}",
+        status_code=status_code,
+        path=request.url.path,
+    )
+    return JSONResponse(
+        status_code=status_code,
+        content={"success": False, "error": str(exc)},
     )
 
 

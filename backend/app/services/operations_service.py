@@ -14,7 +14,6 @@ MODULE_LABELS = {
     "lrr": "LRR 故障率",
     "process-records": "关键工位影像",
     "settings": "系统配置",
-    "ai": "AI 分析助手",
     "alert-report": "预警报告",
     "operations": "运营监控",
     "doa": "DOA 报修率",
@@ -40,7 +39,6 @@ BUSINESS_MODULES = (
     "sales-orders",
     "process-records",
     "settings",
-    "ai",
     "alert-report",
 )
 
@@ -67,7 +65,6 @@ def module_from_path(path: str) -> str:
         ("/api/lrr", "lrr"),
         ("/api/doa", "doa"),
         ("/api/sales-orders", "sales-orders"),
-        ("/api/ai", "ai"),
         ("/api/mes", "rty"),
     )
     for prefix, module in api_prefixes:
