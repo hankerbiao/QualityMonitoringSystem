@@ -19,7 +19,8 @@ class Collections:
     SERIAL_BINDINGS_SAP = "serial_bindings_sap"
     REPAIR_RECORDS_SAP = "repair_records_sap"
     STATION_RECORDS_SAP = "station_records_sap"
-    ASSEMBLY_RECORDS = "assembly_records"
+    LRR_LIST_CACHE = "lrr_list_cache"
+    LRR_LIST_CACHE_LOCKS = "lrr_list_cache_locks"
     SCS_DOA_RESULTS = "scs_doa_results"
     # SCS 换上换下（换件登记）采集结果，与 scs_doa_results 通过 data.服务单号 关联
     SCS_CHANGE_RESULTS = "scs_change_results"

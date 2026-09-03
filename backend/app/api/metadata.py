@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from app.api.auth import get_current_user
 from app.db.mongodb import get_database
 from app.models.documents import Collections
+from app.services.data_gateway_client import DataGatewayError, data_gateway
 
 router = APIRouter()
 
@@ -97,9 +98,7 @@ TABLE_DEFINITIONS: dict[str, MetadataTableDefinition] = {
             MetadataColumn(key="scs_enrichment.status", label="补全状态"),
         ],
         filters=[
-            MetadataFilter(
-                key="salesOrder", label="销售订单", field="scs_enrichment.sales_order"
-            ),
+            MetadataFilter(key="salesOrder", label="销售订单", field="scs_enrichment.sales_order"),
         ],
     ),
     Collections.SCS_CHANGE_RESULTS: MetadataTableDefinition(
@@ -117,89 +116,7 @@ TABLE_DEFINITIONS: dict[str, MetadataTableDefinition] = {
             MetadataColumn(key="_synced_at", label="同步时间"),
         ],
     ),
-    Collections.ORDER_BOM_POSTINGS_SAP: MetadataTableDefinition(
-        key=Collections.ORDER_BOM_POSTINGS_SAP,
-        title="订单 BOM 发料",
-        description="SAP 生产订单 BOM 发料与过账明细。",
-        columns=[
-            MetadataColumn(key="AUFNR_1", label="生产订单"),
-            MetadataColumn(key="VBELN_EX", label="销售订单"),
-            MetadataColumn(key="GSTRS", label="计划开始"),
-            MetadataColumn(key="MATNR", label="物料编码"),
-            MetadataColumn(key="MAKTX", label="物料描述"),
-            MetadataColumn(key="MENGE_A", label="发料数量"),
-            MetadataColumn(key="BUDAT_MKPF", label="过账日期"),
-            MetadataColumn(key="LGORT", label="库存地点"),
-            MetadataColumn(key="WERKS", label="工厂"),
-            MetadataColumn(key="TYPE", label="记录类型"),
-            MetadataColumn(key="_synced_at", label="同步时间"),
-        ],
-        filters=[
-            MetadataFilter(key="productionOrder", label="生产订单", field="AUFNR_1"),
-            MetadataFilter(key="salesOrder", label="销售订单", field="VBELN_EX"),
-        ],
-    ),
-    Collections.SERIAL_BINDINGS_SAP: MetadataTableDefinition(
-        key=Collections.SERIAL_BINDINGS_SAP,
-        title="序列号绑定",
-        description="SAP 序列号、生产订单与产品层次绑定关系。",
-        columns=[
-            MetadataColumn(key="ZCODE_HEAD", label="整机序列号"),
-            MetadataColumn(key="ZCODE_ITEM", label="部件序列号"),
-            MetadataColumn(key="AUFNR_HEAD", label="整机生产订单"),
-            MetadataColumn(key="AUFNR_ITEM", label="部件生产订单"),
-            MetadataColumn(key="PRODH", label="产品层次"),
-            MetadataColumn(key="_source_view", label="来源视图"),
-            MetadataColumn(key="_synced_at", label="同步时间"),
-        ],
-    ),
-    Collections.REPAIR_RECORDS_SAP: MetadataTableDefinition(
-        key=Collections.REPAIR_RECORDS_SAP,
-        title="维修记录",
-        description="SAP/MES 维修记录、故障描述与处理结果明细。",
-        columns=[
-            MetadataColumn(key="PCODE", label="产品序列号"),
-            MetadataColumn(key="AUFNR", label="生产订单"),
-            MetadataColumn(key="VBELN", label="销售订单"),
-            MetadataColumn(key="ZJXMC", label="机型"),
-            MetadataColumn(key="ZNGSPEC", label="故障工位编码"),
-            MetadataColumn(key="ZBJ", label="部件"),
-            MetadataColumn(key="ZNGWD", label="故障现象"),
-            MetadataColumn(key="ZWXWD", label="维修现象"),
-            MetadataColumn(key="ZDATE_WX", label="维修日期"),
-            MetadataColumn(key="ZSOURCE", label="数据来源"),
-            MetadataColumn(key="_synced_at", label="同步时间"),
-        ],
-        filters=[
-            MetadataFilter(key="productionOrder", label="生产订单", field="AUFNR"),
-            MetadataFilter(key="salesOrder", label="销售订单", field="VBELN"),
-            MetadataFilter(key="productModel", label="机型", field="ZJXMC"),
-        ],
-    ),
-    Collections.STATION_RECORDS_SAP: MetadataTableDefinition(
-        key=Collections.STATION_RECORDS_SAP,
-        title="工位过站记录",
-        description="SAP/MES 工位过站、工序状态与实际开始结束时间。",
-        columns=[
-            MetadataColumn(key="PCODE", label="产品序列号"),
-            MetadataColumn(key="AUFNR", label="生产订单"),
-            MetadataColumn(key="SPEC", label="工位编码"),
-            MetadataColumn(key="SPEC_DESC", label="工位名称"),
-            MetadataColumn(key="OPERATION", label="操作类型"),
-            MetadataColumn(key="ACTUAL_START_TIME", label="实际开始时间"),
-            MetadataColumn(key="ACTUAL_END_TIME", label="实际结束时间"),
-            MetadataColumn(key="MAKTX_TH", label="机型"),
-            MetadataColumn(key="LGORT", label="库存地点"),
-            MetadataColumn(key="UNAME", label="操作人"),
-            MetadataColumn(key="_synced_at", label="同步时间"),
-        ],
-        filters=[
-            MetadataFilter(key="productionOrder", label="生产订单", field="AUFNR"),
-            MetadataFilter(key="productModel", label="机型", field="MAKTX_TH"),
-        ],
-    ),
 }
-
 
 def _search_query(definition: MetadataTableDefinition, search: str) -> dict[str, Any]:
     if not search:
@@ -226,9 +143,7 @@ def _table_query(
     for table_filter in definition.filters:
         value = (filter_values.get(table_filter.key) or "").strip()
         if value:
-            clauses.append(
-                {table_filter.field: {"$regex": re.escape(value), "$options": "i"}}
-            )
+            clauses.append({table_filter.field: {"$regex": re.escape(value), "$options": "i"}})
     if not clauses:
         return {}
     return clauses[0] if len(clauses) == 1 else {"$and": clauses}
@@ -239,7 +154,7 @@ def _serialize_value(value: Any) -> Any:
         return str(value)
     if isinstance(value, ObjectId):
         return str(value)
-    if isinstance(value, (datetime, date)):
+    if isinstance(value, datetime | date):
         return value.isoformat()
     if isinstance(value, dict):
         return {key: _serialize_value(item) for key, item in value.items()}
@@ -251,11 +166,7 @@ def _serialize_value(value: Any) -> Any:
 
 
 def _serialize_row(row: dict[str, Any]) -> dict[str, Any]:
-    return {
-        key: _serialize_value(value)
-        for key, value in row.items()
-        if key != "_id"
-    }
+    return {key: _serialize_value(value) for key, value in row.items() if key != "_id"}
 
 
 @router.get("/tables", response_model=list[MetadataTableDefinition])
@@ -279,6 +190,30 @@ async def get_metadata_table(
     definition = TABLE_DEFINITIONS.get(table_name)
     if definition is None:
         raise HTTPException(status_code=404, detail="不支持查看该数据表")
+
+    if data_gateway.enabled and table_name == Collections.SALES_ORDERS_SAP:
+        try:
+            payload = await data_gateway.orders(
+                page=page,
+                page_size=page_size,
+                keyword=search.strip(),
+            )
+        except DataGatewayError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        raw_rows = [
+            row.get("raw", row) if isinstance(row, dict) else {} for row in payload.get("items", [])
+        ]
+        total = int(payload.get("total") or len(raw_rows))
+        return MetadataTableResponse(
+            **definition.model_dump(),
+            total=total,
+            page=int(payload.get("page") or page),
+            page_size=int(payload.get("pageSize") or page_size),
+            has_more=int(payload.get("page") or page) * int(payload.get("pageSize") or page_size)
+            < total,
+            search=search.strip(),
+            rows=[_serialize_row(row) for row in raw_rows],
+        )
 
     collection = get_database()[table_name]
     query = _table_query(

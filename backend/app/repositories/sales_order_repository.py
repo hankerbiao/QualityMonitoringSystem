@@ -19,7 +19,7 @@ from pymongo import UpdateOne
 
 from app.db.mongodb import get_database
 from app.models.documents import Collections
-from app.schemas.sales_order import SourceSyncResult
+from app.services.rty_sync_types import SourceSyncResult
 from app.services.sap_sales_order_service import SOURCE_ORDER, SourceFetchResult
 
 logger = logging.getLogger(__name__)

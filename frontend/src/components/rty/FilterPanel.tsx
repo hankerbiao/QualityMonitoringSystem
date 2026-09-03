@@ -107,7 +107,6 @@ export function FilterPanel({
   const handleClear = () => {
     setFilters({ ...EMPTY_FILTERS });
     onFiltersChange({ ...EMPTY_FILTERS });
-    onSearch();
   };
 
   return (

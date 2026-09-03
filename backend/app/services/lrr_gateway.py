@@ -6,9 +6,12 @@ quantities, fault matching, grouping and rates remain in ``api.lrr``.
 
 from __future__ import annotations
 
+import asyncio
 import calendar
+from time import perf_counter
 from typing import Any
 
+from app.core.logger import log_info
 from app.services.data_gateway_client import data_gateway
 from app.services.rty_queries import order_variants
 
@@ -100,9 +103,23 @@ async def load_bom(
         "materialCode": material_number or "",
     }
     raw_rows: list[dict[str, Any]] = []
-    for term in search_terms or [""]:
-        filters = {**base_filters, "keyword": term}
-        raw_rows.extend(await data_gateway.all_view("ZSGV_ZSD124", **filters))
+    # Keep each logical filter as one request so the gateway can stream the
+    # indexed range sequentially; splitting a broad range multiplies Mongo
+    # cursor setup and response headers without reducing the raw row count.
+    terms = search_terms or [""]
+    chunks = [(date_start, date_end)]
+    requests = [
+        data_gateway.all_bom_rows(
+            **{**base_filters, "dateFrom": chunk_start, "dateTo": chunk_end, "keyword": term},
+        )
+        for term in terms
+        for chunk_start, chunk_end in chunks
+    ]
+    bom_stream_started_at = perf_counter()
+    batches = await asyncio.gather(*requests)
+    bom_stream_ms = (perf_counter() - bom_stream_started_at) * 1000
+    for batch in batches:
+        raw_rows.extend(batch)
     seen: set[str] = set()
     rows = []
     for item in raw_rows:
@@ -146,7 +163,9 @@ async def load_bom(
     # hundreds of orders and their zero-padded variants. Reading the small
     # order master once avoids exceeding proxy URL limits and keeps the join
     # deterministic across gateway versions.
+    metadata_started_at = perf_counter()
     orders = await data_gateway.all_orders()
+    metadata_load_ms = (perf_counter() - metadata_started_at) * 1000
     metadata: dict[str, tuple[str, str]] = {}
     for item in orders:
         raw = _raw(item)
@@ -169,6 +188,11 @@ async def load_bom(
         row["_base"] = str(row.get("LGORT") or base_value).strip()
         row["_customer_id"] = customer
         result.append(row)
+    log_info(
+        "LRR gateway BOM timings "
+        f"bom_stream_ms={bom_stream_ms:.1f} metadata_load_ms={metadata_load_ms:.1f} "
+        f"bom_rows={len(result)}"
+    )
     return result
 
 
@@ -185,15 +209,36 @@ async def load_faults(
         return []
     if month and not date_from and not date_to:
         date_from, date_to = _month_bounds(month)
-    filters: dict[str, Any] = {
-        "dateFrom": date_from or "",
-        "dateTo": date_to or "",
-    }
-    if production_orders and len(production_orders) <= MAX_BATCH_ORDER_FILTERS:
-        filters["productionOrders"] = ",".join(order_variants(sorted(production_orders)))
-    if sales_orders and len(sales_orders) <= MAX_BATCH_ORDER_FILTERS:
-        filters["salesOrders"] = ",".join(sorted(sales_orders))
-    return [normalize_fault(item) for item in await data_gateway.all_faults(**filters)]
+    date_start, date_end = date_from or "", date_to or ""
+    # A broad GET would page through the complete repair collection. Indexed
+    # POST lookups keep the query selective even when thousands of BOM orders
+    # are involved.
+    if production_orders:
+        variants = order_variants(sorted(production_orders))
+        chunks = [variants[index : index + MAX_BATCH_ORDER_FILTERS] for index in range(0, len(variants), MAX_BATCH_ORDER_FILTERS)]
+        semaphore = asyncio.Semaphore(12)
+
+        async def fetch(chunk: list[str]) -> list[dict[str, Any]]:
+            async with semaphore:
+                return await data_gateway.fault_lookup(
+                    production_orders=chunk, date_from=date_start, date_to=date_end
+                )
+
+        batches = await asyncio.gather(*(fetch(chunk) for chunk in chunks))
+        return [normalize_fault(item) for batch in batches for item in batch]
+    if sales_orders:
+        values = sorted(sales_orders)
+        chunks = [values[index : index + MAX_BATCH_ORDER_FILTERS] for index in range(0, len(values), MAX_BATCH_ORDER_FILTERS)]
+        batches = await asyncio.gather(
+            *(
+                data_gateway.fault_lookup(
+                    sales_orders=chunk, date_from=date_start, date_to=date_end
+                )
+                for chunk in chunks
+            )
+        )
+        return [normalize_fault(item) for batch in batches for item in batch]
+    return []
 
 
 async def options() -> dict[str, list[str]]:

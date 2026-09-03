@@ -29,9 +29,13 @@ class Settings(BaseSettings):
     MONGODB_URL: str = "mongodb://10.17.154.252:27019"
     MONGODB_DB_NAME: str = "quality_monitoring"
     # Optional read-only data gateway for SAP/HANA-backed dashboard data.
-    # Empty keeps the legacy in-process MongoDB path active during migration.
+    # Required in production for RTY/LRR/MFR source migration; empty is kept
+    # only for isolated tests and local DOA/SCS development.
     DATA_GATEWAY_URL: str = ""
     DATA_GATEWAY_TIMEOUT_SECONDS: float = 15.0
+    # Short-lived source cache shared by dashboard requests.  This caches
+    # gateway responses only; all dashboard calculations remain in this app.
+    DATA_GATEWAY_CACHE_TTL_SECONDS: float = 10.0
     PROCESS_RECORD_CREDENTIAL_KEY: str = ""
 
     # API 配置

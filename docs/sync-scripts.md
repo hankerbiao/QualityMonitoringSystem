@@ -13,8 +13,8 @@ MongoDB 的脚本，已归档至 [`scripts/archive/data_sync/`](../scripts/archi
 
 | 类型 | 归档文件 | 历史写入集合 |
 |---|---|---|
-| RTY 销售订单和维修补全 | `sync_rty_incremental.py`、`maintenance/sync_sales_orders_range.py` | `sales_orders_sap`、`repair_records_sap`、`rty_sync_checkpoints`、`rty_sync_runs` |
-| HANA 质量视图 | `sync_views.py` | `order_bom_postings_sap`、`serial_bindings_sap`、`repair_records_sap`、`station_records_sap`、`_hana_sync_checkpoints`、`_hana_sync_runs` |
+| RTY 销售订单和维修补全 | `sync_rty_incremental.py`、`maintenance/sync_sales_orders_range.py` | 已迁移至数据网关；历史集合：`sales_orders_sap`、`repair_records_sap`、`rty_sync_checkpoints` |
+| HANA 质量视图 | `sync_views.py` | 已迁移至数据网关；历史集合：`order_bom_postings_sap`、`serial_bindings_sap`、`repair_records_sap`、`station_records_sap`、`_hana_sync_checkpoints`、`_hana_sync_runs` |
 | SCS DOA 和换件记录 | `sync_scs_incremental.py`、`spider_change_result.py` | `scs_doa_results`、`scs_change_results`、`scs_doa_incremental_progress` |
 | 历史回填和清理 | `maintenance/*` | 上述业务集合及历史运行审计集合 |
 

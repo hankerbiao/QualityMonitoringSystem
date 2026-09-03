@@ -10,7 +10,7 @@
 |---|---|---|---|---|
 | RTY-001 | P1 | 前端仍发送已废弃的 `model`、`customer`、`stat_method` 参数，且筛选类型保留客户维度 | 已修复：统一 `buildStationQuery`，收敛前后端类型和 Mock | 前端请求仅包含 RTY vNext 参数；`npm run lint` 通过 |
 | RTY-002 | P1 | 维修明细与 SN 查询使用固定 `to_list` 长度，超限时静默返回不完整结果 | 已修复：Mongo 侧日期过滤；超过 SN/明细上限返回 `413` | 超限测试断言 `413`，响应不伪装成功 |
-| RTY-003 | P1 | RTY 故障 SN 在 Python 侧过滤维修日期，无法充分使用索引 | 已修复：增加 `repair_records_sap(PCODE, ZDATE_WX)` 索引并下推日期范围 | Explain 显示日期范围和 PCODE 查询计划已审查 |
+| RTY-003 | P1 | RTY 故障 SN 在 Python 侧过滤维修日期，无法充分使用索引 | 已修复：网关批量接口下推 `PCODE` 与维修日期范围，并由网关集合索引执行 | 网关 Explain 显示日期范围和 PCODE 查询计划已审查 |
 | RTY-004 | P1 | 分组内 `$first` 未定义顺序，重复过站可能导致展示字段不稳定 | 已修复：分组前按 `GSTRS/PCODE` 排序 | 相同数据重复运行返回稳定订单/机型/日期 |
 | RTY-005 | P2 | 路由仍承载较多聚合与 DTO 逻辑，后续扩展成本较高 | 保留为下一迭代：抽离 `rty_service`/repository | 路由仅负责参数、鉴权和响应；服务层有独立单测 |
 | RTY-006 | P2 | 全量 Ruff 仍有既存 20 项问题，运行时有 Pydantic 弃用警告 | 不阻塞本次 RTY 合并，单独建立质量债务任务 | 后续迭代清零并纳入 CI |

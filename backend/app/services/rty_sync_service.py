@@ -24,7 +24,6 @@ from app.services.sap_sales_order_service import SapSalesOrderService, SourceFet
 from app.services.sap_sn_info_service import SapSnInfoService
 
 CHECKPOINTS = "rty_sync_checkpoints"
-RUNS = "rty_sync_runs"
 REPAIR = Collections.REPAIR_RECORDS_SAP
 EMPTY_VALUES = (None, "", "0")
 SOURCES = ("SG", "KK")
@@ -437,5 +436,4 @@ class RtySyncService:
             "stages": stages,
             "success": success,
         }
-        await self.db[RUNS].insert_one(summary)
         return summary

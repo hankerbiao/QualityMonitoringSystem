@@ -1,5 +1,6 @@
 """Application infrastructure lifecycle helpers."""
 
+from datetime import datetime
 from typing import Any
 
 from app.core.config import Settings
@@ -49,8 +50,18 @@ def create_scheduler() -> Any | None:
             id="weekly_production_alert",
             replace_existing=True,
         )
+        from app.api.lrr import warm_default_lrr_list_cache
+
+        scheduler.add_job(
+            warm_default_lrr_list_cache,
+            "interval",
+            minutes=15,
+            id="lrr_default_cache_prewarm",
+            replace_existing=True,
+            next_run_time=datetime.now(),
+        )
         scheduler.start()
-        log_info("APScheduler 已启动：预警任务计划于每天 17:00 执行")
+        log_info("APScheduler 已启动：预警任务和 LRR 默认缓存预热已注册")
         return scheduler
     except Exception as exc:
         log_error(f"APScheduler 启动失败，定时预警将不会自动执行: {exc}")

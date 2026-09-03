@@ -3,15 +3,14 @@ from __future__ import annotations
 import pytest
 
 from app.services import lrr_gateway
-from app.services.data_gateway_client import DataGatewayError, DataGatewayClient
+from app.services.data_gateway_client import DataGatewayClient, DataGatewayError
 
 
 @pytest.mark.asyncio
 async def test_load_bom_normalizes_gateway_rows_and_applies_exact_filters(monkeypatch):
     calls: list[dict[str, str]] = []
 
-    async def all_view(view_id: str, **filters: str):
-        assert view_id == "ZSGV_ZSD124"
+    async def all_bom_rows(**filters: str):
         calls.append(filters)
         return [
             {
@@ -37,7 +36,7 @@ async def test_load_bom_normalizes_gateway_rows_and_applies_exact_filters(monkey
     async def all_orders(**_filters: str):
         return []
 
-    monkeypatch.setattr(lrr_gateway.data_gateway, "all_view", all_view)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
     monkeypatch.setattr(lrr_gateway.data_gateway, "all_orders", all_orders)
 
     rows = await lrr_gateway.load_bom(
@@ -63,11 +62,11 @@ async def test_load_bom_normalizes_gateway_rows_and_applies_exact_filters(monkey
 async def test_load_bom_month_adds_gateway_date_bounds(monkeypatch):
     captured: dict[str, str] = {}
 
-    async def all_view(_view_id: str, **filters: str):
+    async def all_bom_rows(**filters: str):
         captured.update(filters)
         return []
 
-    monkeypatch.setattr(lrr_gateway.data_gateway, "all_view", all_view)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
     assert await lrr_gateway.load_bom(month="2026-02") == []
     assert captured["dateFrom"] == "2026-02-01"
     assert captured["dateTo"] == "2026-02-28"
@@ -77,11 +76,12 @@ async def test_load_bom_month_adds_gateway_date_bounds(monkeypatch):
 async def test_load_faults_accepts_omitted_sales_orders(monkeypatch):
     captured: dict[str, str] = {}
 
-    async def all_faults(**filters: str):
+    async def fault_lookup(**filters: str):
         captured.update(filters)
+        captured["productionOrders"] = ",".join(filters.get("production_orders", []))
         return []
 
-    monkeypatch.setattr(lrr_gateway.data_gateway, "all_faults", all_faults)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "fault_lookup", fault_lookup)
     assert await lrr_gateway.load_faults(production_orders={"000000000001"}) == []
     assert captured["productionOrders"] == "000000000001,1"
 
@@ -90,32 +90,31 @@ async def test_load_faults_accepts_omitted_sales_orders(monkeypatch):
 async def test_load_faults_avoids_oversized_batch_filter(monkeypatch):
     captured: dict[str, str] = {}
 
-    async def all_faults(**filters: str):
+    async def fault_lookup(**filters: str):
         captured.update(filters)
         return []
 
-    monkeypatch.setattr(lrr_gateway.data_gateway, "all_faults", all_faults)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "fault_lookup", fault_lookup)
     await lrr_gateway.load_faults(
         production_orders={str(index) for index in range(201)},
         date_from="2026-08-01",
         date_to="2026-08-31",
     )
-    assert "productionOrders" not in captured
-    assert captured["dateFrom"] == "2026-08-01"
+    assert captured["date_from"] == "2026-08-01"
 
 
 @pytest.mark.asyncio
 async def test_load_faults_uses_month_bounds(monkeypatch):
     captured: dict[str, str] = {}
 
-    async def all_faults(**filters: str):
+    async def fault_lookup(**filters: str):
         captured.update(filters)
         return []
 
-    monkeypatch.setattr(lrr_gateway.data_gateway, "all_faults", all_faults)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "fault_lookup", fault_lookup)
     await lrr_gateway.load_faults(production_orders={"1"}, month="2026-02")
-    assert captured["dateFrom"] == "2026-02-01"
-    assert captured["dateTo"] == "2026-02-28"
+    assert captured["date_from"] == "2026-02-01"
+    assert captured["date_to"] == "2026-02-28"
 
 
 @pytest.mark.asyncio

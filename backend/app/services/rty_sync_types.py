@@ -7,6 +7,17 @@ from pymongo import UpdateOne
 
 
 @dataclass(frozen=True)
+class SourceSyncResult:
+    """Per-source SAP sales synchronization statistics used by RTY sync."""
+
+    success: bool = True
+    fetched_count: int = 0
+    unique_count: int = 0
+    skipped_count: int = 0
+    error: str | None = None
+
+
+@dataclass(frozen=True)
 class SalesSyncResult:
     """Normalized sales-stage outcome before it is serialized for the API."""
 

@@ -1,8 +1,9 @@
 """Drop the deprecated local sales-order cache after migration verification.
 
 The independent gateway owns the authoritative ``sales_orders_sap`` collection.
-This command only drops the copy in the application database.  It refuses by
-default because DOA/MFR/LRR still have legacy consumers in this release.
+This command only drops the copy in the application database. It remains
+disabled by default because the metadata browser and repair backfill tools
+still use the local copy; dashboard reads have already moved to the gateway.
 """
 
 from __future__ import annotations
@@ -18,7 +19,7 @@ from app.core.config import get_settings
 async def drop_collection(force: bool) -> None:
     if not force:
         raise SystemExit(
-            "Refusing to drop sales_orders_sap: migrate DOA/MFR/LRR first, then rerun with --force."
+            "Refusing to drop sales_orders_sap: metadata/backfill consumers remain; audit them before --force."
         )
     settings = get_settings()
     client = AsyncIOMotorClient(settings.MONGODB_URL)

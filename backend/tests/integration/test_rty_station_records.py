@@ -157,6 +157,7 @@ class TestStationRecordRTY:
         assert response.status_code == 200
         assert response.json()["data"] == [
             {
+                "dimensionValue": "未关联",
                 "stationCode": "OP300",
                 "stationName": "终检",
                 "inputCount": 1,
@@ -246,6 +247,7 @@ class TestStationRecordRTY:
         rows = response.json()["data"]
         op205 = next(row for row in rows if row["stationCode"] == "OP205")
         assert op205 == {
+            "dimensionValue": "未关联",
             "stationCode": "OP205",
             "stationName": "装配",
             "inputCount": 2,
@@ -287,6 +289,34 @@ class TestStationRecordRTY:
 
         assert response.status_code == 200
         assert response.json()["data"][0]["inputCount"] == 1
+
+    async def test_station_pass_rates_group_and_filter_by_order_dimensions(self, client, db_clean):
+        await db_clean.station_records_sap.insert_many(
+            [
+                {"PCODE": "SN-SO1-A", "AUFNR": "PO-1", "KDAUF": "SO-1", "MAKTX_TH": "M-1", "LGORT": "9000", "station_pass_date": "20260501", "station_code_norm": "OP100", "station_name_norm": "工位一"},
+                {"PCODE": "SN-SO1-B", "AUFNR": "PO-1", "KDAUF": "SO-1", "MAKTX_TH": "M-1", "LGORT": "9000", "station_pass_date": "20260501", "station_code_norm": "OP200", "station_name_norm": "工位二"},
+                {"PCODE": "SN-SO2-A", "AUFNR": "PO-2", "KDAUF": "SO-2", "MAKTX_TH": "M-2", "LGORT": "9100", "station_pass_date": "20260501", "station_code_norm": "OP100", "station_name_norm": "工位一"},
+            ]
+        )
+        await db_clean.repair_records_sap.insert_one(
+            {"PCODE": "SN-SO1-A", "ZDATE_WX": "20260502", "repair_station_code_norm": "OP100"}
+        )
+
+        response = await client.get(
+            "/api/rty/station-pass-rates?dateFrom=2026-05-01&dateTo=2026-05-31&groupBy=salesOrder&productModel=M-1&base=9000"
+        )
+
+        assert response.status_code == 200
+        assert response.json()["data"] == [
+            {"dimensionValue": "SO-1", "stationCode": "OP100", "stationName": "工位一", "inputCount": 1, "defectCount": 1, "passRate": 0.0},
+            {"dimensionValue": "SO-1", "stationCode": "OP200", "stationName": "工位二", "inputCount": 1, "defectCount": 0, "passRate": 100.0},
+        ]
+
+        details = await client.get(
+            "/api/rty/station-pass-details?stationCode=OP100&dateFrom=2026-05-01&dateTo=2026-05-31&groupBy=salesOrder&dimensionValue=SO-1&productModel=M-1&base=9000"
+        )
+        assert details.status_code == 200
+        assert [item["sn"] for item in details.json()["data"]] == ["SN-SO1-A"]
 
     async def test_station_pass_rates_reject_reverse_date_range(self, client, db_clean):
         response = await client.get(

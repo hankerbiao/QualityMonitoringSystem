@@ -1,11 +1,61 @@
-import { DefectDetail, RTYData, RTYFilterParams, SalesOrderSummary, PaginatedRTYResponse, StationPassDetail, StationPassRate } from '../types';
+import { DefectDetail, RTYData, RTYFilterParams, SalesOrderSummary, PaginatedRTYResponse, PaginatedExcludedOrdersResponse, StationPassDetail, StationPassQuery, StationPassRate } from '../types';
 import { apiFetch } from './authApi';
 
 const RTY_LIST_CACHE_TTL_MS = 2_000;
 const rtyListCache = new Map<string, { expiresAt: number; promise: Promise<PaginatedRTYResponse> }>();
 const rtyListInFlight = new Map<string, Promise<PaginatedRTYResponse>>();
-const RTY_OPTIONS_CACHE_TTL_MS = 60_000;
+const RTY_OPTIONS_CACHE_TTL_MS = 5 * 60 * 60 * 1_000;
+const RTY_CYCLE_CACHE_STORAGE_PREFIX = 'qualiboard:rty-cycle-data:';
 const rtyOptionsCache = new Map<string, { expiresAt: number; promise: Promise<unknown> }>();
+const rtyCycleCache = new Map<string, {
+  expiresAt: number;
+  promise: Promise<RTYData[]>;
+  cachedAt: number;
+}>();
+
+export type CycleDataResult = {
+  data: RTYData[];
+  cached: boolean;
+  cachedAt: number;
+};
+
+type StoredCycleData = {
+  expiresAt: number;
+  cachedAt: number;
+  data: RTYData[];
+};
+
+function getStoredCycleData(key: string): StoredCycleData | null {
+  try {
+    const raw = window.localStorage.getItem(`${RTY_CYCLE_CACHE_STORAGE_PREFIX}${key}`);
+    if (!raw) return null;
+
+    const cached = JSON.parse(raw) as StoredCycleData;
+    if (!Array.isArray(cached.data) || cached.expiresAt <= Date.now()) {
+      window.localStorage.removeItem(`${RTY_CYCLE_CACHE_STORAGE_PREFIX}${key}`);
+      return null;
+    }
+    return cached;
+  } catch {
+    return null;
+  }
+}
+
+function setStoredCycleData(key: string, value: StoredCycleData): void {
+  try {
+    window.localStorage.setItem(`${RTY_CYCLE_CACHE_STORAGE_PREFIX}${key}`, JSON.stringify(value));
+  } catch {
+    // Caching is an optimization; quota or privacy restrictions must not block RTY data.
+  }
+}
+
+function removeStoredCycleData(key: string): void {
+  try {
+    window.localStorage.removeItem(`${RTY_CYCLE_CACHE_STORAGE_PREFIX}${key}`);
+  } catch {
+    // The in-memory cache can still be invalidated when storage is unavailable.
+  }
+}
 
 function cachedOption<T>(key: string, loader: () => Promise<T>): Promise<T> {
   const cached = rtyOptionsCache.get(key);
@@ -33,11 +83,20 @@ function buildRtyQuery(params: RTYFilterParams): URLSearchParams {
   return qs;
 }
 
+function buildStationPassQuery(params: StationPassQuery): URLSearchParams {
+  const qs = new URLSearchParams({ groupBy: params.groupBy });
+  if (params.dateFrom) qs.set('dateFrom', params.dateFrom);
+  if (params.dateTo) qs.set('dateTo', params.dateTo);
+  if (params.serialNumber) qs.set('serialNumber', params.serialNumber);
+  if (params.productModel) qs.set('productModel', params.productModel);
+  if (params.base) qs.set('base', params.base);
+  if (params.dimensionValue) qs.set('dimensionValue', params.dimensionValue);
+  return qs;
+}
+
 export const rtyApi = {
-  async getStationPassRates(dateFrom?: string, dateTo?: string): Promise<StationPassRate[]> {
-    const query = new URLSearchParams();
-    if (dateFrom) query.set('dateFrom', dateFrom);
-    if (dateTo) query.set('dateTo', dateTo);
+  async getStationPassRates(params: StationPassQuery): Promise<StationPassRate[]> {
+    const query = buildStationPassQuery(params);
     const suffix = query.toString();
     return cachedOption(`station-pass-rates:${suffix}`, async () => {
       const res = await apiFetch(`/api/rty/station-pass-rates${suffix ? `?${suffix}` : ''}`);
@@ -49,10 +108,10 @@ export const rtyApi = {
     });
   },
 
-  async getStationPassDetails(stationCode: string, dateFrom?: string, dateTo?: string, detailType: 'input' | 'defect' = 'input'): Promise<StationPassDetail[]> {
-    const qs = new URLSearchParams({ stationCode, detailType });
-    if (dateFrom) qs.set('dateFrom', dateFrom);
-    if (dateTo) qs.set('dateTo', dateTo);
+  async getStationPassDetails(stationCode: string, params: StationPassQuery, detailType: 'input' | 'defect' = 'input'): Promise<StationPassDetail[]> {
+    const qs = buildStationPassQuery(params);
+    qs.set('stationCode', stationCode);
+    qs.set('detailType', detailType);
     const res = await apiFetch(`/api/rty/station-pass-details?${qs}`);
     const json = await res.json();
     if (!res.ok || !json.success || !Array.isArray(json.data)) throw new Error(json.error || json.message || '工位明细加载失败');
@@ -62,14 +121,46 @@ export const rtyApi = {
   async getCycleData(
     orderScope: RTYFilterParams['orderScope'] = 'normal',
     customer?: string,
-  ): Promise<RTYData[]> {
-    return cachedOption(`cycle-data:${orderScope}:${customer || ''}`, async () => {
+    options: { forceRefresh?: boolean } = {},
+  ): Promise<CycleDataResult> {
+    const key = `cycle-data:${orderScope}:${customer || ''}`;
+    if (options.forceRefresh) {
+      rtyCycleCache.delete(key);
+      removeStoredCycleData(key);
+    }
+
+    const cached = rtyCycleCache.get(key);
+    if (cached && cached.expiresAt > Date.now()) {
+      return { data: await cached.promise, cached: true, cachedAt: cached.cachedAt };
+    }
+
+    const stored = getStoredCycleData(key);
+    if (stored) {
+      rtyCycleCache.set(key, {
+        expiresAt: stored.expiresAt,
+        promise: Promise.resolve(stored.data),
+        cachedAt: stored.cachedAt,
+      });
+      return { data: stored.data, cached: true, cachedAt: stored.cachedAt };
+    }
+
+    const promise = (async () => {
       const qs = new URLSearchParams({ orderScope });
       if (customer) qs.set('customer', customer);
       const res = await apiFetch(`/api/rty/cycle-data?${qs.toString()}`);
       const json = await res.json();
-      return json.success ? (json.data as RTYData[]) : [];
+      if (!json.success || !Array.isArray(json.data)) {
+        throw new Error(json.error || json.message || '周期统计数据加载失败');
+      }
+      return json.data as RTYData[];
+    })();
+    const entry = { expiresAt: Date.now() + RTY_OPTIONS_CACHE_TTL_MS, promise, cachedAt: Date.now() };
+    rtyCycleCache.set(key, entry);
+    void promise.then((data) => setStoredCycleData(key, { ...entry, data }));
+    void promise.catch(() => {
+      if (rtyCycleCache.get(key)?.promise === promise) rtyCycleCache.delete(key);
     });
+    return { data: await promise, cached: false, cachedAt: entry.cachedAt };
   },
 
   async getRTYData(params: RTYFilterParams, page = 1, pageSize = 50): Promise<PaginatedRTYResponse> {
@@ -100,6 +191,23 @@ export const rtyApi = {
       () => rtyListInFlight.delete(requestKey),
     );
     return promise;
+  },
+
+  async getExcludedOrders(
+    params: RTYFilterParams,
+    page = 1,
+    pageSize = 50,
+  ): Promise<PaginatedExcludedOrdersResponse> {
+    const qs = new URLSearchParams();
+    qs.set('page', String(page));
+    qs.set('limit', String(pageSize));
+    buildRtyQuery(params).forEach((value, key) => qs.set(key, value));
+    const res = await apiFetch(`/api/rty/excluded-orders?${qs}`);
+    const json = await res.json();
+    if (!res.ok || !Array.isArray(json.items)) {
+      throw new Error(json.error || json.detail || '已过滤订单加载失败');
+    }
+    return json as PaginatedExcludedOrdersResponse;
   },
 
   async getDefectDetails(serialNumbers: string[]): Promise<DefectDetail[]> {

@@ -19,7 +19,6 @@ from app.api import (
     operations,
     process_records,
     rty,
-    sales_orders,
     settings,
     sn_info,
 )
@@ -87,7 +86,6 @@ app.include_router(
 )
 app.include_router(auth.router, prefix="/api", tags=["Auth"])
 app.include_router(operations.router, prefix="/api/operations", tags=["Operations"])
-app.include_router(sales_orders.router, prefix="/api/sales-orders", tags=["Sales Orders"])
 app.include_router(sn_info.router, prefix="/api/sn-info", tags=["SN Info"])
 
 

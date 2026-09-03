@@ -40,6 +40,21 @@ class RTYData(RTYDataBase):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ExcludedOrder(BaseModel):
+    """One sales order excluded from RTY statistics and its reason."""
+
+    id: str
+    time: str = ""
+    salesOrder: str = ""
+    productionOrder: str = ""
+    productModel: str = ""
+    customer: str = ""
+    base: str = ""
+    orderStatus: str = ""
+    orderType: str = ""
+    exclusionReasons: list[str] = Field(default_factory=list)
+
+
 class RTYListResponse(BaseModel):
     """RTY 列表响应"""
 
@@ -52,7 +67,10 @@ class RTYListResponse(BaseModel):
 class StationPassRate(BaseModel):
     """工位过站直通率：过站 SN 为分母，匹配工位的维修 SN 为故障数。"""
 
-    stationCode: str = Field(..., description="工位编码，取 SPEC / ZNGGZ 冒号前且最后一个 '-' 后的值")
+    dimensionValue: str = Field(..., description="统计维度值，如销售订单号、生产订单号或机型")
+    stationCode: str = Field(
+        ..., description="工位编码，取 SPEC / ZNGGZ 冒号前且最后一个 '-' 后的值"
+    )
     stationName: str = Field("", description="工位名称")
     inputCount: int = Field(..., ge=0, description="该工位去重后的过站 SN 数")
     defectCount: int = Field(..., ge=0, description="该工位去重后的维修 SN 数")

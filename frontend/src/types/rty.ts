@@ -18,12 +18,38 @@ export interface RTYData {
   status: string;
 }
 
+export interface ExcludedOrder {
+  id: string;
+  time: string;
+  salesOrder: string;
+  productionOrder: string;
+  productModel: string;
+  customer: string;
+  base: string;
+  orderStatus: string;
+  orderType: string;
+  exclusionReasons: string[];
+}
+
 export interface StationPassRate {
+  dimensionValue: string;
   stationCode: string;
   stationName: string;
   inputCount: number;
   defectCount: number;
   passRate: number;
+}
+
+export type StationGroupBy = 'salesOrder' | 'productionOrder' | 'productModel';
+
+export interface StationPassQuery {
+  dateFrom?: string;
+  dateTo?: string;
+  serialNumber?: string;
+  productModel?: string;
+  base?: string;
+  groupBy: StationGroupBy;
+  dimensionValue?: string;
 }
 
 export interface StationPassDetail {
@@ -79,6 +105,14 @@ export interface SalesOrderSummary {
 
 export interface PaginatedRTYResponse {
   items: RTYData[];
+  total: number;
+  page: number;
+  limit: number;
+  has_more: boolean;
+}
+
+export interface PaginatedExcludedOrdersResponse {
+  items: ExcludedOrder[];
   total: number;
   page: number;
   limit: number;

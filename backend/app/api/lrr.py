@@ -7,11 +7,12 @@ import re
 from collections import defaultdict
 from datetime import datetime
 from decimal import Decimal, InvalidOperation
+from time import perf_counter
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query, Request
 
-from app.core.logger import audit_log
+from app.core.logger import audit_log, log_info
 from app.db.mongodb import get_database
 from app.models.documents import Collections
 from app.schemas.lrr import (
@@ -24,6 +25,7 @@ from app.schemas.lrr import (
 )
 from app.services import lrr_gateway
 from app.services.data_gateway_client import DataGatewayError
+from app.services.lrr_list_cache import LRRListQuery, lrr_list_cache
 
 router = APIRouter()
 
@@ -546,6 +548,108 @@ async def _load_lrr_list_data(
     return bom_docs, repairs
 
 
+def _list_response(rows: list[LRRData], query: LRRListQuery) -> LRRListResponse:
+    rows = _sort_rows(rows, query.sort_by, query.sort_dir)
+    issued_total = sum((quantity(row.issuedQuantity) for row in rows), Decimal(0))
+    fault_total = sum(row.faultCount for row in rows)
+    start = (query.page - 1) * query.limit
+    return LRRListResponse(
+        items=rows[start : start + query.limit],
+        total=len(rows),
+        page=query.page,
+        limit=query.limit,
+        has_more=start + query.limit < len(rows),
+        summary=LRRSummary(
+            orderCount=len(rows),
+            issuedQuantity=float(issued_total),
+            totalFaults=fault_total,
+            overallLrr=round(fault_total / issued_total * 100, 2) if issued_total > 0 else None,
+        ),
+    )
+
+
+async def _calculate_lrr_list(query: LRRListQuery) -> LRRListResponse:
+    started_at = perf_counter()
+    if lrr_gateway.data_gateway.enabled:
+        try:
+            bom_started_at = perf_counter()
+            bom_docs = await lrr_gateway.load_bom(
+                production_order=query.production_order,
+                sales_order=query.sales_order,
+                date_from=query.date_from,
+                date_to=query.date_to,
+                material_number=query.material_number,
+                base=query.base,
+                customer_id=query.customer_id,
+                month=query.month,
+                order_keyword=query.order_keyword,
+            )
+            bom_load_ms = (perf_counter() - bom_started_at) * 1000
+            production_values = {str(row.get("AUFNR_1") or "") for row in bom_docs}
+            sales_values = {str(row.get("VBELN_EX") or "") for row in bom_docs}
+            fault_started_at = perf_counter()
+            repair_docs = await lrr_gateway.load_faults(
+                production_orders=production_values,
+                sales_orders=sales_values if query.group_by == "salesOrder" else set(),
+                date_from=query.date_from,
+                date_to=query.date_to,
+                month=query.month,
+            )
+            fault_load_ms = (perf_counter() - fault_started_at) * 1000
+            aggregate_started_at = perf_counter()
+            rows, _ = aggregate_lrr(
+                bom_docs, repair_docs, group_by=query.group_by, include_details=False
+            )
+            response = _list_response(rows, query)
+            aggregate_ms = (perf_counter() - aggregate_started_at) * 1000
+            log_info(
+                "LRR list source timings "
+                f"query={query.fingerprint[:12]} bom_load_ms={bom_load_ms:.1f} "
+                f"fault_load_ms={fault_load_ms:.1f} aggregate_ms={aggregate_ms:.1f} "
+                f"total_ms={(perf_counter() - started_at) * 1000:.1f}"
+            )
+            return response
+        except DataGatewayError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+    source_started_at = perf_counter()
+    bom_docs, repair_docs = await _load_lrr_list_data(
+        query.production_order,
+        query.sales_order,
+        query.date_from,
+        query.date_to,
+        query.order_keyword,
+        query.group_by,
+        query.material_number,
+        query.base,
+        query.customer_id,
+        query.month,
+    )
+    source_load_ms = (perf_counter() - source_started_at) * 1000
+    aggregate_started_at = perf_counter()
+    rows, _ = aggregate_lrr(bom_docs, repair_docs, group_by=query.group_by, include_details=False)
+    response = _list_response(rows, query)
+    log_info(
+        "LRR list local timings "
+        f"query={query.fingerprint[:12]} source_load_ms={source_load_ms:.1f} "
+        f"aggregate_ms={(perf_counter() - aggregate_started_at) * 1000:.1f} "
+        f"total_ms={(perf_counter() - started_at) * 1000:.1f}"
+    )
+    return response
+
+
+async def warm_default_lrr_list_cache() -> None:
+    query = LRRListQuery()
+    response, state = await lrr_list_cache.get_or_load(
+        query,
+        lambda: _calculate_lrr_list(query),
+        refresh=True,
+    )
+    log_info(
+        "LRR default cache prewarm "
+        f"state={state} query={query.fingerprint[:12]} total={response.total}"
+    )
+
+
 @router.get("/list", response_model=LRRListResponse)
 @audit_log("QUERY", "lrr_list")
 async def get_lrr_list(
@@ -565,80 +669,33 @@ async def get_lrr_list(
     sortBy: str = Query("lrrRate"),
     sortDir: str = Query("desc"),
 ):
-    if lrr_gateway.data_gateway.enabled:
-        try:
-            bom_docs = await lrr_gateway.load_bom(
-                production_order=productionOrder,
-                sales_order=salesOrder,
-                date_from=dateFrom,
-                date_to=dateTo,
-                material_number=materialNumber,
-                base=base,
-                customer_id=customerId,
-                month=month,
-                order_keyword=orderKeyword,
-            )
-            production_values = {str(row.get("AUFNR_1") or "") for row in bom_docs}
-            sales_values = {str(row.get("VBELN_EX") or "") for row in bom_docs}
-            repair_docs = await lrr_gateway.load_faults(
-                production_orders=production_values,
-                sales_orders=sales_values if groupBy == "salesOrder" else set(),
-                date_from=dateFrom,
-                date_to=dateTo,
-                month=month,
-            )
-            rows, _ = aggregate_lrr(bom_docs, repair_docs, group_by=groupBy, include_details=False)
-            rows = _sort_rows(rows, sortBy, sortDir)
-            issued_total = sum((quantity(row.issuedQuantity) for row in rows), Decimal(0))
-            fault_total = sum(row.faultCount for row in rows)
-            start = (page - 1) * limit
-            return LRRListResponse(
-                items=rows[start : start + limit],
-                total=len(rows),
-                page=page,
-                limit=limit,
-                has_more=start + limit < len(rows),
-                summary=LRRSummary(
-                    orderCount=len(rows),
-                    issuedQuantity=float(issued_total),
-                    totalFaults=fault_total,
-                    overallLrr=round(fault_total / issued_total * 100, 2)
-                    if issued_total > 0
-                    else None,
-                ),
-            )
-        except DataGatewayError as exc:
-            raise HTTPException(status_code=502, detail=str(exc)) from exc
-    bom_docs, repair_docs = await _load_lrr_list_data(
-        productionOrder,
-        salesOrder,
-        dateFrom,
-        dateTo,
-        orderKeyword,
-        groupBy,
-        materialNumber,
-        base,
-        customerId,
-        month,
-    )
-    rows, _ = aggregate_lrr(bom_docs, repair_docs, group_by=groupBy, include_details=False)
-    rows = _sort_rows(rows, sortBy, sortDir)
-    issued_total = sum((quantity(row.issuedQuantity) for row in rows), Decimal(0))
-    fault_total = sum(row.faultCount for row in rows)
-    start = (page - 1) * limit
-    return LRRListResponse(
-        items=rows[start : start + limit],
-        total=len(rows),
+    query = LRRListQuery(
         page=page,
         limit=limit,
-        has_more=start + limit < len(rows),
-        summary=LRRSummary(
-            orderCount=len(rows),
-            issuedQuantity=float(issued_total),
-            totalFaults=fault_total,
-            overallLrr=round(fault_total / issued_total * 100, 2) if issued_total > 0 else None,
-        ),
+        production_order=productionOrder,
+        sales_order=salesOrder,
+        date_from=dateFrom,
+        date_to=dateTo,
+        order_keyword=orderKeyword,
+        material_number=materialNumber,
+        base=base,
+        customer_id=customerId,
+        month=month,
+        group_by=groupBy,
+        sort_by=sortBy,
+        sort_dir=sortDir,
     )
+    started_at = perf_counter()
+    response, cache_state = await lrr_list_cache.get_or_load(
+        query,
+        lambda: _calculate_lrr_list(query),
+    )
+    log_info(
+        "LRR list request "
+        f"cache={cache_state} query={query.fingerprint[:12]} "
+        f"total_ms={(perf_counter() - started_at) * 1000:.1f}"
+    )
+    return response
 
 
 @router.get("/options", response_model=LRROptions)

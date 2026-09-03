@@ -1,13 +1,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, ChevronLeft, ChevronRight, X } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, ListFilter, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { rtyApi } from '../api/rtyApi';
 import type { RTYData, RTYFilterParams } from '../types';
 import { useModelTargets } from '../context/ModelTargetsContext';
 import DefectModal from '../components/DefectModal';
 import AlertConfigModal from '../components/AlertConfigModal';
-import { FilterPanel } from '../components/rty';
+import { ExcludedOrdersModal, FilterPanel } from '../components/rty';
 import { SortIcon } from '../components/shared/SortIcon';
 import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
 
@@ -57,6 +57,8 @@ export default function RTYPage() {
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('desc');
   const [defectModalData, setDefectModalData] = useState<{ filters: RTYFilterParams; label: string } | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [detailSearched, setDetailSearched] = useState(false);
+  const [excludedOrdersOpen, setExcludedOrdersOpen] = useState(false);
 
   // 机器SN弹窗状态
   const [snModalOpen, setSnModalOpen] = useState(false);
@@ -89,31 +91,43 @@ export default function RTYPage() {
   }, [filters, page, pageSize]);
 
   useEffect(() => {
-    if (!detailOpen) return;
-
-    const load = async () => {
-      setLoading(true);
-      try {
-        const result = await rtyApi.getRTYData(filters, 1, pageSize);
-        setData(result.items);
-        setTotal(result.total);
-        setPage(1);
-      } catch (error) {
-        console.error("Failed to fetch data", error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    load();
-  }, [detailOpen]);
-
-  useEffect(() => {
     const handler = () => {
-      if (detailOpen) fetchData();
+      if (detailOpen && detailSearched) fetchData();
     };
     window.addEventListener('settings-saved', handler);
     return () => window.removeEventListener('settings-saved', handler);
-  }, [detailOpen, fetchData]);
+  }, [detailOpen, detailSearched, fetchData]);
+
+  const hasDetailQueryConditions = (params: RTYFilterParams) => Boolean(
+    params.dateRange.from
+    || params.dateRange.to
+    || params.productModel !== 'all'
+    || params.customer
+    || params.base !== 'all'
+    || params.salesOrder
+    || params.productionOrder
+    || params.serialNumber,
+  );
+
+  const openDetails = () => {
+    setData([]);
+    setTotal(0);
+    setPage(1);
+    setDetailSearched(false);
+    setDetailOpen(true);
+  };
+
+  const searchDetails = () => {
+    if (!hasDetailQueryConditions(filters)) {
+      setData([]);
+      setTotal(0);
+      setPage(1);
+      setDetailSearched(false);
+      return;
+    }
+    setDetailSearched(true);
+    fetchData(1);
+  };
 
   const handleSort = (field: SortField) => {
     if (sortField === field) {
@@ -193,28 +207,38 @@ export default function RTYPage() {
           <p className="text-xs text-slate-600">
             RTY 统计已排除订单状态 DLID、RELEASED 及订单类型 C001；L6 订单单独统计，不与普通订单合并。
           </p>
-          <div className="inline-flex overflow-hidden rounded-sm border border-slate-300 text-xs font-medium">
+          <div className="flex items-center gap-3">
             <button
               type="button"
-              onClick={() => setFilters(current => ({ ...current, orderScope: 'normal' }))}
-              className={`px-3 py-1.5 transition-colors ${filters.orderScope === 'normal' ? 'bg-blue-700 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+              onClick={() => setExcludedOrdersOpen(true)}
+              className="inline-flex items-center gap-1.5 rounded-sm border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900 transition-colors hover:bg-amber-100"
             >
-              普通订单
+              <ListFilter className="h-3.5 w-3.5" />
+              已过滤订单
             </button>
-            <button
-              type="button"
-              onClick={() => setFilters(current => ({ ...current, orderScope: 'l6' }))}
-              className={`border-l border-slate-300 px-3 py-1.5 transition-colors ${filters.orderScope === 'l6' ? 'bg-blue-700 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
-            >
-              L6 订单
-            </button>
+            <div className="inline-flex overflow-hidden rounded-sm border border-slate-300 text-xs font-medium">
+              <button
+                type="button"
+                onClick={() => setFilters(current => ({ ...current, orderScope: 'normal' }))}
+                className={`px-3 py-1.5 transition-colors ${filters.orderScope === 'normal' ? 'bg-blue-700 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+              >
+                普通订单
+              </button>
+              <button
+                type="button"
+                onClick={() => setFilters(current => ({ ...current, orderScope: 'l6' }))}
+                className={`border-l border-slate-300 px-3 py-1.5 transition-colors ${filters.orderScope === 'l6' ? 'bg-blue-700 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+              >
+                L6 订单
+              </button>
+            </div>
           </div>
         </section>
 
         <AlertConfigModal
           embedded
           modelTargets={modelTargets}
-          onDetailOpen={() => setDetailOpen(true)}
+          onDetailOpen={openDetails}
           orderScope={filters.orderScope}
         />
 
@@ -238,7 +262,7 @@ export default function RTYPage() {
                 <FilterPanel
                   initialFilters={filters}
                   onFiltersChange={setFilters}
-                  onSearch={() => fetchData(1)}
+                  onSearch={searchDetails}
                   onAlertModalOpen={() => setDetailOpen(false)}
                   onExportConfirm={handleExport}
                 />
@@ -295,7 +319,13 @@ export default function RTYPage() {
                 </tr>
               </thead>
                       <tbody className="divide-y divide-slate-100 text-slate-700 text-xs">
-                        {loading ? (
+                        {!detailSearched ? (
+                  <tr>
+                    <td colSpan={11} className="px-3 py-12 text-center text-slate-500">
+                      请输入至少一个查询条件后点击查询
+                    </td>
+                  </tr>
+                ) : loading ? (
                   <tr>
                     <td colSpan={11} className="px-3 py-12 text-center text-slate-500">
                       <div className="flex flex-col items-center justify-center gap-2">
@@ -476,6 +506,10 @@ export default function RTYPage() {
           filterLabel={defectModalData.label}
           onClose={() => setDefectModalData(null)}
         />
+      )}
+
+      {excludedOrdersOpen && (
+        <ExcludedOrdersModal filters={filters} onClose={() => setExcludedOrdersOpen(false)} />
       )}
 
       {/* 机器SN列表 */}

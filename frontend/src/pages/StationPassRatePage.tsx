@@ -1,16 +1,32 @@
-import { useCallback, useMemo, useState } from 'react';
-import { ArrowDown, ArrowLeft, ArrowUp, ArrowUpDown, CalendarDays, Download, Factory, FileSearch, Gauge, RefreshCw, Search, Wrench, X } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ArrowLeft,
+  CalendarRange,
+  Download,
+  Factory,
+  FileSearch,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  SlidersHorizontal,
+  X,
+} from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { rtyApi } from '../api/rtyApi';
-import type { StationPassDetail, StationPassRate } from '../types';
+import type { StationGroupBy, StationPassDetail, StationPassQuery, StationPassRate } from '../types';
 import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
 
+const dimensionLabels: Record<StationGroupBy, string> = {
+  salesOrder: '销售订单号',
+  productionOrder: '生产订单号',
+  productModel: '机型',
+};
+
+type DetailState = { rate: StationPassRate; type: 'input' | 'defect' };
+
 function formatDateInput(date: Date): string {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 function defaultDateRange(): { from: string; to: string } {
@@ -20,259 +36,261 @@ function defaultDateRange(): { from: string; to: string } {
   return { from: formatDateInput(from), to: formatDateInput(to) };
 }
 
-function formatNumber(value: number) {
-  return value.toLocaleString('zh-CN');
+function formatRate(inputCount: number, defectCount: number) {
+  return inputCount > 0 ? `${(((inputCount - defectCount) / inputCount) * 100).toFixed(2)}%` : '-';
 }
 
-function rateColor(rate: number) {
-  if (rate >= 98) return { text: 'text-emerald-700', bar: '#10b981' };
-  if (rate >= 95) return { text: 'text-amber-700', bar: '#f59e0b' };
-  return { text: 'text-red-700', bar: '#ef4444' };
+function formatUpdatedAt(value: Date | null) {
+  return value
+    ? new Intl.DateTimeFormat('zh-CN', { month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit' }).format(value)
+    : null;
 }
 
-type SortField = 'stationCode' | 'inputCount' | 'defectCount' | 'passRate';
-
-const sortLabels: Record<SortField, string> = {
-  stationCode: '工位编码',
-  inputCount: '过站量',
-  defectCount: '维修 SN',
-  passRate: '直通率',
-};
+function rateTone(rate: number) {
+  if (rate >= 98) return 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 focus-visible:ring-emerald-500';
+  if (rate >= 95) return 'bg-amber-50 text-amber-800 hover:bg-amber-100 focus-visible:ring-amber-500';
+  return 'bg-red-50 text-red-800 hover:bg-red-100 focus-visible:ring-red-500';
+}
 
 export default function StationPassRatePage() {
   const navigate = useNavigate();
   const [initialDateRange] = useState(defaultDateRange);
   const [dateFrom, setDateFrom] = useState(initialDateRange.from);
   const [dateTo, setDateTo] = useState(initialDateRange.to);
+  const [serialNumber, setSerialNumber] = useState('');
+  const [productModel, setProductModel] = useState('');
+  const [base, setBase] = useState('');
+  const [groupBy, setGroupBy] = useState<StationGroupBy>('productModel');
   const [rows, setRows] = useState<StationPassRate[]>([]);
-  const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [error, setError] = useState('');
-  const [sortField, setSortField] = useState<SortField>('passRate');
-  const [sortDescending, setSortDescending] = useState(true);
-  const [onlyAlerts, setOnlyAlerts] = useState(false);
-  const [detail, setDetail] = useState<{ station: StationPassRate; type: 'input' | 'defect' } | null>(null);
+  const [appliedQuery, setAppliedQuery] = useState<StationPassQuery | null>(null);
+  const [dataUpdatedAt, setDataUpdatedAt] = useState<Date | null>(null);
+  const [detail, setDetail] = useState<DetailState | null>(null);
   const [detailRows, setDetailRows] = useState<StationPassDetail[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
+  const initialLoadStarted = useRef(false);
+  const loadRequestId = useRef(0);
+  const detailRequestId = useRef(0);
+  const detailDialogRef = useRef<HTMLDivElement>(null);
+  const detailCloseButtonRef = useRef<HTMLButtonElement>(null);
+
+  const invalidateResults = () => {
+    loadRequestId.current += 1;
+    setLoading(false);
+    setRows([]);
+    setHasSearched(false);
+    setAppliedQuery(null);
+    setDataUpdatedAt(null);
+    setError('');
+  };
 
   const load = useCallback(async () => {
+    const requestId = ++loadRequestId.current;
     if (dateFrom > dateTo) {
       setError('开始日期不能晚于结束日期');
       setRows([]);
       return;
     }
+
+    const query: StationPassQuery = {
+      dateFrom,
+      dateTo,
+      serialNumber: serialNumber.trim() || undefined,
+      productModel: productModel.trim() || undefined,
+      base: base.trim() || undefined,
+      groupBy,
+    };
     setLoading(true);
     setError('');
-    setHasSearched(true);
     try {
-      setRows(await rtyApi.getStationPassRates(dateFrom, dateTo));
+      const response = await rtyApi.getStationPassRates(query);
+      if (requestId !== loadRequestId.current) return;
+      setRows(response);
+      setAppliedQuery(query);
+      setDataUpdatedAt(new Date());
+      setHasSearched(true);
     } catch (err) {
       console.error('Failed to fetch station pass rates', err);
+      if (requestId !== loadRequestId.current) return;
+      setRows([]);
+      setAppliedQuery(null);
+      setDataUpdatedAt(null);
+      setHasSearched(true);
       setError('工位过站数据加载失败，请点击刷新重试');
     } finally {
-      setLoading(false);
+      if (requestId === loadRequestId.current) setLoading(false);
     }
-  }, [dateFrom, dateTo]);
+  }, [base, dateFrom, dateTo, groupBy, productModel, serialNumber]);
 
-  const changeDateFrom = (value: string) => {
-    setDateFrom(value);
-    setRows([]);
-    setError('');
-    setHasSearched(false);
-  };
+  useEffect(() => {
+    if (initialLoadStarted.current) return;
+    initialLoadStarted.current = true;
+    void load();
+  }, [load]);
 
-  const changeDateTo = (value: string) => {
-    setDateTo(value);
-    setRows([]);
-    setError('');
-    setHasSearched(false);
-  };
+  const closeDetail = useCallback(() => {
+    detailRequestId.current += 1;
+    setDetailLoading(false);
+    setDetail(null);
+  }, []);
 
-  const filteredRows = useMemo(() => {
-    const keyword = search.trim().toLocaleLowerCase();
-    return rows.filter((row) => {
-      if (onlyAlerts && row.passRate >= 95) return false;
-      if (!keyword) return true;
-      return `${row.stationCode} ${row.stationName}`.toLocaleLowerCase().includes(keyword);
-    });
-  }, [rows, search, onlyAlerts]);
+  useEffect(() => {
+    if (!detail) return;
 
-  const sortedRows = useMemo(() => {
-    return [...filteredRows].sort((left, right) => {
-      const comparison = sortField === 'stationCode'
-        ? left.stationCode.localeCompare(right.stationCode, 'zh-CN')
-        : left[sortField] - right[sortField];
-      return sortDescending ? -comparison : comparison;
-    });
-  }, [filteredRows, sortDescending, sortField]);
+    detailCloseButtonRef.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        closeDetail();
+        return;
+      }
+      if (event.key !== 'Tab' || !detailDialogRef.current) return;
 
-  const summary = useMemo(() => {
-    const inputCount = sortedRows.reduce((sum, row) => sum + row.inputCount, 0);
-    const defectCount = sortedRows.reduce((sum, row) => sum + row.defectCount, 0);
-    return {
-      stationCount: sortedRows.length,
-      inputCount,
-      defectCount,
-      passRate: inputCount ? ((inputCount - defectCount) / inputCount) * 100 : null,
+      const focusable = Array.from(detailDialogRef.current.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      )).filter((element) => element.offsetParent !== null);
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) return;
+
+      if (!detailDialogRef.current.contains(document.activeElement)) {
+        event.preventDefault();
+        first.focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
-  }, [sortedRows]);
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [closeDetail, detail]);
 
-  const toggleSort = (field: SortField) => {
-    if (sortField === field) {
-      setSortDescending((current) => !current);
-    } else {
-      setSortField(field);
-      setSortDescending(field !== 'stationCode');
-    }
+  const reset = () => {
+    setDateFrom(initialDateRange.from);
+    setDateTo(initialDateRange.to);
+    setSerialNumber('');
+    setProductModel('');
+    setBase('');
+    setGroupBy('productModel');
+    invalidateResults();
   };
 
-  const sortHeader = (field: SortField, suffix = '', className = '') => {
-    const Icon = sortField === field ? (sortDescending ? ArrowDown : ArrowUp) : ArrowUpDown;
-    return <th className={`px-4 py-3 ${className}`} aria-sort={sortField === field ? (sortDescending ? 'descending' : 'ascending') : 'none'}>
-      <button type="button" onClick={() => toggleSort(field)} className="inline-flex items-center gap-1 hover:text-cyan-700" title={`按${sortLabels[field]}排序`}>
-        {sortLabels[field]}{suffix}<Icon className="size-3.5" />
-      </button>
-    </th>;
-  };
+  const matrix = useMemo(() => {
+    const stations = Array.from(new Set(rows.map((row) => row.stationCode))).sort((a, b) => a.localeCompare(b, 'zh-CN'));
+    const groups = new Map<string, Map<string, StationPassRate>>();
+    rows.forEach((row) => {
+      const stationRows = groups.get(row.dimensionValue) || new Map<string, StationPassRate>();
+      stationRows.set(row.stationCode, row);
+      groups.set(row.dimensionValue, stationRows);
+    });
 
-  const exportRows = () => {
-    const data = sortedRows.map((row) => ({
-      工位编码: row.stationCode,
-      工位名称: row.stationName,
-      过站量: row.inputCount,
-      维修SN数: row.defectCount,
-      直通率: `${row.passRate}%`,
-    }));
-    const sheet = XLSX.utils.json_to_sheet(data);
-    const book = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(book, sheet, '工位过站直通率');
-    XLSX.writeFile(book, `工位过站直通率_${dateFrom}_${dateTo}.xlsx`);
-  };
+    return {
+      stations,
+      rows: Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right, 'zh-CN')).map(([dimensionValue, stationRows]) => {
+        const total = Array.from(stationRows.values()).reduce(
+          (sum, row) => ({ inputCount: sum.inputCount + row.inputCount, defectCount: sum.defectCount + row.defectCount }),
+          { inputCount: 0, defectCount: 0 },
+        );
+        return { dimensionValue, stationRows, total };
+      }),
+    };
+  }, [rows]);
 
-  const openDetail = async (station: StationPassRate, type: 'input' | 'defect') => {
-    setDetail({ station, type });
+  const openDetail = async (rate: StationPassRate, type: 'input' | 'defect' = 'input') => {
+    if (!appliedQuery) return;
+    const requestId = ++detailRequestId.current;
+    setDetail({ rate, type });
     setDetailRows([]);
     setDetailLoading(true);
     try {
-      setDetailRows(await rtyApi.getStationPassDetails(station.stationCode, dateFrom, dateTo, type));
+      const response = await rtyApi.getStationPassDetails(rate.stationCode, { ...appliedQuery, dimensionValue: rate.dimensionValue }, type);
+      if (requestId !== detailRequestId.current) return;
+      setDetailRows(response);
     } catch (err) {
       console.error('Failed to fetch station details', err);
     } finally {
-      setDetailLoading(false);
+      if (requestId === detailRequestId.current) setDetailLoading(false);
     }
   };
 
+  const exportRows = () => {
+    const data = matrix.rows.map((row) => ({
+      [dimensionLabels[groupBy]]: row.dimensionValue,
+      Total: formatRate(row.total.inputCount, row.total.defectCount),
+      ...Object.fromEntries(matrix.stations.map((station) => [station, row.stationRows.has(station) ? `${row.stationRows.get(station)!.passRate.toFixed(2)}%` : '-'])),
+    }));
+    const sheet = XLSX.utils.json_to_sheet(data);
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, sheet, '工位直通率透视表');
+    XLSX.writeFile(book, `工位直通率_${groupBy}_${dateFrom}_${dateTo}.xlsx`);
+  };
+
+  const updateField = <T,>(setter: (value: T) => void, value: T) => {
+    setter(value);
+    invalidateResults();
+  };
+
+  const dimensionLabel = dimensionLabels[groupBy];
+  const colSpan = matrix.stations.length + 2;
+  const updatedAt = formatUpdatedAt(dataUpdatedAt);
+
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-800">
-      <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-4 py-3 backdrop-blur">
-        <div className="mx-auto flex min-h-12 max-w-7xl items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <button
-              type="button"
-              onClick={() => navigate('/')}
-              className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"
-              title="返回首页"
-              aria-label="返回首页"
-            >
-              <ArrowLeft className="size-4" />
-            </button>
-            <div className="flex size-9 shrink-0 items-center justify-center rounded-md bg-cyan-600 text-white">
-              <Factory className="size-5" />
-            </div>
-            <div className="min-w-0">
-              <h1 className="truncate text-lg font-semibold text-slate-950">工位过站直通率看板</h1>
-              <p className="text-xs text-slate-500">过站记录为分母 · 匹配维修工位为分子</p>
-            </div>
+    <div className="min-h-screen bg-[#f6f8fb] text-slate-800">
+      <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 px-4 backdrop-blur">
+        <div className="mx-auto flex min-h-15 max-w-[1600px] items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2.5">
+            <button type="button" onClick={() => navigate('/')} className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600" title="返回首页" aria-label="返回首页"><ArrowLeft className="size-4" /></button>
+            <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-cyan-600 text-white"><Factory className="size-4" /></div>
+            <div className="min-w-0"><h1 className="truncate text-base font-semibold text-slate-900">工位过站直通率</h1><p className="hidden text-xs text-slate-500 sm:block">过站记录与维修工位匹配分析</p></div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             <DashboardSwitcher />
-            <button
-              type="button"
-              onClick={() => void load()}
-              disabled={loading || !hasSearched}
-              className="inline-flex size-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-50"
-              title="刷新数据"
-              aria-label="刷新数据"
-            >
-              <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} />
-            </button>
-            <button
-              type="button"
-              onClick={exportRows}
-              disabled={loading || !hasSearched || filteredRows.length === 0}
-              className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:border-cyan-300 hover:bg-cyan-50 disabled:opacity-40"
-              title="导出当前结果"
-            >
-              <Download className="size-4" />导出
-            </button>
+            <button type="button" onClick={() => void load()} disabled={loading || !hasSearched} className="inline-flex size-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition-colors hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-45" title="刷新数据" aria-label="刷新数据"><RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} /></button>
+            <button type="button" onClick={exportRows} disabled={loading || !hasSearched || matrix.rows.length === 0} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-medium text-slate-700 transition-colors hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-45 sm:px-3" title="导出当前结果" aria-label="导出当前结果"><Download className="size-4" /><span className="hidden sm:inline">导出</span></button>
           </div>
         </div>
       </header>
 
-      <main className="mx-auto flex w-full max-w-7xl flex-col gap-4 px-4 py-5 sm:px-6 lg:px-8">
-        <section className="rounded-md border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="mb-3 flex items-center gap-2 text-sm font-semibold text-slate-800">
-            <CalendarDays className="size-4 text-cyan-600" />统计范围
-          </div>
-          <div className="grid gap-3 sm:grid-cols-[1fr_1fr_auto_auto] sm:items-end">
-            <label className="text-xs font-medium text-slate-700">
-              开始日期
-              <input type="date" value={dateFrom} onChange={(event) => changeDateFrom(event.target.value)} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
-            </label>
-            <label className="text-xs font-medium text-slate-700">
-              结束日期
-              <input type="date" value={dateTo} onChange={(event) => changeDateTo(event.target.value)} className="mt-1 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm" />
-            </label>
-            <p className="text-xs text-slate-500 sm:pb-2">编码规则：先取冒号前内容，再取最后一个 `-` 后的编码。</p>
-            <button type="button" onClick={() => void load()} disabled={loading} className="inline-flex h-9 items-center justify-center gap-1.5 rounded-md bg-cyan-600 px-4 text-sm font-medium text-white hover:bg-cyan-700 disabled:cursor-wait disabled:opacity-60">
-              <Search className="size-4" />{loading ? '正在计算' : '搜索'}
-            </button>
-          </div>
-          <p className="mt-3 border-t border-slate-100 pt-3 text-xs leading-5 text-slate-500">
-            统计口径：分母为统计期内按“工位 + SN”去重的过站记录；分子为同一 SN 在统计期内存在且工位匹配的维修记录。该指标用于工位异常监控，不等同于严格首过直通率。
-          </p>
-        </section>
-
-        {error && <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{error}</div>}
-
-        {loading && <div className="flex items-center gap-2 rounded-md border border-cyan-200 bg-cyan-50 px-4 py-3 text-sm text-cyan-800"><RefreshCw className="size-4 animate-spin" />正在计算指定日期范围内的工位过站量与维修 SN 匹配关系...</div>}
-
-        {hasSearched && <section className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-          {[
-            { label: '工位数', value: summary.stationCount, detail: '有过站记录的工位', icon: Factory, tint: 'text-cyan-700 bg-cyan-50' },
-            { label: '过站量', value: summary.inputCount, detail: '去重后的过站 SN', icon: Gauge, tint: 'text-blue-700 bg-blue-50' },
-            { label: '维修 SN 数', value: summary.defectCount, detail: '匹配工位的维修 SN', icon: Wrench, tint: 'text-red-700 bg-red-50' },
-            { label: '当前筛选直通率', value: summary.passRate == null ? '-' : `${summary.passRate.toFixed(2)}%`, detail: '（过站量 - 维修 SN）÷ 过站量', icon: Gauge, tint: 'text-emerald-700 bg-emerald-50' },
-          ].map(({ label, value, detail, icon: Icon, tint }) => (
-            <div key={label} className="flex items-center gap-3 rounded-md border border-slate-200 bg-white px-4 py-3 shadow-sm">
-              <div className={`flex size-9 shrink-0 items-center justify-center rounded-md ${tint}`}><Icon className="size-4" /></div>
-              <div className="min-w-0"><div className="truncate text-[11px] text-slate-500">{label}</div><div className="font-mono text-xl font-bold text-slate-800">{typeof value === 'number' ? formatNumber(value) : value}</div><div className="truncate text-[11px] text-slate-400">{detail}</div></div>
-            </div>
-          ))}
-        </section>}
-
-        <section className="flex flex-wrap items-center justify-between gap-3 rounded-md border border-slate-200 bg-white px-4 py-3 shadow-sm">
-          <div className="flex min-w-0 flex-1 items-center gap-3"><div className="relative w-full max-w-sm"><Search className="absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="搜索工位编码或名称" className="h-9 w-full rounded-md border border-slate-300 bg-white pl-8 pr-3 text-sm focus:border-cyan-400 focus:outline-none focus:ring-2 focus:ring-cyan-200" /></div><label className="inline-flex shrink-0 cursor-pointer items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={onlyAlerts} onChange={(event) => setOnlyAlerts(event.target.checked)} className="size-4 accent-red-600" />只看标红工位</label></div>
-          <span className="shrink-0 text-xs text-slate-400">当前显示 {sortedRows.length} / {rows.length} 个工位</span>
-        </section>
-
+      <main className="mx-auto flex w-full max-w-[1600px] flex-col gap-3 px-4 py-4 sm:px-6 lg:px-8">
         <section className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
-          <div className="overflow-auto"><table className="w-full min-w-[720px] text-left text-sm">
-            <thead className="sticky top-0 z-[1] border-b border-slate-200 bg-slate-50 text-xs font-semibold text-slate-600"><tr>
-              {sortHeader('stationCode')}
-              <th className="px-4 py-3">工位名称</th>
-              {sortHeader('inputCount', '（分母）', 'text-right')}
-              {sortHeader('defectCount', '（分子）', 'text-right')}
-              {sortHeader('passRate', '', 'text-right')}
-            </tr></thead>
-            <tbody className="divide-y divide-slate-100 text-xs">
-              {loading ? <tr><td colSpan={5} className="px-4 py-14 text-center text-slate-500">正在计算工位过站量与维修 SN 匹配关系...</td></tr> : error ? <tr><td colSpan={5} className="px-4 py-14 text-center text-red-500">加载失败，请调整条件后重新搜索</td></tr> : !hasSearched ? <tr><td colSpan={5} className="px-4 py-14 text-center text-slate-500">请选择统计日期范围后点击搜索</td></tr> : sortedRows.length === 0 ? <tr><td colSpan={5} className="px-4 py-14 text-center text-slate-500">暂无符合条件的工位数据</td></tr> : sortedRows.map((row) => { const color = rateColor(row.passRate); const alert = row.passRate < 95; return <tr key={row.stationCode} className={`${alert ? 'bg-red-50/70' : ''} hover:bg-slate-50`}><td className="px-4 py-3 font-mono font-semibold text-slate-800">{row.stationCode}</td><td className="px-4 py-3 text-slate-600">{row.stationName || '-'}</td><td className="px-4 py-3 text-right font-mono"><button type="button" onClick={() => void openDetail(row, 'input')} className="font-semibold text-blue-600 underline decoration-blue-200 underline-offset-2 hover:text-blue-800" title="查看过站明细">{formatNumber(row.inputCount)}</button></td><td className="px-4 py-3 text-right font-mono"><button type="button" onClick={() => void openDetail(row, 'defect')} className="font-semibold text-red-600 underline decoration-red-200 underline-offset-2 hover:text-red-800" title="查看维修明细">{formatNumber(row.defectCount)}</button></td><td className="px-4 py-3 text-right"><div className="flex items-center justify-end gap-3"><div className="h-1.5 w-28 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full" style={{ width: `${Math.min(100, Math.max(0, row.passRate))}%`, backgroundColor: color.bar }} /></div><span className={`w-16 text-right font-mono font-semibold ${color.text}`}>{row.passRate.toFixed(2)}%</span></div></td></tr>; })}
-            </tbody>
-          </table></div>
+          <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="flex min-w-0 items-center gap-2"><div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-cyan-50 text-cyan-700"><SlidersHorizontal className="size-4" /></div><div><h2 className="text-sm font-semibold text-slate-800">{dimensionLabel}工位直通率</h2><p className="text-xs text-slate-500">点击热力单元格查看过站与维修 SN 明细</p></div></div>
+            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+              {updatedAt && <span>更新于 {updatedAt}</span>}
+              {hasSearched && !loading && !error && <span className="font-medium text-slate-700">{matrix.rows.length.toLocaleString('zh-CN')} 个{dimensionLabel}</span>}
+              <span className="inline-flex items-center gap-1.5"><i className="size-2 rounded-full bg-emerald-500" />达标 &gt;= 98%</span>
+              <span className="inline-flex items-center gap-1.5"><i className="size-2 rounded-full bg-amber-500" />关注 95% - 98%</span>
+              <span className="inline-flex items-center gap-1.5"><i className="size-2 rounded-full bg-red-500" />异常 &lt; 95%</span>
+            </div>
+          </div>
+
+          <form className="flex flex-wrap items-end gap-2 border-b border-slate-100 bg-slate-50/70 px-4 py-3" onSubmit={(event) => { event.preventDefault(); void load(); }}>
+            <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-44">统计维度<select value={groupBy} onChange={(event) => updateField(setGroupBy, event.target.value as StationGroupBy)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none transition-colors focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"><option value="salesOrder">销售订单号</option><option value="productionOrder">生产订单号</option><option value="productModel">机型</option></select></label>
+            <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-44">服务器 SN<input value={serialNumber} onChange={(event) => updateField(setSerialNumber, event.target.value)} placeholder="精确输入 SN" className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" /></label>
+            <label className="flex min-w-32 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-40">机型<input value={productModel} onChange={(event) => updateField(setProductModel, event.target.value)} placeholder="精确输入机型" className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" /></label>
+            <label className="flex min-w-32 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-40">工厂地点<input value={base} onChange={(event) => updateField(setBase, event.target.value)} placeholder="基地/库位" className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" /></label>
+            <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-44">过站开始日期<input type="date" value={dateFrom} onChange={(event) => updateField(setDateFrom, event.target.value)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" /></label>
+            <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-44">过站结束日期<input type="date" value={dateTo} onChange={(event) => updateField(setDateTo, event.target.value)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" /></label>
+            <div className="flex items-center gap-1.5 pt-5"><button type="button" onClick={reset} className="inline-flex size-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 transition-colors hover:border-slate-400 hover:bg-slate-100" title="重置条件" aria-label="重置条件"><RotateCcw className="size-4" /></button><button type="submit" disabled={loading} className="inline-flex h-9 items-center gap-1.5 rounded-md bg-cyan-600 px-3 text-sm font-medium text-white transition-colors hover:bg-cyan-700 disabled:cursor-wait disabled:opacity-60">{loading ? <RefreshCw className="size-4 animate-spin" /> : <Search className="size-4" />}{loading ? '正在计算' : '查询'}</button></div>
+          </form>
+
+          <div className="overflow-auto">
+            <table className="w-full min-w-max border-separate border-spacing-0 text-left">
+              <thead className="text-xs font-semibold text-slate-600"><tr><th className="sticky left-0 top-0 z-20 min-w-52 border-b border-r border-slate-200 bg-slate-50 px-4 py-3 text-left shadow-[1px_0_0_0_rgb(226_232_240)]">{dimensionLabel}</th><th className="sticky left-52 top-0 z-20 min-w-30 border-b border-r border-slate-200 bg-slate-100 px-3 py-3 text-center shadow-[1px_0_0_0_rgb(226_232_240)]">汇总直通率</th>{matrix.stations.map((station) => { const stationName = rows.find((row) => row.stationCode === station)?.stationName; return <th key={station} className="sticky top-0 z-10 min-w-32 border-b border-r border-slate-200 bg-slate-50 px-3 py-3 text-center font-mono" title={stationName || station}><span className="block text-slate-700">{station}</span>{stationName && <span className="mt-0.5 block max-w-28 truncate font-sans text-[10px] font-medium text-slate-400">{stationName}</span>}</th>; })}</tr></thead>
+              <tbody className="text-xs">
+                {loading ? <tr><td colSpan={colSpan} className="px-4 py-16 text-center text-slate-500"><span className="inline-flex items-center gap-2"><RefreshCw className="size-4 animate-spin text-cyan-600" />正在计算工位过站量与维修 SN 匹配关系...</span></td></tr> : error ? <tr><td colSpan={colSpan} className="px-4 py-16 text-center text-red-600">{error}</td></tr> : !hasSearched ? <tr><td colSpan={colSpan} className="px-4 py-16 text-center text-slate-500"><span className="inline-flex items-center gap-2"><CalendarRange className="size-4 text-slate-400" />调整条件后点击查询，查看工位直通率</span></td></tr> : matrix.rows.length === 0 ? <tr><td colSpan={colSpan} className="px-4 py-16 text-center text-slate-500">当前条件下暂无工位过站数据</td></tr> : matrix.rows.map((row) => <tr key={row.dimensionValue} className="group"><th className="sticky left-0 z-10 max-w-52 truncate border-b border-r border-slate-200 bg-white px-4 py-3.5 text-left font-mono font-semibold text-slate-800 shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-slate-50" title={row.dimensionValue}>{row.dimensionValue}</th><td className="sticky left-52 z-10 border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-center shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-slate-100/70"><div className="font-mono text-sm font-semibold text-slate-800">{formatRate(row.total.inputCount, row.total.defectCount)}</div><div className="mt-0.5 font-mono text-[11px] text-slate-500">{row.total.defectCount}/{row.total.inputCount}</div></td>{matrix.stations.map((station) => { const rate = row.stationRows.get(station); return !rate ? <td key={station} className="border-b border-r border-slate-100 bg-slate-50/40 px-3 py-2 text-center text-slate-300">-</td> : <td key={station} className="border-b border-r border-slate-100 p-1.5 text-center"><button type="button" onClick={() => void openDetail(rate)} className={`flex min-h-13 w-full flex-col items-center justify-center rounded-sm px-2 py-1.5 font-mono transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${rateTone(rate.passRate)}`} title={`过站量 ${rate.inputCount}，维修 SN ${rate.defectCount}；点击查看明细`}><span className="text-sm font-semibold">{rate.passRate.toFixed(2)}%</span><span className="mt-0.5 text-[11px] font-medium opacity-75">{rate.defectCount}/{rate.inputCount}</span></button></td>; })}</tr>)}
+              </tbody>
+            </table>
+          </div>
         </section>
       </main>
-      {detail && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={() => setDetail(null)}><div className="flex max-h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-md bg-white shadow-xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-slate-200 px-5 py-4"><div className="flex items-center gap-2"><FileSearch className="size-4 text-cyan-600" /><div><h2 className="text-sm font-semibold text-slate-900">{detail.type === 'input' ? '过站明细' : '维修明细'} · {detail.station.stationCode}</h2><p className="mt-0.5 text-xs text-slate-500">{detail.station.stationName || '未命名工位'} · {dateFrom} 至 {dateTo}</p></div></div><button type="button" onClick={() => setDetail(null)} aria-label="关闭" title="关闭" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"><X className="size-4" /></button></div><div className="overflow-auto p-4">{detailLoading ? <div className="py-12 text-center text-sm text-slate-500">正在加载明细...</div> : detailRows.length === 0 ? <div className="py-12 text-center text-sm text-slate-500">暂无明细数据</div> : <table className="w-full min-w-[680px] text-left text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-slate-600"><tr><th className="px-3 py-2">机器 SN</th><th className="px-3 py-2">过站日期</th>{detail.type === 'defect' && <><th className="px-3 py-2">故障代码</th><th className="px-3 py-2">故障描述</th><th className="px-3 py-2">维修人</th><th className="px-3 py-2">维修时间</th></>}</tr></thead><tbody className="divide-y divide-slate-100">{detailRows.map((item) => <tr key={item.id} className="hover:bg-slate-50"><td className="px-3 py-2 font-mono text-slate-700">{item.sn}</td><td className="px-3 py-2 text-slate-600">{item.passDate || '-'}</td>{detail.type === 'defect' && <><td className="px-3 py-2 text-red-700">{item.defectCode || '-'}</td><td className="max-w-[260px] px-3 py-2 text-slate-600">{item.description || '-'}</td><td className="px-3 py-2 text-slate-600">{item.repairPerson || '-'}</td><td className="px-3 py-2 text-slate-500">{item.repairTime || '-'}</td></>}</tr>)}</tbody></table>}</div><div className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">共 {detailRows.length.toLocaleString('zh-CN')} 条记录</div></div></div>}
+
+      {detail && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={closeDetail}><div ref={detailDialogRef} role="dialog" aria-modal="true" aria-labelledby="station-detail-title" className="flex max-h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-md bg-white shadow-xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-slate-200 px-5 py-4"><div className="flex items-center gap-2"><FileSearch className="size-4 text-cyan-600" /><div><h2 id="station-detail-title" className="text-sm font-semibold text-slate-900">{detail.rate.dimensionValue} · {detail.rate.stationCode}</h2><p className="mt-0.5 text-xs text-slate-500">{detail.rate.stationName || '未命名工位'} · {appliedQuery?.dateFrom} 至 {appliedQuery?.dateTo}</p></div></div><button ref={detailCloseButtonRef} type="button" onClick={closeDetail} aria-label="关闭" title="关闭" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"><X className="size-4" /></button></div><div className="flex gap-2 border-b border-slate-100 px-5 py-2"><button type="button" onClick={() => void openDetail(detail.rate, 'input')} className={`rounded-md px-3 py-1.5 text-xs font-medium ${detail.type === 'input' ? 'bg-cyan-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>过站 SN</button><button type="button" onClick={() => void openDetail(detail.rate, 'defect')} className={`rounded-md px-3 py-1.5 text-xs font-medium ${detail.type === 'defect' ? 'bg-cyan-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>维修 SN</button></div><div className="overflow-auto p-4">{detailLoading ? <div className="py-12 text-center text-sm text-slate-500">正在加载明细...</div> : detailRows.length === 0 ? <div className="py-12 text-center text-sm text-slate-500">暂无明细数据</div> : <table className="w-full min-w-[680px] text-left text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-slate-600"><tr><th className="px-3 py-2">机器 SN</th><th className="px-3 py-2">过站日期</th>{detail.type === 'defect' && <><th className="px-3 py-2">故障代码</th><th className="px-3 py-2">故障描述</th><th className="px-3 py-2">维修人</th><th className="px-3 py-2">维修时间</th></>}</tr></thead><tbody className="divide-y divide-slate-100">{detailRows.map((item) => <tr key={item.id} className="hover:bg-slate-50"><td className="px-3 py-2 font-mono text-slate-700">{item.sn}</td><td className="px-3 py-2 text-slate-600">{item.passDate || '-'}</td>{detail.type === 'defect' && <><td className="px-3 py-2 text-red-700">{item.defectCode || '-'}</td><td className="max-w-[260px] px-3 py-2 text-slate-600">{item.description || '-'}</td><td className="px-3 py-2 text-slate-600">{item.repairPerson || '-'}</td><td className="px-3 py-2 text-slate-500">{item.repairTime || '-'}</td></>}</tr>)}</tbody></table>}</div><div className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">共 {detailRows.length.toLocaleString('zh-CN')} 条记录</div></div></div>}
     </div>
   );
 }

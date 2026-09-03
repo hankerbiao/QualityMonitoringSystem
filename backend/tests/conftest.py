@@ -69,6 +69,14 @@ def _mock_settings():
 mock_settings = _mock_settings
 
 
+@pytest.fixture(autouse=True)
+def disable_data_gateway_for_tests(monkeypatch):
+    """Keep the production gateway singleton from leaking into local tests."""
+    from app.services import data_gateway_client
+
+    monkeypatch.setattr(data_gateway_client.data_gateway, "base_url", "")
+
+
 # ─── Session-scoped mock DB ──────────────────────────────────────────────────
 
 @pytest.fixture(scope="session")

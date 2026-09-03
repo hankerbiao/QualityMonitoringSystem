@@ -17,7 +17,6 @@ const OperationsPage = lazy(() => import('./pages/OperationsPage'));
 const DoaScsPage = lazy(() => import('./pages/DoaScsPage'));
 const DoaPage = lazy(() => import('./pages/DoaPage'));
 const DoaRepairsPage = lazy(() => import('./pages/DoaRepairsPage'));
-const SalesOrdersPage = lazy(() => import('./pages/SalesOrdersPage'));
 const MFRPage = lazy(() => import('./pages/MFRPage'));
 const MetadataTablePage = lazy(() => import('./pages/MetadataTablePage'));
 
@@ -87,7 +86,6 @@ function AppContent() {
           <Route path="/doa/raw" element={<DoaScsPage />} />
           <Route path="/doa" element={<DoaPage />} />
           <Route path="/doa/repairs" element={<DoaRepairsPage />} />
-          <Route path="/sales-orders" element={<SalesOrdersPage />} />
           <Route path="/mfr" element={<MFRPage />} />
           <Route path="/metadata/:tableName" element={<MetadataTablePage />} />
         </Route>

@@ -10,7 +10,7 @@ QualiBoard 是面向生产质量团队的一体化监控平台，聚合 MES、SA
 | 后端 | FastAPI + Motor + Pydantic + Loguru |
 | 数据库 | MongoDB `quality_monitoring`，默认端口 `27019` |
 | 认证 | 本地账号密码登录，双 Token 自动刷新，Session 存储于 MongoDB |
-| 数据采集 | MES HTTP 接口、HANA/订单同步、装配记录采集 |
+| 数据采集 | 数据网关负责 SAP/HANA 同步，质量监控保留 MES/SCS 数据 |
 
 ## 功能状态
 
@@ -48,6 +48,17 @@ docker compose -f docker/compose.yaml up -d --build
 ```bash
 docker compose -f docker/compose.yaml --profile tools run --rm init-config
 ```
+
+### 数据网关
+
+质量监控后端默认从本机 `http://127.0.0.1:18080` 读取 SAP/HANA 原始数据。先启动网关：
+
+```bash
+cd /Users/libiao/Desktop/github/产线故障数据库/backend
+go run ./cmd/server
+```
+
+生产环境通过质量监控后端的 `DATA_GATEWAY_URL` 指向网关地址；网关只提供原始数据接口，RTY、LRR、DOA、MFR 等指标仍由质量监控后端计算。
 
 生产环境启动前必须修改 `docker/.env` 中的密码和签名密钥。完整说明见
 [`docker/README.md`](docker/README.md)。
@@ -196,13 +207,12 @@ QualityMonitoringSystem/
 | `machine_info` | MES 机器信息 | `sn`, `sale_no`, `mfg_order`, `factory`, `product_family` |
 | `fault_info` | 故障明细 | `sn`, `fault_category`, `fault_desc`, `repair_time` |
 | `configs` | 系统配置 | `key`: `mes_config`, `model_targets`, `email_alert_config` |
-| `sales_orders_sap` | SAP 双来源销售订单（SG/KK 同步） | `aufnr`, `gstrs_date`, `quantity`, `data.CPXH`, `data.LGORT` |
-| `order_bom_postings_sap` | SAP 订单 BOM 发料与过账明细 | `AUFNR_1`, `VBELN_EX`, `MATNR`, `MENGE`, `BUDAT_MKPF` |
-| `serial_bindings_sap` | SAP 整机与部件序列号绑定关系 | `ZCODE_HEAD`, `ZCODE_ITEM`, `AUFNR_HEAD`, `AUFNR_ITEM` |
-| `repair_records_sap` | SAP/MES 维修与故障处理记录 | `PCODE`, `AUFNR`, `ZJXMC`, `ZNGWD`, `ZWXWD`, `ZDATE_WX` |
-| `station_records_sap` | SAP/MES 工位过站记录 | `PCODE`, `AUFNR`, `SPEC`, `OPERATION`, `ACTUAL_START_TIME` |
+| `sales_orders_sap`（网关） | SAP 双来源销售订单（SG/KK 同步） | `aufnr`, `gstrs_date`, `quantity`, `data.CPXH`, `data.LGORT` |
+| `order_bom_postings_sap`（网关） | SAP 订单 BOM 发料与过账明细 | `AUFNR_1`, `VBELN_EX`, `MATNR`, `MENGE`, `BUDAT_MKPF` |
+| `serial_bindings_sap`（网关） | SAP 整机与部件序列号绑定关系 | `ZCODE_HEAD`, `ZCODE_ITEM`, `AUFNR_HEAD`, `AUFNR_ITEM` |
+| `repair_records_sap`（网关） | SAP/MES 维修与故障处理记录 | `PCODE`, `AUFNR`, `ZJXMC`, `ZNGWD`, `ZWXWD`, `ZDATE_WX` |
+| `station_records_sap`（网关） | SAP/MES 工位过站记录 | `PCODE`, `AUFNR`, `SPEC`, `OPERATION`, `ACTUAL_START_TIME` |
 | `scs_doa_results` | SCS DOA 原始记录及补采结果 | `is_5000`, `scs_enrichment.accepted_date`, `scs_enrichment.sales_order` |
-| `assembly_records` | 装配与发料记录 | `mfg_order`, `chassis_no`, `product_no`, `issued_material_name` |
 | `users` | 用户资料 | `itcode`, `profile` |
 | `sessions` | 登录会话 | `sessionId`, `itcode`, `accessToken`, `refreshToken`, `expiresAt` |
 | `usage_events` | 运营使用事件 | `itcode`, `module`, `timestamp` |
@@ -221,26 +231,22 @@ QualityMonitoringSystem/
 ## 数据来源
 
 ```text
-销售订单（SAP 双来源 SG/KK 同步）
-  -> sales_orders_sap（按 aufnr 去重，data.GSTRS 归一化为 gstrs_date，data.GAMNG 归一化为 quantity）
-  -> 历史同步脚本已归档至 scripts/archive/data_sync/；当前运行时通过数据网关读取
+销售订单（数据网关 `/api/orders`，SAP 双来源由网关负责）
+  -> 当前运行时由 FastAPI 通过数据网关读取并完成业务计算
+  -> 质量监控数据库中的 SAP/HANA 本地副本已清理，网关为唯一来源
 
 机器 / 故障 / 装配（MES 采集）
-  -> machine_info / fault_info / assembly_records
-  -> 注：MES 采集链路已于 2026-08-18 下线，集合数据保留，供 RTY / LRR / 告警报表实时聚合
+  -> machine_info / fault_info
+  -> 注：MES 采集链路已于 2026-08-18 下线，现有集合数据仍供 RTY / LRR / 告警报表实时聚合
 ```
 
-历史 SCS DOA 采集脚本位于 `scripts/archive/data_sync/sync_scs_incremental.py`：首次运行提供
-`--start-date`，后续运行从 `scs_doa_incremental_progress` 的水位线继续，并可使用
-`--lookback-days` 回看边界日期。脚本写入 `scs_doa_results` 时同步维护
-`scs_enrichment.accepted_date`（`YYYY-MM-DD`）；原始 `data.受理时间` 继续保留用于展示。
-详细的首次同步、定时增量、失败重试和一次性迁移说明见
+SCS 历史采集和数据修复脚本已归档，不得配置自动调度。归档范围和人工恢复约束见
 [`docs/sync-scripts.md`](docs/sync-scripts.md)。
 
 MFR（整机现网月化故障率）通过 `/api/mfr/dashboard` 提供，按自然月返回各机型的
 `故障数 / 在保整机数 * 100%`。故障数通过 `scs_change_results` 的“换上”记录，
 按服务单号关联 `scs_doa_results` 中的 5000 销售订单；不会向换上换下集合写入
-`is_5000` 冗余字段。保有量需要 `sales_orders_sap` 中每个销售订单的出厂日期和过保日期，
+`is_5000` 冗余字段。保有量需要网关 `sales_orders_sap` 接口返回的每个销售订单出厂日期和过保日期，
 并按销售订单数量汇总。接口会返回日期覆盖率，缺少生命周期日期的订单不计入分母。
 
 ## 关键注意事项

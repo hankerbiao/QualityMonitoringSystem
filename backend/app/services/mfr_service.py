@@ -19,6 +19,7 @@ from app.schemas.mfr import (
     MFRSummary,
     MFRTrendItem,
 )
+from app.services.data_gateway_client import data_gateway
 from app.services.mfr_queries import (
     change_projection,
     change_query,
@@ -113,8 +114,30 @@ async def build_mfr_dashboard(
     periods = _month_range(start, end)
 
     orders: dict[str, dict[str, Any]] = {}
-    orders_collection = db[Collections.SALES_ORDERS_SAP]
-    async for document in orders_collection.find({}, projection=sales_order_projection()):
+
+    async def order_documents():
+        if data_gateway.enabled:
+            # MFR needs the complete in-warranty fleet, not only orders in the
+            # selected production-date window.
+            items = await data_gateway.all_orders(max_rows=1_000_000)
+            for item in items:
+                raw = item.get("raw") if isinstance(item.get("raw"), dict) else {}
+                data = raw.get("data") if isinstance(raw.get("data"), dict) else raw
+                if not data:
+                    data = {
+                        "VBELN": item.get("salesOrder") or "",
+                        "MAKTX_TH": item.get("productionModel") or "",
+                        "MAKTX": item.get("materialDescription") or "",
+                        "WMENG": item.get("orderQuantity") or 0,
+                        "GSTRS": item.get("plannedStartDate") or "",
+                    }
+                yield {**raw, "data": data, "quantity": item.get("orderQuantity") or 0}
+            return
+        collection = db[Collections.SALES_ORDERS_SAP]
+        async for document in collection.find({}, projection=sales_order_projection()):
+            yield document
+
+    async for document in order_documents():
         order_no = str((document.get("data") or {}).get("VBELN") or "").strip()
         if not order_no:
             continue

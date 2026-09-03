@@ -54,33 +54,6 @@ async def create_indexes() -> None:
     await mongodb.db.fault_info.create_index([("mfg_order", 1)])
     await mongodb.db.fault_info.create_index([("sale_no", 1)])
 
-    # RTY: 2026 工位投入 SN 与维修故障 SN 的实时交集计算。
-    await mongodb.db.station_records_sap.create_index([("GSTRS", 1), ("KDAUF", 1), ("PCODE", 1)])
-    await mongodb.db.station_records_sap.create_index([("GSTRS", 1), ("AUFNR", 1), ("PCODE", 1)])
-    await mongodb.db.station_records_sap.create_index([("GSTRS", 1), ("LGORT", 1), ("PCODE", 1)])
-    await mongodb.db.station_records_sap.create_index([("GSTRS", 1), ("MAKTX_TH", 1), ("PCODE", 1)])
-    await mongodb.db.station_records_sap.create_index([("KDAUF", 1), ("GSTRS", 1), ("PCODE", 1)])
-    await mongodb.db.station_records_sap.create_index([("AUFNR", 1), ("GSTRS", 1), ("PCODE", 1)])
-    await mongodb.db.station_records_sap.create_index([("LGORT", 1), ("GSTRS", 1), ("PCODE", 1)])
-    await mongodb.db.station_records_sap.create_index([("MAKTX_TH", 1), ("GSTRS", 1), ("PCODE", 1)])
-    await mongodb.db.station_records_sap.create_index(
-        [("ACTUAL_START_TIME", 1), ("SPEC", 1), ("PCODE", 1)]
-    )
-    await mongodb.db.station_records_sap.create_index(
-        [("station_pass_date", 1), ("station_code_norm", 1), ("PCODE", 1)]
-    )
-    await mongodb.db.repair_records_sap.create_index([("PCODE", 1), ("ZDATE_WX", 1)])
-    await mongodb.db.repair_records_sap.create_index([("AUFNR", 1), ("ZDATE_WX", 1), ("ZJXMC", 1)])
-    await mongodb.db.repair_records_sap.create_index([("VBELN", 1)])
-    await mongodb.db.repair_records_sap.create_index([("VBELN", 1), ("ZDATE_WX", 1)])
-    await mongodb.db.repair_records_sap.create_index(
-        [("ZDATE_WX", 1), ("ZNGSPEC", 1), ("PCODE", 1)]
-    )
-    await mongodb.db.repair_records_sap.create_index(
-        [("PCODE", 1), ("repair_station_code_norm", 1), ("ZDATE_WX", 1)]
-    )
-    await mongodb.db.serial_bindings_sap.create_index([("AUFNR_HEAD", 1), ("AUFNR_ITEM", 1)])
-
     # 用户索引
     await mongodb.db.users.create_index("itcode", unique=True)
 
@@ -93,24 +66,23 @@ async def create_indexes() -> None:
     await mongodb.db.usage_events.create_index([("module", 1), ("timestamp", -1)])
     await mongodb.db.usage_events.create_index("timestamp", expireAfterSeconds=180 * 24 * 60 * 60)
 
-    # 装配记录索引（按 mfg_order 批量查询、chassis_no 查重）
-    await mongodb.db.assembly_records.create_index(
-        [("mfg_order", 1), ("chassis_no", 1)], unique=True
-    )
-    await mongodb.db.assembly_records.create_index("chassis_no")
+    # LRR list responses are persisted briefly so the expensive gateway join
+    # does not run once per dashboard visit or backend restart.
+    await mongodb.db.lrr_list_cache.create_index("expiresAt", expireAfterSeconds=0)
+    await mongodb.db.lrr_list_cache_locks.create_index("expiresAt", expireAfterSeconds=0)
 
-    # 订单 BOM LRR: 按订单和过账日期筛选，并读取 MATNR、MENGE_A 聚合
+    # The local-data fallback remains supported when no gateway is configured.
     await mongodb.db.order_bom_postings_sap.create_index(
         [("AUFNR_1", 1), ("VBELN_EX", 1), ("LGORT", 1), ("MATNR", 1)]
     )
     await mongodb.db.order_bom_postings_sap.create_index([("BUDAT_MKPF", 1), ("AUFNR_1", 1)])
+    await mongodb.db.repair_records_sap.create_index([("AUFNR", 1), ("ZDATE_WX", 1)])
+    await mongodb.db.repair_records_sap.create_index([("VBELN", 1), ("ZDATE_WX", 1)])
 
     # Sales orders are owned by the independent data gateway.  The application
     # database deliberately does not create or maintain a local copy.
-    # RTY unified synchronization audit and source-level checkpoints.
+    # 历史同步水位线仍由运营监控读取；运行审计已不再创建。
     await mongodb.db.rty_sync_checkpoints.create_index("updated_at")
-    await mongodb.db.rty_sync_runs.create_index([("started_at", -1)])
-    await mongodb.db.rty_sync_runs.create_index([("success", 1), ("completed_at", -1)])
     await mongodb.db.scs_doa_results.create_index(
         [("scs_enrichment.is_5000", 1), ("data.判定结果", 1), ("scs_enrichment.accepted_date", 1)]
     )

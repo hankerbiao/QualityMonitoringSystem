@@ -489,12 +489,15 @@ class MockMotorCollection:
         if not docs:
             if upsert:
                 from bson import ObjectId
+                from pymongo.errors import DuplicateKeyError
 
                 new_doc = dict(filter_spec)
                 if "$set" in update:
                     new_doc.update(update["$set"])
                 if "_id" not in new_doc:
                     new_doc["_id"] = str(ObjectId())
+                if new_doc["_id"] in self._docs:
+                    raise DuplicateKeyError("duplicate key")
                 self._docs[new_doc["_id"]] = new_doc
                 return MockUpdateResult(matched_count=1, upserted_id=new_doc["_id"])
             return MockUpdateResult()

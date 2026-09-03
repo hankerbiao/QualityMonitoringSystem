@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { X, Bell, Calendar, ChevronDown, Loader2, FileText, Search, Users } from 'lucide-react';
+import { X, Bell, CalendarDays, Check, ChevronDown, Loader2, FileText, Search, RefreshCw } from 'lucide-react';
 import {
   ComposedChart,
   Line,
@@ -52,12 +52,14 @@ function CycleMultiSelect({
   options,
   selected,
   onChange,
+  multiple = true,
 }: {
   label: string;
   placeholder: string;
   options: CycleFilterOption[];
   selected: string[];
   onChange: (values: string[]) => void;
+  multiple?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
@@ -101,9 +103,11 @@ function CycleMultiSelect({
           <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-3 py-2">
             <span className="text-xs font-medium text-slate-500">{label}</span>
             <div className="flex items-center gap-3 text-xs">
-              <button type="button" onClick={() => onChange(filteredOptions.map((option) => option.value))} className="font-medium text-blue-600 hover:text-blue-700">
-                全选
-              </button>
+              {multiple && (
+                <button type="button" onClick={() => onChange(filteredOptions.map((option) => option.value))} className="font-medium text-blue-600 hover:text-blue-700">
+                  全选
+                </button>
+              )}
               <button type="button" onClick={() => onChange([])} className="font-medium text-slate-500 hover:text-slate-700">
                 清空
               </button>
@@ -130,9 +134,9 @@ function CycleMultiSelect({
               filteredOptions.map((option) => (
                 <label key={option.value} className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-sm text-slate-700 transition-colors hover:bg-blue-50/60">
                   <input
-                    type="checkbox"
+                    type={multiple ? 'checkbox' : 'radio'}
                     checked={selected.includes(option.value)}
-                    onChange={() => onChange(selected.includes(option.value) ? selected.filter((value) => value !== option.value) : [...selected, option.value])}
+                    onChange={() => onChange(multiple ? (selected.includes(option.value) ? selected.filter((value) => value !== option.value) : [...selected, option.value]) : [option.value])}
                     className="size-3.5 rounded border-slate-300 accent-blue-600"
                   />
                   <span className="truncate font-mono text-xs">{option.value}</span>
@@ -155,6 +159,126 @@ function getPresetRange(months: number): { start: string; end: string } {
   const start = new Date(end);
   start.setMonth(start.getMonth() - months);
   return { start: formatMonth(start), end: formatMonth(end) };
+}
+
+function CycleTimeRangePicker({
+  value,
+  start,
+  end,
+  onPresetChange,
+  onCustomRangeChange,
+}: {
+  value: '6' | '12' | 'custom';
+  start: string;
+  end: string;
+  onPresetChange: (months: '6' | '12') => void;
+  onCustomRangeChange: (range: { start: string; end: string }) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const presets = [
+    { value: '6' as const, label: '近半年', detail: '最近 6 个月' },
+    { value: '12' as const, label: '近一年', detail: '最近 12 个月' },
+  ];
+  const selectedLabel = value === 'custom'
+    ? '自定义范围'
+    : presets.find((preset) => preset.value === value)?.label || '选择时间范围';
+
+  useEffect(() => {
+    const closeOnOutsideClick = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', closeOnOutsideClick);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, []);
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className={`flex h-9 min-w-[220px] items-center gap-2 rounded-md border bg-white px-3 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+          open ? 'border-blue-400 ring-2 ring-blue-500/15' : 'border-slate-200 hover:border-slate-300'
+        }`}
+      >
+        <span className="flex size-6 shrink-0 items-center justify-center rounded bg-blue-50 text-blue-600">
+          <CalendarDays className="size-3.5" aria-hidden="true" />
+        </span>
+        <span className="min-w-0 flex-1">
+          <span className="block text-xs font-medium text-slate-800">{selectedLabel}</span>
+          <span className="block truncate font-mono text-[10px] text-slate-500">{start || '起始月份'} 至 {end || '结束月份'}</span>
+        </span>
+        <ChevronDown className={`size-4 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
+      </button>
+
+      {open && (
+        <div role="dialog" aria-label="选择统计周期" className="absolute left-0 top-full z-40 mt-1.5 w-[292px] overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg shadow-slate-900/10">
+          <div className="border-b border-slate-100 bg-slate-50 px-3 py-2.5">
+            <p className="text-xs font-semibold text-slate-700">统计周期</p>
+            <p className="mt-0.5 text-[11px] text-slate-500">按销售订单计划开始月份统计</p>
+          </div>
+          <div className="grid grid-cols-2 gap-2 p-3">
+            {presets.map((preset) => {
+              const active = value === preset.value;
+              return (
+                <button
+                  key={preset.value}
+                  type="button"
+                  onClick={() => {
+                    onPresetChange(preset.value);
+                    setOpen(false);
+                  }}
+                  className={`relative rounded-md border px-3 py-2.5 text-left transition-colors ${
+                    active ? 'border-blue-500 bg-blue-50 text-blue-800' : 'border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50/50'
+                  }`}
+                >
+                  <span className="block text-xs font-semibold">{preset.label}</span>
+                  <span className="mt-0.5 block text-[10px] text-slate-500">{preset.detail}</span>
+                  {active && <Check className="absolute right-2 top-2 size-3.5 text-blue-600" aria-label="已选择" />}
+                </button>
+              );
+            })}
+          </div>
+          <div className={`border-t px-3 py-3 ${value === 'custom' ? 'border-blue-100 bg-blue-50/40' : 'border-slate-100 bg-white'}`}>
+            <div className="mb-2 flex items-center justify-between">
+              <span className="text-xs font-semibold text-slate-700">自定义月份</span>
+              {value === 'custom' && <span className="text-[10px] font-medium text-blue-700">当前使用</span>}
+            </div>
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+              <input
+                type="month"
+                aria-label="起始月份"
+                value={start}
+                max={end || undefined}
+                onChange={(event) => onCustomRangeChange({ start: event.target.value, end })}
+                className="h-8 min-w-0 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-500/15"
+              />
+              <span className="text-xs text-slate-400">至</span>
+              <input
+                type="month"
+                aria-label="结束月份"
+                value={end}
+                min={start || undefined}
+                onChange={(event) => onCustomRangeChange({ start, end: event.target.value })}
+                className="h-8 min-w-0 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-500/15"
+              />
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function filterCycleData(
@@ -198,11 +322,11 @@ export default function AlertConfigModal({
   const [selectedBases, setSelectedBases] = useState<Set<string> | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState('');
   const [customerList, setCustomerList] = useState<string[]>([]);
-  const [showCustomerFilter, setShowCustomerFilter] = useState(false);
   const [filterSaved, setFilterSaved] = useState(false);
   
   // 视图模式：chart = 双图表，heatmap = 热力图
   const [viewMode, setViewMode] = useState<'chart' | 'heatmap'>('heatmap');
+  const [showScopeSummaries, setShowScopeSummaries] = useState(true);
   const [customStart, setCustomStart] = useState(() => getPresetRange(12).start);
   const [customEnd, setCustomEnd] = useState(() => getPresetRange(12).end);
   
@@ -213,18 +337,29 @@ export default function AlertConfigModal({
     l6: [],
   });
   const [loading, setLoading] = useState(true);
+  const [cycleCacheInfo, setCycleCacheInfo] = useState<{ cachedAt: number | null; fromCache: boolean }>({
+    cachedAt: null,
+    fromCache: false,
+  });
 
-  const fetchAllData = useCallback(async () => {
+  const fetchAllData = useCallback(async (forceRefresh = false) => {
     setLoading(true);
     try {
       const customer = selectedCustomer || undefined;
-      const [currentData, normalData, l6Data] = await Promise.all([
-        rtyApi.getCycleData(orderScope, customer),
-        rtyApi.getCycleData('normal', customer),
-        rtyApi.getCycleData('l6', customer),
-      ]);
-      setAllRawData(currentData);
-      setScopeRawData({ normal: normalData, l6: l6Data });
+      const scopes: RTYFilterParams['orderScope'][] = Array.from(new Set([orderScope, 'normal', 'l6']));
+      const results = await Promise.all(
+        scopes.map(scope => rtyApi.getCycleData(scope, customer, { forceRefresh })),
+      );
+      const dataByScope = new Map(scopes.map((scope, index) => [scope, results[index]]));
+      setAllRawData(dataByScope.get(orderScope)?.data || []);
+      setScopeRawData({
+        normal: dataByScope.get('normal')?.data || [],
+        l6: dataByScope.get('l6')?.data || [],
+      });
+      setCycleCacheInfo({
+        cachedAt: results.length > 0 ? Math.min(...results.map(result => result.cachedAt)) : null,
+        fromCache: results.length > 0 && results.every(result => result.cached),
+      });
     } catch (error) {
       console.error('Failed to fetch cycle stats data', error);
     } finally {
@@ -235,6 +370,10 @@ export default function AlertConfigModal({
   useEffect(() => {
     fetchAllData();
   }, [fetchAllData]);
+
+  const cacheTimeLabel = cycleCacheInfo.cachedAt
+    ? new Date(cycleCacheInfo.cachedAt).toLocaleString('zh-CN', { hour12: false })
+    : '';
 
   // 加载保存的机型筛选配置
   useEffect(() => {
@@ -554,8 +693,30 @@ export default function AlertConfigModal({
                     趋势图
                   </button>
                 </div>
+                <label className="flex cursor-pointer items-center gap-1.5 text-xs text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={showScopeSummaries}
+                    onChange={(event) => setShowScopeSummaries(event.target.checked)}
+                    className="size-3.5 rounded border-slate-300 accent-blue-600"
+                  />
+                  显示订单汇总
+                </label>
               </div>
               <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2 text-xs text-slate-400" title={cacheTimeLabel ? `周期统计${cycleCacheInfo.fromCache ? '缓存' : '数据'}时间：${cacheTimeLabel}` : '周期统计数据尚未加载'}>
+                  <span>{cacheTimeLabel ? `${cycleCacheInfo.fromCache ? '缓存于' : '更新于'} ${cacheTimeLabel}` : '数据尚未加载'}</span>
+                  <button
+                    type="button"
+                    onClick={() => fetchAllData(true)}
+                    disabled={loading}
+                    aria-label="刷新周期统计数据"
+                    title="刷新周期统计数据"
+                    className="inline-flex size-8 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <RefreshCw className={`size-3.5 ${loading ? 'animate-spin' : ''}`} />
+                  </button>
+                </div>
                 {/* 机型筛选 */}
                 <CycleMultiSelect
                   label="机型"
@@ -586,84 +747,26 @@ export default function AlertConfigModal({
                   }}
                 />
 
-                {/* 客户筛选 */}
-                <div className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setShowCustomerFilter(!showCustomerFilter)}
-                    className={`flex items-center gap-1.5 px-3 py-1 text-xs rounded-sm border ${showCustomerFilter || selectedCustomer ? 'bg-blue-50 border-blue-200 text-blue-700 font-medium' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-                  >
-                    <Users className="w-3 h-3" />
-                    {selectedCustomer || '客户筛选'}
-                  </button>
-
-                  {showCustomerFilter && (
-                    <div className="absolute top-full right-0 mt-1 min-w-48 max-w-64 bg-white border border-slate-200 rounded-sm shadow-lg z-10 p-3">
-                      <div className="max-h-40 overflow-y-auto space-y-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setSelectedCustomer('');
-                            setShowCustomerFilter(false);
-                          }}
-                          className={`w-full px-2 py-1 text-left text-xs rounded hover:bg-blue-50 ${!selectedCustomer ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-600'}`}
-                        >
-                          全部客户
-                        </button>
-                        {customerList.map(customer => (
-                          <button
-                            type="button"
-                            key={customer}
-                            onClick={() => {
-                              setSelectedCustomer(customer);
-                              setShowCustomerFilter(false);
-                            }}
-                            className={`w-full px-2 py-1 text-left text-xs rounded hover:bg-blue-50 truncate ${selectedCustomer === customer ? 'bg-blue-50 text-blue-700 font-medium' : 'text-slate-600'}`}
-                            title={customer}
-                          >
-                            {customer}
-                          </button>
-                        ))}
-                        {customerList.length === 0 && (
-                          <p className="px-2 py-1 text-xs text-slate-400">暂无客户数据</p>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
+                <CycleMultiSelect
+                  label="客户"
+                  placeholder="选择客户"
+                  options={customerList.map((value) => ({ value }))}
+                  selected={selectedCustomer ? [selectedCustomer] : []}
+                  onChange={(values) => setSelectedCustomer(values[0] || '')}
+                  multiple={false}
+                />
                 
-                <div className="flex space-x-2">
-                  <button 
-                    onClick={() => handlePresetRange('6')}
-                    className={`px-3 py-1 text-xs rounded-sm border ${timeFilter === '6' ? 'bg-blue-50 border-blue-200 text-blue-700 font-medium' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-                  >
-                    近半年
-                  </button>
-                  <button 
-                    onClick={() => handlePresetRange('12')}
-                    className={`px-3 py-1 text-xs rounded-sm border ${timeFilter === '12' ? 'bg-blue-50 border-blue-200 text-blue-700 font-medium' : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-                  >
-                    近一年
-                  </button>
-                </div>
-                
-                {/* 自定义日期选择器 */}
-                <div className="flex items-center space-x-2 border border-slate-300 rounded-sm bg-white px-2 py-1">
-                  <input 
-                    type="month" 
-                    className="text-xs text-slate-700 outline-none bg-transparent"
-                    value={customStart}
-                    onChange={(e) => { setCustomStart(e.target.value); setTimeFilter('custom'); }}
-                  />
-                  <span className="text-slate-400 text-xs">~</span>
-                  <input 
-                    type="month" 
-                    className="text-xs text-slate-700 outline-none bg-transparent"
-                    value={customEnd}
-                    onChange={(e) => { setCustomEnd(e.target.value); setTimeFilter('custom'); }}
-                  />
-                  <Calendar className="w-3.5 h-3.5 text-slate-400 ml-1" />
-                </div>
+                <CycleTimeRangePicker
+                  value={timeFilter}
+                  start={customStart}
+                  end={customEnd}
+                  onPresetChange={handlePresetRange}
+                  onCustomRangeChange={({ start, end }) => {
+                    setCustomStart(start);
+                    setCustomEnd(end);
+                    setTimeFilter('custom');
+                  }}
+                />
               </div>
             </div>
 
@@ -736,7 +839,7 @@ export default function AlertConfigModal({
                       </tr>
                     </thead>
                     <tbody>
-                      {scopeSummaryRows.map(row => {
+                      {showScopeSummaries && scopeSummaryRows.map(row => {
                         const totalRty = row.totalInput > 0
                           ? ((row.totalInput - row.totalDefect) / row.totalInput) * 100
                           : null;

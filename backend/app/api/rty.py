@@ -13,6 +13,7 @@ from app.models.documents import Collections
 from app.schemas.common import PaginatedResponse, Response
 from app.schemas.rty import (
     DefectDetail,
+    ExcludedOrder,
     RTYData,
     SalesOrderSummary,
     StationPassDetail,
@@ -62,6 +63,8 @@ CalculationMethod = Literal["normal", "composite"]
 CalculationMethodQuery = Annotated[
     CalculationMethod | None, Query(description="计算方法: normal 或 composite")
 ]
+StationGroupBy = Literal["salesOrder", "productionOrder", "productModel"]
+StationGroupByQuery = Annotated[StationGroupBy, Query(description="统计维度")]
 
 
 def _sales_date_match(date_from: str | None, date_to: str | None) -> dict[str, str]:
@@ -110,26 +113,86 @@ def _station_record_date(row: dict[str, Any]) -> str:
     return "".join(char for char in str(value or "") if char.isdigit())[:8]
 
 
+def _station_records_pipeline(
+    start: str,
+    end: str,
+    *,
+    serial_number: str | None = None,
+    product_model: str | None = None,
+    base: str | None = None,
+    group_by: StationGroupBy = "salesOrder",
+    dimension_value: str | None = None,
+    station_code: str | None = None,
+) -> list[dict[str, Any]]:
+    """Build the common exact-match criteria for station summary and details."""
+    match: dict[str, Any] = {
+        "station_pass_date": {"$gte": start, "$lte": end},
+        "station_code_norm": {"$nin": [None, ""]},
+        "PCODE": {"$nin": [None, ""]},
+    }
+    if serial_number:
+        match["PCODE"] = serial_number.strip()
+    if station_code:
+        match["station_code_norm"] = station_code
+    if product_model:
+        match["MAKTX_TH"] = product_model.strip()
+    if base:
+        match["LGORT"] = base.strip()
+
+    if dimension_value:
+        dimension_field = {
+            "salesOrder": "KDAUF",
+            "productionOrder": "AUFNR",
+            "productModel": "MAKTX_TH",
+        }[group_by]
+        if dimension_value == "未关联":
+            match["$or"] = [
+                {dimension_field: {"$exists": False}},
+                {dimension_field: None},
+                {dimension_field: ""},
+            ]
+        else:
+            match[dimension_field] = dimension_value
+    return [{"$match": match}]
+
+
 async def _station_pass_rates(
-    db: Any, date_from: str | None = None, date_to: str | None = None
+    db: Any,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    *,
+    serial_number: str | None = None,
+    product_model: str | None = None,
+    base: str | None = None,
+    group_by: StationGroupBy = "salesOrder",
 ) -> list[StationPassRate]:
     """Calculate station RTY from deduplicated station passes and repair records."""
     start = _validate_date(date_from).replace("-", "") if date_from else REPAIR_YEAR_START
     end = _validate_date(date_to).replace("-", "") if date_to else REPAIR_YEAR_END
     if start > end:
         raise HTTPException(status_code=422, detail="开始日期不能晚于结束日期")
+    dimension_source = {
+        "salesOrder": {"$ifNull": ["$KDAUF", "未关联"]},
+        "productionOrder": {"$ifNull": ["$AUFNR", "未关联"]},
+        "productModel": {"$ifNull": ["$MAKTX_TH", "未关联"]},
+    }[group_by]
 
     pipeline = [
-        {
-            "$match": {
-                "station_pass_date": {"$gte": start, "$lte": end},
-                "station_code_norm": {"$nin": [None, ""]},
-                "PCODE": {"$nin": [None, ""]},
-            }
-        },
+        *_station_records_pipeline(
+            start,
+            end,
+            serial_number=serial_number,
+            product_model=product_model,
+            base=base,
+            group_by=group_by,
+        ),
         {
             "$group": {
-                "_id": {"stationCode": "$station_code_norm", "sn": "$PCODE"},
+                "_id": {
+                    "dimensionValue": dimension_source,
+                    "stationCode": "$station_code_norm",
+                    "sn": "$PCODE",
+                },
                 "stationName": {"$first": "$station_name_norm"},
                 "sourceDocumentCount": {"$sum": 1},
             }
@@ -158,6 +221,7 @@ async def _station_pass_rates(
         {
             "$project": {
                 "stationCode": "$_id.stationCode",
+                "dimensionValue": "$_id.dimensionValue",
                 "stationName": 1,
                 "sourceDocumentCount": 1,
                 "isDefect": {"$gt": [{"$size": "$repairs"}, 0]},
@@ -165,14 +229,14 @@ async def _station_pass_rates(
         },
         {
             "$group": {
-                "_id": "$stationCode",
+                "_id": {"dimensionValue": "$dimensionValue", "stationCode": "$stationCode"},
                 "stationName": {"$first": "$stationName"},
                 "inputCount": {"$sum": 1},
                 "defectCount": {"$sum": {"$cond": ["$isDefect", 1, 0]}},
                 "sourceDocumentCount": {"$sum": "$sourceDocumentCount"},
             }
         },
-        {"$sort": {"_id": 1}},
+        {"$sort": {"_id.dimensionValue": 1, "_id.stationCode": 1}},
     ]
     started_at = time.perf_counter()
     results = (
@@ -192,7 +256,8 @@ async def _station_pass_rates(
         log_info(message)
     return [
         StationPassRate(
-            stationCode=row["_id"],
+            dimensionValue=str(row["_id"].get("dimensionValue") or "未关联"),
+            stationCode=row["_id"]["stationCode"],
             stationName=row.get("stationName") or "",
             inputCount=row["inputCount"],
             defectCount=row["defectCount"],
@@ -605,12 +670,24 @@ async def get_rty_cycle_data(
 async def get_station_pass_rates(
     dateFrom: str | None = Query(None, description="过站日期起始日 (YYYY-MM-DD)"),
     dateTo: str | None = Query(None, description="过站日期截止日 (YYYY-MM-DD)"),
+    serialNumber: str | None = Query(None, description="服务器 SN (PCODE)，精确匹配"),
+    productModel: str | None = Query(None, description="生产机型 (MAKTX_TH)，精确匹配"),
+    base: str | None = Query(None, description="基地/库位 (LGORT)，精确匹配"),
+    groupBy: StationGroupByQuery = "salesOrder",
 ):
     """Return station-level pass rates, matching station SPEC to repair ZNGGZ."""
     rows = (
-        await rty_gateway.station_rates(dateFrom, dateTo)
+        await rty_gateway.station_rates(dateFrom, dateTo, serialNumber, productModel, base, groupBy)
         if rty_gateway.data_gateway.enabled
-        else await _station_pass_rates(get_database(), dateFrom, dateTo)
+        else await _station_pass_rates(
+            get_database(),
+            dateFrom,
+            dateTo,
+            serial_number=serialNumber,
+            product_model=productModel,
+            base=base,
+            group_by=groupBy,
+        )
     )
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 个工位")
 
@@ -621,6 +698,11 @@ async def get_station_pass_details(
     dateFrom: str | None = Query(None),
     dateTo: str | None = Query(None),
     detailType: Literal["input", "defect"] = Query("input"),
+    serialNumber: str | None = Query(None),
+    productModel: str | None = Query(None),
+    base: str | None = Query(None),
+    groupBy: StationGroupBy = "salesOrder",
+    dimensionValue: str | None = Query(None),
 ):
     """Return deduplicated station SN details for table drill-down."""
     start = _validate_date(dateFrom).replace("-", "") if dateFrom else REPAIR_YEAR_START
@@ -630,20 +712,45 @@ async def get_station_pass_details(
     station = stationCode.strip()
     if rty_gateway.data_gateway.enabled:
         try:
-            details = await rty_gateway.station_details(station, dateFrom, dateTo, detailType)
+            details = await rty_gateway.station_details(
+                station,
+                dateFrom,
+                dateTo,
+                detailType,
+                serialNumber,
+                productModel,
+                base,
+                groupBy,
+                dimensionValue,
+            )
             return Response(success=True, data=details, message=f"查询到 {len(details)} 条明细")
         except DataGatewayError as exc:
             raise HTTPException(status_code=502, detail=str(exc)) from exc
     db = get_database()
     records = (
         await db[Collections.STATION_RECORDS_SAP]
-        .find(
-            {
-                "station_pass_date": {"$gte": start, "$lte": end},
-                "station_code_norm": station,
-                "PCODE": {"$nin": [None, ""]},
-            },
-            {"PCODE": 1, "station_code_norm": 1, "station_name_norm": 1, "station_pass_date": 1},
+        .aggregate(
+            [
+                *_station_records_pipeline(
+                    start,
+                    end,
+                    serial_number=serialNumber,
+                    product_model=productModel,
+                    base=base,
+                    group_by=groupBy,
+                    dimension_value=dimensionValue,
+                    station_code=station,
+                ),
+                {
+                    "$project": {
+                        "PCODE": 1,
+                        "station_code_norm": 1,
+                        "station_name_norm": 1,
+                        "station_pass_date": 1,
+                    }
+                },
+            ],
+            allowDiskUse=True,
         )
         .to_list(length=MAX_DETAIL_ROW_COUNT + 1)
     )
@@ -803,6 +910,46 @@ async def get_rty_list(
     )
 
 
+@router.get("/excluded-orders", response_model=PaginatedResponse[ExcludedOrder])
+@audit_log("QUERY", "rty_excluded_orders")
+async def get_excluded_orders(
+    request: Request,
+    page: int = Query(1, ge=1, description="页码"),
+    limit: int = Query(50, ge=1, le=500, description="每页数量"),
+    salesOrder: str | None = Query(None, description="销售订单号"),
+    productionOrder: str | None = Query(None, description="生产订单号"),
+    serialNumber: str | None = Query(None, description="维修 SN"),
+    base: str | None = Query(None, description="基地/库位"),
+    productModel: str | None = Query(None, description="生产机型"),
+    customer: str | None = Query(None, description="客户 ID"),
+    dateFrom: str | None = Query(None, description="生产开始日期"),
+    dateTo: str | None = Query(None, description="生产开始日期"),
+    orderScope: OrderScopeQuery = "normal",
+):
+    """List orders excluded from RTY by status or type for auditability."""
+    del request
+    if not rty_gateway.data_gateway.enabled:
+        raise HTTPException(status_code=409, detail="已过滤订单仅支持数据网关模式")
+    try:
+        return await rty_gateway.excluded_orders(
+            {
+                "salesOrder": salesOrder or "",
+                "productionOrder": productionOrder or "",
+                "serialNumber": serialNumber or "",
+                "base": base or "",
+                "productModel": productModel or "",
+                "customer": customer or "",
+                "dateFrom": dateFrom or YEAR_START,
+                "dateTo": dateTo or YEAR_END,
+                "orderScope": orderScope,
+            },
+            page,
+            limit,
+        )
+    except DataGatewayError as exc:
+        raise HTTPException(status_code=502, detail=str(exc)) from exc
+
+
 @router.get("/defects/by-filters", response_model=Response[list[DefectDetail]])
 @audit_log("QUERY", "defect_by_filters")
 async def get_defect_details_by_filters(
@@ -838,7 +985,10 @@ async def get_defect_details_by_filters(
             return Response(
                 success=True,
                 data=await rty_gateway.details_by_orders(
-                    {row["aufnr"] for row in orders}, productModel
+                    {row["aufnr"] for row in orders},
+                    productModel,
+                    date_from=dateFrom or YEAR_START,
+                    date_to=dateTo or YEAR_END,
                 ),
                 message="网关故障明细查询完成",
             )
