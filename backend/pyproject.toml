@@ -29,11 +29,9 @@ dependencies = [
     "python-multipart>=0.0.6",
     "httpx>=0.25.0",
     "loguru>=0.7.0",
-    "requests>=2.34.2",
     "apscheduler>=3.10.0",
     "faker>=25.0.0",
     "cryptography>=42.0.0",
-    "hdbcli>=2.20,<3",
 ]
 
 [project.optional-dependencies]
@@ -88,3 +86,6 @@ testpaths = ["tests"]
 python_files = ["test_*.py"]
 python_classes = ["Test*"]
 python_functions = ["test_*"]
+markers = [
+    "integration: tests requiring the mocked integration database",
+]

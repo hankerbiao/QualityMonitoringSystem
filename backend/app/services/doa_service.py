@@ -99,9 +99,11 @@ def _dimension_rows(rows: list[dict[str, Any]], *fields: str) -> dict[str, dict[
 
 
 async def build_doa_dashboard(db: Any, filters: DoaFilters) -> DoaDashboardResponse:
-    """在 MongoDB 中完成订单/SCS 聚合，应用层只组装已聚合的结果。"""
-    if data_gateway.enabled:
-        return await _build_doa_dashboard_gateway(db, filters)
+    """Build DOA metrics from gateway orders and local SCS repair records."""
+    return await _build_doa_dashboard_gateway(db, filters)
+
+    # The code below is the retired local SAP-order fallback. It remains
+    # unreachable until the migration cleanup removes the dead implementation.
     orders_facet, repairs_facet, replacement_facet, eligible, latest_data_at = await asyncio.gather(
         _aggregate_one(db[Collections.SALES_ORDERS_SAP], _order_stats_pipeline(filters)),
         _aggregate_one(db[Collections.SCS_DOA_RESULTS], _repair_pipeline(filters)),
@@ -362,33 +364,25 @@ async def _build_doa_dashboard_gateway(db: Any, filters: DoaFilters) -> DoaDashb
 async def get_doa_repairs(
     db: Any, filters: DoaFilters, page: int, limit: int, replacement_only: bool = False
 ) -> DoaRepairsResponse:
-    if data_gateway.enabled:
-        rows = await _doa_gateway_repairs(db, filters)
-        if replacement_only:
-            rows = [row for row in rows if row["has_change"]]
-        total = len(rows)
-        selected = rows[(page - 1) * limit : page * limit]
-        return DoaRepairsResponse(
-            items=[
-                DoaRepairItem(
-                    id=row["id"],
-                    salesOrder=str(row.get("sales_order") or ""),
-                    materialSerial=str(row.get("material_serial") or ""),
-                    acceptedAt=str(row.get("accepted_at") or ""),
-                    customer=str(row.get("customer") or ""),
-                    model=str(row.get("model") or ""),
-                    shippedDate=str(row.get("shipped_date") or ""),
-                    shippedCount=float(row.get("shipped_count") or 0),
-                    repairCount=float(row.get("repair_count") or 0),
-                    data=row.get("data") or {},
-                )
-                for row in selected
-            ],
-            total=total,
-            page=page,
-            limit=limit,
-            has_more=page * limit < total,
-        )
+    rows = await _doa_gateway_repairs(db, filters)
+    if replacement_only:
+        rows = [row for row in rows if row["has_change"]]
+    total = len(rows)
+    selected = rows[(page - 1) * limit : page * limit]
+    return DoaRepairsResponse(
+        items=[
+            DoaRepairItem(
+                id=row["id"], salesOrder=str(row.get("sales_order") or ""),
+                materialSerial=str(row.get("material_serial") or ""),
+                acceptedAt=str(row.get("accepted_at") or ""), customer=str(row.get("customer") or ""),
+                model=str(row.get("model") or ""), shippedDate=str(row.get("shipped_date") or ""),
+                shippedCount=float(row.get("shipped_count") or 0),
+                repairCount=float(row.get("repair_count") or 0), data=row.get("data") or {},
+            ) for row in selected
+        ], total=total, page=page, limit=limit, has_more=page * limit < total,
+    )
+
+    # Retired local SAP-order fallback.
     facet = await _aggregate_one(
         db[Collections.SCS_DOA_RESULTS],
         _repair_pipeline(
@@ -425,14 +419,15 @@ async def get_doa_repairs(
 
 
 async def get_doa_options(db: Any) -> dict[str, list[str]]:
-    """通过 MongoDB 分组取得筛选项，不加载全量订单。"""
-    if data_gateway.enabled:
-        orders = await data_gateway.all_orders(max_rows=1_000_000)
-        normalized = [_gateway_order(item) for item in orders]
-        return {
-            "customers": sorted({row["customer"] for row in normalized if row["customer"]}),
-            "models": sorted({row["model"] for row in normalized if row["model"]}),
-        }
+    """Load selectable order dimensions from the gateway order universe."""
+    orders = await data_gateway.all_orders(max_rows=1_000_000)
+    normalized = [_gateway_order(item) for item in orders]
+    return {
+        "customers": sorted({row["customer"] for row in normalized if row["customer"]}),
+        "models": sorted({row["model"] for row in normalized if row["model"]}),
+    }
+
+    # Retired local SAP-order fallback.
     facet = await _aggregate_one(
         db[Collections.SALES_ORDERS_SAP],
         [

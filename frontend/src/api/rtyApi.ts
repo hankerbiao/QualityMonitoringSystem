@@ -13,6 +13,14 @@ const rtyCycleCache = new Map<string, {
   cachedAt: number;
 }>();
 
+/** Clear transient dashboard data after a user explicitly requests refresh. */
+export function clearRtyApiCache(): void {
+  rtyListCache.clear();
+  rtyListInFlight.clear();
+  rtyOptionsCache.clear();
+  rtyCycleCache.clear();
+}
+
 export type CycleDataResult = {
   data: RTYData[];
   cached: boolean;

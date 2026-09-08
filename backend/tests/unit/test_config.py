@@ -9,6 +9,7 @@ def _production_settings(**overrides) -> Settings:
         "ALERT_TOKEN_SECRET": "a" * 32,
         "DEFAULT_ADMIN_USERNAME": "admin",
         "DEFAULT_ADMIN_PASSWORD": "a" * 16,
+        "DATA_GATEWAY_URL": "http://gateway.test",
     }
     values.update(overrides)
     return Settings(**values)
@@ -38,6 +39,15 @@ def test_production_security_settings_reject_default_admin_password():
         assert "DEFAULT_ADMIN_PASSWORD" in str(exc)
     else:
         raise AssertionError("default admin password must fail production validation")
+
+
+def test_settings_reject_missing_data_gateway_url():
+    try:
+        validate_security_settings(_production_settings(DATA_GATEWAY_URL=""))
+    except RuntimeError as exc:
+        assert "DATA_GATEWAY_URL" in str(exc)
+    else:
+        raise AssertionError("missing gateway URL must fail validation")
 
 
 def test_settings_ignores_hana_sync_variables():

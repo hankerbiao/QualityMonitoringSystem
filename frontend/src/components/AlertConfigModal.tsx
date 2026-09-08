@@ -15,6 +15,7 @@ import { RTYData } from '../types';
 import { rtyApi } from '../api/rtyApi';
 import { useSettings } from '../context/SettingsContext';
 import type { RTYFilterParams, CycleStatsConfig } from '../types';
+import { buildCycleVisualData } from './alert-config/cycleData';
 
 interface AlertConfigModalProps {
   onClose?: () => void;
@@ -202,13 +203,13 @@ function CycleTimeRangePicker({
   }, []);
 
   return (
-    <div className="relative" ref={containerRef}>
+    <div className="relative w-full sm:w-auto" ref={containerRef}>
       <button
         type="button"
         onClick={() => setOpen((current) => !current)}
         aria-haspopup="dialog"
         aria-expanded={open}
-        className={`flex h-9 min-w-[220px] items-center gap-2 rounded-md border bg-white px-3 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+        className={`flex h-9 w-full min-w-0 items-center gap-2 rounded-md border bg-white px-3 text-left text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 sm:min-w-[220px] ${
           open ? 'border-blue-400 ring-2 ring-blue-500/15' : 'border-slate-200 hover:border-slate-300'
         }`}
       >
@@ -223,7 +224,7 @@ function CycleTimeRangePicker({
       </button>
 
       {open && (
-        <div role="dialog" aria-label="选择统计周期" className="absolute left-0 top-full z-40 mt-1.5 w-[292px] overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg shadow-slate-900/10">
+        <div role="dialog" aria-label="选择统计周期" className="absolute right-0 top-full z-40 mt-1.5 w-[min(292px,calc(100vw-2rem))] overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg shadow-slate-900/10">
           <div className="border-b border-slate-100 bg-slate-50 px-3 py-2.5">
             <p className="text-xs font-semibold text-slate-700">统计周期</p>
             <p className="mt-0.5 text-[11px] text-slate-500">按销售订单计划开始月份统计</p>
@@ -315,7 +316,7 @@ export default function AlertConfigModal({
   const { settings, updateSettings } = useSettings();
 
   // 时间范围快捷键：6 = 近半年, 12 = 近一年, custom = 自定义
-  const [timeFilter, setTimeFilter] = useState<'6' | '12' | 'custom'>('12');
+  const [timeFilter, setTimeFilter] = useState<'6' | '12' | 'custom'>('6');
   
   // 机型筛选状态
   const [selectedModels, setSelectedModels] = useState<Set<string> | null>(null);
@@ -327,8 +328,8 @@ export default function AlertConfigModal({
   // 视图模式：chart = 双图表，heatmap = 热力图
   const [viewMode, setViewMode] = useState<'chart' | 'heatmap'>('heatmap');
   const [showScopeSummaries, setShowScopeSummaries] = useState(true);
-  const [customStart, setCustomStart] = useState(() => getPresetRange(12).start);
-  const [customEnd, setCustomEnd] = useState(() => getPresetRange(12).end);
+  const [customStart, setCustomStart] = useState(() => getPresetRange(6).start);
+  const [customEnd, setCustomEnd] = useState(() => getPresetRange(6).end);
   
   // 独立数据拉取（不受主表单影响）
   const [allRawData, setAllRawData] = useState<RTYData[]>([]);
@@ -418,69 +419,10 @@ export default function AlertConfigModal({
     [allRawData],
   );
 
-  const { trendData, trendModels, tableData, allMonths } = useMemo(() => {
-    const map = new Map<string, any>();
-    const modelsSet = new Set<string>();
-
-    filteredData.forEach(item => {
-      const month = item.time.substring(0, 7);
-      if (!map.has(month)) {
-        map.set(month, { time: month });
-      }
-      const current = map.get(month)!;
-      
-      modelsSet.add(item.productModel);
-      
-      // 对于每种机型，计算 inputCount 和 (input - defect) / input 的 rty
-      if (!current[item.productModel]) {
-        current[item.productModel] = { inputCount: 0, defectCount: 0 };
-      }
-      current[item.productModel].inputCount += item.inputCount;
-      current[item.productModel].defectCount += item.defectCount;
-    });
-
-    const monthsArray = Array.from(map.keys()).sort();
-    const modelsArray = Array.from(modelsSet).sort();
-
-    const chartData = monthsArray.map(month => {
-      const item = map.get(month);
-      const result: any = { time: month };
-      
-      modelsArray.forEach(model => {
-        if (item[model]) {
-          result[`${model}_input`] = item[model].inputCount;
-          const rty = ((item[model].inputCount - item[model].defectCount) / item[model].inputCount) * 100;
-          result[`${model}_rty`] = Number(rty.toFixed(3));
-        } else {
-          result[`${model}_input`] = 0;
-          // 不要为没有数据的设置 RTY，以免折线图断崖掉到0
-        }
-      });
-      return result;
-    });
-
-    // 为表格生成数据
-    // 每一行是一个机型，列是月份
-    const tblData = modelsArray.map(model => {
-      const rowData: any = { model };
-      monthsArray.forEach(month => {
-        const monthData = map.get(month);
-        if (monthData && monthData[model] && monthData[model].inputCount > 0) {
-          const rty = ((monthData[model].inputCount - monthData[model].defectCount) / monthData[model].inputCount) * 100;
-          const target = modelTargets[model] || 100;
-          rowData[month] = {
-            text: `${rty.toFixed(3)}% (${monthData[model].defectCount}/${monthData[model].inputCount})`,
-            belowTarget: rty < target
-          };
-        } else {
-          rowData[month] = { text: '-' };
-        }
-      });
-      return rowData;
-    });
-
-    return { trendData: chartData, trendModels: modelsArray, tableData: tblData, allMonths: monthsArray };
-  }, [filteredData]);
+  const { trendData, trendModels, tableData, allMonths } = useMemo(
+    () => buildCycleVisualData(filteredData, modelTargets),
+    [filteredData, modelTargets],
+  );
 
   // 根据筛选状态获取实际显示的机型列表
   const displayModels = useMemo(() => {
@@ -879,10 +821,10 @@ export default function AlertConfigModal({
                       {tableData
                         .filter(row => displayModels.includes(row.model))
                         .map((row, idx) => {
-                        const validMonths = heatmapMonths.filter(m => row[m]?.text && row[m].text !== '-');
+                        const validMonths = heatmapMonths.filter(m => row.cells[m]?.text !== '-');
                         const avgRty = validMonths.length > 0 
                           ? validMonths.reduce((sum, m) => {
-                              const match = row[m]?.text?.match(/^([\d.]+)%/);
+                              const match = row.cells[m]?.text.match(/^([\d.]+)%/);
                               return sum + (match ? parseFloat(match[1]) : 0);
                             }, 0) / validMonths.length
                           : 0;
@@ -893,7 +835,7 @@ export default function AlertConfigModal({
                               {row.model}
                             </td>
                             {heatmapMonths.map(month => {
-                              const cell = row[month];
+                              const cell = row.cells[month];
                               const hasData = cell?.text && cell?.text !== '-';
                               const rtyMatch = cell?.text?.match(/^([\d.]+)%/);
                               const rty = rtyMatch ? parseFloat(rtyMatch[1]) : null;

@@ -8,6 +8,7 @@ import { useModelTargets } from '../context/ModelTargetsContext';
 import DefectModal from '../components/DefectModal';
 import AlertConfigModal from '../components/AlertConfigModal';
 import { ExcludedOrdersModal, FilterPanel } from '../components/rty';
+import { RTY_EXPORT_COLUMNS } from '../components/rty/exportColumns';
 import { SortIcon } from '../components/shared/SortIcon';
 import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
 
@@ -60,18 +61,9 @@ export default function RTYPage() {
   const [detailSearched, setDetailSearched] = useState(false);
   const [excludedOrdersOpen, setExcludedOrdersOpen] = useState(false);
 
-  // 机器SN弹窗状态
-  const [snModalOpen, setSnModalOpen] = useState(false);
-  const [snModalData] = useState<{ title: string; sns: string[] }>({ title: '', sns: [] });
-  const [snPage, setSnPage] = useState(1);
-  const SN_PAGE_SIZE = 100;
-
   // 订单列表弹窗状态
   const [orderListOpen, setOrderListOpen] = useState(false);
   const [orderListData, setOrderListData] = useState<{ title: string; orders: string[]; filterKey: 'salesOrder' | 'productionOrder' }>({ title: '', orders: [], filterKey: 'salesOrder' });
-
-  const snTotalPages = Math.ceil(snModalData.sns.length / SN_PAGE_SIZE);
-  const snPaginatedData = snModalData.sns.slice((snPage - 1) * SN_PAGE_SIZE, snPage * SN_PAGE_SIZE);
 
   const { modelTargets } = useModelTargets();
 
@@ -139,31 +131,16 @@ export default function RTYPage() {
   };
 
   const handleExport = (selectedColumns: Record<string, boolean>) => {
-    const exportColumnsMap: Record<string, string> = {
-      time: '时间',
-      productModel: '生产机型',
-      customer: '客户 ID',
-      base: '基地',
-      defectCount: '故障机器数',
-      inputCount: '产量（WMENG）',
-      rtyRate: '直通率(%)',
-      targetRate: '直通率指标(%)',
-      status: '达成状况',
-      salesOrder: '销售订单',
-      productionOrder: '生产订单',
-      serialNumbers: '机器SN',
-      productLine: '产线',
-    };
     const selectedKeys = Object.entries(selectedColumns).filter(([, v]) => v).map(([k]) => k);
     const exportData = sortedData.map(row => {
       const item: Record<string, unknown> = {};
       selectedKeys.forEach(key => {
         if (key === 'status') {
-          item[exportColumnsMap[key]] = row.rtyRate >= (modelTargets[row.productModel] || row.targetRate) ? '达成' : '未达标';
+          item[RTY_EXPORT_COLUMNS[key]] = row.rtyRate >= (modelTargets[row.productModel] || row.targetRate) ? '达成' : '未达标';
         } else if (key === 'serialNumbers') {
-          item[exportColumnsMap[key]] = Array.isArray(row.serialNumbers) ? row.serialNumbers.join(', ') : row.serialNumbers;
+          item[RTY_EXPORT_COLUMNS[key]] = Array.isArray(row.serialNumbers) ? row.serialNumbers.join(', ') : row.serialNumbers;
         } else {
-          item[exportColumnsMap[key]] = row[key as keyof RTYData];
+          item[RTY_EXPORT_COLUMNS[key]] = row[key as keyof RTYData];
         }
       });
       return item;
@@ -386,8 +363,11 @@ export default function RTYPage() {
                           onClick={() => {
                             if (row.defectCount > 0) {
                               const label = [row.salesOrder || '', row.productModel, row.base].filter(Boolean).join(' · ');
-                              const so = row.salesOrder || row.salesOrders.join(',');
-                              const po = row.productionOrder || row.productionOrders.join(',');
+                              // A grouped row can contain more than one order. The primary
+                              // fields contain only the first order, which can omit the one
+                              // carrying the repair record.
+                              const so = row.salesOrders.join(',') || row.salesOrder;
+                              const po = row.productionOrders.join(',') || row.productionOrder;
                               const defectFilters: RTYFilterParams = {
                                 dateRange: { from: undefined, to: undefined },
                                 productModel: row.productModel || 'all',
@@ -510,56 +490,6 @@ export default function RTYPage() {
 
       {excludedOrdersOpen && (
         <ExcludedOrdersModal filters={filters} onClose={() => setExcludedOrdersOpen(false)} />
-      )}
-
-      {/* 机器SN列表 */}
-      {snModalOpen && (
-        <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg shadow-xl w-[600px] max-h-[80vh] flex flex-col">
-            <div className="flex items-center justify-between px-4 py-3 border-b border-slate-200">
-              <h3 className="text-base font-semibold text-slate-800">机器SN列表 - {snModalData.title}</h3>
-              <button onClick={() => { setSnModalOpen(false); setSnPage(1); }} className="p-1 hover:bg-slate-100 rounded transition-colors">
-                <X className="w-4 h-4 text-slate-500" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-auto p-4">
-              {snModalData.sns.length > 0 ? (
-                <>
-                  <div className="grid grid-cols-3 gap-2">
-                    {snPaginatedData.map((sn, idx) => (
-                      <div key={idx} className="px-2 py-1.5 bg-slate-50 rounded text-xs text-slate-600 font-mono truncate" title={sn}>
-                        {sn}
-                      </div>
-                    ))}
-                  </div>
-                  {snTotalPages > 1 && (
-                    <div className="flex items-center justify-center gap-2 mt-4 pt-4 border-t border-slate-100">
-                      <button
-                        onClick={() => setSnPage(p => Math.max(1, p - 1))}
-                        disabled={snPage === 1}
-                        className="px-2 py-1 text-xs border border-slate-300 rounded bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50"
-                      >
-                        上一页
-                      </button>
-                      <span className="text-xs text-slate-500">
-                        第 {snPage}/{snTotalPages} 页，共 {snModalData.sns.length} 条
-                      </span>
-                      <button
-                        onClick={() => setSnPage(p => Math.min(snTotalPages, p + 1))}
-                        disabled={snPage === snTotalPages}
-                        className="px-2 py-1 text-xs border border-slate-300 rounded bg-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-slate-50"
-                      >
-                        下一页
-                      </button>
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="text-center text-slate-400 py-8">暂无数据</div>
-              )}
-            </div>
-          </div>
-        </div>
       )}
 
       {/* 订单列表弹窗 */}

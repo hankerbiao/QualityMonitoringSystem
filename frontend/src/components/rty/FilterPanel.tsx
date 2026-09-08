@@ -1,24 +1,9 @@
-import { useState, useEffect } from 'react';
-import { BarChart3, Download, RotateCcw, Search } from 'lucide-react';
+import { useState, useEffect, useRef } from 'react';
+import { BarChart3, CalendarDays, Download, RotateCcw, Search, X } from 'lucide-react';
 import { rtyApi } from '../../api/rtyApi';
 import type { RTYFilterParams } from '../../types';
-import { ExportPanel } from './index';
-
-const EXPORT_COLUMNS: Record<string, string> = {
-  time: '时间',
-  productModel: '生产机型',
-  customer: '客户 ID',
-  base: '基地',
-  defectCount: '故障机器数',
-  inputCount: '产量（WMENG）',
-  rtyRate: '直通率(%)',
-  targetRate: '直通率指标(%)',
-  status: '达成状况',
-  salesOrder: '销售订单',
-  productionOrder: '生产订单',
-  serialNumbers: '机器SN',
-  productLine: '产线',
-};
+import { ExportPanel } from './ExportPanel';
+import { RTY_EXPORT_COLUMNS } from './exportColumns';
 
 const COMPOSITE_MODELS = new Set(['6210 C21 BOX', '6215 C32']);
 
@@ -32,6 +17,129 @@ const EMPTY_FILTERS: RTYFilterParams = {
   serialNumber: '',
   orderScope: 'normal',
 };
+
+type DateRange = RTYFilterParams['dateRange'];
+
+function formatDateInput(value: Date | undefined): string {
+  if (!value || Number.isNaN(value.getTime())) return '';
+  return `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`;
+}
+
+function parseDateInput(value: string): Date | undefined {
+  return value ? new Date(`${value}T00:00:00.000Z`) : undefined;
+}
+
+function DateRangePicker({ value, onChange }: { value: DateRange; onChange: (range: DateRange) => void }) {
+  const [open, setOpen] = useState(false);
+  const [start, setStart] = useState(formatDateInput(value.from));
+  const [end, setEnd] = useState(formatDateInput(value.to));
+  const containerRef = useRef<HTMLDivElement>(null);
+  const invalidRange = Boolean(start && end && start > end);
+  const summary = start || end ? `${start || '开始日期'} 至 ${end || '结束日期'}` : '选择时间范围';
+
+  useEffect(() => {
+    setStart(formatDateInput(value.from));
+    setEnd(formatDateInput(value.to));
+  }, [value.from, value.to]);
+
+  useEffect(() => {
+    if (!open) return;
+    const handleClickOutside = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setOpen(false);
+      }
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [open]);
+
+  const apply = () => {
+    if (invalidRange) return;
+    onChange({ from: parseDateInput(start), to: parseDateInput(end) });
+    setOpen(false);
+  };
+
+  return (
+    <div className="relative" ref={containerRef}>
+      <button
+        type="button"
+        onClick={() => setOpen((current) => !current)}
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        className={`flex h-9 w-full items-center gap-2 rounded-md border bg-white px-2.5 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
+          open ? 'border-blue-400 ring-2 ring-blue-500/15' : 'border-slate-300 hover:border-slate-400'
+        }`}
+      >
+        <CalendarDays className="size-4 shrink-0 text-blue-600" aria-hidden="true" />
+        <span className={`min-w-0 flex-1 truncate ${start || end ? 'font-medium text-slate-700' : 'text-slate-400'}`}>{summary}</span>
+        {start || end ? <span className="size-1.5 shrink-0 rounded-full bg-blue-500" aria-label="已设置日期范围" /> : null}
+      </button>
+
+      {open && (
+        <div role="dialog" aria-label="选择时间范围" className="absolute left-0 top-full z-50 mt-1.5 w-[320px] overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg shadow-slate-900/10">
+          <div className="flex items-start justify-between border-b border-slate-100 bg-slate-50 px-3 py-2.5">
+            <div>
+              <p className="text-xs font-semibold text-slate-700">时间范围</p>
+              <p className="mt-0.5 text-[11px] text-slate-500">销售订单计划开始日期</p>
+            </div>
+            <button type="button" onClick={() => setOpen(false)} className="-mr-1 -mt-1 inline-flex size-7 items-center justify-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700" aria-label="关闭时间范围选择" title="关闭">
+              <X className="size-3.5" />
+            </button>
+          </div>
+          <div className="grid grid-cols-2 gap-3 p-3">
+            <label className="flex flex-col gap-1.5 text-[11px] font-medium text-slate-600">
+              开始日期
+              <input
+                type="date"
+                value={start}
+                max={end || undefined}
+                onChange={(event) => setStart(event.target.value)}
+                className="h-9 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-500/15"
+              />
+            </label>
+            <label className="flex flex-col gap-1.5 text-[11px] font-medium text-slate-600">
+              结束日期
+              <input
+                type="date"
+                value={end}
+                min={start || undefined}
+                onChange={(event) => setEnd(event.target.value)}
+                className="h-9 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-500/15"
+              />
+            </label>
+          </div>
+          <div className="flex items-center justify-between border-t border-slate-100 px-3 py-2.5">
+            <button
+              type="button"
+              onClick={() => {
+                setStart('');
+                setEnd('');
+                onChange({ from: undefined, to: undefined });
+                setOpen(false);
+              }}
+              className="text-xs font-medium text-slate-500 hover:text-slate-700"
+            >
+              清除范围
+            </button>
+            <div className="flex items-center gap-2">
+              {invalidRange && <span className="text-[11px] text-red-600">开始日期不能晚于结束日期</span>}
+              <button type="button" onClick={apply} disabled={invalidRange} className="h-8 rounded-md bg-blue-700 px-3 text-xs font-medium text-white transition-colors hover:bg-blue-800 disabled:cursor-not-allowed disabled:opacity-50">
+                应用
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
 
 interface FilterPanelProps {
   initialFilters: RTYFilterParams;
@@ -127,21 +235,7 @@ export function FilterPanel({
                 ?
               </button>
             </label>
-            <div className="flex items-center space-x-1">
-              <input
-                type="date"
-                className="w-full border border-slate-300 rounded-sm px-2 py-1.5 text-xs text-slate-700 focus:ring-1 focus:ring-blue-600 focus:border-blue-600 outline-none transition-all"
-                value={filters.dateRange.from ? filters.dateRange.from.toISOString().split('T')[0] : ''}
-                onChange={(e) => update({ dateRange: { ...filters.dateRange, from: e.target.value ? new Date(e.target.value) : undefined } })}
-              />
-              <span className="text-slate-400 text-xs">-</span>
-              <input
-                type="date"
-                className="w-full border border-slate-300 rounded-sm px-2 py-1.5 text-xs text-slate-700 focus:ring-1 focus:ring-blue-600 focus:border-blue-600 outline-none transition-all"
-                value={filters.dateRange.to ? filters.dateRange.to.toISOString().split('T')[0] : ''}
-                onChange={(e) => update({ dateRange: { ...filters.dateRange, to: e.target.value ? new Date(e.target.value) : undefined } })}
-              />
-            </div>
+            <DateRangePicker value={filters.dateRange} onChange={(dateRange) => update({ dateRange })} />
           </div>
 
           <div className="flex-1 min-w-[100px] max-w-[140px] opacity-50">
@@ -152,12 +246,13 @@ export function FilterPanel({
             </select>
           </div>
 
-          <div className="flex-1 min-w-[100px] max-w-[160px] opacity-50">
+          <div className="flex-1 min-w-[100px] max-w-[160px]">
             <label className="block text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-1.5">计算方法</label>
             <select
-              className="w-full border border-slate-300 rounded-sm px-2 py-1.5 text-xs text-slate-700 focus:ring-1 focus:ring-blue-600 focus:border-blue-600 outline-none transition-all bg-white"
+              disabled
+              aria-label="计算方法，当前不可用"
+              className="w-full cursor-not-allowed border border-slate-200 rounded-sm bg-slate-100 px-2 py-1.5 text-xs text-slate-400 outline-none"
               value={filters.calculationMethod || (COMPOSITE_MODELS.has(filters.productModel) ? 'composite' : 'normal')}
-              onChange={e => update({ calculationMethod: e.target.value as RTYFilterParams['calculationMethod'] })}
             >
               <option value="normal">普通机型</option>
               <option value="composite">复合机型</option>
@@ -348,7 +443,7 @@ export function FilterPanel({
               </button>
               {showExportPanel && (
                 <ExportPanel
-                  columns={EXPORT_COLUMNS}
+                  columns={RTY_EXPORT_COLUMNS}
                   selected={exportColumns}
                   onToggle={key => setExportColumns(prev => ({ ...prev, [key]: !prev[key] }))}
                   onConfirm={handleExportConfirm}

@@ -1,7 +1,8 @@
+import asyncio
+
 import httpx
 import pytest
 
-from app.api.sales_orders import _query_gateway_orders, _serialize_gateway_order
 from app.services.data_gateway_client import DataGatewayClient, DataGatewayError
 
 
@@ -82,42 +83,6 @@ async def test_fault_lookup_uses_post_body():
     assert captured["path"] == "/api/faults/lookup"
 
 
-def test_gateway_order_is_adapted_to_existing_schema():
-    order = _serialize_gateway_order(
-        {
-            "id": "SG:PO-1",
-            "source": "SG",
-            "aufnr": "PO-1",
-            "salesOrder": "SO-1",
-            "productionModel": "Model A",
-            "inventoryLocation": "BASE-A",
-            "orderQuantity": 3,
-            "plannedStartDate": "2026-01-02",
-        }
-    )
-    assert order.id == "SG:PO-1"
-    assert order.aufnr == "PO-1"
-    assert order.data["MAKTX_TH"] == "Model A"
-    assert order.data["LGORT"] == "BASE-A"
-    assert order.quantity == 3
-
-
-@pytest.mark.asyncio
-async def test_gateway_order_query_preserves_bff_response_shape(monkeypatch):
-    from app.api import sales_orders
-
-    async def all_orders(**_kwargs):
-        return [{"id": "SG:PO-1", "source": "SG", "aufnr": "PO-1", "orderQuantity": 4}]
-
-    monkeypatch.setattr(sales_orders.data_gateway, "all_orders", all_orders)
-    result = await _query_gateway_orders(
-        page=1, limit=20, date_from=None, date_to=None, keyword=None
-    )
-    assert result.total == 1
-    assert result.items[0].aufnr == "PO-1"
-    assert result.stats.total_quantity == 4
-
-
 @pytest.mark.asyncio
 async def test_all_orders_reuses_short_lived_cache():
     calls = 0
@@ -141,6 +106,22 @@ async def test_all_orders_reuses_short_lived_cache():
 
     assert calls == 1
     assert second[0]["aufnr"] == "1"
+
+
+@pytest.mark.asyncio
+async def test_all_orders_coalesces_concurrent_loads():
+    calls = 0
+
+    async def request_json(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        return {"items": [{"aufnr": "1"}]}
+
+    client = DataGatewayClient("http://gateway.test", timeout=2)
+    client.request_json = request_json  # type: ignore[method-assign]
+    first, second = await asyncio.gather(client.all_orders(), client.all_orders())
+    assert calls == 1
+    assert first == second == [{"aufnr": "1"}]
 
 
 @pytest.mark.asyncio

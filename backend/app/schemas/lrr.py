@@ -1,25 +1,20 @@
-"""Pydantic models for the order-BOM LRR dashboard."""
+"""Pydantic models for the material-PN LRR dashboard."""
 
 from pydantic import BaseModel, Field
 
 
 class LRRData(BaseModel):
     id: str = ""
-    orderDimension: str = "productionOrder"
-    orderNo: str = ""
-    productionOrder: str = ""
-    salesOrder: str = ""
+    month: str = ""
+    materialNumber: str = ""
+    materialDescription: str = ""
     issuedQuantity: float = 0.0
     faultCount: int = 0
     lrrRate: float | None = None
-    materialNumber: str = ""
-    base: str = ""
-    customerId: str = ""
-    month: str = ""
 
 
 class LRRSummary(BaseModel):
-    orderCount: int = 0
+    materialCount: int = 0
     issuedQuantity: float = 0.0
     totalFaults: int = 0
     overallLrr: float | None = None
@@ -41,24 +36,16 @@ class LRRFaultDetailsResponse(BaseModel):
 
 
 class LRROptions(BaseModel):
-    productionOrders: list[str] = Field(default_factory=list)
-    salesOrders: list[str] = Field(default_factory=list)
-    storageLocations: list[str] = Field(default_factory=list)
     materialNumbers: list[str] = Field(default_factory=list)
     bases: list[str] = Field(default_factory=list)
     customerIds: list[str] = Field(default_factory=list)
 
 
 class LRRFaultDetail(BaseModel):
-    orderDimension: str = "productionOrder"
-    orderNo: str = ""
-    productionOrder: str = ""
-    salesOrder: str = ""
-    storageLocation: str = ""
+    month: str = ""
+    materialNumber: str = ""
+    materialDescription: str = ""
     sn: str = ""
     faultType: str = ""
     faultDesc: str = ""
-    repairTime: str = ""
-    materialNumber: str = ""
-    base: str = ""
-    customerId: str = ""
+    ngTime: str = ""

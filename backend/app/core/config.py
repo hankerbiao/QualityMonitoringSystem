@@ -28,9 +28,8 @@ class Settings(BaseSettings):
     # MongoDB 配置
     MONGODB_URL: str = "mongodb://10.17.154.252:27019"
     MONGODB_DB_NAME: str = "quality_monitoring"
-    # Optional read-only data gateway for SAP/HANA-backed dashboard data.
-    # Required in production for RTY/LRR/MFR source migration; empty is kept
-    # only for isolated tests and local DOA/SCS development.
+    # Read-only data gateway for SAP/HANA-backed dashboard data. It is the
+    # authoritative source for all migrated quality dashboard data.
     DATA_GATEWAY_URL: str = ""
     DATA_GATEWAY_TIMEOUT_SECONDS: float = 15.0
     # Short-lived source cache shared by dashboard requests.  This caches
@@ -81,13 +80,14 @@ class Settings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=True,
-        # Legacy HANA variables are consumed only by scripts/archive/data_sync/sync_views.py.
         extra="ignore",
     )
 
 
 def validate_security_settings(settings: Settings) -> None:
-    """Validate credentials that must be explicit in non-debug deployments."""
+    """Validate mandatory runtime configuration before infrastructure starts."""
+    if not settings.DATA_GATEWAY_URL.strip():
+        raise RuntimeError("必须配置 DATA_GATEWAY_URL")
     if settings.DEBUG:
         return
 

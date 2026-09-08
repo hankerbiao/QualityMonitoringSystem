@@ -86,6 +86,10 @@ def shutdown_scheduler(scheduler: Any | None) -> None:
 async def startup_infrastructure(settings: Settings) -> Any | None:
     configure_logging(settings)
     log_startup(settings)
+    # A running BFF without its authoritative SAP/HANA source only fails later
+    # and produces partial dashboards. Fail during startup instead.
+    await data_gateway.health()
+    log_info("数据网关连接成功")
     await connect_to_mongo()
     log_info("MongoDB 连接成功")
     return create_scheduler()

@@ -1,34 +1,29 @@
-export type LRRSortField = 'lrrRate' | 'faultCount' | 'issuedQuantity' | 'orderNo';
+export type LRRSortField = 'lrrRate' | 'faultCount' | 'issuedQuantity' | 'materialNumber';
 export type LRRSortDir = 'asc' | 'desc';
 
 export interface LRRFilters {
-  dateFrom?: string | null;
-  dateTo?: string | null;
+  ngDateFrom?: string | null;
+  ngDateTo?: string | null;
   materialNumber?: string | null;
   base?: string | null;
   customerId?: string | null;
   month?: string | null;
-  orderKeyword?: string | null;
   sortBy?: LRRSortField;
   sortDir?: LRRSortDir;
 }
 
 export interface LRRData {
   id: string;
-  orderNo: string;
-  productionOrder: string;
-  salesOrder: string;
+  month: string;
+  materialDescription: string;
   issuedQuantity: number;
   faultCount: number;
   lrrRate: number | null;
   materialNumber: string;
-  base: string;
-  customerId: string;
-  month: string;
 }
 
 export interface LRRSummary {
-  orderCount: number;
+  materialCount: number;
   issuedQuantity: number;
   totalFaults: number;
   overallLrr: number | null;
@@ -50,16 +45,13 @@ export interface LRROptions {
 }
 
 export interface LRRFaultDetail {
-  orderNo: string;
-  productionOrder: string;
-  salesOrder: string;
-  materialNumber?: string;
-  base?: string;
-  customerId?: string;
+  month: string;
+  materialNumber: string;
+  materialDescription: string;
   sn: string;
   faultType: string;
   faultDesc: string;
-  repairTime: string;
+  ngTime: string;
 }
 
 export interface LRRFaultDetailsResponse {

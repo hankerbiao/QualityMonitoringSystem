@@ -1,0 +1,15 @@
+export const RTY_EXPORT_COLUMNS: Record<string, string> = {
+  time: '时间',
+  productModel: '生产机型',
+  customer: '客户 ID',
+  base: '基地',
+  defectCount: '故障机器数',
+  inputCount: '产量（WMENG）',
+  rtyRate: '直通率(%)',
+  targetRate: '直通率指标(%)',
+  status: '达成状况',
+  salesOrder: '销售订单',
+  productionOrder: '生产订单',
+  serialNumbers: '机器SN',
+  productLine: '产线',
+};

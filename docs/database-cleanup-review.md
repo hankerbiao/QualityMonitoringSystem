@@ -1,8 +1,7 @@
 # MongoDB 集合清理评审
 
-本文按当前 FastAPI 运行时代码评估，不把 `scripts/archive/data_sync/` 中的历史同步、
-抓取和回填脚本视为运行时依赖。五个 SAP/HANA 本地副本和 `_hana_sync_runs` 已在迁移
-验证后删除；后续清理脚本仍采用白名单和 dry-run 保护。
+本文按当前 FastAPI 运行时代码评估。SAP/HANA 同步、抓取和回填脚本已从本仓库移除；
+五个本地副本仅可通过受保护的 dry-run 清理命令删除。
 
 ## 可立即下线
 
@@ -11,7 +10,7 @@
 当前没有 API、服务或后台任务读取该集合，仅剩旧的模型常量、启动索引和 README 描述。
 本次已移除模型常量和启动时索引创建。确认不需要历史装配数据后，可以删除 MongoDB 集合。
 
-## 仅由已归档脚本使用的集合
+## 历史运行集合
 
 下列集合在当前 `backend/app` 运行时代码中没有读取方，若数据库中存在，可在备份后删除：
 
@@ -35,7 +34,7 @@
 - `sales_order_bom`
 - `no_data_orders`
 
-这些集合只保存历史回填或同步审计。删除后，归档脚本的历史审计查询将不可用。
+这些集合只保存历史回填或同步审计。
 
 执行方式：
 
@@ -56,7 +55,8 @@ uv run python scripts/cleanup_obsolete_collections.py --apply # 执行删除
 - `scs_doa_results`：DOA 和 MFR。
 - `scs_change_results`：MFR 换件故障统计。
 - `sales_orders_sap`、`order_bom_postings_sap`、`repair_records_sap`、
-  `station_records_sap`、`serial_bindings_sap`：已删除，运行时由网关提供数据。
+  `station_records_sap`、`serial_bindings_sap`：运行时由网关提供数据；执行
+  `drop_migrated_source_collections.py --apply` 后才会物理删除。
 
 ## 运营监控水位线
 

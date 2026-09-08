@@ -169,7 +169,7 @@ async def test_rty_list_aggregates_orders_and_distinct_fault_sns(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_details_by_orders_uses_the_same_fault_lookup_path_as_rty_list(monkeypatch):
+async def test_details_by_orders_resolves_fault_links_to_full_rows(monkeypatch):
     gateway = rty_gateway.data_gateway
     fault_lookup = AsyncMock(
         return_value=[
@@ -182,6 +182,19 @@ async def test_details_by_orders_uses_the_same_fault_lookup_path_as_rty_list(mon
         ]
     )
     monkeypatch.setattr(gateway, "fault_lookup", fault_lookup)
+    fault_rows_by_sns = AsyncMock(
+        return_value=[
+            {
+                "PCODE": "SN1",
+                "AUFNR": "000000000001",
+                "VBELN": "SO-1",
+                "ZNGWD": "F01",
+                "ZWXWD": "Full fault description",
+                "ZDATE_WX": "20260103",
+            }
+        ]
+    )
+    monkeypatch.setattr(gateway, "fault_rows_by_sns", fault_rows_by_sns)
 
     details = await rty_gateway.details_by_orders(
         {"1"}, date_from="2026-01-01", date_to="2026-01-31"
@@ -192,6 +205,9 @@ async def test_details_by_orders_uses_the_same_fault_lookup_path_as_rty_list(mon
         production_orders=["000000000001", "1"],
         date_from="2026-01-01",
         date_to="2026-01-31",
+    )
+    fault_rows_by_sns.assert_awaited_once_with(
+        ["SN1"], date_from="2026-01-01", date_to="2026-01-31", station=""
     )
 
 

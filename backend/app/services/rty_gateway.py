@@ -21,7 +21,7 @@ from app.schemas.rty import (
     StationPassRate,
 )
 from app.services.data_gateway_client import data_gateway
-from app.services.rty_queries import (
+from app.services.rty_shared import (
     COMPOSITE_MODEL_ITEMS,
     EXCLUDED_ORDER_STATUSES,
     EXCLUDED_ORDER_TYPES,
@@ -250,7 +250,11 @@ def _dedup_faults(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     result = []
     for row in rows:
         key = tuple(
-            str(row.get(field) or "").strip()
+            (
+                normalize_order(row.get(field))
+                if field == "AUFNR"
+                else str(row.get(field) or "").strip()
+            )
             for field in (
                 "PCODE",
                 "AUFNR",
@@ -551,6 +555,7 @@ async def station_rates(
         dateTo=f"{end[:4]}-{end[4:6]}-{end[6:]}",
     )
     by_station: dict[tuple[str, str], dict[str, Any]] = {}
+    dimension_sns: dict[str, set[str]] = defaultdict(set)
     for item in records:
         raw = _raw(item)
         sn = str(raw.get("PCODE") or "").strip()
@@ -577,6 +582,7 @@ async def station_rates(
             by_station.setdefault((dimension_value, station), {"sns": set(), "name": station})[
                 "sns"
             ].add(sn)
+            dimension_sns[dimension_value].add(sn)
     all_sns = {sn for value in by_station.values() for sn in value["sns"]}
     repairs = await _faults_for_sns(all_sns, date_from=start, date_to=end)
     defect_by_station = {
@@ -588,6 +594,9 @@ async def station_rates(
         }
         for (dimension_value, station), value in by_station.items()
     }
+    dimension_defect_sns: dict[str, set[str]] = defaultdict(set)
+    for (dimension_value, _station), defects in defect_by_station.items():
+        dimension_defect_sns[dimension_value].update(defects)
     return [
         StationPassRate(
             dimensionValue=dimension_value,
@@ -606,6 +615,8 @@ async def station_rates(
             )
             if value["sns"]
             else 100.0,
+            totalInputCount=len(dimension_sns[dimension_value]),
+            totalDefectCount=len(dimension_defect_sns[dimension_value]),
         )
         for (dimension_value, station), value in sorted(by_station.items())
     ]
@@ -693,13 +704,13 @@ async def station_details(
 def to_detail(row: dict[str, Any]) -> DefectDetail:
     return DefectDetail(
         id=str(row.get("_id") or ""),
-        defectCode=str(row.get("ZNGWD") or "未知"),
-        description=str(row.get("ZWXWD") or ""),
+        defectCode=str(row.get("ZNGWD") or row.get("ERROR_CODE") or row.get("ZNGGZ") or "未知"),
+        description=str(row.get("ZWXWD") or row.get("ERROR_MSG") or row.get("ZGZMS") or ""),
         count=1,
         sn=str(row.get("PCODE") or ""),
         sale_no=str(row.get("VBELN") or ""),
         mfg_order=str(row.get("AUFNR") or ""),
-        product_family=str(row.get("ZJXMC") or ""),
+        product_family=str(row.get("ZJXMC") or row.get("MAKTX") or ""),
         fault_2nd_appear="",
         fault_3rd_appear="",
         repairTime=f"{row.get('ZDATE_WX') or ''} {row.get('ZTIME') or ''}".strip(),
@@ -716,17 +727,26 @@ async def details_by_orders(
     date_from: str | None = None,
     date_to: str | None = None,
 ) -> list[DefectDetail]:
-    rows = (
-        _dedup_faults(
-            await _faults_for_orders(
-                orders,
-                date_from=date_from or YEAR_START,
-                date_to=date_to or YEAR_END,
-            )
+    if not orders:
+        return []
+
+    # The lookup endpoint intentionally returns only order-to-SN associations.
+    # Resolve those SNs through the detail endpoint before rendering the modal,
+    # otherwise every detail column is blank even though the RTY count is nonzero.
+    links = _dedup_faults(
+        await _faults_for_orders(
+            orders,
+            date_from=date_from or YEAR_START,
+            date_to=date_to or YEAR_END,
         )
-        if orders
-        else []
     )
+    sns = {str(row.get("PCODE") or "").strip() for row in links}
+    detail_rows = await _faults_for_sns(
+        sns,
+        date_from=date_from or YEAR_START,
+        date_to=date_to or YEAR_END,
+    )
+    rows = _dedup_faults(detail_rows) if detail_rows else links
     return [
         to_detail(row)
         for row in sorted(

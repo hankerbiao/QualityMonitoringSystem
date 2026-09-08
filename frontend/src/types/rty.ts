@@ -38,6 +38,8 @@ export interface StationPassRate {
   inputCount: number;
   defectCount: number;
   passRate: number;
+  totalInputCount: number;
+  totalDefectCount: number;
 }
 
 export type StationGroupBy = 'salesOrder' | 'productionOrder' | 'productModel';

@@ -60,6 +60,10 @@ export default function StationPassRatePage() {
   const [serialNumber, setSerialNumber] = useState('');
   const [productModel, setProductModel] = useState('');
   const [base, setBase] = useState('');
+  const [productModels, setProductModels] = useState<{ model: string; count: number }[]>([]);
+  const [bases, setBases] = useState<{ base: string; count: number }[]>([]);
+  const [showProductModelSuggestions, setShowProductModelSuggestions] = useState(false);
+  const [showBaseSuggestions, setShowBaseSuggestions] = useState(false);
   const [groupBy, setGroupBy] = useState<StationGroupBy>('productModel');
   const [rows, setRows] = useState<StationPassRate[]>([]);
   const [loading, setLoading] = useState(false);
@@ -130,6 +134,19 @@ export default function StationPassRatePage() {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    const loadFilterOptions = async () => {
+      try {
+        const options = await rtyApi.getFilterOptions();
+        setProductModels(options.productModels);
+        setBases(options.bases);
+      } catch (err) {
+        console.error('Failed to fetch station filter options', err);
+      }
+    };
+    void loadFilterOptions();
+  }, []);
+
   const closeDetail = useCallback(() => {
     detailRequestId.current += 1;
     setDetailLoading(false);
@@ -192,10 +209,12 @@ export default function StationPassRatePage() {
     return {
       stations,
       rows: Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right, 'zh-CN')).map(([dimensionValue, stationRows]) => {
-        const total = Array.from(stationRows.values()).reduce(
-          (sum, row) => ({ inputCount: sum.inputCount + row.inputCount, defectCount: sum.defectCount + row.defectCount }),
-          { inputCount: 0, defectCount: 0 },
-        );
+        const stationValues = Array.from(stationRows.values());
+        const total = {
+          // 汇总计数由后端按统计维度对 SN 去重，不能从工位计数相加推算。
+          inputCount: stationValues[0].totalInputCount,
+          defectCount: stationValues[0].totalDefectCount,
+        };
         return { dimensionValue, stationRows, total };
       }),
     };
@@ -238,6 +257,8 @@ export default function StationPassRatePage() {
   const dimensionLabel = dimensionLabels[groupBy];
   const colSpan = matrix.stations.length + 2;
   const updatedAt = formatUpdatedAt(dataUpdatedAt);
+  const filteredProductModels = productModels.filter((item) => !productModel || item.model.toLowerCase().includes(productModel.toLowerCase()));
+  const filteredBases = bases.filter((item) => !base || item.base.toLowerCase().includes(base.toLowerCase()));
 
   return (
     <div className="min-h-screen bg-[#f6f8fb] text-slate-800">
@@ -270,12 +291,29 @@ export default function StationPassRatePage() {
           </div>
 
           <form className="flex flex-wrap items-end gap-2 border-b border-slate-100 bg-slate-50/70 px-4 py-3" onSubmit={(event) => { event.preventDefault(); void load(); }}>
+            <div className="flex-1 min-w-[200px] max-w-xs">
+              <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
+                时间范围
+                <button type="button" className="ml-1 cursor-help text-slate-400 hover:text-slate-600" title="工位实际过站日期">?</button>
+              </label>
+              <div className="flex items-center space-x-1">
+                <input type="date" value={dateFrom} onChange={(event) => updateField(setDateFrom, event.target.value)} className="w-full rounded-sm border border-slate-300 px-2 py-1.5 text-xs text-slate-700 outline-none transition-all focus:border-blue-600 focus:ring-1 focus:ring-blue-600" />
+                <span className="text-xs text-slate-400">-</span>
+                <input type="date" value={dateTo} onChange={(event) => updateField(setDateTo, event.target.value)} className="w-full rounded-sm border border-slate-300 px-2 py-1.5 text-xs text-slate-700 outline-none transition-all focus:border-blue-600 focus:ring-1 focus:ring-blue-600" />
+              </div>
+            </div>
             <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-44">统计维度<select value={groupBy} onChange={(event) => updateField(setGroupBy, event.target.value as StationGroupBy)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none transition-colors focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"><option value="salesOrder">销售订单号</option><option value="productionOrder">生产订单号</option><option value="productModel">机型</option></select></label>
             <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-44">服务器 SN<input value={serialNumber} onChange={(event) => updateField(setSerialNumber, event.target.value)} placeholder="精确输入 SN" className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" /></label>
-            <label className="flex min-w-32 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-40">机型<input value={productModel} onChange={(event) => updateField(setProductModel, event.target.value)} placeholder="精确输入机型" className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" /></label>
-            <label className="flex min-w-32 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-40">工厂地点<input value={base} onChange={(event) => updateField(setBase, event.target.value)} placeholder="基地/库位" className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" /></label>
-            <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-44">过站开始日期<input type="date" value={dateFrom} onChange={(event) => updateField(setDateFrom, event.target.value)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" /></label>
-            <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-44">过站结束日期<input type="date" value={dateTo} onChange={(event) => updateField(setDateTo, event.target.value)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" /></label>
+            <div className="relative z-0 flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 focus-within:z-30 xl:max-w-48">
+              <label htmlFor="station-product-model">机型</label>
+              <input id="station-product-model" value={productModel} onChange={(event) => { updateField(setProductModel, event.target.value); setShowProductModelSuggestions(true); }} onFocus={() => setShowProductModelSuggestions(true)} onBlur={() => setTimeout(() => setShowProductModelSuggestions(false), 200)} placeholder="输入机型名称搜索..." className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" />
+              {showProductModelSuggestions && <div className="absolute top-full z-50 mt-1 max-h-48 w-full overflow-auto rounded-sm border border-slate-200 bg-white shadow-lg"><button type="button" onMouseDown={() => { updateField(setProductModel, ''); setShowProductModelSuggestions(false); }} className={`w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-blue-50 ${!productModel ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}>全部机型</button>{filteredProductModels.length > 0 ? filteredProductModels.map((item) => <button key={item.model} type="button" onMouseDown={() => { updateField(setProductModel, item.model); setShowProductModelSuggestions(false); }} className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition-colors hover:bg-blue-50 ${productModel === item.model ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}><span className="truncate" title={item.model}>{item.model}</span><span className="ml-2 shrink-0 text-[10px] text-slate-400">{item.count}</span></button>) : <div className="px-3 py-2 text-xs text-slate-400">无匹配机型</div>}</div>}
+            </div>
+            <div className="relative z-0 flex min-w-32 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 focus-within:z-30 xl:max-w-44">
+              <label htmlFor="station-base">工厂地点</label>
+              <input id="station-base" value={base} onChange={(event) => { updateField(setBase, event.target.value); setShowBaseSuggestions(true); }} onFocus={() => setShowBaseSuggestions(true)} onBlur={() => setTimeout(() => setShowBaseSuggestions(false), 200)} placeholder="输入工厂地点搜索..." className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" />
+              {showBaseSuggestions && <div className="absolute top-full z-50 mt-1 max-h-48 w-full overflow-auto rounded-sm border border-slate-200 bg-white shadow-lg"><button type="button" onMouseDown={() => { updateField(setBase, ''); setShowBaseSuggestions(false); }} className={`w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-blue-50 ${!base ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}>全部工厂地点</button>{filteredBases.length > 0 ? filteredBases.map((item) => <button key={item.base} type="button" onMouseDown={() => { updateField(setBase, item.base); setShowBaseSuggestions(false); }} className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition-colors hover:bg-blue-50 ${base === item.base ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}><span className="truncate" title={item.base}>{item.base}</span><span className="ml-2 shrink-0 text-[10px] text-slate-400">{item.count}</span></button>) : <div className="px-3 py-2 text-xs text-slate-400">无匹配工厂地点</div>}</div>}
+            </div>
             <div className="flex items-center gap-1.5 pt-5"><button type="button" onClick={reset} className="inline-flex size-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 transition-colors hover:border-slate-400 hover:bg-slate-100" title="重置条件" aria-label="重置条件"><RotateCcw className="size-4" /></button><button type="submit" disabled={loading} className="inline-flex h-9 items-center gap-1.5 rounded-md bg-cyan-600 px-3 text-sm font-medium text-white transition-colors hover:bg-cyan-700 disabled:cursor-wait disabled:opacity-60">{loading ? <RefreshCw className="size-4 animate-spin" /> : <Search className="size-4" />}{loading ? '正在计算' : '查询'}</button></div>
           </form>
 

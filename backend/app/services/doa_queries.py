@@ -2,15 +2,22 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from app.models.documents import Collections
-from app.repositories.sales_order_repository import normalize_gstrs_date
 from app.schemas.doa import DoaFilters
 
 
 def _normalize_filter_date(value: str | None) -> str | None:
-    return normalize_gstrs_date(value) if value else None
+    if not value:
+        return None
+    for pattern in ("%Y-%m-%d", "%Y/%m/%d", "%Y%m%d"):
+        try:
+            return datetime.strptime(value[:10], pattern).strftime("%Y-%m-%d")
+        except ValueError:
+            continue
+    return None
 
 
 def build_order_query(

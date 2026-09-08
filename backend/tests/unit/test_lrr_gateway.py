@@ -73,6 +73,43 @@ async def test_load_bom_month_adds_gateway_date_bounds(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_load_bom_falls_back_to_paginated_view_for_material_description(monkeypatch):
+    async def all_bom_rows(**_filters: str):
+        return [
+            {
+                "id": "bom-1",
+                "AUFNR_1": "000000000001",
+                "MATNR": "PN-1",
+                "MENGE_A": "1",
+                "BUDAT_MKPF": "20260201",
+            }
+        ]
+
+    async def all_pages(*_args: object, **_kwargs: object):
+        return [
+            {
+                "id": "bom-1",
+                "AUFNR_1": "000000000001",
+                "MATNR": "PN-1",
+                "MAKTX": "Component description",
+                "MENGE_A": "1",
+                "BUDAT_MKPF": "20260201",
+            }
+        ]
+
+    async def all_orders(**_filters: str):
+        return []
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_pages", all_pages)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_orders", all_orders)
+
+    rows = await lrr_gateway.load_bom(material_number="PN-1", month="2026-02")
+
+    assert rows[0]["MAKTX"] == "Component description"
+
+
+@pytest.mark.asyncio
 async def test_load_faults_accepts_omitted_sales_orders(monkeypatch):
     captured: dict[str, str] = {}
 
@@ -115,6 +152,82 @@ async def test_load_faults_uses_month_bounds(monkeypatch):
     await lrr_gateway.load_faults(production_orders={"1"}, month="2026-02")
     assert captured["date_from"] == "2026-02-01"
     assert captured["date_to"] == "2026-02-28"
+
+
+@pytest.mark.asyncio
+async def test_load_faults_resolves_lookup_links_to_full_fault_details(monkeypatch):
+    async def fault_lookup(**_filters: str):
+        return [
+            {
+                "productionOrder": "000000000001",
+                "serialNumber": "SN-1",
+                "raw": {"AUFNR": "000000000001", "PCODE": "SN-1"},
+            }
+        ]
+
+    async def fault_rows_by_sns(sns: list[str], **_filters: str):
+        assert sns == ["SN-1"]
+        return [
+            {
+                "AUFNR": "1",
+                "VBELN": "0009",
+                "PCODE": "SN-1",
+                "ZDATE_WX": "20260202",
+                "ZTIME": "113419",
+                "ZNGGZ": "OP205",
+                "ZGZMS": "Power-on failure",
+            },
+            {
+                "AUFNR": "000000000001",
+                "VBELN": "9",
+                "PCODE": "SN-1",
+                "ZDATE_WX": "20260202",
+                "ZTIME": "113419",
+                "ZNGGZ": "OP205",
+                "ZGZMS": "Power-on failure",
+            },
+        ]
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "fault_lookup", fault_lookup)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "fault_rows_by_sns", fault_rows_by_sns)
+
+    rows = await lrr_gateway.load_faults(production_orders={"1"})
+
+    assert len(rows) == 1
+    assert rows[0]["ZNGGZ"] == "OP205"
+    assert rows[0]["ZWXWD"] == "Power-on failure"
+    assert rows[0]["ZDATE_WX"] == "20260202"
+
+
+@pytest.mark.asyncio
+async def test_load_faults_combines_production_and_normalized_sales_order_links(monkeypatch):
+    calls: list[dict[str, object]] = []
+
+    async def fault_lookup(**filters: object):
+        calls.append(filters)
+        if filters.get("sales_orders"):
+            return [
+                {
+                    "salesOrder": "9",
+                    "serialNumber": "SN-9",
+                    "raw": {"VBELN": "9", "PCODE": "SN-9"},
+                }
+            ]
+        return []
+
+    async def fault_rows_by_sns(sns: list[str], **_filters: str):
+        assert sns == ["SN-9"]
+        return [{"VBELN": "9", "PCODE": "SN-9", "ZDATE_WX": "20260501"}]
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "fault_lookup", fault_lookup)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "fault_rows_by_sns", fault_rows_by_sns)
+
+    rows = await lrr_gateway.load_faults(production_orders={"1"}, sales_orders={"0009"})
+
+    assert len(rows) == 1
+    assert rows[0]["PCODE"] == "SN-9"
+    assert any(call.get("sales_orders") == ["9"] for call in calls)
+    assert any(call.get("sales_orders") == ["0009"] for call in calls)
 
 
 @pytest.mark.asyncio

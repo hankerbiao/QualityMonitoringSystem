@@ -25,7 +25,6 @@ from app.services.mfr_queries import (
     change_query,
     doa_link_projection,
     doa_link_query,
-    sales_order_projection,
 )
 
 
@@ -116,26 +115,21 @@ async def build_mfr_dashboard(
     orders: dict[str, dict[str, Any]] = {}
 
     async def order_documents():
-        if data_gateway.enabled:
-            # MFR needs the complete in-warranty fleet, not only orders in the
-            # selected production-date window.
-            items = await data_gateway.all_orders(max_rows=1_000_000)
-            for item in items:
-                raw = item.get("raw") if isinstance(item.get("raw"), dict) else {}
-                data = raw.get("data") if isinstance(raw.get("data"), dict) else raw
-                if not data:
-                    data = {
-                        "VBELN": item.get("salesOrder") or "",
-                        "MAKTX_TH": item.get("productionModel") or "",
-                        "MAKTX": item.get("materialDescription") or "",
-                        "WMENG": item.get("orderQuantity") or 0,
-                        "GSTRS": item.get("plannedStartDate") or "",
-                    }
-                yield {**raw, "data": data, "quantity": item.get("orderQuantity") or 0}
-            return
-        collection = db[Collections.SALES_ORDERS_SAP]
-        async for document in collection.find({}, projection=sales_order_projection()):
-            yield document
+        # MFR needs the complete in-warranty fleet, not only the selected
+        # production-date window. The gateway client bounds and caches this.
+        items = await data_gateway.all_orders(max_rows=1_000_000)
+        for item in items:
+            raw = item.get("raw") if isinstance(item.get("raw"), dict) else {}
+            data = raw.get("data") if isinstance(raw.get("data"), dict) else raw
+            if not data:
+                data = {
+                    "VBELN": item.get("salesOrder") or "",
+                    "MAKTX_TH": item.get("productionModel") or "",
+                    "MAKTX": item.get("materialDescription") or "",
+                    "WMENG": item.get("orderQuantity") or 0,
+                    "GSTRS": item.get("plannedStartDate") or "",
+                }
+            yield {**raw, "data": data, "quantity": item.get("orderQuantity") or 0}
 
     async for document in order_documents():
         order_no = str((document.get("data") or {}).get("VBELN") or "").strip()

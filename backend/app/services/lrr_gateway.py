@@ -13,9 +13,10 @@ from typing import Any
 
 from app.core.logger import log_info
 from app.services.data_gateway_client import data_gateway
-from app.services.rty_queries import order_variants
+from app.services.rty_shared import order_variants
 
 MAX_BATCH_ORDER_FILTERS = 200
+MAX_BATCH_SN_FILTERS = 1_000
 
 
 def _raw(item: dict[str, Any]) -> dict[str, Any]:
@@ -26,6 +27,11 @@ def _raw(item: dict[str, Any]) -> dict[str, Any]:
 def _norm_order(value: Any) -> str:
     text = str(value or "").strip()
     return text.zfill(12) if text.isdigit() else text
+
+
+def _norm_sales_order(value: Any) -> str:
+    text = str(value or "").strip().rsplit("--", 1)[0]
+    return text.lstrip("0") or "0" if text.isdigit() else text
 
 
 def _split_values(value: str | None) -> list[str]:
@@ -45,12 +51,23 @@ def _month_bounds(month: str | None) -> tuple[str, str]:
 
 def normalize_bom(item: dict[str, Any]) -> dict[str, Any]:
     raw = _raw(item)
+    # The BOM stream projection omits MAKTX in some gateway deployments,
+    # while the paginated view may expose one of these aliases.
+    material_description = next(
+        (
+            str(raw.get(field) or item.get(field) or "").strip()
+            for field in ("MAKTX", "materialDescription", "materialDesc", "description")
+            if raw.get(field) or item.get(field)
+        ),
+        "",
+    )
     return {
         **raw,
         "AUFNR_1": raw.get("AUFNR_1") or raw.get("AUFNR") or "",
         "VBELN_EX": raw.get("VBELN_EX") or raw.get("VBELN") or "",
         "MENGE_A": raw.get("MENGE_A") if raw.get("MENGE_A") is not None else raw.get("MENGE", 0),
         "MATNR": raw.get("MATNR") or "",
+        "MAKTX": material_description,
         "LGORT": raw.get("LGORT") or raw.get("WERKS") or "",
         "BUDAT_MKPF": str(raw.get("BUDAT_MKPF") or "")[:8],
     }
@@ -64,15 +81,53 @@ def normalize_fault(item: dict[str, Any]) -> dict[str, Any]:
         "AUFNR": raw.get("AUFNR") or item.get("productionOrder") or "",
         "VBELN": raw.get("VBELN") or item.get("salesOrder") or "",
         "PCODE": raw.get("PCODE") or item.get("serialNumber") or item.get("hostBarcode") or "",
-        "ZNGWD": raw.get("ZNGWD") or item.get("ngStation") or item.get("errorCode") or "",
+        "ZNGGZ": raw.get("ZNGGZ") or item.get("ngStation") or "",
+        "ZNGWD": (
+            raw.get("ZNGWD")
+            or raw.get("ZMCOD1")
+            or raw.get("ERROR_CODE")
+            or item.get("errorCode")
+            or ""
+        ),
         "ZWXWD": raw.get("ZWXWD")
+        or raw.get("ZGZMS")
+        or raw.get("ERROR_MSG")
+        or raw.get("RPDESC")
         or item.get("faultDescription")
         or item.get("errorDescription")
         or "",
         "ZDATE_WX": raw.get("ZDATE_WX") or str(item.get("repairAt") or "")[:10].replace("-", ""),
         "ZTIME": raw.get("ZTIME") or "",
-        "ZJXMC": raw.get("ZJXMC") or item.get("materialDescription") or "",
+        "ZJXMC": raw.get("ZJXMC") or raw.get("MAKTX") or item.get("materialDescription") or "",
+        "MATNR": raw.get("MATNR") or item.get("materialNumber") or "",
     }
+
+
+def _deduplicate_faults(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Discard mirrored repair records from padded and unpadded SAP orders."""
+    seen: set[tuple[str, ...]] = set()
+    result = []
+    for row in rows:
+        key = tuple(
+            str(row.get(field) or "").strip().lstrip("0") or "0"
+            if field in {"AUFNR", "VBELN"}
+            else str(row.get(field) or "").strip()
+            for field in (
+                "PCODE",
+                "AUFNR",
+                "VBELN",
+                "ZDATE_WX",
+                "ZTIME",
+                "ZNGWD",
+                "ZNGGZ",
+                "ZWXWD",
+                "ZUSER",
+            )
+        )
+        if key not in seen:
+            seen.add(key)
+            result.append(row)
+    return result
 
 
 async def load_bom(
@@ -120,6 +175,46 @@ async def load_bom(
     bom_stream_ms = (perf_counter() - bom_stream_started_at) * 1000
     for batch in batches:
         raw_rows.extend(batch)
+
+    # The low-overhead stream intentionally uses a narrow projection on some
+    # gateway versions and therefore has no material description. A PN-scoped
+    # detail request is small enough to use the regular view, whose projection
+    # includes MAKTX, so the detail modal remains informative.
+    if material_number and raw_rows and not any(
+        normalize_bom(item).get("MAKTX") for item in raw_rows
+    ):
+        paged_rows = await data_gateway.all_pages(
+            "GET",
+            "/api/views/ZSGV_ZSD124",
+            filters={**base_filters, "keyword": ""},
+            max_rows=1_000_000,
+        )
+        if paged_rows:
+            descriptions_by_key = {
+                str(item.get("id") or item.get("_id") or ""): str(
+                    normalize_bom(item).get("MAKTX") or ""
+                ).strip()
+                for item in paged_rows
+                if item.get("id") or item.get("_id")
+            }
+            descriptions_by_material: dict[str, str] = {}
+            for item in paged_rows:
+                normalized = normalize_bom(item)
+                material = str(normalized.get("MATNR") or "").strip()
+                description = str(normalized.get("MAKTX") or "").strip()
+                if material and description and material not in descriptions_by_material:
+                    descriptions_by_material[material] = description
+            # Keep the streamed row as the source of matching semantics, but
+            # attach the richer description for presentation.
+            for item in raw_rows:
+                key = str(item.get("id") or item.get("_id") or "")
+                material = str(item.get("MATNR") or "").strip()
+                description = descriptions_by_key.get(key) or descriptions_by_material.get(
+                    material, ""
+                )
+                if description:
+                    item["_match_description"] = str(item.get("MAKTX") or "").strip()
+                    item["MAKTX"] = description
     seen: set[str] = set()
     rows = []
     for item in raw_rows:
@@ -196,6 +291,28 @@ async def load_bom(
     return result
 
 
+async def material_descriptions(material_numbers: list[str]) -> dict[str, str]:
+    """Load descriptions for a bounded set of PN values from the full view."""
+    materials = list(dict.fromkeys(str(value or "").strip() for value in material_numbers))
+    materials = [value for value in materials if value]
+    if not materials:
+        return {}
+    rows = await data_gateway.all_pages(
+        "GET",
+        "/api/views/ZSGV_ZSD124",
+        filters={"materialCode": ",".join(materials), "keyword": ""},
+        max_rows=1_000_000,
+    )
+    result: dict[str, str] = {}
+    for row in rows:
+        normalized = normalize_bom(row)
+        material = str(normalized.get("MATNR") or "").strip()
+        description = str(normalized.get("MAKTX") or "").strip()
+        if material and description and material not in result:
+            result[material] = description
+    return result
+
+
 async def load_faults(
     *,
     production_orders: set[str],
@@ -213,32 +330,71 @@ async def load_faults(
     # A broad GET would page through the complete repair collection. Indexed
     # POST lookups keep the query selective even when thousands of BOM orders
     # are involved.
-    if production_orders:
-        variants = order_variants(sorted(production_orders))
-        chunks = [variants[index : index + MAX_BATCH_ORDER_FILTERS] for index in range(0, len(variants), MAX_BATCH_ORDER_FILTERS)]
-        semaphore = asyncio.Semaphore(12)
+    semaphore = asyncio.Semaphore(12)
 
-        async def fetch(chunk: list[str]) -> list[dict[str, Any]]:
-            async with semaphore:
-                return await data_gateway.fault_lookup(
-                    production_orders=chunk, date_from=date_start, date_to=date_end
-                )
-
-        batches = await asyncio.gather(*(fetch(chunk) for chunk in chunks))
-        return [normalize_fault(item) for batch in batches for item in batch]
-    if sales_orders:
-        values = sorted(sales_orders)
-        chunks = [values[index : index + MAX_BATCH_ORDER_FILTERS] for index in range(0, len(values), MAX_BATCH_ORDER_FILTERS)]
-        batches = await asyncio.gather(
-            *(
-                data_gateway.fault_lookup(
-                    sales_orders=chunk, date_from=date_start, date_to=date_end
-                )
-                for chunk in chunks
+    async def fetch_by_production_order(chunk: list[str]) -> list[dict[str, Any]]:
+        async with semaphore:
+            return await data_gateway.fault_lookup(
+                production_orders=chunk, date_from=date_start, date_to=date_end
             )
+
+    async def fetch_by_sales_order(chunk: list[str]) -> list[dict[str, Any]]:
+        async with semaphore:
+            return await data_gateway.fault_lookup(
+                sales_orders=chunk, date_from=date_start, date_to=date_end
+            )
+
+    lookup_requests = []
+    variants = order_variants(sorted(production_orders))
+    lookup_requests.extend(
+        fetch_by_production_order(variants[index : index + MAX_BATCH_ORDER_FILTERS])
+        for index in range(0, len(variants), MAX_BATCH_ORDER_FILTERS)
+    )
+    sales = sorted({_norm_sales_order(value) for value in sales_orders if _norm_sales_order(value)})
+    lookup_requests.extend(
+        fetch_by_sales_order(sales[index : index + MAX_BATCH_ORDER_FILTERS])
+        for index in range(0, len(sales), MAX_BATCH_ORDER_FILTERS)
+    )
+    # The gateway's indexed sales-order lookup is not consistent across
+    # deployments: some indexes store the SAP-padded value, others the
+    # normalized value. Query both forms when they differ.
+    padded_sales = sorted(
+        {
+            str(value).strip().rsplit("--", 1)[0]
+            for value in sales_orders
+            if str(value).strip().rsplit("--", 1)[0]
+            and str(value).strip().rsplit("--", 1)[0] not in sales
+        }
+    )
+    lookup_requests.extend(
+        fetch_by_sales_order(padded_sales[index : index + MAX_BATCH_ORDER_FILTERS])
+        for index in range(0, len(padded_sales), MAX_BATCH_ORDER_FILTERS)
+    )
+    batches = await asyncio.gather(*lookup_requests)
+    links = [normalize_fault(item) for batch in batches for item in batch]
+    sns = sorted({str(row.get("PCODE") or "").strip() for row in links if row.get("PCODE")})
+    if not sns:
+        return _deduplicate_faults(links)
+
+    async def fetch_details(chunk: list[str]) -> list[dict[str, Any]]:
+        async with semaphore:
+            return await data_gateway.fault_rows_by_sns(
+                chunk, date_from=date_start, date_to=date_end
+            )
+
+    detail_batches = await asyncio.gather(
+        *(
+            fetch_details(sns[index : index + MAX_BATCH_SN_FILTERS])
+            for index in range(0, len(sns), MAX_BATCH_SN_FILTERS)
         )
-        return [normalize_fault(item) for batch in batches for item in batch]
-    return []
+    )
+    details = [normalize_fault(item) for batch in detail_batches for item in batch]
+    resolved_sns = {str(row.get("PCODE") or "").strip() for row in details}
+    # Keep lookup-only rows when the detailed source has no matching SN,
+    # so a transiently incomplete detail index does not undercount LRR.
+    return _deduplicate_faults(
+        details + [row for row in links if str(row.get("PCODE") or "").strip() not in resolved_sns]
+    )
 
 
 async def options() -> dict[str, list[str]]:

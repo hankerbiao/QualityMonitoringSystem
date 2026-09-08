@@ -45,6 +45,7 @@ class DataGatewayClient:
             tuple[str, tuple[tuple[str, str], ...]], tuple[float, list[dict[str, Any]]]
         ] = {}
         self._text_cache: dict[tuple[str, tuple[tuple[str, str], ...]], tuple[float, Any]] = {}
+        self._list_inflight: dict[object, asyncio.Task[list[dict[str, Any]]]] = {}
         self._orders_cache_lock = asyncio.Lock()
         self._loop: asyncio.AbstractEventLoop | None = None
 
@@ -65,6 +66,7 @@ class DataGatewayClient:
             self._orders_cache.clear()
             self._views_cache.clear()
             self._text_cache.clear()
+            self._list_inflight.clear()
             self._orders_cache_lock = asyncio.Lock()
         self._loop = loop
         if self._client is None:
@@ -87,6 +89,41 @@ class DataGatewayClient:
             self._orders_cache.clear()
             self._views_cache.clear()
             self._text_cache.clear()
+            self._list_inflight.clear()
+
+    async def _cached_list(
+        self,
+        cache: dict[Any, tuple[float, list[dict[str, Any]]]],
+        cache_key: Any,
+        loader: Any,
+        max_rows: int,
+    ) -> list[dict[str, Any]]:
+        """Reuse a short-lived list response and coalesce concurrent loads."""
+        now = time.monotonic()
+        async with self._orders_cache_lock:
+            cached = cache.get(cache_key)
+            if self.cache_ttl > 0 and cached and cached[0] > now:
+                return copy.deepcopy(cached[1][:max_rows])
+            if cached:
+                cache.pop(cache_key, None)
+            task = self._list_inflight.get(cache_key)
+            if task is None:
+                task = asyncio.create_task(loader())
+                self._list_inflight[cache_key] = task
+        try:
+            items = await task
+        finally:
+            async with self._orders_cache_lock:
+                if self._list_inflight.get(cache_key) is task:
+                    self._list_inflight.pop(cache_key, None)
+        if len(items) > max_rows:
+            raise DataGatewayError(
+                f"数据网关结果共 {len(items)} 条，超过本系统单次处理上限 {max_rows} 条；请缩小日期或筛选范围"
+            )
+        if self.cache_ttl > 0:
+            async with self._orders_cache_lock:
+                cache[cache_key] = (time.monotonic() + self.cache_ttl, items)
+        return copy.deepcopy(items)
 
     async def request_json(
         self,
@@ -278,26 +315,13 @@ class DataGatewayClient:
         # load. Reuse it briefly to avoid repeating a large Mongo query while
         # keeping freshness bounded and explicit.
         cache_key = tuple(sorted((str(key), str(value)) for key, value in filters.items() if value))
-        now = time.monotonic()
-        if self.cache_ttl > 0:
-            async with self._orders_cache_lock:
-                cached = self._orders_cache.get(cache_key)
-                if cached and cached[0] > now:
-                    return copy.deepcopy(cached[1][:max_rows])
-                if cached:
-                    self._orders_cache.pop(cache_key, None)
-        payload = await self.request_json("GET", "/api/orders/all", params=filters)
-        if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
-            raise DataGatewayError("数据网关订单响应格式错误")
-        items = [item for item in payload["items"] if isinstance(item, dict)]
-        if len(items) > max_rows:
-            raise DataGatewayError(
-                f"数据网关结果共 {len(items)} 条，超过本系统单次处理上限 {max_rows} 条；请缩小日期或筛选范围"
-            )
-        if self.cache_ttl > 0:
-            async with self._orders_cache_lock:
-                self._orders_cache[cache_key] = (time.monotonic() + self.cache_ttl, items)
-        return copy.deepcopy(items)
+        async def load() -> list[dict[str, Any]]:
+            payload = await self.request_json("GET", "/api/orders/all", params=filters)
+            if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+                raise DataGatewayError("数据网关订单响应格式错误")
+            return [item for item in payload["items"] if isinstance(item, dict)]
+
+        return await self._cached_list(self._orders_cache, ("orders", cache_key), load, max_rows)
 
     async def fault_lookup(
         self,
@@ -350,24 +374,13 @@ class DataGatewayClient:
             view_id,
             tuple(sorted((str(key), str(value)) for key, value in filters.items() if value)),
         )
-        now = time.monotonic()
-        if self.cache_ttl > 0:
-            async with self._orders_cache_lock:
-                cached = self._views_cache.get(cache_key)
-                if cached and cached[0] > now:
-                    return copy.deepcopy(cached[1][:max_rows])
-                if cached:
-                    self._views_cache.pop(cache_key, None)
-        payload = await self.request_json("GET", f"/api/views/{view_id}/all", params=filters)
-        if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
-            raise DataGatewayError("数据网关视图响应格式错误")
-        items = [item for item in payload["items"] if isinstance(item, dict)]
-        if len(items) > max_rows:
-            raise DataGatewayError("数据网关视图结果超过单次处理上限")
-        if self.cache_ttl > 0:
-            async with self._orders_cache_lock:
-                self._views_cache[cache_key] = (time.monotonic() + self.cache_ttl, items)
-        return copy.deepcopy(items)
+        async def load() -> list[dict[str, Any]]:
+            payload = await self.request_json("GET", f"/api/views/{view_id}/all", params=filters)
+            if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+                raise DataGatewayError("数据网关视图响应格式错误")
+            return [item for item in payload["items"] if isinstance(item, dict)]
+
+        return await self._cached_list(self._views_cache, ("view", cache_key), load, max_rows)
 
     async def all_bom_rows(
         self, *, max_rows: int = 1_000_000, **filters: str

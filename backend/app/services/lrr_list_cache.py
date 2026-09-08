@@ -31,18 +31,16 @@ def _utc_now() -> datetime:
 
 @dataclass(frozen=True)
 class LRRListQuery:
+    # Bump when the aggregation semantics change so Mongo never serves a
+    # response calculated by an incompatible version of the code.
+    cache_version: str = "fault-details-v8-description-display"
     page: int = 1
     limit: int = 50
-    production_order: str | None = None
-    sales_order: str | None = None
-    date_from: str | None = None
-    date_to: str | None = None
-    order_keyword: str | None = None
+    ng_date_from: str | None = None
+    ng_date_to: str | None = None
     material_number: str | None = None
     base: str | None = None
     customer_id: str | None = None
-    month: str | None = None
-    group_by: str = "productionOrder"
     sort_by: str = "lrrRate"
     sort_dir: str = "desc"
 
