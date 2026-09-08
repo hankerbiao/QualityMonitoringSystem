@@ -223,7 +223,10 @@ async def _load(query: LRRListQuery) -> LRRListResponse:
 
 async def warm_default_lrr_list_cache() -> None:
     query = LRRListQuery()
-    await lrr_list_cache.get_or_load(query, lambda: _load(query), refresh=True)
+    try:
+        await lrr_list_cache.get_or_load(query, lambda: _load(query), refresh=True)
+    except Exception:
+        log_info("LRR 默认缓存预热跳过（网关超时或异常）")
 
 
 @router.get("/list", response_model=LRRListResponse)

@@ -12,7 +12,7 @@ from time import perf_counter
 from typing import Any
 
 from app.core.logger import log_info
-from app.services.data_gateway_client import data_gateway
+from app.services.data_gateway_client import DataGatewayError, data_gateway
 from app.services.rty_shared import order_variants
 
 MAX_BATCH_ORDER_FILTERS = 200
@@ -297,12 +297,15 @@ async def material_descriptions(material_numbers: list[str]) -> dict[str, str]:
     materials = [value for value in materials if value]
     if not materials:
         return {}
-    rows = await data_gateway.all_pages(
-        "GET",
-        "/api/views/ZSGV_ZSD124",
-        filters={"materialCode": ",".join(materials), "keyword": ""},
-        max_rows=1_000_000,
-    )
+    try:
+        rows = await data_gateway.all_pages(
+            "GET",
+            "/api/views/ZSGV_ZSD124",
+            filters={"materialCode": ",".join(materials), "keyword": ""},
+            max_rows=1_000_000,
+        )
+    except DataGatewayError:
+        return {}
     result: dict[str, str] = {}
     for row in rows:
         normalized = normalize_bom(row)
