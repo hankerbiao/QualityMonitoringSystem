@@ -8,6 +8,7 @@ x-backend-environment: &backend-environment
   DATA_GATEWAY_URL: ${DATA_GATEWAY_URL:-http://10.17.154.65:18080}
   DATA_GATEWAY_TIMEOUT_SECONDS: ${DATA_GATEWAY_TIMEOUT_SECONDS:-120}
   PROCESS_RECORD_CREDENTIAL_KEY: ${PROCESS_RECORD_CREDENTIAL_KEY:-}
+  DATA_GATEWAY_CACHE_TTL_SECONDS: ${DATA_GATEWAY_CACHE_TTL_SECONDS:-10.0}
   JWT_SECRET: ${JWT_SECRET:-}
   ALERT_TOKEN_SECRET: ${ALERT_TOKEN_SECRET:-}
   DEFAULT_ADMIN_USERNAME: ${DEFAULT_ADMIN_USERNAME:-}
@@ -31,6 +32,11 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.backend
+      network: host
+      args:
+        HTTP_PROXY: ${BUILD_HTTP_PROXY:-}
+        HTTPS_PROXY: ${BUILD_HTTPS_PROXY:-}
+        NO_PROXY: ${BUILD_NO_PROXY:-}
     environment: *backend-environment
     ports:
       - "${BACKEND_PORT:-4001}:8000"
@@ -58,6 +64,11 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile.frontend
+      network: host
+      args:
+        HTTP_PROXY: ${BUILD_HTTP_PROXY:-}
+        HTTPS_PROXY: ${BUILD_HTTPS_PROXY:-}
+        NO_PROXY: ${BUILD_NO_PROXY:-}
     environment:
       TZ: ${TZ:-Asia/Shanghai}
     ports:
