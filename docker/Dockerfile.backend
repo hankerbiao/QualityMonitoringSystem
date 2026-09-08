@@ -23,13 +23,10 @@ WORKDIR /app
 # Cache dependency installation separately from application source changes.
 COPY backend/pyproject.toml backend/uv.lock backend/wheels ./
 RUN --mount=type=cache,id=qualiboard-uv,target=/root/.cache/uv \
-    uv venv .venv && uv pip install --no-deps --no-index $(find . -name "*.whl" | grep -v pyproject | tr '\n' ' ') && \
-    uv pip install editables
+    uv venv .venv && uv pip install --no-deps --no-index $(find . -name "*.whl" | grep -v pyproject | tr '\n' ' ')
 
 COPY backend/app ./app
 COPY backend/init_default_settings.py ./
-RUN --mount=type=cache,id=qualiboard-uv,target=/root/.cache/uv \
-    PATH="/app/.venv/bin:$PATH" uv pip install --no-build-isolation --no-deps --find-links . --editable .
 
 RUN mkdir -p /app/logs && chown 10001:10001 /app/logs
 
