@@ -5,7 +5,7 @@ import type {
   LRRListResponse,
   LRROptions,
 } from '../types';
-import { apiFetch } from './authApi';
+import { requestJson } from './authApi';
 
 const inFlightRequests = new Map<string, Promise<unknown>>();
 
@@ -37,9 +37,7 @@ export const lrrApi = {
     const qs = buildQuery(filters, { page, limit: pageSize });
     const url = `/api/lrr/list${qs}`;
     return requestOnce(url, async () => {
-      const res = await apiFetch(url);
-      if (!res.ok) throw new Error('LRR 看板加载失败');
-      return (await res.json()) as LRRListResponse;
+      return requestJson<LRRListResponse>(url);
     });
   },
 
@@ -47,18 +45,14 @@ export const lrrApi = {
   async getOptions(): Promise<LRROptions> {
     const url = '/api/lrr/options';
     return requestOnce(url, async () => {
-      const res = await apiFetch(url);
-      if (!res.ok) throw new Error('LRR 筛选项加载失败');
-      return (await res.json()) as LRROptions;
+      return requestJson<LRROptions>(url);
     });
   },
 
   /** 故障明细(用于导出)，返回全量命中记录 */
   async getFaultDetails(filters: LRRFilters = {}, limit = 50000): Promise<LRRFaultDetailsResponse> {
     const qs = buildQuery(filters, { limit });
-    const res = await apiFetch(`/api/lrr/fault-details${qs}`);
-    if (!res.ok) throw new Error('LRR 故障明细加载失败');
-    return (await res.json()) as LRRFaultDetailsResponse;
+    return requestJson<LRRFaultDetailsResponse>(`/api/lrr/fault-details${qs}`);
   },
 };
 

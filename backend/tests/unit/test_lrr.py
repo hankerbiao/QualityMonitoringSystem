@@ -168,3 +168,76 @@ def test_lrr_prefers_exact_fault_material_number_when_description_is_missing():
     assert rows[0].faultCount == 1
     assert rows[1].faultCount == 0
     assert details[0].materialNumber == "PN-1"
+
+
+def test_lrr_skips_ambiguous_description_matches_instead_of_counting_every_pn():
+    rows, details = aggregate_lrr(
+        [
+            {
+                "AUFNR_1": "1",
+                "MATNR": "PN-1",
+                "MAKTX": "CPU A",
+                "BUDAT_MKPF": "20260201",
+                "MENGE_A": 1,
+            },
+            {
+                "AUFNR_1": "1",
+                "MATNR": "PN-2",
+                "MAKTX": "CPU A",
+                "BUDAT_MKPF": "20260201",
+                "MENGE_A": 1,
+            },
+        ],
+        [{"_id": "f1", "AUFNR": "1", "ZJXMC": "CPU A", "ZDATE_WX": "20260202"}],
+    )
+
+    assert [row.faultCount for row in rows] == [0, 0]
+    assert details == []
+
+
+def test_lrr_counts_a_precisely_identified_pn_even_when_descriptions_are_shared():
+    rows, details = aggregate_lrr(
+        [
+            {
+                "AUFNR_1": "1",
+                "MATNR": "PN-1",
+                "MAKTX": "CPU A",
+                "BUDAT_MKPF": "20260201",
+                "MENGE_A": 1,
+            },
+            {
+                "AUFNR_1": "1",
+                "MATNR": "PN-2",
+                "MAKTX": "CPU A",
+                "BUDAT_MKPF": "20260201",
+                "MENGE_A": 1,
+            },
+        ],
+        [{"_id": "f1", "AUFNR": "1", "MATNR": "PN-2", "ZDATE_WX": "20260202"}],
+    )
+
+    by_material = {row.materialNumber: row for row in rows}
+    assert by_material["PN-1"].faultCount == 0
+    assert by_material["PN-2"].faultCount == 1
+    assert details[0].materialNumber == "PN-2"
+
+
+def test_lrr_deduplicates_mirrored_records_but_keeps_separate_repairs_for_one_sn():
+    rows, _ = aggregate_lrr(
+        [
+            {
+                "AUFNR_1": "1",
+                "MATNR": "PN-1",
+                "MAKTX": "CPU A",
+                "BUDAT_MKPF": "20260201",
+                "MENGE_A": 10,
+            }
+        ],
+        [
+            {"_id": "f1", "AUFNR": "1", "ZJXMC": "CPU A", "PCODE": "SN-1", "ZDATE_WX": "20260202"},
+            {"_id": "f1", "AUFNR": "1", "ZJXMC": "CPU A", "PCODE": "SN-1", "ZDATE_WX": "20260202"},
+            {"_id": "f2", "AUFNR": "1", "ZJXMC": "CPU A", "PCODE": "SN-1", "ZDATE_WX": "20260203"},
+        ],
+    )
+
+    assert rows[0].faultCount == 2

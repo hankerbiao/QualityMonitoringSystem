@@ -32,6 +32,7 @@ export interface DoaDashboard {
     repairRate: number | null;
     replacementCount: number;
     replacementRate: number | null;
+    replacementRecordCount: number;
     matchedRepairRecords: number;
     excludedRepairRecords: number;
     latestDataAt: string | null;
@@ -57,6 +58,7 @@ export interface DoaRepairItem {
 export interface DoaRepairsResponse {
   items: DoaRepairItem[];
   total: number;
+  totalRepairCount: number;
   page: number;
   limit: number;
   has_more: boolean;
@@ -67,16 +69,23 @@ export interface DoaOptions {
   models: string[];
 }
 
-export interface DoaRawEnrichment {
-  status: 'success' | 'failed' | 'pending' | 'skipped';
-  sales_order?: string | null;
-  [key: string]: unknown;
-}
-
 export interface DoaRawItem {
   id: string;
   data: Record<string, string | number | null | undefined>;
-  enrichment: DoaRawEnrichment;
+}
+
+export interface DoaRawFilters {
+  acceptedDateFrom?: string;
+  acceptedDateTo?: string;
+  keyword?: string;
+  serviceNumber?: string;
+  salesOrder?: string;
+  serialNumber?: string;
+  customer?: string;
+  product?: string;
+  doaType?: string;
+  judgment?: string;
+  processingStatus?: string;
 }
 
 export interface DoaRawDashboard {
@@ -84,16 +93,11 @@ export interface DoaRawDashboard {
     total: number;
     judgmentYes: number;
     judgmentNo: number;
-    enrichedSuccess: number;
-    enrichmentFailed: number;
-    enrichmentPending: number;
-    enrichmentSkipped: number;
     latestAcceptedAt: string | null;
   };
   trend: { date: string; label: string; count: number }[];
   byType: { key: string; count: number }[];
   byProcessingStatus: { key: string; count: number }[];
-  byEnrichmentStatus: { key: string; count: number }[];
   items: DoaRawItem[];
   pagination: { page: number; limit: number; total: number; hasMore: boolean };
 }

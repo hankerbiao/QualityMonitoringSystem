@@ -68,7 +68,8 @@ frontend/
 │   │   ├── RTYPage.tsx         # RTY 整机直通率页面
 │   │   └── ProtectedLayout.tsx # 受保护布局 (OA 登录验证)
 │   ├── context/                # React Context
-│   │   └── ModelTargetsContext.tsx  # 机型指标上下文
+│   │   ├── AuthContext.tsx      # 登录状态
+│   │   └── SettingsContext.tsx  # 系统配置
 │   ├── types.ts                # TypeScript 类型定义
 │   ├── App.tsx                 # 路由配置
 │   └── index.css               # Tailwind v4 入口

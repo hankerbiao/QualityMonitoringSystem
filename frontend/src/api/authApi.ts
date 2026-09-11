@@ -1,5 +1,6 @@
 import { API_BASE_URL, TOKEN_KEYS } from '../constants';
-import { sessionStore } from './sessionStore';
+
+const REFRESH_TOKEN_KEY = 'qualiboard-session-token';
 
 export function getAccessToken(): string | null {
   try {
@@ -35,18 +36,26 @@ export function isTokenExpiringSoon(soonMs = 60_000): boolean {
 }
 
 export function getRefreshToken(): string | null {
-  return sessionStore.get();
+  try {
+    return localStorage.getItem(REFRESH_TOKEN_KEY);
+  } catch {
+    return null;
+  }
 }
 
 export function setRefreshToken(token: string) {
-  sessionStore.set(token);
+  try {
+    localStorage.setItem(REFRESH_TOKEN_KEY, token);
+  } catch {
+    // ignore
+  }
 }
 
 export function clearTokens() {
   try {
     localStorage.removeItem(TOKEN_KEYS.ACCESS);
     localStorage.removeItem(TOKEN_KEYS.EXPIRY);
-    sessionStore.clear();
+    localStorage.removeItem(REFRESH_TOKEN_KEY);
   } catch {
     // ignore
   }
@@ -133,6 +142,34 @@ export async function apiFetch(input: string, init: RequestInit = {}): Promise<R
   }
 
   return response;
+}
+
+export interface ApiEnvelope<T> {
+  success: boolean;
+  data?: T;
+  message?: string;
+  error?: string;
+  detail?: string;
+}
+
+/** Parse an authenticated JSON response and normalize HTTP errors. */
+export async function requestJson<T>(input: string, init: RequestInit = {}): Promise<T> {
+  const response = await apiFetch(input, init);
+  const payload = await response.json().catch(() => null);
+  if (!response.ok) {
+    const message = payload?.error || payload?.detail || payload?.message;
+    throw new Error(message || `请求失败 (${response.status})`);
+  }
+  return payload as T;
+}
+
+/** Parse the common { success, data } API response used by dashboard endpoints. */
+export async function requestData<T>(input: string, init: RequestInit = {}): Promise<T> {
+  const payload = await requestJson<ApiEnvelope<T>>(input, init);
+  if (!payload?.success || payload.data === undefined) {
+    throw new Error(payload?.error || payload?.message || '请求返回数据无效');
+  }
+  return payload.data;
 }
 
 export async function getCurrentUser(): Promise<{

@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Query, Request
 
 from app.core.logger import audit_log
 from app.db.mongodb import get_database
@@ -17,12 +17,10 @@ from app.schemas.rty import (
     StationPassRate,
 )
 from app.services import rty_gateway
-from app.services.data_gateway_client import DataGatewayError
+from app.services.rty_shared import YEAR_END, YEAR_START
 
 router = APIRouter()
 
-YEAR_START = "2026-01-01"
-YEAR_END = "2026-12-31"
 OrderScope = Literal["normal", "l6"]
 OrderScopeQuery = Annotated[OrderScope, Query(description="订单范围: normal 或 l6")]
 CalculationMethod = Literal["normal", "composite"]
@@ -35,10 +33,6 @@ StationGroupByQuery = Annotated[StationGroupBy, Query(description="统计维度"
 
 def _split_values(value: str) -> list[str]:
     return [item.strip() for item in value.replace("，", ",").split(",") if item.strip()]
-
-
-def _gateway_error(exc: DataGatewayError) -> HTTPException:
-    return HTTPException(status_code=502, detail=str(exc))
 
 
 def _order_filters(
@@ -75,10 +69,7 @@ async def _targets() -> dict[str, float]:
 
 @router.get("/cycle-data", response_model=Response[list[RTYData]])
 async def get_rty_cycle_data(orderScope: OrderScopeQuery = "normal", customer: str | None = None):
-    try:
-        rows = await rty_gateway.cycle_data(orderScope, customer, await _targets())
-    except DataGatewayError as exc:
-        raise _gateway_error(exc) from exc
+    rows = await rty_gateway.cycle_data(orderScope, customer, await _targets())
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 条周期统计数据")
 
 
@@ -91,12 +82,9 @@ async def get_station_pass_rates(
     base: str | None = None,
     groupBy: StationGroupByQuery = "salesOrder",
 ):
-    try:
-        rows = await rty_gateway.station_rates(
-            dateFrom, dateTo, serialNumber, productModel, base, groupBy
-        )
-    except DataGatewayError as exc:
-        raise _gateway_error(exc) from exc
+    rows = await rty_gateway.station_rates(
+        dateFrom, dateTo, serialNumber, productModel, base, groupBy
+    )
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 个工位")
 
 
@@ -112,13 +100,10 @@ async def get_station_pass_details(
     groupBy: StationGroupBy = "salesOrder",
     dimensionValue: str | None = None,
 ):
-    try:
-        rows = await rty_gateway.station_details(
-            stationCode.strip(), dateFrom, dateTo, detailType, serialNumber, productModel,
-            base, groupBy, dimensionValue,
-        )
-    except DataGatewayError as exc:
-        raise _gateway_error(exc) from exc
+    rows = await rty_gateway.station_details(
+        stationCode.strip(), dateFrom, dateTo, detailType, serialNumber, productModel,
+        base, groupBy, dimensionValue,
+    )
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 条明细")
 
 
@@ -140,19 +125,16 @@ async def get_rty_list(
     calculationMethod: CalculationMethodQuery = None,
 ):
     del request
-    try:
-        return await rty_gateway.rty_list(
-            _order_filters(
-                sales_order=salesOrder, production_order=productionOrder, serial_number=serialNumber,
-                base=base, product_model=productModel, customer=customer, date_from=dateFrom,
-                date_to=dateTo, order_scope=orderScope, calculation_method=calculationMethod,
-            ),
-            page,
-            limit,
-            await _targets(),
-        )
-    except DataGatewayError as exc:
-        raise _gateway_error(exc) from exc
+    return await rty_gateway.rty_list(
+        _order_filters(
+            sales_order=salesOrder, production_order=productionOrder, serial_number=serialNumber,
+            base=base, product_model=productModel, customer=customer, date_from=dateFrom,
+            date_to=dateTo, order_scope=orderScope, calculation_method=calculationMethod,
+        ),
+        page,
+        limit,
+        await _targets(),
+    )
 
 
 @router.get("/excluded-orders", response_model=PaginatedResponse[ExcludedOrder])
@@ -172,18 +154,15 @@ async def get_excluded_orders(
     orderScope: OrderScopeQuery = "normal",
 ):
     del request
-    try:
-        return await rty_gateway.excluded_orders(
-            _order_filters(
-                sales_order=salesOrder, production_order=productionOrder, serial_number=serialNumber,
-                base=base, product_model=productModel, customer=customer, date_from=dateFrom,
-                date_to=dateTo, order_scope=orderScope,
-            ),
-            page,
-            limit,
-        )
-    except DataGatewayError as exc:
-        raise _gateway_error(exc) from exc
+    return await rty_gateway.excluded_orders(
+        _order_filters(
+            sales_order=salesOrder, production_order=productionOrder, serial_number=serialNumber,
+            base=base, product_model=productModel, customer=customer, date_from=dateFrom,
+            date_to=dateTo, order_scope=orderScope,
+        ),
+        page,
+        limit,
+    )
 
 
 @router.get("/defects/by-filters", response_model=Response[list[DefectDetail]])
@@ -202,19 +181,16 @@ async def get_defect_details_by_filters(
     calculationMethod: CalculationMethodQuery = None,
 ):
     del request, calculationMethod
-    try:
-        filters = _order_filters(
-            sales_order=salesOrder, production_order=productionOrder, serial_number=serialNumber,
-            base=base, product_model=productModel, customer=customer, date_from=dateFrom,
-            date_to=dateTo, order_scope=orderScope,
-        )
-        orders = await rty_gateway._orders(filters)
-        rows = await rty_gateway.details_by_orders(
-            {row["aufnr"] for row in orders}, productModel,
-            date_from=filters["dateFrom"], date_to=filters["dateTo"],
-        )
-    except DataGatewayError as exc:
-        raise _gateway_error(exc) from exc
+    filters = _order_filters(
+        sales_order=salesOrder, production_order=productionOrder, serial_number=serialNumber,
+        base=base, product_model=productModel, customer=customer, date_from=dateFrom,
+        date_to=dateTo, order_scope=orderScope,
+    )
+    orders = await rty_gateway._orders(filters)
+    rows = await rty_gateway.details_by_orders(
+        {row["aufnr"] for row in orders}, productModel,
+        date_from=filters["dateFrom"], date_to=filters["dateTo"],
+    )
     return Response(success=True, data=rows, message="网关故障明细查询完成")
 
 
@@ -223,49 +199,34 @@ async def get_defect_details(sns: str = Query(..., description="机器序列号�
     values = _split_values(sns)
     if not values:
         return Response(success=True, data=[], message="无 SN 参数")
-    try:
-        rows = await rty_gateway._faults(
-            {"sns": ",".join(values), "dateFrom": YEAR_START, "dateTo": YEAR_END}
-        )
-    except DataGatewayError as exc:
-        raise _gateway_error(exc) from exc
+    rows = await rty_gateway._faults(
+        {"sns": ",".join(values), "dateFrom": YEAR_START, "dateTo": YEAR_END}
+    )
     data = [rty_gateway.to_detail(row) for row in rty_gateway._dedup_faults(rows)]
     return Response(success=True, data=data, message=f"查询到 {len(data)} 条维修故障记录")
 
 
 @router.get("/defects/by-order", response_model=Response[list[DefectDetail]])
 async def get_defect_details_by_order(productionOrder: str = Query(...)):
-    try:
-        rows = await rty_gateway.details_by_orders(set(_split_values(productionOrder)))
-    except DataGatewayError as exc:
-        raise _gateway_error(exc) from exc
+    rows = await rty_gateway.details_by_orders(set(_split_values(productionOrder)))
     return Response(success=True, data=rows, message="网关故障明细查询完成")
 
 
 @router.get("/sales-order-summary", response_model=Response[list[SalesOrderSummary]])
 async def get_sales_order_summary(salesOrders: str = Query(...), orderScope: OrderScopeQuery = "normal"):
-    try:
-        rows = await rty_gateway.sales_order_summary(_split_values(salesOrders), orderScope)
-    except DataGatewayError as exc:
-        raise _gateway_error(exc) from exc
+    rows = await rty_gateway.sales_order_summary(_split_values(salesOrders), orderScope)
     return Response(success=True, data=rows, message="网关销售订单汇总完成")
 
 
 async def _scope_orders(order_scope: OrderScope) -> list[dict[str, object]]:
-    try:
-        return await rty_gateway._orders(
-            {"orderScope": order_scope, "dateFrom": YEAR_START, "dateTo": YEAR_END}
-        )
-    except DataGatewayError as exc:
-        raise _gateway_error(exc) from exc
+    return await rty_gateway._orders(
+        {"orderScope": order_scope, "dateFrom": YEAR_START, "dateTo": YEAR_END}
+    )
 
 
 @router.get("/production-orders/by-sales-order", response_model=Response[list[str]])
 async def get_production_orders_by_sales_order(salesOrder: str = Query(...), orderScope: OrderScopeQuery = "normal"):
-    try:
-        rows = await rty_gateway._orders({"salesOrder": salesOrder, "orderScope": orderScope})
-    except DataGatewayError as exc:
-        raise _gateway_error(exc) from exc
+    rows = await rty_gateway._orders({"salesOrder": salesOrder, "orderScope": orderScope})
     return Response(success=True, data=sorted({str(row["aufnr"]) for row in rows}))
 
 

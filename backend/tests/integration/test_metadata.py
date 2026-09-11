@@ -1,10 +1,12 @@
-"""Metadata table browser API tests."""
+"""Metadata browser integration tests for gateway-owned raw data."""
 
 import pytest
 
+from app.services.data_gateway_client import DataGatewayError
+
 
 @pytest.mark.integration
-async def test_metadata_table_rejects_unknown_collection(client, make_test_access_token):
+async def test_metadata_table_rejects_unknown_table(client, make_test_access_token):
     response = await client.get(
         "/api/metadata/tables/not_allowed",
         headers={"Authorization": f"Bearer {make_test_access_token('metadata-user')}"},
@@ -14,88 +16,54 @@ async def test_metadata_table_rejects_unknown_collection(client, make_test_acces
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize(
-    "table_name",
-    [
-        "order_bom_postings_sap",
-        "serial_bindings_sap",
-        "repair_records_sap",
-        "station_records_sap",
-    ],
-)
-async def test_metadata_table_rejects_removed_dashboard_collections(
-    client, make_test_access_token, table_name
-):
-    response = await client.get(
-        f"/api/metadata/tables/{table_name}",
-        headers={"Authorization": f"Bearer {make_test_access_token('metadata-user')}"},
-    )
+async def test_scs_metadata_reads_gateway_rows(client, make_test_access_token, monkeypatch):
+    from app.api import metadata
 
-    assert response.status_code == 404
-
-
-@pytest.mark.integration
-async def test_scs_metadata_uses_nested_raw_and_enrichment_fields(
-    client, db_clean, make_test_access_token
-):
-    await db_clean["scs_doa_results"].insert_one(
-        {
-            "data": {
-                "服务单号": "SVC-001",
-                "客户全称": "客户A",
-                "产品/备件名称": "整机X1",
-                "受理时间": "2026-08-01 10:00",
-                "判定结果": "是",
-            },
-            "scs_enrichment": {
-                "sales_order": "SO-001",
-                "factory_date": "2026-07-01",
-                "warranty_end_date": "2029-07-01",
-                "status": "success",
-            },
+    async def page(view_id, **_kwargs):
+        assert view_id == "SCS_DOA"
+        return {
+            "items": [
+                {
+                    "id": "DOA-1",
+                    "service_uid": "SVC-1",
+                    "sales_order": "SO-1",
+                    "customer_uid": "客户A",
+                    "acceptance_time": "2026-09-01",
+                    "is_5000_company": "true",
+                }
+            ],
+            "total": 1,
+            "page": 1,
+            "pageSize": 10,
         }
-    )
 
+    monkeypatch.setattr(metadata.scs_gateway, "page", page)
     response = await client.get(
-        "/api/metadata/tables/scs_doa_results?page=1&page_size=10",
+        "/api/metadata/tables/scs_doa?page=1&page_size=10",
         headers={"Authorization": f"Bearer {make_test_access_token('metadata-user')}"},
     )
 
     assert response.status_code == 200
-    body = response.json()
-    row = body["rows"][0]
-    assert row["data"]["服务单号"] == "SVC-001"
-    assert row["data"]["客户全称"] == "客户A"
-    assert row["scs_enrichment"]["sales_order"] == "SO-001"
-    assert {column["key"] for column in body["columns"]} >= {
-        "data.客户全称",
-        "data.产品/备件名称",
-        "scs_enrichment.sales_order",
-    }
+    row = response.json()["rows"][0]
+    assert row["data"]["服务单号"] == "SVC-1"
+    assert row["data"]["销售订单号"] == "SO-1"
+    assert row["source"] == "data_gateway"
 
 
 @pytest.mark.integration
-@pytest.mark.parametrize(
-    ("table_name", "document", "query"),
-    [
-        (
-            "scs_doa_results",
-            {"scs_enrichment": {"sales_order": "SO-004"}},
-            "salesOrder=SO-004",
-        ),
-    ],
-)
-async def test_metadata_table_applies_configured_filters(
-    client, db_clean, make_test_access_token, table_name, document, query
+async def test_scs_metadata_translates_gateway_errors_to_bad_gateway(
+    client, make_test_access_token, monkeypatch
 ):
-    await db_clean[table_name].insert_many([document, {"unrelated": "record"}])
+    from app.api import metadata
 
+    async def page(*_args, **_kwargs):
+        raise DataGatewayError("gateway unavailable")
+
+    monkeypatch.setattr(metadata.scs_gateway, "page", page)
     response = await client.get(
-        f"/api/metadata/tables/{table_name}?page=1&page_size=10&{query}",
+        "/api/metadata/tables/scs_doa",
         headers={"Authorization": f"Bearer {make_test_access_token('metadata-user')}"},
     )
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["total"] == 1
-    assert body["filters"]
+    assert response.status_code == 502
+    assert response.json()["detail"] == "gateway unavailable"

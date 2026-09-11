@@ -58,48 +58,30 @@ class TestOperationsDashboard:
         )
         assert response.status_code == 422
 
-    async def test_reports_sync_data_sources(self, client, db_clean, make_test_access_token):
-        now = datetime.now(timezone.utc)
+    async def test_reports_sync_data_sources(self, client, make_test_access_token, monkeypatch):
+        from app.services import operations_service
+
         token = make_test_access_token("alice")
         headers = {"Authorization": f"Bearer {token}"}
-        await db_clean.rty_sync_checkpoints.insert_one(
-            {
-                "_id": "sales_orders:SG",
-                "source": "sales_orders",
-                "source_name": "SG",
-                "last_success_date": "2026-08-26",
-                "updated_at": now,
+
+        async def data_status():
+            return {
+                "salesOrdersLastSyncedAt": "2026-08-26T02:30:00Z",
+                "faultsLastSyncedAt": "2026-08-25T01:00:00Z",
+                "stationRecordsLastSyncedAt": "2026-08-25T02:00:00Z",
+                "serialBindingsLastSyncedAt": "2026-08-25T03:00:00Z",
+                "bomPostingsLastSyncedAt": "2026-08-25T04:00:00Z",
+                "scsDoaLastSyncedAt": "2026-08-24T05:00:00Z",
+                "scsChangeLastSyncedAt": "2026-08-24T06:00:00Z",
             }
-        )
-        await db_clean.sales_orders_sap.insert_one(
-            {
-                "aufnr": "000000000001",
-                "source_records": {"KK": {"fetched_at": "2026-08-26T02:30:00Z"}},
-            }
-        )
-        await db_clean._hana_sync_checkpoints.insert_one(
-            {
-                "_id": "Z_V_ZMES_T_001",
-                "view_id": "Z_V_ZMES_T_001",
-                "collection": "station_records_sap",
-                "watermark": "2026-08-25",
-                "updated_at": now,
-            }
-        )
-        await db_clean.scs_doa_incremental_progress.insert_one(
-            {
-                "_id": "scs_doa_incremental",
-                "last_success_at": now,
-                "watermark_date": "2026-08-24",
-            }
-        )
+
+        monkeypatch.setattr(operations_service.data_gateway, "data_status", data_status)
 
         response = await client.get("/api/operations/dashboard?days=30", headers=headers)
         assert response.status_code == 200
         sources = {item["key"]: item for item in response.json()["syncDataSources"]}
-        assert sources["sales-orders-sg"]["lastSyncedAt"] is not None
-        assert sources["sales-orders-sg"]["latestDataAt"] == "2026-08-26"
-        assert sources["sales-orders-kk"]["lastSyncedAt"] == "2026-08-26T02:30:00Z"
-        assert sources["hana-z_v_zmes_t_001"]["collection"] == "station_records_sap"
-        assert sources["hana-z_v_zmes_t_001"]["latestDataAt"] == "2026-08-25"
-        assert sources["scs-doa"]["latestDataAt"] == "2026-08-24"
+        assert sources["sales-orders"]["lastSyncedAt"] == "2026-08-26T02:30:00Z"
+        assert sources["hana-station"]["lastSyncedAt"] == "2026-08-25T02:00:00Z"
+        assert sources["scs-doa"]["lastSyncedAt"] == "2026-08-24T05:00:00Z"
+        assert sources["scs-change"]["lastSyncedAt"] == "2026-08-24T06:00:00Z"
+        assert all(source["collection"] == "" for source in sources.values())

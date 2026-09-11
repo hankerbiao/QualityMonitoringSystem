@@ -1,4 +1,4 @@
-"""DOA 领域服务：销售订单出货、SCS 报修和原始明细查询。"""
+"""DOA dashboard aggregation backed exclusively by the data gateway."""
 
 from __future__ import annotations
 
@@ -7,30 +7,21 @@ import re
 from datetime import datetime
 from typing import Any
 
-from app.models.documents import Collections
 from app.schemas.doa import (
     DoaDashboardResponse,
     DoaDimensionItem,
     DoaFilters,
+    DoaRawFilters,
     DoaRepairItem,
     DoaRepairsResponse,
     DoaSummary,
     DoaTrendItem,
 )
-from app.services.data_gateway_client import data_gateway
-from app.services.doa_queries import (
-    build_order_stats_pipeline as _order_stats_pipeline,
-)
-from app.services.doa_queries import (
-    build_repair_pipeline as _repair_pipeline,
-)
-from app.services.doa_queries import (
-    build_scs_query as _scs_query,
-)
+from app.services.data_gateway_client import DataGatewayError, data_gateway
+from app.services.scs_gateway import scs_gateway
 
 
 def _date(value: Any) -> str | None:
-    """兼容展示用原始日期，查询一律使用规范化字段。"""
     if value is None:
         return None
     text = str(value).strip()
@@ -42,6 +33,19 @@ def _date(value: Any) -> str | None:
         except ValueError:
             continue
     return None
+
+
+def _gateway_latest_accepted_at(rows: list[dict[str, Any]]) -> datetime | None:
+    values = []
+    for row in rows:
+        value = str(row.get("accepted_at") or "").strip().replace("/", "-")
+        if not value:
+            continue
+        try:
+            values.append(datetime.fromisoformat(value))
+        except ValueError:
+            continue
+    return max(values, default=None)
 
 
 def _number(value: Any) -> float:
@@ -57,134 +61,25 @@ def _rate(repairs: float, shipped: float) -> float | None:
     return round(repairs / shipped * 100, 2) if shipped else None
 
 
-async def _aggregate_one(collection: Any, pipeline: list[dict[str, Any]]) -> dict[str, Any]:
-    rows = await collection.aggregate(pipeline).to_list(length=1)
-    return rows[0] if rows else {}
+def _sales_order_key(value: Any) -> str:
+    text = str(value or "").strip()
+    return text.lstrip("0") or "0" if text.isdigit() else text
 
 
-async def _latest_data_time(db: Any) -> datetime | None:
-    """返回 DOA 集合最近一次 enrichment 完成时间。"""
-    rows = await (
-        db[Collections.SCS_DOA_RESULTS]
-        .find(
-            {"scs_enrichment.enriched_at": {"$exists": True}},
-            {
-                "_id": 0,
-                "scs_enrichment.enriched_at": 1,
-            },
-        )
-        .sort("scs_enrichment.enriched_at", -1)
-        .limit(1)
-        .to_list(length=1)
+def _bool(value: Any) -> bool:
+    return str(value).strip().lower() in {"1", "true", "yes", "y", "是"}
+
+
+def _is_valid_hardware_replacement(change: dict[str, Any]) -> bool:
+    return (
+        bool(change.get("service_order"))
+        and not bool(change.get("is_revoked"))
+        and change.get("change_type") in {"换上", "换上-up"}
     )
-    if not rows:
-        return None
-    value = (rows[0].get("scs_enrichment") or {}).get("enriched_at")
-    return value if isinstance(value, datetime) else None
 
 
-def _facet_total(facet: dict[str, Any], key: str, field: str) -> float:
-    rows = facet.get(key) or []
-    return float(rows[0].get(field, 0)) if rows else 0.0
-
-
-def _dimension_rows(rows: list[dict[str, Any]], *fields: str) -> dict[str, dict[str, float]]:
-    result: dict[str, dict[str, float]] = {}
-    for row in rows:
-        key = str(row.get("_id"))
-        if not key:
-            continue
-        result.setdefault(key, {}).update({f: float(row.get(f, 0)) for f in fields})
-    return result
-
-
-async def build_doa_dashboard(db: Any, filters: DoaFilters) -> DoaDashboardResponse:
-    """Build DOA metrics from gateway orders and local SCS repair records."""
-    return await _build_doa_dashboard_gateway(db, filters)
-
-    # The code below is the retired local SAP-order fallback. It remains
-    # unreachable until the migration cleanup removes the dead implementation.
-    orders_facet, repairs_facet, replacement_facet, eligible, latest_data_at = await asyncio.gather(
-        _aggregate_one(db[Collections.SALES_ORDERS_SAP], _order_stats_pipeline(filters)),
-        _aggregate_one(db[Collections.SCS_DOA_RESULTS], _repair_pipeline(filters)),
-        _aggregate_one(
-            db[Collections.SCS_DOA_RESULTS],
-            _repair_pipeline(filters, replacement_only=True),
-        ),
-        db[Collections.SCS_DOA_RESULTS].count_documents(_scs_query(filters)),
-        _latest_data_time(db),
-    )
-    shipped = _facet_total(orders_facet, "shipped", "sum")
-    repair_count = _facet_total(repairs_facet, "repair_total", "sum")
-    replacement_count = int(_facet_total(replacement_facet, "replacement_total", "count"))
-    matched = int(_facet_total(repairs_facet, "matched", "count"))
-    excluded = max(0, eligible - matched)
-
-    def dimensions(order_key: str, repair_key: str) -> list[DoaDimensionItem]:
-        shipped_rows = _dimension_rows(orders_facet.get(order_key, []), "shipped")
-        repair_rows = _dimension_rows(repairs_facet.get(repair_key, []), "repair", "replacement")
-        replacement_rows = _dimension_rows(replacement_facet.get(repair_key, []), "replacement")
-        keys = sorted(set(shipped_rows) | set(repair_rows) | set(replacement_rows))
-        return [
-            DoaDimensionItem(
-                key=key,
-                shippedCount=shipped_rows.get(key, {}).get("shipped", 0),
-                repairCount=repair_rows.get(key, {}).get("repair", 0),
-                repairRate=_rate(
-                    repair_rows.get(key, {}).get("repair", 0),
-                    shipped_rows.get(key, {}).get("shipped", 0),
-                ),
-                replacementCount=replacement_rows.get(key, {}).get("replacement", 0),
-                replacementRate=_rate(
-                    replacement_rows.get(key, {}).get("replacement", 0),
-                    shipped_rows.get(key, {}).get("shipped", 0),
-                ),
-            )
-            for key in keys
-        ]
-
-    trend_ship = {
-        str(row["_id"]): float(row.get("shipped", 0)) for row in orders_facet.get("trend", [])
-    }
-    trend_repair = {
-        str(row["_id"]): float(row.get("repair", 0)) for row in repairs_facet.get("trend", [])
-    }
-    trend_servers = {
-        str(row["_id"]): int(row.get("count", 0)) for row in repairs_facet.get("servers", [])
-    }
-    trend_replacement = {
-        str(row["_id"]): float(row.get("replacement", 0))
-        for row in replacement_facet.get("trend", [])
-    }
-    periods = sorted(set(trend_ship) | set(trend_repair) | set(trend_replacement))
-    trend = [
-        DoaTrendItem(
-            period=period,
-            shippedCount=trend_ship.get(period, 0),
-            repairCount=trend_repair.get(period, 0),
-            repairServerCount=trend_servers.get(period, 0),
-            repairRate=_rate(trend_repair.get(period, 0), trend_ship.get(period, 0)),
-            replacementCount=trend_replacement.get(period, 0),
-            replacementRate=_rate(trend_replacement.get(period, 0), trend_ship.get(period, 0)),
-        )
-        for period in periods
-    ]
-    return DoaDashboardResponse(
-        filters=filters,
-        summary=DoaSummary(
-            shippedCount=shipped,
-            repairCount=repair_count,
-            repairRate=_rate(repair_count, shipped),
-            replacementCount=replacement_count,
-            replacementRate=_rate(replacement_count, shipped),
-            matchedRepairRecords=matched,
-            excludedRepairRecords=excluded,
-            latestDataAt=latest_data_at,
-        ),
-        trend=trend,
-        byCustomer=dimensions("by_customer", "by_customer"),
-        byModel=dimensions("by_model", "by_model"),
-    )
+def _replacement_defect_count(repair: dict[str, Any]) -> float:
+    return repair["repair_count"] if repair["has_change"] else 0.0
 
 
 def _gateway_order(item: dict[str, Any]) -> dict[str, Any]:
@@ -194,9 +89,14 @@ def _gateway_order(item: dict[str, Any]) -> dict[str, Any]:
         "sales_order": str(data.get("VBELN") or item.get("salesOrder") or "").strip(),
         "customer": str(data.get("NAME1_ZU") or item.get("finalUser") or "").strip(),
         "model": str(data.get("MAKTX_TH") or item.get("productionModel") or "").strip(),
-        "shipped_date": _date(data.get("GSTRS") or item.get("plannedStartDate")),
-        "shipped_count": _number(data.get("WMENG") or item.get("orderQuantity")),
+        "shipped_date": _date(item.get("shipmentDate")),
+        "shipped_count": _number(item.get("shipmentQuantity")),
+        "is_5000_company": _bool(item.get("is5000Company")),
     }
+
+
+def _has_shipment_contract(item: dict[str, Any]) -> bool:
+    return {"shipmentDate", "shipmentQuantity", "is5000Company"}.issubset(item)
 
 
 def _gateway_order_matches(order: dict[str, Any], filters: DoaFilters) -> bool:
@@ -212,78 +112,109 @@ def _gateway_order_matches(order: dict[str, Any], filters: DoaFilters) -> bool:
     )
 
 
+def _sales_order_scopes(orders: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    grouped: dict[str, list[dict[str, Any]]] = {}
+    for order in orders:
+        grouped.setdefault(_sales_order_key(order["sales_order"]), []).append(order)
+
+    scopes: dict[str, dict[str, Any]] = {}
+    for key, rows in grouped.items():
+        customers = {row["customer"] for row in rows if row["customer"]}
+        models = {row["model"] for row in rows if row["model"]}
+        shipment_dates = {row["shipped_date"] for row in rows if row["shipped_date"]}
+        scopes[key] = {
+            "sales_order": rows[0]["sales_order"],
+            "customer": customers.pop() if len(customers) == 1 else "",
+            "model": models.pop() if len(models) == 1 else "",
+            "shipped_date": shipment_dates.pop() if len(shipment_dates) == 1 else "",
+            "shipped_count": sum(row["shipped_count"] for row in rows),
+        }
+    return scopes
+
+
 async def _gateway_orders_for_doa(filters: DoaFilters) -> list[dict[str, Any]]:
     items = await data_gateway.all_orders(
-        dateFrom=filters.dateFrom or "", dateTo=filters.dateTo or ""
+        dateFrom=filters.dateFrom or "",
+        dateTo=filters.dateTo or "",
+        company5000="true",
+        shipmentOnly="true",
     )
+    if any(not _has_shipment_contract(item) for item in items):
+        raise DataGatewayError(
+            "数据网关订单接口必须返回 shipmentDate、shipmentQuantity、is5000Company，"
+            "DOA 报修率不能使用计划开始日期或入库数量代替实际发货数据"
+        )
     return [
         order
         for item in items
         for order in [_gateway_order(item)]
-        if _gateway_order_matches(order, filters) and order["sales_order"]
+        if (
+            order["is_5000_company"]
+            and order["shipped_date"]
+            and order["shipped_count"] > 0
+            and _gateway_order_matches(order, filters)
+            and order["sales_order"]
+        )
     ]
 
 
-async def _doa_gateway_repairs(db: Any, filters: DoaFilters) -> list[dict[str, Any]]:
+async def _doa_gateway_repairs(filters: DoaFilters) -> list[dict[str, Any]]:
     orders = await _gateway_orders_for_doa(filters)
-    by_sales = {order["sales_order"].lstrip("0") or "0": order for order in orders}
-    scs = await db[Collections.SCS_DOA_RESULTS].find(_scs_query(filters)).to_list(length=200_000)
-    service_numbers = {
-        str((item.get("data") or {}).get("服务单号") or "").strip()
-        for item in scs
-        if (item.get("data") or {}).get("服务单号")
-    }
-    changed = (
-        set(
-            await db[Collections.SCS_CHANGE_RESULTS].distinct(
-                "data.服务单号", {"data.服务单号": {"$in": list(service_numbers)}}
-            )
-        )
-        if service_numbers
-        else set()
+    by_sales = _sales_order_scopes(orders)
+    scs, changes = await asyncio.gather(
+        scs_gateway.all(
+            "SCS_DOA",
+            company5000="true",
+            judgment="是",
+            acceptedDateFrom=filters.acceptedDateFrom or filters.dateFrom or "",
+            acceptedDateTo=filters.acceptedDateTo or filters.dateTo or "",
+        ),
+        scs_gateway.all("SCS_CHANGE", company5000="true"),
     )
+    changed = {
+        row["service_order"] for row in changes if _is_valid_hardware_replacement(row)
+    }
     rows = []
     for item in scs:
-        enrichment = item.get("scs_enrichment") or {}
-        order = by_sales.get(str(enrichment.get("sales_order") or "").strip().lstrip("0") or "0")
+        if item["judgment"] != "是":
+            continue
+        order = by_sales.get(_sales_order_key(item["sales_order"]))
         if not order:
             continue
-        product = str((item.get("data") or {}).get("产品/备件名称") or "").strip()
-        if (
-            product
-            and order["model"]
-            and not (
-                product.lower().startswith(order["model"].lower())
-                or order["model"].lower().startswith(product.lower())
-            )
-        ):
-            continue
-        data = item.get("data") or {}
         rows.append(
             {
-                "id": str(item.get("_id", "")),
-                "sales_order": enrichment.get("sales_order"),
-                "material_serial": data.get("曙光S/N") or data.get("备件S/N"),
-                "accepted_at": enrichment.get("accepted_date"),
+                "id": item["id"],
+                "sales_order": item["sales_order"],
+                "material_serial": item["host_sn"] or item["part_sn"],
+                "accepted_at": item["accepted_at"],
                 "customer": order["customer"],
                 "model": order["model"],
                 "shipped_date": order["shipped_date"],
                 "shipped_count": order["shipped_count"],
-                "repair_count": _number(data.get("问题批次数量")),
-                "has_change": str(data.get("服务单号") or "") in changed,
-                "data": data,
+                "repair_count": _number(item["repair_count"]),
+                "has_change": item["service_order"] in changed,
+                "data": item["raw"],
             }
         )
     return rows
 
 
-async def _build_doa_dashboard_gateway(db: Any, filters: DoaFilters) -> DoaDashboardResponse:
-    orders, repairs = await asyncio.gather(
-        _gateway_orders_for_doa(filters), _doa_gateway_repairs(db, filters)
+async def build_doa_dashboard(filters: DoaFilters) -> DoaDashboardResponse:
+    orders, repairs, eligible_rows = await asyncio.gather(
+        _gateway_orders_for_doa(filters),
+        _doa_gateway_repairs(filters),
+        scs_gateway.all(
+            "SCS_DOA",
+            company5000="true",
+            judgment="是",
+            acceptedDateFrom=filters.acceptedDateFrom or filters.dateFrom or "",
+            acceptedDateTo=filters.acceptedDateTo or filters.dateTo or "",
+        ),
     )
     shipped = sum(item["shipped_count"] for item in orders)
     repair_count = sum(item["repair_count"] for item in repairs)
-    replacement_count = sum(1 for item in repairs if item["has_change"])
+    replacement_count = sum(_replacement_defect_count(item) for item in repairs)
+    replacement_record_count = sum(1 for item in repairs if item["has_change"])
     granularity = filters.timeGranularity
 
     def period(value: Any) -> str:
@@ -301,9 +232,9 @@ async def _build_doa_dashboard_gateway(db: Any, filters: DoaFilters) -> DoaDashb
                 item["repair_count"] for item in repairs if str(item.get(field) or "未填写") == key
             )
             replacement = sum(
-                1
+                _replacement_defect_count(item)
                 for item in repairs
-                if str(item.get(field) or "未填写") == key and item["has_change"]
+                if str(item.get(field) or "未填写") == key
             )
             result.append(
                 DoaDimensionItem(
@@ -327,22 +258,22 @@ async def _build_doa_dashboard_gateway(db: Any, filters: DoaFilters) -> DoaDashb
             item["shipped_count"] for item in orders if period(item.get("shipped_date")) == key
         )
         faults = [item for item in repairs if period(item.get("accepted_at")) == key]
-        replacement = sum(1 for item in faults if item["has_change"])
+        replacement = sum(_replacement_defect_count(item) for item in faults)
+        faults_count = sum(item["repair_count"] for item in faults)
         trend.append(
             DoaTrendItem(
                 period=key,
                 shippedCount=sent,
-                repairCount=sum(item["repair_count"] for item in faults),
+                repairCount=faults_count,
                 repairServerCount=len(
                     {item.get("material_serial") for item in faults if item.get("material_serial")}
                 ),
-                repairRate=_rate(sum(item["repair_count"] for item in faults), sent),
+                repairRate=_rate(faults_count, sent),
                 replacementCount=replacement,
                 replacementRate=_rate(replacement, sent),
             )
         )
-    eligible = await db[Collections.SCS_DOA_RESULTS].count_documents(_scs_query(filters))
-    latest = await _latest_data_time(db)
+    eligible = len(eligible_rows)
     return DoaDashboardResponse(
         filters=filters,
         summary=DoaSummary(
@@ -351,9 +282,10 @@ async def _build_doa_dashboard_gateway(db: Any, filters: DoaFilters) -> DoaDashb
             repairRate=_rate(repair_count, shipped),
             replacementCount=replacement_count,
             replacementRate=_rate(replacement_count, shipped),
+            replacementRecordCount=replacement_record_count,
             matchedRepairRecords=len(repairs),
             excludedRepairRecords=max(0, eligible - len(repairs)),
-            latestDataAt=latest,
+            latestDataAt=_gateway_latest_accepted_at(eligible_rows),
         ),
         trend=trend,
         byCustomer=dimensions("customer"),
@@ -362,9 +294,9 @@ async def _build_doa_dashboard_gateway(db: Any, filters: DoaFilters) -> DoaDashb
 
 
 async def get_doa_repairs(
-    db: Any, filters: DoaFilters, page: int, limit: int, replacement_only: bool = False
+    filters: DoaFilters, page: int, limit: int, replacement_only: bool = False
 ) -> DoaRepairsResponse:
-    rows = await _doa_gateway_repairs(db, filters)
+    rows = await _doa_gateway_repairs(filters)
     if replacement_only:
         rows = [row for row in rows if row["has_change"]]
     total = len(rows)
@@ -372,54 +304,28 @@ async def get_doa_repairs(
     return DoaRepairsResponse(
         items=[
             DoaRepairItem(
-                id=row["id"], salesOrder=str(row.get("sales_order") or ""),
+                id=row["id"],
+                salesOrder=str(row.get("sales_order") or ""),
                 materialSerial=str(row.get("material_serial") or ""),
-                acceptedAt=str(row.get("accepted_at") or ""), customer=str(row.get("customer") or ""),
-                model=str(row.get("model") or ""), shippedDate=str(row.get("shipped_date") or ""),
+                acceptedAt=str(row.get("accepted_at") or ""),
+                customer=str(row.get("customer") or ""),
+                model=str(row.get("model") or ""),
+                shippedDate=str(row.get("shipped_date") or ""),
                 shippedCount=float(row.get("shipped_count") or 0),
-                repairCount=float(row.get("repair_count") or 0), data=row.get("data") or {},
-            ) for row in selected
-        ], total=total, page=page, limit=limit, has_more=page * limit < total,
-    )
-
-    # Retired local SAP-order fallback.
-    facet = await _aggregate_one(
-        db[Collections.SCS_DOA_RESULTS],
-        _repair_pipeline(
-            filters,
-            page=page,
-            limit=limit,
-            include_data=True,
-            replacement_only=replacement_only,
-        ),
-    )
-    items = [
-        DoaRepairItem(
-            id=str(item.get("id", "")),
-            salesOrder=str(item.get("sales_order") or ""),
-            materialSerial=str(item.get("material_serial") or ""),
-            acceptedAt=str(item.get("accepted_at") or ""),
-            customer=str(item.get("customer") or ""),
-            model=str(item.get("model") or ""),
-            shippedDate=str(item.get("shipped_date") or ""),
-            shippedCount=float(item.get("shipped_count") or 0),
-            repairCount=float(item.get("repair_count") or 0),
-            data=item.get("data") or {},
-        )
-        for item in facet.get("items", [])
-    ]
-    total = int(_facet_total(facet, "matched", "count"))
-    return DoaRepairsResponse(
-        items=items,
+                repairCount=float(row.get("repair_count") or 0),
+                data=row.get("data") or {},
+            )
+            for row in selected
+        ],
         total=total,
+        totalRepairCount=sum(row["repair_count"] for row in rows),
         page=page,
         limit=limit,
         has_more=page * limit < total,
     )
 
 
-async def get_doa_options(db: Any) -> dict[str, list[str]]:
-    """Load selectable order dimensions from the gateway order universe."""
+async def get_doa_options() -> dict[str, list[str]]:
     orders = await data_gateway.all_orders(max_rows=1_000_000)
     normalized = [_gateway_order(item) for item in orders]
     return {
@@ -427,144 +333,88 @@ async def get_doa_options(db: Any) -> dict[str, list[str]]:
         "models": sorted({row["model"] for row in normalized if row["model"]}),
     }
 
-    # Retired local SAP-order fallback.
-    facet = await _aggregate_one(
-        db[Collections.SALES_ORDERS_SAP],
-        [
-            {
-                "$facet": {
-                    "customers": [
-                        {"$match": {"data.NAME1_ZU": {"$nin": [None, ""]}}},
-                        {"$group": {"_id": "$data.NAME1_ZU"}},
-                        {"$sort": {"_id": 1}},
-                    ],
-                    "models": [
-                        {"$match": {"data.MAKTX_TH": {"$nin": [None, ""]}}},
-                        {"$group": {"_id": "$data.MAKTX_TH"}},
-                        {"$sort": {"_id": 1}},
-                    ],
-                }
-            }
-        ],
-    )
+
+def _matches_raw_gateway(item: dict[str, Any], filters: DoaRawFilters) -> bool:
+    fields = " ".join(
+        str(item.get(key) or "")
+        for key in ("service_order", "sales_order", "host_sn", "part_sn", "customer", "product")
+    ).lower()
+    for value in (
+        filters.keyword,
+        filters.serviceNumber,
+        filters.salesOrder,
+        filters.serialNumber,
+        filters.customer,
+        filters.product,
+    ):
+        if value and str(value).lower() not in fields:
+            return False
+    if filters.doaType and item["doa_type"] != filters.doaType:
+        return False
+    if filters.judgment and item["judgment"] != filters.judgment:
+        return False
+    return not filters.processingStatus or item["status"] == filters.processingStatus
+
+
+def _raw_gateway_item(item: dict[str, Any]) -> dict[str, Any]:
     return {
-        "customers": [str(row["_id"]) for row in facet.get("customers", []) if row.get("_id")],
-        "models": [str(row["_id"]) for row in facet.get("models", []) if row.get("_id")],
+        "id": item["id"],
+        "data": {
+            "服务单号": item["service_order"],
+            "销售订单号": item["sales_order"],
+            "曙光S/N": item["host_sn"],
+            "备件S/N": item["part_sn"],
+            "客户全称": item["customer"],
+            "产品/备件名称": item["product"],
+            "DOA类型": item["doa_type"],
+            "判定结果": item["judgment"],
+            "处理状态": item["status"],
+            "问题批次数量": item["repair_count"],
+            "受理时间": item["accepted_at"],
+        },
+        "source": "data_gateway",
     }
 
 
-DOA_RAW_QUERY = {"$or": [{"is_5000": True}, {"scs_enrichment.is_5000": True}]}
-
-
-def _raw_status_query(status: str) -> dict[str, Any]:
-    query: dict[str, Any] = {**DOA_RAW_QUERY}
-    if status == "success":
-        query["$or"] = [
-            {"is_5000": True, "scs_enrichment.status": "success"},
-            {"scs_enrichment.is_5000": True, "scs_enrichment.status": "success"},
-            {"is_5000": True, "scs_enrichment.sales_order": {"$nin": [None, ""]}},
-            {"scs_enrichment.is_5000": True, "scs_enrichment.sales_order": {"$nin": [None, ""]}},
-        ]
-    elif status in {"failed", "skipped"}:
-        query["scs_enrichment.status"] = status
-    return query
-
-
-async def get_doa_raw(db: Any, page: int = 1, limit: int = 50) -> dict[str, Any]:
-    """原始 SCS 明细接口；统计与分页均由 MongoDB 完成。"""
-    collection = db[Collections.SCS_DOA_RESULTS]
-    total = await collection.count_documents(DOA_RAW_QUERY)
-    page_documents = (
-        await collection.find(DOA_RAW_QUERY)
-        .sort([("scs_enrichment.accepted_date", -1), ("_id", -1)])
-        .skip((page - 1) * limit)
-        .limit(limit)
-        .to_list(length=limit)
+async def get_doa_raw(
+    page: int = 1, limit: int = 50, filters: DoaRawFilters | None = None
+) -> dict[str, Any]:
+    filters = filters or DoaRawFilters()
+    rows = await scs_gateway.all(
+        "SCS_DOA",
+        company5000="true",
+        doaType=filters.doaType or "",
+        status=filters.processingStatus or "",
+        judgment=filters.judgment or "",
+        acceptedDateFrom=filters.acceptedDateFrom or "",
+        acceptedDateTo=filters.acceptedDateTo or "",
     )
-    stats = await _aggregate_one(
-        collection,
-        [
-            {"$match": DOA_RAW_QUERY},
-            {
-                "$facet": {
-                    "by_type": [{"$group": {"_id": "$data.DOA类型", "count": {"$sum": 1}}}],
-                    "by_processing": [{"$group": {"_id": "$data.处理状态", "count": {"$sum": 1}}}],
-                    "trend": [
-                        {"$match": {"scs_enrichment.accepted_date": {"$nin": [None, ""]}}},
-                        {
-                            "$group": {
-                                "_id": "$scs_enrichment.accepted_date",
-                                "count": {"$sum": 1},
-                            }
-                        },
-                        {"$sort": {"_id": 1}},
-                    ],
-                }
-            },
-        ],
-    )
-    success = await collection.count_documents(_raw_status_query("success"))
-    failed = await collection.count_documents(_raw_status_query("failed"))
-    skipped = await collection.count_documents(_raw_status_query("skipped"))
-    pending = max(0, total - success - failed - skipped)
-    yes = await collection.count_documents({**DOA_RAW_QUERY, "data.判定结果": "是"})
-    no = await collection.count_documents({**DOA_RAW_QUERY, "data.判定结果": "否"})
-    latest = (
-        await collection.find(DOA_RAW_QUERY)
-        .sort([("scs_enrichment.accepted_date", -1), ("_id", -1)])
-        .limit(1)
-        .to_list(length=1)
-    )
-    latest_raw = (latest[0].get("data") or {}).get("受理时间") if latest else None
+    rows = [item for item in rows if _matches_raw_gateway(item, filters)]
+    rows.sort(key=lambda item: (item["accepted_at"], item["id"]), reverse=True)
+    total = len(rows)
+    selected = rows[(page - 1) * limit : page * limit]
 
-    def ranked(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def counts(field: str) -> list[dict[str, Any]]:
+        values: dict[str, int] = {}
+        for item in rows:
+            key = str(item.get(field) or "未填写")
+            values[key] = values.get(key, 0) + 1
         return [
-            {"key": str(row.get("_id") or "未填写"), "count": row.get("count", 0)}
-            for row in sorted(
-                rows, key=lambda row: (-row.get("count", 0), str(row.get("_id") or ""))
-            )
+            {"key": key, "count": count}
+            for key, count in sorted(values.items(), key=lambda pair: (-pair[1], pair[0]))
         ]
 
-    items = []
-    for document in page_documents:
-        enrichment = document.get("scs_enrichment") or {}
-        status = enrichment.get("status")
-        if status not in {"failed", "skipped", "success"}:
-            status = "success" if enrichment.get("sales_order") else "pending"
-        items.append(
-            {
-                "id": str(document.get("_id", "")),
-                "data": document.get("data") or {},
-                "enrichment": {**enrichment, "status": status},
-            }
-        )
     return {
         "summary": {
             "total": total,
-            "judgmentYes": yes,
-            "judgmentNo": no,
-            "enrichedSuccess": success,
-            "enrichmentFailed": failed,
-            "enrichmentPending": pending,
-            "enrichmentSkipped": skipped,
-            "latestAcceptedAt": latest_raw,
+            "judgmentYes": sum(item["judgment"] == "是" for item in rows),
+            "judgmentNo": sum(item["judgment"] == "否" for item in rows),
+            "latestAcceptedAt": rows[0]["accepted_at"] if rows else None,
         },
-        "trend": [
-            {"date": row["_id"], "label": row["_id"][5:], "count": row["count"]}
-            for row in stats.get("trend", [])
-        ],
-        "byType": ranked(stats.get("by_type", [])),
-        "byProcessingStatus": ranked(stats.get("by_processing", [])),
-        "byEnrichmentStatus": [
-            {"key": key, "count": count}
-            for key, count in {
-                "success": success,
-                "failed": failed,
-                "pending": pending,
-                "skipped": skipped,
-            }.items()
-        ],
-        "items": items,
+        "trend": [],
+        "byType": counts("doa_type"),
+        "byProcessingStatus": counts("status"),
+        "items": [_raw_gateway_item(item) for item in selected],
         "pagination": {
             "page": page,
             "limit": limit,

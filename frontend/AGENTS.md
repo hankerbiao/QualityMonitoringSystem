@@ -6,7 +6,7 @@
 frontend/
 ├── src/
 │   ├── pages/           # LoginPage, RTYPage, Home
-│   ├── context/         # AuthContext, SettingsContext, ModelTargetsContext
+│   ├── context/         # AuthContext, SettingsContext
 │   ├── api/             # authApi, rtyApi, settingsApi
 │   ├── components/      # SettingsModal, DefectModal, etc.
 │   └── index.css        # Tailwind v4 CSS-first

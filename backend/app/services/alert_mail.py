@@ -44,6 +44,16 @@ def _esc(value: Any) -> str:
     return escape_html(value)
 
 
+def _kpi_html(label: str, value: str, value_color: str = "#0f172a") -> str:
+    return (
+        '<div style="flex:1;min-width:120px;background:#f8fafc;border:1px solid #e2e8f0;'
+        'border-radius:10px;padding:12px 14px;">'
+        f'<div style="font-size:12px;color:#64748b;margin-bottom:4px;">{label}</div>'
+        f'<div style="font-size:20px;font-weight:700;color:{value_color};">{value}</div>'
+        "</div>"
+    )
+
+
 def _cell(value: str) -> str:
     """单行故障明细单元格（统一内联样式）。"""
     return cell_html(value)
@@ -134,21 +144,11 @@ def build_alert_email_html(
             '本邮件未附带故障明细，请点击下方按钮在报表页查看完整列表。</p>'
         )
 
-    # KPI 卡片
-    def kpi(label: str, value: str, value_color: str = "#0f172a") -> str:
-        return (
-            '<div style="flex:1;min-width:120px;background:#f8fafc;border:1px solid #e2e8f0;'
-            'border-radius:10px;padding:12px 14px;">'
-            f'<div style="font-size:12px;color:#64748b;margin-bottom:4px;">{label}</div>'
-            f'<div style="font-size:20px;font-weight:700;color:{value_color};">{value}</div>'
-            "</div>"
-        )
-
     kpis = "".join([
-        kpi("直通率 (RTY)", f"{summary.rtyRate}%", rty_color),
-        kpi("目标直通率", f"{summary.targetRate}%"),
-        kpi("达成状态", reach_text, rty_color),
-        kpi("故障 / 投入", f"{summary.defectCount} / {summary.inputCount}"),
+        _kpi_html("直通率 (RTY)", f"{summary.rtyRate}%", rty_color),
+        _kpi_html("目标直通率", f"{summary.targetRate}%"),
+        _kpi_html("达成状态", reach_text, rty_color),
+        _kpi_html("故障 / 投入", f"{summary.defectCount} / {summary.inputCount}"),
     ])
 
     title = ctx.title or f"{summary.productModel or '未知机型'} 直通率未达标"
@@ -270,21 +270,11 @@ def build_test_email_html(report_url: str | None = None, sent_at: str = "") -> s
     - 邮件模板样式正常渲染；
     - （可选）免登录报表链接可访问。
     """
-    # 示例 KPI 卡片（明确标注"示例"，避免与真实告警混淆）
-    def kpi(label: str, value: str, value_color: str = "#0f172a") -> str:
-        return (
-            '<div style="flex:1;min-width:120px;background:#f8fafc;border:1px solid #e2e8f0;'
-            'border-radius:10px;padding:12px 14px;">'
-            f'<div style="font-size:12px;color:#64748b;margin-bottom:4px;">{label}</div>'
-            f'<div style="font-size:20px;font-weight:700;color:{value_color};">{value}</div>'
-            "</div>"
-        )
-
     kpis = "".join([
-        kpi("直通率 (RTY) 示例", "98.2%", "#16a34a"),
-        kpi("目标直通率 示例", "99.0%"),
-        kpi("达成状态 示例", "未达标", "#dc2626"),
-        kpi("故障 / 投入 示例", "3 / 120"),
+        _kpi_html("直通率 (RTY) 示例", "98.2%", "#16a34a"),
+        _kpi_html("目标直通率 示例", "99.0%"),
+        _kpi_html("达成状态 示例", "未达标", "#dc2626"),
+        _kpi_html("故障 / 投入 示例", "3 / 120"),
     ])
 
     # 可选示例报表链接（验证免登录报表页可访问）

@@ -4,7 +4,7 @@ import { ArrowLeft, ChevronLeft, ChevronRight, ListFilter, X } from 'lucide-reac
 import * as XLSX from 'xlsx';
 import { rtyApi } from '../api/rtyApi';
 import type { RTYData, RTYFilterParams } from '../types';
-import { useModelTargets } from '../context/ModelTargetsContext';
+import { useSettings } from '../context/SettingsContext';
 import DefectModal from '../components/DefectModal';
 import AlertConfigModal from '../components/AlertConfigModal';
 import { ExcludedOrdersModal, FilterPanel } from '../components/rty';
@@ -65,7 +65,7 @@ export default function RTYPage() {
   const [orderListOpen, setOrderListOpen] = useState(false);
   const [orderListData, setOrderListData] = useState<{ title: string; orders: string[]; filterKey: 'salesOrder' | 'productionOrder' }>({ title: '', orders: [], filterKey: 'salesOrder' });
 
-  const { modelTargets } = useModelTargets();
+  const { settings: { modelTargets } } = useSettings();
 
   // 获取数据
   const fetchData = useCallback(async (targetPage = page) => {

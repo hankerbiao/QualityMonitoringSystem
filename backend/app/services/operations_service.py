@@ -42,14 +42,6 @@ BUSINESS_MODULES = (
     "alert-report",
 )
 
-HANA_SOURCE_LABELS = {
-    "ZSGV_ZSD124": "SAP HANA 订单 BOM",
-    "ZSGV_ZPP_SERNOLIST": "SAP HANA 序列绑定",
-    "ZSGV_ZZT_WLJL": "SAP HANA 维修记录",
-    "Z_V_ZMES_T_001": "SAP HANA 过站记录",
-}
-
-
 def module_from_path(path: str) -> str:
     """把前端路由或 API 路径归一为稳定的功能模块。"""
     clean_path = (path or "/").split("?", 1)[0].rstrip("/") or "/"
@@ -122,119 +114,48 @@ def _as_sync_value(value: Any) -> str | None:
     return None
 
 
-async def _latest_sales_source_sync_time(db: Any, source_name: str) -> str | None:
-    rows = await (
-        db.sales_orders_sap.find({f"source_records.{source_name}.fetched_at": {"$exists": True}})
-        .sort(f"source_records.{source_name}.fetched_at", -1)
-        .limit(1)
-        .to_list(length=1)
-    )
-    if not rows:
-        return None
-    source_record = (rows[0].get("source_records") or {}).get(source_name) or {}
-    return _as_sync_value(source_record.get("fetched_at"))
-
-
-async def _sync_data_sources(db: Any) -> list[dict[str, Any]]:
-    """Return all scheduler checkpoints that represent data already written to MongoDB."""
-    if data_gateway.enabled:
-        try:
-            status = await data_gateway.data_status()
-        except DataGatewayError:
-            # Keep the operations page available while reporting an unavailable
-            # gateway source instead of touching deleted local SAP copies.
-            return [
-                {
-                    "key": "data-gateway",
-                    "name": "生产数据网关",
-                    "collection": "",
-                    "lastSyncedAt": None,
-                    "latestDataAt": None,
-                    "status": "unavailable",
-                }
-            ]
-        values = {
-            "sales_orders_sap": _as_sync_value(status.get("salesOrdersLastSyncedAt")),
-            "repair_records_sap": _as_sync_value(status.get("faultsLastSyncedAt")),
-            "station_records_sap": _as_sync_value(status.get("stationRecordsLastSyncedAt")),
-            "serial_bindings_sap": _as_sync_value(status.get("serialBindingsLastSyncedAt")),
-            "order_bom_postings_sap": _as_sync_value(status.get("bomPostingsLastSyncedAt")),
-        }
+async def _sync_data_sources(_db: Any) -> list[dict[str, Any]]:
+    """Return data-source freshness exclusively from the production gateway."""
+    try:
+        status = await data_gateway.data_status()
+    except DataGatewayError:
         return [
             {
-                "key": key,
-                "name": name,
-                "collection": collection,
-                "lastSyncedAt": values[collection],
+                "key": "data-gateway",
+                "name": "生产数据网关",
+                "collection": "",
+                "lastSyncedAt": None,
                 "latestDataAt": None,
+                "status": "unavailable",
             }
-            for key, name, collection in (
-                ("sales-orders-sg", "SAP 销售订单 · SG（网关）", "sales_orders_sap"),
-                ("sales-orders-kk", "SAP 销售订单 · KK（网关）", "sales_orders_sap"),
-                ("hana-repair", "SAP HANA 维修记录（网关）", "repair_records_sap"),
-                ("hana-station", "SAP HANA 过站记录（网关）", "station_records_sap"),
-                ("hana-bindings", "SAP HANA 序列绑定（网关）", "serial_bindings_sap"),
-                ("hana-bom", "SAP HANA 订单 BOM（网关）", "order_bom_postings_sap"),
-            )
         ]
-    sales_checkpoints, hana_checkpoints, doa_progress = await asyncio.gather(
-        db.rty_sync_checkpoints.find({"source": "sales_orders"}).to_list(length=20),
-        db["_hana_sync_checkpoints"].find({}).to_list(length=20),
-        db.scs_doa_incremental_progress.find_one({"_id": "scs_doa_incremental"}),
-    )
-
-    sources: list[dict[str, Any]] = []
-    sales_by_name = {str(item.get("source_name")): item for item in sales_checkpoints}
-    missing_sales_sources = [
-        source_name
-        for source_name in ("SG", "KK")
-        if not _as_sync_value(sales_by_name.get(source_name, {}).get("updated_at"))
-    ]
-    manual_sales_sync_times = dict(
-        zip(
-            missing_sales_sources,
-            await asyncio.gather(
-                *(_latest_sales_source_sync_time(db, source) for source in missing_sales_sources)
-            ),
-            strict=True,
-        )
-    )
-    for source_name in ("SG", "KK"):
-        checkpoint = sales_by_name.get(source_name, {})
-        sources.append(
-            {
-                "key": f"sales-orders-{source_name.lower()}",
-                "name": f"SAP 销售订单 · {source_name}",
-                "collection": "sales_orders_sap",
-                "lastSyncedAt": _as_sync_value(checkpoint.get("updated_at"))
-                or manual_sales_sync_times.get(source_name),
-                "latestDataAt": _as_sync_value(checkpoint.get("last_success_date")),
-            }
-        )
-
-    hana_by_view = {str(item.get("view_id") or item.get("_id")): item for item in hana_checkpoints}
-    for view_id, name in HANA_SOURCE_LABELS.items():
-        checkpoint = hana_by_view.get(view_id, {})
-        sources.append(
-            {
-                "key": f"hana-{view_id.lower()}",
-                "name": name,
-                "collection": str(checkpoint.get("collection") or ""),
-                "lastSyncedAt": _as_sync_value(checkpoint.get("updated_at")),
-                "latestDataAt": _as_sync_value(checkpoint.get("watermark")),
-            }
-        )
-
-    sources.append(
+    values = {
+        "sales_orders": _as_sync_value(status.get("salesOrdersLastSyncedAt")),
+        "faults": _as_sync_value(status.get("faultsLastSyncedAt")),
+        "stations": _as_sync_value(status.get("stationRecordsLastSyncedAt")),
+        "bindings": _as_sync_value(status.get("serialBindingsLastSyncedAt")),
+        "bom": _as_sync_value(status.get("bomPostingsLastSyncedAt")),
+        "scs_doa": _as_sync_value(status.get("scsDoaLastSyncedAt")),
+        "scs_change": _as_sync_value(status.get("scsChangeLastSyncedAt")),
+    }
+    return [
         {
-            "key": "scs-doa",
-            "name": "SCS DOA 报修数据",
-            "collection": "scs_doa_results",
-            "lastSyncedAt": _as_sync_value((doa_progress or {}).get("last_success_at")),
-            "latestDataAt": _as_sync_value((doa_progress or {}).get("watermark_date")),
+            "key": key,
+            "name": name,
+            "collection": "",
+            "lastSyncedAt": values[source],
+            "latestDataAt": None,
         }
-    )
-    return sources
+        for key, name, source in (
+            ("sales-orders", "SAP 销售订单（网关）", "sales_orders"),
+            ("hana-repair", "SAP HANA 维修记录（网关）", "faults"),
+            ("hana-station", "SAP HANA 过站记录（网关）", "stations"),
+            ("hana-bindings", "SAP HANA 序列绑定（网关）", "bindings"),
+            ("hana-bom", "SAP HANA 订单 BOM（网关）", "bom"),
+            ("scs-doa", "SCS DOA 服务单（网关）", "scs_doa"),
+            ("scs-change", "SCS 换上换下（网关）", "scs_change"),
+        )
+    ]
 
 
 async def record_page_view(db: Any, itcode: str, path: str) -> None:

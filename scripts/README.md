@@ -9,7 +9,6 @@ SAP/HANA 业务数据由独立数据网关提供。本仓库不再包含同步�
 
 | 文件 | 用途 | 写入数据库 |
 |---|---|---|
-| `export_doa_is_5000.py` | 导出已有 DOA 数据到 Excel | 否 |
 | `export_station_records.py` | 导出已有工位记录到 Excel | 否 |
 | `maintenance/benchmark_rty.py` | RTY 网关查询性能诊断 | 否 |
 

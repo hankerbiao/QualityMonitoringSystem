@@ -2,7 +2,6 @@ import { Component, lazy, Suspense, useEffect, type ErrorInfo, type ReactNode } 
 import { BrowserRouter as Router, Routes, Route, Navigate, Outlet, useLocation } from 'react-router-dom';
 import { operationsApi } from './api/operationsApi';
 import { LoadingPage } from './components/ui';
-import { ModelTargetsProvider } from './context/ModelTargetsContext';
 import { SettingsProvider } from './context/SettingsContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 
@@ -100,9 +99,7 @@ export default function App() {
     <Router>
       <AuthProvider>
         <SettingsProvider>
-          <ModelTargetsProvider>
-            <AppContent />
-          </ModelTargetsProvider>
+          <AppContent />
         </SettingsProvider>
       </AuthProvider>
     </Router>

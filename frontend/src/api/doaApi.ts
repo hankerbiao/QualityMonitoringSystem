@@ -1,5 +1,5 @@
-import { apiFetch } from './authApi';
-import type { DoaDashboard, DoaFilters, DoaOptions, DoaRawDashboard, DoaRepairsResponse } from '../types/doa';
+import { requestJson } from './authApi';
+import type { DoaDashboard, DoaFilters, DoaOptions, DoaRawDashboard, DoaRawFilters, DoaRepairsResponse } from '../types/doa';
 
 function query(filters: DoaFilters, extra: Record<string, string | number> = {}) {
   const params = new URLSearchParams();
@@ -11,27 +11,23 @@ function query(filters: DoaFilters, extra: Record<string, string | number> = {})
 
 export const doaApi = {
   async getOptions(): Promise<DoaOptions> {
-    const response = await apiFetch('/api/doa/options');
-    if (!response.ok) throw new Error('DOA 筛选项加载失败');
-    return (await response.json()) as DoaOptions;
+    return requestJson<DoaOptions>('/api/doa/options');
   },
   async getDashboard(filters: DoaFilters): Promise<DoaDashboard> {
-    const response = await apiFetch(`/api/doa/dashboard${query(filters)}`);
-    if (!response.ok) throw new Error('DOA 看板加载失败');
-    return (await response.json()) as DoaDashboard;
+    return requestJson<DoaDashboard>(`/api/doa/dashboard${query(filters)}`);
   },
   async getRepairs(filters: DoaFilters, page = 1, limit = 50, replacementOnly = false): Promise<DoaRepairsResponse> {
     const extra: Record<string, string | number> = replacementOnly
       ? { page, limit, replacementOnly: 'true' }
       : { page, limit };
-    const response = await apiFetch(`/api/doa/repairs${query(filters, extra)}`);
-    if (!response.ok) throw new Error('DOA 报修明细加载失败');
-    return (await response.json()) as DoaRepairsResponse;
+    return requestJson<DoaRepairsResponse>(`/api/doa/repairs${query(filters, extra)}`);
   },
-  async getRaw(page = 1, limit = 50): Promise<DoaRawDashboard> {
-    const response = await apiFetch(`/api/doa/raw?page=${page}&limit=${limit}`);
-    if (!response.ok) throw new Error('DOA 数据加载失败');
-    return (await response.json()) as DoaRawDashboard;
+  async getRaw(page = 1, limit = 50, filters: DoaRawFilters = {}): Promise<DoaRawDashboard> {
+    const params = new URLSearchParams({ page: String(page), limit: String(limit) });
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value) params.set(key, value);
+    });
+    return requestJson<DoaRawDashboard>(`/api/doa/raw?${params}`);
   },
   buildQuery(filters: DoaFilters, extra: Record<string, string | number> = {}) {
     return query(filters, extra).replace(/^\?/, '');

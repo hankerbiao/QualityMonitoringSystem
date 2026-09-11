@@ -43,6 +43,7 @@ class DoaSummary(BaseModel):
     repairRate: float | None = None
     replacementCount: float = 0
     replacementRate: float | None = None
+    replacementRecordCount: int = 0
     matchedRepairRecords: int = 0
     excludedRepairRecords: int = 0
     latestDataAt: datetime | None = None
@@ -72,6 +73,21 @@ class DoaRepairItem(BaseModel):
 class DoaRepairsResponse(BaseModel):
     items: list[DoaRepairItem] = Field(default_factory=list)
     total: int = 0
+    totalRepairCount: float = 0
     page: int = 1
     limit: int = 50
     has_more: bool = False
+
+
+class DoaRawFilters(BaseModel):
+    acceptedDateFrom: str | None = None
+    acceptedDateTo: str | None = None
+    keyword: str | None = None
+    serviceNumber: str | None = None
+    salesOrder: str | None = None
+    serialNumber: str | None = None
+    customer: str | None = None
+    product: str | None = None
+    doaType: str | None = None
+    judgment: str | None = None
+    processingStatus: str | None = None

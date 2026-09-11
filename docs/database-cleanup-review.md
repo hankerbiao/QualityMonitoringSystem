@@ -1,7 +1,7 @@
 # MongoDB 集合清理评审
 
-本文按当前 FastAPI 运行时代码评估。SAP/HANA 同步、抓取和回填脚本已从本仓库移除；
-五个本地副本仅可通过受保护的 dry-run 清理命令删除。
+本文按当前 FastAPI 运行时代码评估。SAP/HANA 同步、抓取、回填和集合清理脚本均已从本仓库移除。
+已确认本地 SCS 历史集合不再被运行时代码读取，本次由本项目执行物理删除。
 
 ## 可立即下线
 
@@ -23,6 +23,9 @@
 - `station_pass_field_backfill_runs`
 - `scs_doa_progress`
 - `scs_doa_sales_order_progress`
+- `scs_doa_incremental_progress`
+- `scs_doa_results`
+- `scs_change_results`
 - `rty_sync_runs`
 - `_hana_sync_runs`
 - `_sync_runs`
@@ -36,37 +39,24 @@
 
 这些集合只保存历史回填或同步审计。
 
-执行方式：
-
-```bash
-cd /Users/libiao/Desktop/github/QualityMonitoringSystem/backend
-uv run python scripts/cleanup_obsolete_collections.py       # 仅盘点
-uv run python scripts/cleanup_obsolete_collections.py --apply # 执行删除
-```
-
-脚本采用固定白名单，并且不会删除 `assembly_records_bak` 备份集合。
-
 ## 当前不能删除
 
 - `configs`：系统设置、机型目标、邮件预警和工位影像凭据。
 - `users`、`sessions`：登录和会话。
 - `usage_events`：运营监控统计。
 - `machine_info`、`fault_info`：周预警和预警报告。
-- `scs_doa_results`：DOA 和 MFR。
-- `scs_change_results`：MFR 换件故障统计。
 - `sales_orders_sap`、`order_bom_postings_sap`、`repair_records_sap`、
-  `station_records_sap`、`serial_bindings_sap`：运行时由网关提供数据；执行
-  `drop_migrated_source_collections.py --apply` 后才会物理删除。
+  `station_records_sap`、`serial_bindings_sap`：运行时由网关提供数据；其本地副本的
+  物理删除由数据源运维方处理。
 
 ## 运营监控水位线
 
-`rty_sync_checkpoints`、`_hana_sync_checkpoints` 和 `scs_doa_incremental_progress` 虽然
-不再由当前调度脚本维护，但 `operations_service` 仍读取它们展示数据源状态，暂不能删除。
-应先将运营监控改为读取网关的同步状态接口（例如 `/api/sync/status`），再清理这些集合和
-对应索引。
+`operations_service` 已从网关 `/api/data-status` 读取 SAP/HANA/SCS 同步状态，
+不再读取 `rty_sync_checkpoints`、`_hana_sync_checkpoints` 或任何 SCS 进度集合。
+这些集合仅在完成备份核验后保留或删除，不影响运行时。
 
 ## 删除后的运行约束
 
-网关故障不会回退到已删除的本地 SAP/HANA 副本；部署必须配置
-`DATA_GATEWAY_URL`。元数据页面保留表定义，但通过网关的分页接口展示。SCS 和 MES
-本地集合不属于本次迁移范围。
+网关故障不会回退到已删除的本地 SAP/HANA/SCS 副本；部署必须配置
+`DATA_GATEWAY_URL`。元数据页面保留逻辑表定义，但通过网关的分页接口展示。SCS
+本地集合属于本次清理范围，后续出厂日期和质保日期只能由网关补充。

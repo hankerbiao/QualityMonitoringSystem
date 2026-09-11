@@ -9,7 +9,6 @@ Loguru Logger Module - 企业级日志系统
 - 分类输出 (普通日志 + 审计日志)
 """
 import sys
-from contextlib import contextmanager
 from datetime import datetime
 from functools import wraps
 from pathlib import Path
@@ -118,99 +117,6 @@ class AuditLogger:
             status=status,
             duration_ms=duration_str,
         )
-
-    @contextmanager
-    def audit_context(
-        self,
-        action: str,
-        resource: str,
-        user_id: str | None = None,
-        username: str | None = "-",
-        client_ip: str | None = None,
-        method: str = "HTTP",
-    ):
-        """
-        审计上下文管理器 - 自动记录耗时和状态
-
-        用法:
-            with audit_logger.audit_context("UPDATE", "/api/rty/data", user_id="123") as ctx:
-                # 执行业务逻辑
-                do_something()
-                ctx.mark_success()
-                # 或 ctx.mark_failed("错误原因")
-        """
-        ctx = AuditContext(
-            audit_logger=self,
-            action=action,
-            resource=resource,
-            user_id=user_id,
-            username=username,
-            client_ip=client_ip,
-            method=method,
-        )
-        try:
-            yield ctx
-            if not ctx._completed:
-                ctx.mark_success()
-        except Exception as e:
-            ctx.mark_failed(str(e))
-            raise
-
-
-class AuditContext:
-    """审计上下文 - 用于 contextmanager 中跟踪操作状态"""
-
-    def __init__(
-        self,
-        audit_logger: AuditLogger,
-        action: str,
-        resource: str,
-        user_id: str | None,
-        username: str,
-        client_ip: str | None,
-        method: str,
-    ):
-        self.audit_logger = audit_logger
-        self.action = action
-        self.resource = resource
-        self.user_id = user_id
-        self.username = username
-        self.client_ip = client_ip
-        self.method = method
-        self._start_time = datetime.now()
-        self._completed = False
-        self._status = "SUCCESS"
-        self._details = None
-
-    def mark_success(self, details: str | None = None):
-        """标记操作成功"""
-        self._completed = True
-        self._status = "SUCCESS"
-        self._details = details
-        self._log()
-
-    def mark_failed(self, reason: str):
-        """标记操作失败"""
-        self._completed = True
-        self._status = "FAILED"
-        self._details = reason
-        self._log()
-
-    def _log(self):
-        """记录审计日志"""
-        duration_ms = (datetime.now() - self._start_time).total_seconds() * 1000
-        self.audit_logger.log(
-            action=self.action,
-            resource=self.resource,
-            user_id=self.user_id,
-            username=self.username,
-            client_ip=self.client_ip,
-            method=self.method,
-            status=self._status,
-            duration_ms=duration_ms,
-            details=self._details,
-        )
-
 
 def setup_logger(
     log_dir: str = "logs",
@@ -396,15 +302,6 @@ def audit_log(
     return decorator
 
 
-# ============================================================
-# 便捷的日志函数
-# ============================================================
-
-def log_debug(message: str, **kwargs):
-    """记录 DEBUG 级别日志"""
-    logger.debug(message, **kwargs)
-
-
 def log_info(message: str, **kwargs):
     """记录 INFO 级别日志"""
     logger.info(message, **kwargs)
@@ -418,11 +315,6 @@ def log_warning(message: str, **kwargs):
 def log_error(message: str, **kwargs):
     """记录 ERROR 级别日志"""
     logger.error(message, **kwargs)
-
-
-def log_critical(message: str, **kwargs):
-    """记录 CRITICAL 级别日志"""
-    logger.critical(message, **kwargs)
 
 
 def get_audit_logger() -> AuditLogger:
@@ -439,7 +331,3 @@ class NoOpAuditLogger:
 
     def log(self, **kwargs):
         pass
-
-    def audit_context(self, **kwargs):
-        from contextlib import nullcontext
-        return nullcontext()

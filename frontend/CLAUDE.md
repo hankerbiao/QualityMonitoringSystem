@@ -52,7 +52,8 @@ src/
 │   ├── Home.tsx             # 首页 (Bento Grid 四模块卡片)
 │   └── RTYPage.tsx          # RTY 整机直通率页面
 ├── context/
-│   └── ModelTargetsContext.tsx  # 机型指标上下文 (跨组件共享)
+│   ├── AuthContext.tsx          # 登录状态
+│   └── SettingsContext.tsx      # 系统配置
 ├── types.ts                 # TypeScript 接口
 ├── App.tsx                  # 路由配置 (/, /rty, /lrr, /doa, /mfr, /settings)
 └── index.css                # Tailwind v4 入口 + 字体配置

@@ -1,4 +1,4 @@
-import { apiFetch } from './authApi';
+import { requestJson } from './authApi';
 import type { MetadataTableResponse } from '../types/metadata';
 
 export const metadataApi = {
@@ -14,11 +14,6 @@ export const metadataApi = {
     Object.entries(filters).forEach(([key, value]) => {
       if (value.trim()) params.set(key, value.trim());
     });
-    const response = await apiFetch(`/api/metadata/tables/${encodeURIComponent(tableName)}?${params}`);
-    if (!response.ok) {
-      const payload = await response.json().catch(() => null);
-      throw new Error(payload?.detail || '表数据加载失败');
-    }
-    return (await response.json()) as MetadataTableResponse;
+    return requestJson<MetadataTableResponse>(`/api/metadata/tables/${encodeURIComponent(tableName)}?${params}`);
   },
 };

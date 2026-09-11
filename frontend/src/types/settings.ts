@@ -34,10 +34,6 @@ export interface SettingsResponse {
   cycleStatsConfig: CycleStatsConfig;
 }
 
-// 不再硬编码兜底目标率：目标直通率由后端按 configs.model_targets 提供，未配置默认 100。
-// 保留空对象，避免开发者误把这些假值当成真实配置。
-export const DEFAULT_MODEL_TARGETS: ModelTargets = {};
-
 export interface SettingsContextType {
   settings: SettingsResponse;
   updateSettings: (config: SettingsUpdate) => Promise<void>;
@@ -49,12 +45,6 @@ export interface SettingsUpdate {
   modelTargets?: ModelTargets;
   emailAlert?: Partial<EmailAlertConfig>;
   cycleStatsConfig?: CycleStatsConfig;
-}
-
-export interface ModelTargetsContextType {
-  modelTargets: ModelTargets;
-  setModelTargets: (targets: ModelTargets) => void;
-  loading: boolean;
 }
 
 export interface CycleStatsConfig {

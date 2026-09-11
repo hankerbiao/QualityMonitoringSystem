@@ -6,6 +6,8 @@ export interface MetadataColumn {
 export interface MetadataFilter {
   key: string;
   label: string;
+  match?: 'contains' | 'exact' | 'dateFrom' | 'dateTo';
+  inputType?: 'text' | 'date';
 }
 
 export interface MetadataTableResponse {

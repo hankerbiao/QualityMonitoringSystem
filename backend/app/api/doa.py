@@ -5,10 +5,10 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 
 from app.api.auth import get_current_user
-from app.db.mongodb import get_database
 from app.schemas.doa import (
     DoaDashboardResponse,
     DoaFilters,
+    DoaRawFilters,
     DoaRepairsResponse,
 )
 from app.services.doa_service import (
@@ -45,7 +45,7 @@ def _filters(
 
 @router.get("/options")
 async def doa_options(_: Annotated[dict, Depends(get_current_user)]):
-    return await get_doa_options(get_database())
+    return await get_doa_options()
 
 
 @router.get("/raw")
@@ -53,8 +53,35 @@ async def doa_raw(
     _: Annotated[dict, Depends(get_current_user)],
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=100),
+    acceptedDateFrom: str | None = Query(None),
+    acceptedDateTo: str | None = Query(None),
+    keyword: str | None = Query(None, max_length=100),
+    serviceNumber: str | None = Query(None, max_length=100),
+    salesOrder: str | None = Query(None, max_length=100),
+    serialNumber: str | None = Query(None, max_length=100),
+    customer: str | None = Query(None, max_length=100),
+    product: str | None = Query(None, max_length=100),
+    doaType: str | None = Query(None, max_length=100),
+    judgment: str | None = Query(None, max_length=20),
+    processingStatus: str | None = Query(None, max_length=100),
 ):
-    return await get_doa_raw(get_database(), page, limit)
+    return await get_doa_raw(
+        page,
+        limit,
+        DoaRawFilters(
+            acceptedDateFrom=acceptedDateFrom,
+            acceptedDateTo=acceptedDateTo,
+            keyword=keyword,
+            serviceNumber=serviceNumber,
+            salesOrder=salesOrder,
+            serialNumber=serialNumber,
+            customer=customer,
+            product=product,
+            doaType=doaType,
+            judgment=judgment,
+            processingStatus=processingStatus,
+        ),
+    )
 
 
 @router.get("/dashboard", response_model=DoaDashboardResponse)
@@ -69,7 +96,6 @@ async def doa_dashboard(
     acceptedDateTo: str | None = Query(None),
 ):
     return await build_doa_dashboard(
-        get_database(),
         _filters(
             dateFrom,
             dateTo,
@@ -97,7 +123,6 @@ async def doa_repairs(
     replacementOnly: bool = Query(False),
 ):
     return await get_doa_repairs(
-        get_database(),
         _filters(
             dateFrom,
             dateTo,

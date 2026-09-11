@@ -4,14 +4,7 @@ import type {
   ProcessRecordRealtimeData,
   ProcessRecordSource,
 } from '../types';
-import { apiFetch } from './authApi';
-
-interface ApiResponse<T> {
-  success: boolean;
-  data?: T;
-  message?: string;
-  error?: string;
-}
+import { requestData } from './authApi';
 
 export const processRecordsApi = {
   async getRealtime(params: {
@@ -30,21 +23,11 @@ export const processRecordsApi = {
     if (params.sn) query.set('sn', params.sn);
     if (params.base) query.set('base', params.base);
     if (params.station) query.set('station', params.station);
-    const response = await apiFetch(`${API_BASE_URL}/process-records/realtime?${query}`);
-    const json: ApiResponse<ProcessRecordRealtimeData> = await response.json();
-    if (!response.ok || !json.success || !json.data) {
-      throw new Error(json.error || json.message || '实时数据查询失败');
-    }
-    return json.data;
+    return requestData<ProcessRecordRealtimeData>(`${API_BASE_URL}/process-records/realtime?${query}`);
   },
 
   async getFilterOptions(): Promise<ProcessRecordFilterOptions> {
-    const response = await apiFetch(`${API_BASE_URL}/process-records/filter-options`);
-    const json: ApiResponse<ProcessRecordFilterOptions> = await response.json();
-    if (!response.ok || !json.success || !json.data) {
-      throw new Error(json.error || json.message || '筛选条件加载失败');
-    }
-    return json.data;
+    return requestData<ProcessRecordFilterOptions>(`${API_BASE_URL}/process-records/filter-options`);
   },
 
   imageUrl(source: 'system1' | 'system2', path: string): string {

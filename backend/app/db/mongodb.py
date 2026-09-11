@@ -83,22 +83,6 @@ async def create_indexes() -> None:
     # database deliberately does not create or maintain a local copy.
     # 历史同步水位线仍由运营监控读取；运行审计已不再创建。
     await mongodb.db.rty_sync_checkpoints.create_index("updated_at")
-    await mongodb.db.scs_doa_results.create_index(
-        [("scs_enrichment.is_5000", 1), ("data.判定结果", 1), ("scs_enrichment.accepted_date", 1)]
-    )
-    await mongodb.db.scs_doa_results.create_index(
-        [("is_5000", 1), ("data.判定结果", 1), ("scs_enrichment.accepted_date", 1)]
-    )
-    await mongodb.db.scs_doa_results.create_index("scs_enrichment.sales_order")
-    await mongodb.db.scs_doa_results.create_index("data.销售订单号")
-    # SCS 换上换下采集结果：按服务单号关联 DOA，支撑换件率聚合
-    await mongodb.db.scs_change_results.create_index("data.服务单号")
-    await mongodb.db.scs_change_results.create_index(
-        [("data.操作类型", 1), ("data.操作时间", 1), ("data.服务单号", 1)]
-    )
-    await mongodb.db.scs_change_results.create_index(
-        [("data.服务单号", 1), ("data.操作类型", 1), ("data.操作时间", 1)]
-    )
 
 
 def get_database() -> AsyncIOMotorDatabase:

@@ -1,9 +1,4 @@
-"""MFR dashboard aggregation.
-
-The change collection deliberately remains free of derived 5000-company fields.
-Change rows are associated to 5000 orders through the existing service-order ->
-DOA -> sales-order relationship.
-"""
+"""MFR dashboard aggregation backed exclusively by the data gateway."""
 
 from __future__ import annotations
 
@@ -11,7 +6,6 @@ from calendar import monthrange
 from datetime import date, datetime, timezone
 from typing import Any
 
-from app.models.documents import Collections
 from app.schemas.mfr import (
     MFRDashboardResponse,
     MFRDimensionItem,
@@ -20,12 +14,7 @@ from app.schemas.mfr import (
     MFRTrendItem,
 )
 from app.services.data_gateway_client import data_gateway
-from app.services.mfr_queries import (
-    change_projection,
-    change_query,
-    doa_link_projection,
-    doa_link_query,
-)
+from app.services.scs_gateway import scs_gateway
 
 
 def _parse_date(value: Any) -> date | None:
@@ -102,10 +91,7 @@ def _rate(faults: int, fleet: float) -> float | None:
     return round(faults / fleet * 100, 2) if fleet > 0 else None
 
 
-async def build_mfr_dashboard(
-    db: Any,
-    filters: MFRFilters,
-) -> MFRDashboardResponse:
+async def build_mfr_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
     start = _parse_date(filters.dateFrom)
     end = _parse_date(filters.dateTo)
     if not start or not end or start > end:
@@ -175,69 +161,39 @@ async def build_mfr_dashboard(
 
     order_numbers = set(orders)
     service_to_order: dict[str, str] = {}
-    doa_collection = db[Collections.SCS_DOA_RESULTS]
-    # Resolve the 5000 scope from the current sales-order universe rather than
-    # copying is_5000 onto change rows or trusting a stale derived flag.
-    if order_numbers:
-        async for document in doa_collection.find(
-            doa_link_query(), projection=doa_link_projection()
-        ):
-            data = document.get("data") or {}
-            enrichment = document.get("scs_enrichment") or {}
-            service_no = str(data.get("服务单号") or "").strip()
-            order_no = str(enrichment.get("sales_order") or data.get("销售订单号") or "").strip()
-            order_key = _order_key(order_no)
-            if service_no and order_key in order_numbers:
-                service_to_order[service_no] = order_key
-            order = orders.get(order_key)
-            if order is not None:
-                factory_date = _first_date(
-                    document,
-                    (
-                        ("data", "出厂日期"),
-                        ("data", "生产日期"),
-                        ("scs_enrichment", "factory_date"),
-                    ),
-                )
-                warranty_date = _first_date(
-                    document,
-                    (
-                        ("data", "保修结束日期"),
-                        ("data", "质保到期日"),
-                        ("scs_enrichment", "warranty_end_date"),
-                    ),
-                )
-                if not order["factory_date"] and factory_date:
-                    order["factory_date"] = factory_date
-                if not order["warranty_date"] and warranty_date:
-                    order["warranty_date"] = warranty_date
+    doa_rows = await scs_gateway.all("SCS_DOA", company5000="true")
+    for document in doa_rows:
+        service_no = document["service_order"]
+        order_key = _order_key(document["sales_order"])
+        if service_no and order_key in order_numbers:
+            service_to_order[service_no] = order_key
+        order = orders.get(order_key)
+        if order is not None:
+            if not order["factory_date"]:
+                order["factory_date"] = _parse_date(document["factory_date"])
+            if not order["warranty_date"]:
+                order["warranty_date"] = _parse_date(document["warranty_end_date"])
 
     # MFR counts valid replacement records (failure events). A machine with
     # multiple distinct failures contributes once per event; this is different
     # from a unique-affected-machine rate.
     faults_by_period_model: dict[tuple[str, str], int] = {}
-    change_collection = db[Collections.SCS_CHANGE_RESULTS]
     if service_to_order:
-        async for document in change_collection.find(
-            change_query(set(service_to_order), start, end),
-            projection=change_projection(),
-        ):
-            data = document.get("data") or {}
-            if str(data.get("是否撤销") or "").strip() == "是":
+        changes = await scs_gateway.all(
+            "SCS_CHANGE", company5000="true", dateFrom=start.isoformat(), dateTo=end.isoformat()
+        )
+        for document in changes:
+            if document["is_revoked"] or document["change_type"] not in {"换上", "换上-up"}:
                 continue
-            linked_order = service_to_order.get(str(data.get("服务单号") or "").strip())
-            if not linked_order:
-                continue
-            operation_date = _parse_date(data.get("操作时间"))
-            if not operation_date:
+            linked_order = service_to_order.get(document["service_order"])
+            operation_date = _parse_date(document["create_at"])
+            if not linked_order or not operation_date:
                 continue
             period = operation_date.strftime("%Y-%m")
-            if period not in periods:
-                continue
-            order = orders[linked_order]
-            key = (period, order["model"])
-            faults_by_period_model[key] = faults_by_period_model.get(key, 0) + 1
-
+            if period in periods:
+                order = orders[linked_order]
+                key = (period, order["model"])
+                faults_by_period_model[key] = faults_by_period_model.get(key, 0) + 1
     month_points = {period: _month_point(period) for period in periods}
     fleet_by_period_model: dict[tuple[str, str], float] = {}
     with_dates = missing_dates = 0
@@ -270,7 +226,11 @@ async def build_mfr_dashboard(
     for model in sorted(by_model_keys):
         faults = faults_by_model.get(model, 0)
         fleet = fleet_by_model.get(model, 0)
-        by_model.append(MFRDimensionItem(key=model, faultCount=faults, fleetCount=fleet, mfrRate=_rate(faults, fleet)))
+        by_model.append(
+            MFRDimensionItem(
+                key=model, faultCount=faults, fleetCount=fleet, mfrRate=_rate(faults, fleet)
+            )
+        )
 
     trend: list[MFRTrendItem] = []
     for period in periods:
@@ -284,7 +244,15 @@ async def build_mfr_dashboard(
             for (item_period, model), value in fleet_by_period_model.items()
             if item_period == period and (not filters.model or model == filters.model)
         )
-        trend.append(MFRTrendItem(period=period, key=period, faultCount=faults, fleetCount=fleet, mfrRate=_rate(faults, fleet)))
+        trend.append(
+            MFRTrendItem(
+                period=period,
+                key=period,
+                faultCount=faults,
+                fleetCount=fleet,
+                mfrRate=_rate(faults, fleet),
+            )
+        )
 
     fault_count = sum(item.faultCount for item in by_model)
     fleet_count = sum(item.fleetCount for item in by_model)

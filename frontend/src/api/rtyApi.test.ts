@@ -1,20 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { clearRtyApiCache, rtyApi } from './rtyApi';
-import { apiFetch } from './authApi';
+import { requestJson } from './authApi';
 import type { RTYFilterParams } from '../types';
 
-vi.mock('./authApi', () => ({ apiFetch: vi.fn() }));
+vi.mock('./authApi', () => ({ requestJson: vi.fn() }));
 
 describe('rtyApi list cache', () => {
   afterEach(() => {
     clearRtyApiCache();
-    vi.mocked(apiFetch).mockReset();
+    vi.mocked(requestJson).mockReset();
   });
 
   it('coalesces identical list requests', async () => {
-    vi.mocked(apiFetch).mockResolvedValue(new Response(JSON.stringify({
+    vi.mocked(requestJson).mockResolvedValue({
       items: [], total: 0, page: 1, limit: 50, has_more: false,
-    }), { status: 200 }));
+    });
     const filters: RTYFilterParams = {
       dateRange: { from: undefined, to: undefined }, productModel: 'all', customer: '', base: 'all', salesOrder: '',
       productionOrder: '', serialNumber: '', orderScope: 'normal' as const,
@@ -22,6 +22,6 @@ describe('rtyApi list cache', () => {
 
     await Promise.all([rtyApi.getRTYData(filters), rtyApi.getRTYData(filters)]);
 
-    expect(apiFetch).toHaveBeenCalledTimes(1);
+    expect(requestJson).toHaveBeenCalledTimes(1);
   });
 });

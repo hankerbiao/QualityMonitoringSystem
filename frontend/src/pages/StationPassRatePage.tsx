@@ -16,6 +16,7 @@ import * as XLSX from 'xlsx';
 import { rtyApi } from '../api/rtyApi';
 import type { StationGroupBy, StationPassDetail, StationPassQuery, StationPassRate } from '../types';
 import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
+import { combinedStationPassRate } from '../utils/stationPassRate';
 
 const dimensionLabels: Record<StationGroupBy, string> = {
   salesOrder: '销售订单号',
@@ -66,6 +67,7 @@ export default function StationPassRatePage() {
   const [showBaseSuggestions, setShowBaseSuggestions] = useState(false);
   const [groupBy, setGroupBy] = useState<StationGroupBy>('productModel');
   const [rows, setRows] = useState<StationPassRate[]>([]);
+  const [selectedStations, setSelectedStations] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [error, setError] = useState('');
@@ -84,6 +86,7 @@ export default function StationPassRatePage() {
     loadRequestId.current += 1;
     setLoading(false);
     setRows([]);
+    setSelectedStations([]);
     setHasSearched(false);
     setAppliedQuery(null);
     setDataUpdatedAt(null);
@@ -241,6 +244,10 @@ export default function StationPassRatePage() {
     const data = matrix.rows.map((row) => ({
       [dimensionLabels[groupBy]]: row.dimensionValue,
       Total: formatRate(row.total.inputCount, row.total.defectCount),
+      工站直通率: (() => {
+        const rate = combinedStationPassRate(row.stationRows, selectedStations);
+        return rate === null ? '-' : `${rate.toFixed(2)}%`;
+      })(),
       ...Object.fromEntries(matrix.stations.map((station) => [station, row.stationRows.has(station) ? `${row.stationRows.get(station)!.passRate.toFixed(2)}%` : '-'])),
     }));
     const sheet = XLSX.utils.json_to_sheet(data);
@@ -255,10 +262,15 @@ export default function StationPassRatePage() {
   };
 
   const dimensionLabel = dimensionLabels[groupBy];
-  const colSpan = matrix.stations.length + 2;
+  const colSpan = matrix.stations.length + 3;
   const updatedAt = formatUpdatedAt(dataUpdatedAt);
   const filteredProductModels = productModels.filter((item) => !productModel || item.model.toLowerCase().includes(productModel.toLowerCase()));
   const filteredBases = bases.filter((item) => !base || item.base.toLowerCase().includes(base.toLowerCase()));
+  const toggleStation = (station: string) => {
+    setSelectedStations((current) => current.includes(station)
+      ? current.filter((value) => value !== station)
+      : [...current, station]);
+  };
 
   return (
     <div className="min-h-screen bg-[#f6f8fb] text-slate-800">
@@ -317,11 +329,13 @@ export default function StationPassRatePage() {
             <div className="flex items-center gap-1.5 pt-5"><button type="button" onClick={reset} className="inline-flex size-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 transition-colors hover:border-slate-400 hover:bg-slate-100" title="重置条件" aria-label="重置条件"><RotateCcw className="size-4" /></button><button type="submit" disabled={loading} className="inline-flex h-9 items-center gap-1.5 rounded-md bg-cyan-600 px-3 text-sm font-medium text-white transition-colors hover:bg-cyan-700 disabled:cursor-wait disabled:opacity-60">{loading ? <RefreshCw className="size-4 animate-spin" /> : <Search className="size-4" />}{loading ? '正在计算' : '查询'}</button></div>
           </form>
 
+          {hasSearched && matrix.stations.length > 0 && <fieldset className="border-b border-slate-100 bg-white px-4 py-3"><div className="flex flex-wrap items-center gap-2"><legend className="mr-2 text-xs font-semibold text-slate-700">组合工站</legend><button type="button" onClick={() => setSelectedStations(matrix.stations)} className="text-xs font-medium text-cyan-700 hover:text-cyan-800">全选</button><button type="button" onClick={() => setSelectedStations([])} disabled={!selectedStations.length} className="text-xs font-medium text-slate-500 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40">清空</button><span className="text-xs text-slate-400">已选 {selectedStations.length} 个</span></div><div className="mt-2 flex max-h-24 flex-wrap gap-x-4 gap-y-2 overflow-y-auto pr-1">{matrix.stations.map((station) => <label key={station} className="inline-flex max-w-52 items-center gap-1.5 text-xs text-slate-700"><input type="checkbox" checked={selectedStations.includes(station)} onChange={() => toggleStation(station)} className="size-3.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" /><span className="truncate font-mono" title={station}>{station}</span></label>)}</div></fieldset>}
+
           <div className="overflow-auto">
             <table className="w-full min-w-max border-separate border-spacing-0 text-left">
-              <thead className="text-xs font-semibold text-slate-600"><tr><th className="sticky left-0 top-0 z-20 min-w-52 border-b border-r border-slate-200 bg-slate-50 px-4 py-3 text-left shadow-[1px_0_0_0_rgb(226_232_240)]">{dimensionLabel}</th><th className="sticky left-52 top-0 z-20 min-w-30 border-b border-r border-slate-200 bg-slate-100 px-3 py-3 text-center shadow-[1px_0_0_0_rgb(226_232_240)]">汇总直通率</th>{matrix.stations.map((station) => { const stationName = rows.find((row) => row.stationCode === station)?.stationName; return <th key={station} className="sticky top-0 z-10 min-w-32 border-b border-r border-slate-200 bg-slate-50 px-3 py-3 text-center font-mono" title={stationName || station}><span className="block text-slate-700">{station}</span>{stationName && <span className="mt-0.5 block max-w-28 truncate font-sans text-[10px] font-medium text-slate-400">{stationName}</span>}</th>; })}</tr></thead>
+              <thead className="text-xs font-semibold text-slate-600"><tr><th className="sticky left-0 top-0 z-20 min-w-52 border-b border-r border-slate-200 bg-slate-50 px-4 py-3 text-left shadow-[1px_0_0_0_rgb(226_232_240)]">{dimensionLabel}</th><th className="sticky left-52 top-0 z-20 min-w-30 border-b border-r border-slate-200 bg-slate-100 px-3 py-3 text-center shadow-[1px_0_0_0_rgb(226_232_240)]">汇总直通率</th><th className="sticky left-[20.5rem] top-0 z-20 min-w-32 border-b border-r border-slate-200 bg-cyan-50 px-3 py-3 text-center">工站直通率</th>{matrix.stations.map((station) => { const stationName = rows.find((row) => row.stationCode === station)?.stationName; return <th key={station} className="sticky top-0 z-10 min-w-32 border-b border-r border-slate-200 bg-slate-50 px-3 py-3 text-center font-mono" title={stationName || station}><span className="block text-slate-700">{station}</span>{stationName && <span className="mt-0.5 block max-w-28 truncate font-sans text-[10px] font-medium text-slate-400">{stationName}</span>}</th>; })}</tr></thead>
               <tbody className="text-xs">
-                {loading ? <tr><td colSpan={colSpan} className="px-4 py-16 text-center text-slate-500"><span className="inline-flex items-center gap-2"><RefreshCw className="size-4 animate-spin text-cyan-600" />正在计算工位过站量与维修 SN 匹配关系...</span></td></tr> : error ? <tr><td colSpan={colSpan} className="px-4 py-16 text-center text-red-600">{error}</td></tr> : !hasSearched ? <tr><td colSpan={colSpan} className="px-4 py-16 text-center text-slate-500"><span className="inline-flex items-center gap-2"><CalendarRange className="size-4 text-slate-400" />调整条件后点击查询，查看工位直通率</span></td></tr> : matrix.rows.length === 0 ? <tr><td colSpan={colSpan} className="px-4 py-16 text-center text-slate-500">当前条件下暂无工位过站数据</td></tr> : matrix.rows.map((row) => <tr key={row.dimensionValue} className="group"><th className="sticky left-0 z-10 max-w-52 truncate border-b border-r border-slate-200 bg-white px-4 py-3.5 text-left font-mono font-semibold text-slate-800 shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-slate-50" title={row.dimensionValue}>{row.dimensionValue}</th><td className="sticky left-52 z-10 border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-center shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-slate-100/70"><div className="font-mono text-sm font-semibold text-slate-800">{formatRate(row.total.inputCount, row.total.defectCount)}</div><div className="mt-0.5 font-mono text-[11px] text-slate-500">{row.total.defectCount}/{row.total.inputCount}</div></td>{matrix.stations.map((station) => { const rate = row.stationRows.get(station); return !rate ? <td key={station} className="border-b border-r border-slate-100 bg-slate-50/40 px-3 py-2 text-center text-slate-300">-</td> : <td key={station} className="border-b border-r border-slate-100 p-1.5 text-center"><button type="button" onClick={() => void openDetail(rate)} className={`flex min-h-13 w-full flex-col items-center justify-center rounded-sm px-2 py-1.5 font-mono transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${rateTone(rate.passRate)}`} title={`过站量 ${rate.inputCount}，维修 SN ${rate.defectCount}；点击查看明细`}><span className="text-sm font-semibold">{rate.passRate.toFixed(2)}%</span><span className="mt-0.5 text-[11px] font-medium opacity-75">{rate.defectCount}/{rate.inputCount}</span></button></td>; })}</tr>)}
+                {loading ? <tr><td colSpan={colSpan} className="px-4 py-16 text-center text-slate-500"><span className="inline-flex items-center gap-2"><RefreshCw className="size-4 animate-spin text-cyan-600" />正在计算工位过站量与维修 SN 匹配关系...</span></td></tr> : error ? <tr><td colSpan={colSpan} className="px-4 py-16 text-center text-red-600">{error}</td></tr> : !hasSearched ? <tr><td colSpan={colSpan} className="px-4 py-16 text-center text-slate-500"><span className="inline-flex items-center gap-2"><CalendarRange className="size-4 text-slate-400" />调整条件后点击查询，查看工位直通率</span></td></tr> : matrix.rows.length === 0 ? <tr><td colSpan={colSpan} className="px-4 py-16 text-center text-slate-500">当前条件下暂无工位过站数据</td></tr> : matrix.rows.map((row) => { const combinedRate = combinedStationPassRate(row.stationRows, selectedStations); return <tr key={row.dimensionValue} className="group"><th className="sticky left-0 z-10 max-w-52 truncate border-b border-r border-slate-200 bg-white px-4 py-3.5 text-left font-mono font-semibold text-slate-800 shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-slate-50" title={row.dimensionValue}>{row.dimensionValue}</th><td className="sticky left-52 z-10 border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-center shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-slate-100/70"><div className="font-mono text-sm font-semibold text-slate-800">{formatRate(row.total.inputCount, row.total.defectCount)}</div><div className="mt-0.5 font-mono text-[11px] text-slate-500">{row.total.defectCount}/{row.total.inputCount}</div></td><td className="sticky left-[20.5rem] z-10 border-b border-r border-slate-200 bg-cyan-50 px-3 py-2 text-center shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-cyan-100/70"><div className="font-mono text-sm font-semibold text-cyan-900">{combinedRate === null ? '-' : `${combinedRate.toFixed(2)}%`}</div><div className="mt-0.5 text-[11px] text-cyan-700">{selectedStations.length ? `${selectedStations.length} 个工站` : '未选择工站'}</div></td>{matrix.stations.map((station) => { const rate = row.stationRows.get(station); return !rate ? <td key={station} className="border-b border-r border-slate-100 bg-slate-50/40 px-3 py-2 text-center text-slate-300">-</td> : <td key={station} className="border-b border-r border-slate-100 p-1.5 text-center"><button type="button" onClick={() => void openDetail(rate)} className={`flex min-h-13 w-full flex-col items-center justify-center rounded-sm px-2 py-1.5 font-mono transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${rateTone(rate.passRate)}`} title={`过站量 ${rate.inputCount}，维修 SN ${rate.defectCount}；点击查看明细`}><span className="text-sm font-semibold">{rate.passRate.toFixed(2)}%</span><span className="mt-0.5 text-[11px] font-medium opacity-75">{rate.defectCount}/{rate.inputCount}</span></button></td>; })}</tr>; })}
               </tbody>
             </table>
           </div>

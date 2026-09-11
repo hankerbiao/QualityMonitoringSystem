@@ -277,9 +277,6 @@ class DataGatewayClient:
             params={key: value for key, value in filters.items() if value},
         )
 
-    async def sync_status(self) -> dict[str, Any]:
-        return await self.request_json("GET", "/api/sync/status")
-
     async def data_status(self) -> dict[str, Any]:
         return await self.request_json("GET", "/api/data-status")
 
@@ -315,6 +312,7 @@ class DataGatewayClient:
         # load. Reuse it briefly to avoid repeating a large Mongo query while
         # keeping freshness bounded and explicit.
         cache_key = tuple(sorted((str(key), str(value)) for key, value in filters.items() if value))
+
         async def load() -> list[dict[str, Any]]:
             payload = await self.request_json("GET", "/api/orders/all", params=filters)
             if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
@@ -374,6 +372,7 @@ class DataGatewayClient:
             view_id,
             tuple(sorted((str(key), str(value)) for key, value in filters.items() if value)),
         )
+
         async def load() -> list[dict[str, Any]]:
             payload = await self.request_json("GET", f"/api/views/{view_id}/all", params=filters)
             if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
@@ -483,6 +482,16 @@ class DataGatewayClient:
             f"/api/views/{view_id}/stats",
             params={key: value for key, value in params.items() if value != ""},
         )
+
+    async def scs_doa_page(
+        self, *, page: int = 1, page_size: int = 20, **filters: str
+    ) -> dict[str, Any]:
+        return await self.view("SCS_DOA", page=page, page_size=page_size, **filters)
+
+    async def scs_change_page(
+        self, *, page: int = 1, page_size: int = 20, **filters: str
+    ) -> dict[str, Any]:
+        return await self.view("SCS_CHANGE", page=page, page_size=page_size, **filters)
 
     async def view_detail(self, view_id: str, record_id: str) -> dict[str, Any]:
         return await self.request_json(

@@ -1,5 +1,5 @@
 import { DefectDetail, RTYData, RTYFilterParams, SalesOrderSummary, PaginatedRTYResponse, PaginatedExcludedOrdersResponse, StationPassDetail, StationPassQuery, StationPassRate } from '../types';
-import { apiFetch } from './authApi';
+import { requestData, requestJson } from './authApi';
 
 const RTY_LIST_CACHE_TTL_MS = 2_000;
 const rtyListCache = new Map<string, { expiresAt: number; promise: Promise<PaginatedRTYResponse> }>();
@@ -107,12 +107,7 @@ export const rtyApi = {
     const query = buildStationPassQuery(params);
     const suffix = query.toString();
     return cachedOption(`station-pass-rates:${suffix}`, async () => {
-      const res = await apiFetch(`/api/rty/station-pass-rates${suffix ? `?${suffix}` : ''}`);
-      const json = await res.json();
-      if (!res.ok || !json.success || !Array.isArray(json.data)) {
-        throw new Error(json.error || json.message || '工位过站数据加载失败');
-      }
-      return json.data as StationPassRate[];
+      return requestData<StationPassRate[]>(`/api/rty/station-pass-rates${suffix ? `?${suffix}` : ''}`);
     });
   },
 
@@ -120,10 +115,7 @@ export const rtyApi = {
     const qs = buildStationPassQuery(params);
     qs.set('stationCode', stationCode);
     qs.set('detailType', detailType);
-    const res = await apiFetch(`/api/rty/station-pass-details?${qs}`);
-    const json = await res.json();
-    if (!res.ok || !json.success || !Array.isArray(json.data)) throw new Error(json.error || json.message || '工位明细加载失败');
-    return json.data as StationPassDetail[];
+    return requestData<StationPassDetail[]>(`/api/rty/station-pass-details?${qs}`);
   },
 
   async getCycleData(
@@ -155,12 +147,7 @@ export const rtyApi = {
     const promise = (async () => {
       const qs = new URLSearchParams({ orderScope });
       if (customer) qs.set('customer', customer);
-      const res = await apiFetch(`/api/rty/cycle-data?${qs.toString()}`);
-      const json = await res.json();
-      if (!json.success || !Array.isArray(json.data)) {
-        throw new Error(json.error || json.message || '周期统计数据加载失败');
-      }
-      return json.data as RTYData[];
+      return requestData<RTYData[]>(`/api/rty/cycle-data?${qs.toString()}`);
     })();
     const entry = { expiresAt: Date.now() + RTY_OPTIONS_CACHE_TTL_MS, promise, cachedAt: Date.now() };
     rtyCycleCache.set(key, entry);
@@ -183,9 +170,9 @@ export const rtyApi = {
     const cached = rtyListCache.get(requestKey);
     if (cached && cached.expiresAt > Date.now()) return cached.promise;
 
-    const promise = apiFetch(`/api/rty/list?${requestKey}`)
-      .then(res => res.json() as Promise<PaginatedRTYResponse>)
+    const promise = requestJson<PaginatedRTYResponse>(`/api/rty/list?${requestKey}`)
       .then(json => {
+        if (!Array.isArray(json.items)) throw new Error('RTY 列表响应格式无效');
         rtyListCache.set(requestKey, { expiresAt: Date.now() + RTY_LIST_CACHE_TTL_MS, promise });
         return json;
       })
@@ -210,66 +197,49 @@ export const rtyApi = {
     qs.set('page', String(page));
     qs.set('limit', String(pageSize));
     buildRtyQuery(params).forEach((value, key) => qs.set(key, value));
-    const res = await apiFetch(`/api/rty/excluded-orders?${qs}`);
-    const json = await res.json();
-    if (!res.ok || !Array.isArray(json.items)) {
-      throw new Error(json.error || json.detail || '已过滤订单加载失败');
-    }
+    const json = await requestJson<PaginatedExcludedOrdersResponse>(`/api/rty/excluded-orders?${qs}`);
+    if (!Array.isArray(json.items)) throw new Error('已过滤订单响应格式无效');
     return json as PaginatedExcludedOrdersResponse;
   },
 
   async getDefectDetails(serialNumbers: string[]): Promise<DefectDetail[]> {
     if (!serialNumbers.length) return [];
     const qs = new URLSearchParams({ sns: serialNumbers.join(',') });
-    const res = await apiFetch(`/api/rty/defects?${qs}`);
-    const json = await res.json();
-    return json.success ? json.data : [];
+    return requestData<DefectDetail[]>(`/api/rty/defects?${qs}`);
   },
 
   async getDefectDetailsByOrder(productionOrder: string): Promise<DefectDetail[]> {
     const qs = new URLSearchParams({ productionOrder });
-    const res = await apiFetch(`/api/rty/defects/by-order?${qs}`);
-    const json = await res.json();
-    return json.success ? json.data : [];
+    return requestData<DefectDetail[]>(`/api/rty/defects/by-order?${qs}`);
   },
 
   async getDefectDetailsByFilters(params: RTYFilterParams): Promise<DefectDetail[]> {
     const qs = buildRtyQuery(params);
 
-    const res = await apiFetch(`/api/rty/defects/by-filters?${qs}`);
-    const json = await res.json();
-    return json.success ? json.data : [];
+    return requestData<DefectDetail[]>(`/api/rty/defects/by-filters?${qs}`);
   },
 
   async getSalesOrderSummary(salesOrders: string[]): Promise<SalesOrderSummary[]> {
     if (!salesOrders.length) return [];
     const qs = new URLSearchParams({ salesOrders: salesOrders.join(',') });
-    const res = await apiFetch(`/api/rty/sales-order-summary?${qs}`);
-    const json = await res.json();
-    return json.success ? json.data : [];
+    return requestData<SalesOrderSummary[]>(`/api/rty/sales-order-summary?${qs}`);
   },
 
   async getProductModels(orderScope: RTYFilterParams['orderScope'] = 'normal'): Promise<{ model: string; count: number }[]> {
     return cachedOption(`product-models:${orderScope}`, async () => {
-      const res = await apiFetch(`/api/rty/product-models?orderScope=${orderScope}`);
-      const json = await res.json();
-      return json.success ? json.data : [];
+      return requestData<{ model: string; count: number }[]>(`/api/rty/product-models?orderScope=${orderScope}`);
     });
   },
 
   async getBases(orderScope: RTYFilterParams['orderScope'] = 'normal'): Promise<{ base: string; count: number }[]> {
     return cachedOption(`bases:${orderScope}`, async () => {
-      const res = await apiFetch(`/api/rty/bases?orderScope=${orderScope}`);
-      const json = await res.json();
-      return json.success ? json.data : [];
+      return requestData<{ base: string; count: number }[]>(`/api/rty/bases?orderScope=${orderScope}`);
     });
   },
 
   async getCustomers(orderScope: RTYFilterParams['orderScope'] = 'normal'): Promise<string[]> {
     return cachedOption(`customers:${orderScope}`, async () => {
-      const res = await apiFetch(`/api/rty/customers?orderScope=${orderScope}`);
-      const json = await res.json();
-      return json.success ? json.data : [];
+      return requestData<string[]>(`/api/rty/customers?orderScope=${orderScope}`);
     });
   },
 
@@ -279,11 +249,11 @@ export const rtyApi = {
     customers: string[];
   }> {
     return cachedOption(`filter-options:${orderScope}`, async () => {
-      const res = await apiFetch(`/api/rty/filter-options?orderScope=${orderScope}`);
-      const json = await res.json();
-      return json.success
-        ? json.data
-        : { productModels: [], bases: [], customers: [] };
+      return requestData<{
+        productModels: { model: string; count: number }[];
+        bases: { base: string; count: number }[];
+        customers: string[];
+      }>(`/api/rty/filter-options?orderScope=${orderScope}`);
     });
   },
 

@@ -5,7 +5,6 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.auth import get_current_user
-from app.db.mongodb import get_database
 from app.schemas.mfr import MFRDashboardResponse, MFRFilters
 from app.services.mfr_service import build_mfr_dashboard
 
@@ -20,8 +19,6 @@ async def mfr_dashboard(
     model: str = Query("", description="机型"),
 ):
     try:
-        return await build_mfr_dashboard(
-            get_database(), MFRFilters(dateFrom=dateFrom, dateTo=dateTo, model=model)
-        )
+        return await build_mfr_dashboard(MFRFilters(dateFrom=dateFrom, dateTo=dateTo, model=model))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

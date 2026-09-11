@@ -8,7 +8,7 @@ from decimal import Decimal, InvalidOperation
 from time import perf_counter
 from typing import Any
 
-from fastapi import APIRouter, HTTPException, Query, Request
+from fastapi import APIRouter, Query, Request
 
 from app.core.logger import audit_log, log_info
 from app.schemas.lrr import (
@@ -20,7 +20,6 @@ from app.schemas.lrr import (
     LRRSummary,
 )
 from app.services import lrr_gateway
-from app.services.data_gateway_client import DataGatewayError
 from app.services.lrr_list_cache import LRRListQuery, lrr_list_cache
 
 router = APIRouter()
@@ -81,10 +80,6 @@ def aggregate_lrr(
             group["sales"].add(sale)
 
     active = {key: value for key, value in groups.items() if value["quantity"] > 0}
-    descriptions: dict[str, set[str]] = defaultdict(set)
-    for group in active.values():
-        descriptions[_normalized_description(group["match_description"])].add(group["material"])
-
     counts: dict[str, int] = defaultdict(int)
     details: list[LRRFaultDetail] = []
     linked: set[tuple[str, str]] = set()
@@ -97,54 +92,61 @@ def aggregate_lrr(
             r"\D", "", str(fault.get("repair_time") or fault.get("ZDATE_WX") or "")
         )
         fault_month = compact_date[:6]
-        materials = descriptions[
-            _normalized_description(fault.get("ZJXMC") or fault.get("materialDescription"))
+        candidates = [
+            (key, group)
+            for key, group in active.items()
+            if (order in group["orders"] or sales in group["sales"])
+            and (not fault_month or fault_month == group["month"].replace("-", ""))
         ]
-        for key, group in active.items():
-            if (
-                # A missing BOM MAKTX cannot be safely linked to a repair's
-                # component. Matching it by sales order would assign every
-                # repair for that machine to every empty-description PN.
-                (
-                    fault_material != group["material"]
-                    if fault_material
-                    else (
-                        not group["match_description"] or group["material"] not in materials
-                    )
+        if fault_material:
+            candidates = [
+                (key, group) for key, group in candidates if group["material"] == fault_material
+            ]
+        else:
+            fault_description = _normalized_description(
+                fault.get("ZJXMC") or fault.get("materialDescription")
+            )
+            candidates = [
+                (key, group)
+                for key, group in candidates
+                if group["match_description"]
+                and _normalized_description(group["match_description"]) == fault_description
+            ]
+
+        # A repair without an exact material number is counted only when its
+        # order, month and description resolve to one PN. This prevents a
+        # shared description from inflating every matching material's LRR.
+        if len(candidates) != 1:
+            continue
+        key, group = candidates[0]
+        if (fault_id, key) in linked:
+            continue
+        linked.add((fault_id, key))
+        counts[key] += int(fault.get("_fault_count", 1))
+        if include_details:
+            details.append(
+                LRRFaultDetail(
+                    month=group["month"],
+                    materialNumber=group["material"],
+                    materialDescription=group["description"],
+                    sn=str(fault.get("PCODE") or fault.get("sn") or ""),
+                    faultType=str(
+                        fault.get("ZNGWD")
+                        or fault.get("ZNGGZ")
+                        or fault.get("fault_category")
+                        or ""
+                    ),
+                    faultDesc=str(fault.get("ZWXWD") or fault.get("fault_desc") or ""),
+                    ngTime=" ".join(
+                        value
+                        for value in (
+                            str(fault.get("ZDATE_WX") or fault.get("repair_time") or "").strip(),
+                            str(fault.get("ZTIME") or "").strip(),
+                        )
+                        if value
+                    ),
                 )
-                or (order not in group["orders"] and sales not in group["sales"])
-                or (fault_month and fault_month != group["month"].replace("-", ""))
-                or (fault_id, key) in linked
-            ):
-                continue
-            linked.add((fault_id, key))
-            counts[key] += int(fault.get("_fault_count", 1))
-            if include_details:
-                details.append(
-                    LRRFaultDetail(
-                        month=group["month"],
-                        materialNumber=group["material"],
-                        materialDescription=group["description"],
-                        sn=str(fault.get("PCODE") or fault.get("sn") or ""),
-                        faultType=str(
-                            fault.get("ZNGWD")
-                            or fault.get("ZNGGZ")
-                            or fault.get("fault_category")
-                            or ""
-                        ),
-                        faultDesc=str(fault.get("ZWXWD") or fault.get("fault_desc") or ""),
-                        ngTime=" ".join(
-                            value
-                            for value in (
-                                str(
-                                    fault.get("ZDATE_WX") or fault.get("repair_time") or ""
-                                ).strip(),
-                                str(fault.get("ZTIME") or "").strip(),
-                            )
-                            if value
-                        ),
-                    )
-                )
+            )
 
     rows = [
         LRRData(
@@ -193,18 +195,15 @@ def _response(rows: list[LRRData], query: LRRListQuery) -> LRRListResponse:
 
 async def _load(query: LRRListQuery) -> LRRListResponse:
     started = perf_counter()
-    try:
-        bom = await lrr_gateway.load_bom(
-            material_number=query.material_number, base=query.base, customer_id=query.customer_id
-        )
-        faults = await lrr_gateway.load_faults(
-            production_orders={str(row.get("AUFNR_1") or "") for row in bom},
-            sales_orders={str(row.get("VBELN_EX") or "") for row in bom},
-            date_from=query.ng_date_from,
-            date_to=query.ng_date_to,
-        )
-    except DataGatewayError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    bom = await lrr_gateway.load_bom(
+        material_number=query.material_number, base=query.base, customer_id=query.customer_id
+    )
+    faults = await lrr_gateway.load_faults(
+        production_orders={str(row.get("AUFNR_1") or "") for row in bom},
+        sales_orders={str(row.get("VBELN_EX") or "") for row in bom},
+        date_from=query.ng_date_from,
+        date_to=query.ng_date_to,
+    )
     rows = aggregate_lrr(bom, faults, include_details=False)[0]
     response = _response(rows, query)
     # The stream projection used for the large BOM scan may omit MAKTX. Fill
@@ -262,10 +261,7 @@ async def get_lrr_list(
 @audit_log("QUERY", "lrr_options")
 async def get_lrr_options(request: Request):
     del request
-    try:
-        return LRROptions(**(await lrr_gateway.options()))
-    except DataGatewayError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    return LRROptions(**(await lrr_gateway.options()))
 
 
 @router.get("/fault-details", response_model=LRRFaultDetailsResponse)
@@ -281,18 +277,15 @@ async def get_lrr_fault_details(
     limit: int = Query(50000, ge=1, le=50000),
 ):
     del request
-    try:
-        bom = await lrr_gateway.load_bom(
-            material_number=materialNumber, base=base, customer_id=customerId, month=month
-        )
-        faults = await lrr_gateway.load_faults(
-            production_orders={str(row.get("AUFNR_1") or "") for row in bom},
-            sales_orders={str(row.get("VBELN_EX") or "") for row in bom},
-            date_from=ngDateFrom,
-            date_to=ngDateTo,
-        )
-    except DataGatewayError as exc:
-        raise HTTPException(status_code=502, detail=str(exc)) from exc
+    bom = await lrr_gateway.load_bom(
+        material_number=materialNumber, base=base, customer_id=customerId, month=month
+    )
+    faults = await lrr_gateway.load_faults(
+        production_orders={str(row.get("AUFNR_1") or "") for row in bom},
+        sales_orders={str(row.get("VBELN_EX") or "") for row in bom},
+        date_from=ngDateFrom,
+        date_to=ngDateTo,
+    )
     details = aggregate_lrr(bom, faults)[1]
     return LRRFaultDetailsResponse(
         items=details[:limit], total=len(details), truncated=len(details) > limit
