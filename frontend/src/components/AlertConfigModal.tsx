@@ -821,13 +821,9 @@ export default function AlertConfigModal({
                       {tableData
                         .filter(row => displayModels.includes(row.model))
                         .map((row, idx) => {
-                        const validMonths = heatmapMonths.filter(m => row.cells[m]?.text !== '-');
-                        const avgRty = validMonths.length > 0 
-                          ? validMonths.reduce((sum, m) => {
-                              const match = row.cells[m]?.text.match(/^([\d.]+)%/);
-                              return sum + (match ? parseFloat(match[1]) : 0);
-                            }, 0) / validMonths.length
-                          : 0;
+                        const totalRty = row.inputCount > 0
+                          ? ((row.inputCount - row.defectCount) / row.inputCount) * 100
+                          : null;
                         
                         return (
                           <tr key={idx} className="border-b border-slate-100 last:border-none hover:bg-slate-50/50">
@@ -870,8 +866,13 @@ export default function AlertConfigModal({
                                 </td>
                               );
                             })}
-                            <td className={`px-2 py-2 border-r border-slate-100 text-center text-[10px] font-semibold bg-slate-100 ${avgRty >= 99.5 ? 'text-green-700' : 'text-red-600'}`}>
-                              {avgRty > 0 ? `${avgRty.toFixed(2)}%` : '-'}
+                            <td className={`px-2 py-2 border-r border-slate-100 text-center text-[10px] font-semibold bg-slate-100 ${totalRty === null ? 'text-slate-400' : totalRty >= 99.5 ? 'text-green-700' : 'text-red-600'}`}>
+                              {totalRty === null ? '-' : (
+                                <div className="leading-tight">
+                                  <div>{totalRty.toFixed(2)}%</div>
+                                  <div className="mt-0.5 text-[9px] font-normal opacity-75">{row.defectCount.toLocaleString()}/{row.inputCount.toLocaleString()}</div>
+                                </div>
+                              )}
                             </td>
                           </tr>
                         );

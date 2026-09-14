@@ -73,6 +73,36 @@ async def test_load_bom_month_adds_gateway_date_bounds(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_load_bom_expands_numeric_display_pn_to_sap_material_number(monkeypatch):
+    captured: dict[str, str] = {}
+
+    async def all_bom_rows(**filters: str):
+        captured.update(filters)
+        return []
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
+
+    assert await lrr_gateway.load_bom(material_number="24002393") == []
+    assert captured["materialCode"] == "000000000024002393"
+
+
+@pytest.mark.asyncio
+async def test_load_bom_preserves_full_and_non_numeric_material_numbers(monkeypatch):
+    calls: list[dict[str, str]] = []
+
+    async def all_bom_rows(**filters: str):
+        calls.append(filters)
+        return []
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
+
+    await lrr_gateway.load_bom(material_number="000000000024002393")
+    await lrr_gateway.load_bom(material_number="PN-123")
+
+    assert [call["materialCode"] for call in calls] == ["000000000024002393", "PN-123"]
+
+
+@pytest.mark.asyncio
 async def test_load_bom_falls_back_to_paginated_view_for_material_description(monkeypatch):
     async def all_bom_rows(**_filters: str):
         return [

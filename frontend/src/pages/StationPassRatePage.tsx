@@ -8,6 +8,7 @@ import {
   RefreshCw,
   RotateCcw,
   Search,
+  Settings2,
   SlidersHorizontal,
   X,
 } from 'lucide-react';
@@ -68,6 +69,7 @@ export default function StationPassRatePage() {
   const [groupBy, setGroupBy] = useState<StationGroupBy>('productModel');
   const [rows, setRows] = useState<StationPassRate[]>([]);
   const [selectedStations, setSelectedStations] = useState<string[]>([]);
+  const [stationConfigOpen, setStationConfigOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [error, setError] = useState('');
@@ -87,6 +89,7 @@ export default function StationPassRatePage() {
     setLoading(false);
     setRows([]);
     setSelectedStations([]);
+    setStationConfigOpen(false);
     setHasSearched(false);
     setAppliedQuery(null);
     setDataUpdatedAt(null);
@@ -115,6 +118,7 @@ export default function StationPassRatePage() {
       const response = await rtyApi.getStationPassRates(query);
       if (requestId !== loadRequestId.current) return;
       setRows(response);
+      setSelectedStations(Array.from(new Set(response.map((row) => row.stationCode))).sort((left, right) => left.localeCompare(right, 'zh-CN')));
       setAppliedQuery(query);
       setDataUpdatedAt(new Date());
       setHasSearched(true);
@@ -271,6 +275,16 @@ export default function StationPassRatePage() {
       ? current.filter((value) => value !== station)
       : [...current, station]);
   };
+  const closeStationConfig = () => setStationConfigOpen(false);
+
+  useEffect(() => {
+    if (!stationConfigOpen) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') closeStationConfig();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [stationConfigOpen]);
 
   return (
     <div className="min-h-screen bg-[#f6f8fb] text-slate-800">
@@ -329,7 +343,7 @@ export default function StationPassRatePage() {
             <div className="flex items-center gap-1.5 pt-5"><button type="button" onClick={reset} className="inline-flex size-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 transition-colors hover:border-slate-400 hover:bg-slate-100" title="重置条件" aria-label="重置条件"><RotateCcw className="size-4" /></button><button type="submit" disabled={loading} className="inline-flex h-9 items-center gap-1.5 rounded-md bg-cyan-600 px-3 text-sm font-medium text-white transition-colors hover:bg-cyan-700 disabled:cursor-wait disabled:opacity-60">{loading ? <RefreshCw className="size-4 animate-spin" /> : <Search className="size-4" />}{loading ? '正在计算' : '查询'}</button></div>
           </form>
 
-          {hasSearched && matrix.stations.length > 0 && <fieldset className="border-b border-slate-100 bg-white px-4 py-3"><div className="flex flex-wrap items-center gap-2"><legend className="mr-2 text-xs font-semibold text-slate-700">组合工站</legend><button type="button" onClick={() => setSelectedStations(matrix.stations)} className="text-xs font-medium text-cyan-700 hover:text-cyan-800">全选</button><button type="button" onClick={() => setSelectedStations([])} disabled={!selectedStations.length} className="text-xs font-medium text-slate-500 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40">清空</button><span className="text-xs text-slate-400">已选 {selectedStations.length} 个</span></div><div className="mt-2 flex max-h-24 flex-wrap gap-x-4 gap-y-2 overflow-y-auto pr-1">{matrix.stations.map((station) => <label key={station} className="inline-flex max-w-52 items-center gap-1.5 text-xs text-slate-700"><input type="checkbox" checked={selectedStations.includes(station)} onChange={() => toggleStation(station)} className="size-3.5 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" /><span className="truncate font-mono" title={station}>{station}</span></label>)}</div></fieldset>}
+          {hasSearched && matrix.stations.length > 0 && <div className="flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3"><div><div className="text-xs font-semibold text-slate-700">组合工站</div><div className="mt-0.5 text-xs text-slate-400">已选 {selectedStations.length} / {matrix.stations.length} 个工站</div></div><button type="button" onClick={() => setStationConfigOpen(true)} aria-haspopup="dialog" aria-expanded={stationConfigOpen} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700"><Settings2 className="size-4" />配置工站</button></div>}
 
           <div className="overflow-auto">
             <table className="w-full min-w-max border-separate border-spacing-0 text-left">
@@ -341,6 +355,8 @@ export default function StationPassRatePage() {
           </div>
         </section>
       </main>
+
+      {stationConfigOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={closeStationConfig}><div role="dialog" aria-modal="true" aria-labelledby="station-config-title" className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-md bg-white shadow-xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-slate-200 px-5 py-4"><div><h2 id="station-config-title" className="text-sm font-semibold text-slate-900">配置组合工站</h2><p className="mt-0.5 text-xs text-slate-500">已选择的工站用于计算工站直通率</p></div><button type="button" onClick={closeStationConfig} aria-label="关闭" title="关闭" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"><X className="size-4" /></button></div><div className="flex items-center justify-between border-b border-slate-100 px-5 py-3"><span className="text-xs text-slate-500">已选 {selectedStations.length} / {matrix.stations.length} 个</span><div className="flex items-center gap-3"><button type="button" onClick={() => setSelectedStations(matrix.stations)} className="text-xs font-medium text-cyan-700 hover:text-cyan-800">全选</button><button type="button" onClick={() => setSelectedStations([])} disabled={!selectedStations.length} className="text-xs font-medium text-slate-500 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40">清空</button></div></div><div className="grid grid-cols-2 gap-x-6 gap-y-2 overflow-y-auto px-5 py-4 sm:grid-cols-3">{matrix.stations.map((station) => <label key={station} className="inline-flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={selectedStations.includes(station)} onChange={() => toggleStation(station)} className="size-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" /><span className="font-mono">{station}</span></label>)}</div><div className="flex justify-end border-t border-slate-100 px-5 py-3"><button type="button" onClick={closeStationConfig} className="inline-flex h-9 items-center rounded-md bg-cyan-600 px-4 text-sm font-medium text-white hover:bg-cyan-700">完成</button></div></div></div>}
 
       {detail && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={closeDetail}><div ref={detailDialogRef} role="dialog" aria-modal="true" aria-labelledby="station-detail-title" className="flex max-h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-md bg-white shadow-xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-slate-200 px-5 py-4"><div className="flex items-center gap-2"><FileSearch className="size-4 text-cyan-600" /><div><h2 id="station-detail-title" className="text-sm font-semibold text-slate-900">{detail.rate.dimensionValue} · {detail.rate.stationCode}</h2><p className="mt-0.5 text-xs text-slate-500">{detail.rate.stationName || '未命名工位'} · {appliedQuery?.dateFrom} 至 {appliedQuery?.dateTo}</p></div></div><button ref={detailCloseButtonRef} type="button" onClick={closeDetail} aria-label="关闭" title="关闭" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"><X className="size-4" /></button></div><div className="flex gap-2 border-b border-slate-100 px-5 py-2"><button type="button" onClick={() => void openDetail(detail.rate, 'input')} className={`rounded-md px-3 py-1.5 text-xs font-medium ${detail.type === 'input' ? 'bg-cyan-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>过站 SN</button><button type="button" onClick={() => void openDetail(detail.rate, 'defect')} className={`rounded-md px-3 py-1.5 text-xs font-medium ${detail.type === 'defect' ? 'bg-cyan-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>维修 SN</button></div><div className="overflow-auto p-4">{detailLoading ? <div className="py-12 text-center text-sm text-slate-500">正在加载明细...</div> : detailRows.length === 0 ? <div className="py-12 text-center text-sm text-slate-500">暂无明细数据</div> : <table className="w-full min-w-[680px] text-left text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-slate-600"><tr><th className="px-3 py-2">机器 SN</th><th className="px-3 py-2">过站日期</th>{detail.type === 'defect' && <><th className="px-3 py-2">故障代码</th><th className="px-3 py-2">故障描述</th><th className="px-3 py-2">维修人</th><th className="px-3 py-2">维修时间</th></>}</tr></thead><tbody className="divide-y divide-slate-100">{detailRows.map((item) => <tr key={item.id} className="hover:bg-slate-50"><td className="px-3 py-2 font-mono text-slate-700">{item.sn}</td><td className="px-3 py-2 text-slate-600">{item.passDate || '-'}</td>{detail.type === 'defect' && <><td className="px-3 py-2 text-red-700">{item.defectCode || '-'}</td><td className="max-w-[260px] px-3 py-2 text-slate-600">{item.description || '-'}</td><td className="px-3 py-2 text-slate-600">{item.repairPerson || '-'}</td><td className="px-3 py-2 text-slate-500">{item.repairTime || '-'}</td></>}</tr>)}</tbody></table>}</div><div className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">共 {detailRows.length.toLocaleString('zh-CN')} 条记录</div></div></div>}
     </div>

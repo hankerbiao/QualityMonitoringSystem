@@ -13,11 +13,15 @@ export type CycleChartRow = {
 export type CycleHeatmapCell = {
   text: string;
   belowTarget?: boolean;
+  inputCount?: number;
+  defectCount?: number;
 };
 
 export type CycleTableRow = {
   model: string;
   cells: Record<string, CycleHeatmapCell>;
+  inputCount: number;
+  defectCount: number;
 };
 
 export function buildCycleVisualData(data: RTYData[], modelTargets: Record<string, number>) {
@@ -48,18 +52,24 @@ export function buildCycleVisualData(data: RTYData[], modelTargets: Record<strin
     }
     return row;
   });
-  const tableData: CycleTableRow[] = models.map((model) => ({
-    model,
-    cells: Object.fromEntries(months.map((month) => {
+  const tableData: CycleTableRow[] = models.map((model) => {
+    let inputCount = 0;
+    let defectCount = 0;
+    const cells = Object.fromEntries(months.map((month) => {
       const value = byMonth.get(month)!.get(model);
       if (!value?.inputCount) return [month, { text: '-' }];
+      inputCount += value.inputCount;
+      defectCount += value.defectCount;
       const rty = ((value.inputCount - value.defectCount) / value.inputCount) * 100;
       return [month, {
         text: `${rty.toFixed(3)}% (${value.defectCount}/${value.inputCount})`,
         belowTarget: rty < (modelTargets[model] ?? 100),
+        inputCount: value.inputCount,
+        defectCount: value.defectCount,
       }];
-    })),
-  }));
+    }));
+    return { model, cells, inputCount, defectCount };
+  });
 
   return { trendData, trendModels: models, tableData, allMonths: months };
 }

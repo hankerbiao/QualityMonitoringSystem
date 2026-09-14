@@ -15,6 +15,19 @@ describe('buildCycleVisualData', () => {
     expect(result.tableData[0].cells['2026-01']).toEqual({
       text: '90.000% (3/30)',
       belowTarget: true,
+      inputCount: 30,
+      defectCount: 3,
     });
+    expect(result.tableData[0]).toMatchObject({ inputCount: 30, defectCount: 3 });
+  });
+
+  it('retains total quantities so RTY summaries can use a weighted rate', () => {
+    const result = buildCycleVisualData([
+      { time: '2026-01-01', productModel: 'A', inputCount: 50, defectCount: 11 },
+      { time: '2026-02-01', productModel: 'A', inputCount: 1120, defectCount: 128 },
+    ] as never[], { A: 95 });
+
+    expect(result.tableData[0]).toMatchObject({ inputCount: 1170, defectCount: 139 });
+    expect(((1170 - 139) / 1170 * 100).toFixed(2)).toBe('88.12');
   });
 });

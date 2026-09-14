@@ -34,6 +34,12 @@ def _norm_sales_order(value: Any) -> str:
     return text.lstrip("0") or "0" if text.isdigit() else text
 
 
+def _norm_material_number(value: Any) -> str:
+    """Convert a displayed SAP PN back to its 18-character internal value."""
+    text = str(value or "").strip()
+    return text.zfill(18) if text.isdigit() and len(text) <= 18 else text
+
+
 def _split_values(value: str | None) -> list[str]:
     return [item.strip() for item in str(value or "").replace("，", ",").split(",") if item.strip()]
 
@@ -155,7 +161,7 @@ async def load_bom(
     base_filters = {
         "dateFrom": date_start,
         "dateTo": date_end,
-        "materialCode": material_number or "",
+        "materialCode": _norm_material_number(material_number),
     }
     raw_rows: list[dict[str, Any]] = []
     # Keep each logical filter as one request so the gateway can stream the
@@ -180,8 +186,10 @@ async def load_bom(
     # gateway versions and therefore has no material description. A PN-scoped
     # detail request is small enough to use the regular view, whose projection
     # includes MAKTX, so the detail modal remains informative.
-    if material_number and raw_rows and not any(
-        normalize_bom(item).get("MAKTX") for item in raw_rows
+    if (
+        material_number
+        and raw_rows
+        and not any(normalize_bom(item).get("MAKTX") for item in raw_rows)
     ):
         paged_rows = await data_gateway.all_pages(
             "GET",
