@@ -61,6 +61,41 @@ async def test_load_bom_normalizes_gateway_rows_and_applies_exact_filters(monkey
 
 
 @pytest.mark.asyncio
+async def test_load_bom_filters_by_production_model_from_order_metadata(monkeypatch):
+    async def all_bom_rows(**_filters: str):
+        return [
+            {
+                "id": "bom-m1",
+                "AUFNR_1": "000000000001",
+                "MATNR": "PN-M1",
+                "MENGE_A": "1",
+                "GSTRS": "20260805",
+            },
+            {
+                "id": "bom-m2",
+                "AUFNR_1": "000000000002",
+                "MATNR": "PN-M2",
+                "MENGE_A": "1",
+                "GSTRS": "20260805",
+            },
+        ]
+
+    async def all_orders(**_filters: str):
+        return [
+            {"aufnr": "1", "raw": {"data": {"MAKTX_TH": "MODEL-1"}}},
+            {"aufnr": "2", "productionModel": "MODEL-2"},
+        ]
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_orders", all_orders)
+
+    rows = await lrr_gateway.load_bom(product_model="MODEL-1")
+
+    assert [row["MATNR"] for row in rows] == ["PN-M1"]
+    assert rows[0]["_product_model"] == "MODEL-1"
+
+
+@pytest.mark.asyncio
 async def test_load_bom_month_filters_by_gstrs_without_using_budat_bounds(monkeypatch):
     captured: dict[str, str] = {}
 
@@ -319,6 +354,7 @@ async def test_options_uses_orders_without_loading_entire_bom(monkeypatch):
             {
                 "aufnr": "1",
                 "salesOrder": "0009",
+                "productionModel": "MODEL-1",
                 "inventoryLocation": "BASE-A",
                 "customerId": "C-1",
                 "raw": {"data": {"MATNR": "MAT-1", "KID": "C-1"}},
@@ -336,6 +372,7 @@ async def test_options_uses_orders_without_loading_entire_bom(monkeypatch):
     assert result["bases"] == ["BASE-A"]
     assert result["customerIds"] == ["C-1"]
     assert result["materialNumbers"] == ["MAT-1"]
+    assert result["productModels"] == ["MODEL-1"]
 
 
 @pytest.mark.asyncio

@@ -7,6 +7,7 @@ export interface LRRFilters {
   ngDateFrom?: string | null;
   ngDateTo?: string | null;
   materialNumber?: string | null;
+  productModel?: string | null;
   base?: string | null;
   customerId?: string | null;
   month?: string | null;
@@ -42,6 +43,7 @@ export interface LRRListResponse {
 
 export interface LRROptions {
   materialNumbers: string[];
+  productModels: string[];
   bases: string[];
   customerIds: string[];
 }

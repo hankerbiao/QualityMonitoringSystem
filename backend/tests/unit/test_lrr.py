@@ -65,6 +65,33 @@ def test_lrr_groups_usage_by_material_and_month_and_matches_fault_description():
     assert details[0].ngTime == "20260125"
 
 
+def test_lrr_does_not_match_known_production_order_through_shared_sales_order():
+    rows, details = aggregate_lrr(
+        [
+            {
+                "AUFNR_1": "1",
+                "VBELN_EX": "0009",
+                "MATNR": "PN-1",
+                "MAKTX": "CPU A",
+                "GSTRS": "20260805",
+                "MENGE_A": 10,
+            }
+        ],
+        [
+            {
+                "_id": "fault-from-another-order",
+                "AUFNR": "2",
+                "VBELN": "9",
+                "MATNR": "PN-1",
+                "ZDATE_WX": "20260805",
+            }
+        ],
+    )
+
+    assert rows[0].faultCount == 0
+    assert details == []
+
+
 def test_lrr_supports_compacted_fault_counts():
     rows, details = aggregate_lrr(
         [

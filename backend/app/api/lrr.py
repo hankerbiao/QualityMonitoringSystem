@@ -99,12 +99,16 @@ def aggregate_lrr(
             r"\D", "", str(fault.get("repair_time") or fault.get("ZDATE_WX") or "")
         )
         fault_month = compact_date[:6]
-        candidates = [
+        # Production order is the precise ownership key. A sales order can
+        # contain several production orders, so using it as an OR fallback
+        # when AUFNR is present can attach a fault from another order.
+        link_candidates = (
             (key, group)
             for key, group in active.items()
-            if (order in group["orders"] or sales in group["sales"])
+            if (order in group["orders"] if order else sales in group["sales"])
             and fault_month == group["month"].replace("-", "")
-        ]
+        )
+        candidates = list(link_candidates)
         if fault_material:
             candidates = [
                 (key, group) for key, group in candidates if group["material"] == fault_material
@@ -204,6 +208,7 @@ async def _load(query: LRRListQuery) -> LRRListResponse:
     started = perf_counter()
     bom = await lrr_gateway.load_bom(
         material_number=query.material_number,
+        product_model=query.product_model,
         base=query.base,
         customer_id=query.customer_id,
         planned_date_from=query.planned_date_from,
@@ -250,6 +255,7 @@ async def get_lrr_list(
     ngDateFrom: str | None = None,
     ngDateTo: str | None = None,
     materialNumber: str | None = None,
+    productModel: str | None = None,
     base: str | None = None,
     customerId: str | None = None,
     sortBy: str = "lrrRate",
@@ -264,6 +270,7 @@ async def get_lrr_list(
         ng_date_from=ngDateFrom,
         ng_date_to=ngDateTo,
         material_number=materialNumber,
+        product_model=productModel,
         base=base,
         customer_id=customerId,
         sort_by=sortBy,
@@ -288,6 +295,7 @@ async def get_lrr_fault_details(
     ngDateFrom: str | None = None,
     ngDateTo: str | None = None,
     materialNumber: str | None = None,
+    productModel: str | None = None,
     base: str | None = None,
     customerId: str | None = None,
     month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
@@ -296,6 +304,7 @@ async def get_lrr_fault_details(
     del request
     bom = await lrr_gateway.load_bom(
         material_number=materialNumber,
+        product_model=productModel,
         base=base,
         customer_id=customerId,
         month=month,

@@ -160,6 +160,7 @@ async def load_bom(
     date_from: str | None = None,
     date_to: str | None = None,
     material_number: str | None = None,
+    product_model: str | None = None,
     base: str | None = None,
     customer_id: str | None = None,
     month: str | None = None,
@@ -294,7 +295,7 @@ async def load_bom(
     metadata_started_at = perf_counter()
     orders = await data_gateway.all_orders()
     metadata_load_ms = (perf_counter() - metadata_started_at) * 1000
-    metadata: dict[str, tuple[str, str]] = {}
+    metadata: dict[str, tuple[str, str, str]] = {}
     for item in orders:
         raw = _raw(item)
         data = raw.get("data") if isinstance(raw.get("data"), dict) else raw
@@ -305,16 +306,25 @@ async def load_bom(
                     data.get("LGORT") or data.get("WERKS") or item.get("inventoryLocation") or ""
                 ).strip(),
                 str(data.get("KID") or item.get("customerId") or "").strip(),
+                str(
+                    data.get("MAKTX_TH")
+                    or item.get("productionModel")
+                    or item.get("productModel")
+                    or ""
+                ).strip(),
             )
     result = []
     for row in rows:
-        base_value, customer = metadata.get(_norm_order(row.get("AUFNR_1")), ("", ""))
+        base_value, customer, model = metadata.get(_norm_order(row.get("AUFNR_1")), ("", "", ""))
         if base and base.strip() not in {str(row.get("LGORT") or "").strip(), base_value}:
             continue
         if customer_id and customer_id.strip() != customer:
             continue
+        if product_model and product_model.strip() != model:
+            continue
         row["_base"] = str(row.get("LGORT") or base_value).strip()
         row["_customer_id"] = customer
+        row["_product_model"] = model
         result.append(row)
     log_info(
         "LRR gateway BOM timings "
@@ -443,10 +453,19 @@ async def options() -> dict[str, list[str]]:
     bases = set()
     customers = set()
     materials = set()
+    models = set()
     for item in orders:
         raw = _raw(item)
         data = raw.get("data") if isinstance(raw.get("data"), dict) else raw
         materials.add(str(data.get("MATNR") or "").strip())
+        models.add(
+            str(
+                data.get("MAKTX_TH")
+                or item.get("productionModel")
+                or item.get("productModel")
+                or ""
+            ).strip()
+        )
         bases.add(
             str(
                 data.get("LGORT") or data.get("WERKS") or item.get("inventoryLocation") or ""
@@ -457,6 +476,7 @@ async def options() -> dict[str, list[str]]:
         "productionOrders": sorted(value for value in production if value),
         "salesOrders": sorted(value for value in sales if value),
         "materialNumbers": sorted(value for value in materials if value),
+        "productModels": sorted(value for value in models if value),
         "bases": sorted(value for value in bases if value),
         "customerIds": sorted(value for value in customers if value),
     }

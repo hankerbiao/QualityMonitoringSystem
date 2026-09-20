@@ -91,13 +91,13 @@ function SearchableSelect({ value, options, allLabel, onChange }: SearchableSele
 }
 
 export default function LRRFilters({ filters, onSearch, onReset }: Props) {
-  const [options, setOptions] = useState<LRROptions>({ materialNumbers: [], bases: [], customerIds: [] });
+  const [options, setOptions] = useState<LRROptions>({ materialNumbers: [], productModels: [], bases: [], customerIds: [] });
   const [draft, setDraft] = useState<LRRFilters>(filters);
 
   useEffect(() => { lrrApi.getOptions().then(setOptions).catch(() => undefined); }, []);
   useEffect(() => setDraft(filters), [filters]);
 
-  const activeKeys = ['materialNumber', 'base', 'customerId', 'plannedDateFrom', 'plannedDateTo', 'ngDateFrom', 'ngDateTo'] as const;
+  const activeKeys = ['materialNumber', 'productModel', 'base', 'customerId', 'plannedDateFrom', 'plannedDateTo', 'ngDateFrom', 'ngDateTo'] as const;
   const hasActive = activeKeys.some((key) => Boolean(draft[key] || filters[key]));
   const hasPendingChanges = activeKeys.some((key) => (draft[key] || null) !== (filters[key] || null));
   const inputClass = 'h-10 min-w-0 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100';
@@ -120,7 +120,8 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
         <div className="flex min-w-0 flex-col gap-2 lg:col-span-5"><span className="text-xs font-semibold text-slate-600">计划开始时间（GSTRS）</span><div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2"><input type="date" value={draft.plannedDateFrom ?? ''} max={draft.plannedDateTo ?? undefined} onChange={(e) => setFilter('plannedDateFrom', e.target.value || null)} aria-label="计划开始时间起始日" className={`${inputClass} w-full`} /><span className="text-xs text-slate-400">至</span><input type="date" value={draft.plannedDateTo ?? ''} min={draft.plannedDateFrom ?? undefined} onChange={(e) => setFilter('plannedDateTo', e.target.value || null)} aria-label="计划开始时间截止日" className={`${inputClass} w-full`} /></div></div>
         <div className="flex items-end gap-2 lg:col-span-2"><div className="flex flex-1 flex-col gap-1"><span aria-live="polite" className={`text-xs text-amber-700 ${hasPendingChanges ? '' : 'invisible'}`}>筛选条件尚未应用</span><button type="submit" className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md bg-cyan-600 px-3 text-sm font-medium text-white hover:bg-cyan-700"><Search className="size-4" />查询</button></div><button type="button" onClick={reset} disabled={!hasActive} className="inline-flex size-10 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40" title="重置筛选" aria-label="重置筛选"><RotateCcw className="size-4" /></button></div>
 
-        <label className="flex min-w-0 flex-col gap-2 lg:col-span-4"><span className="text-xs font-semibold text-slate-600">物料号</span><div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><input type="search" value={draft.materialNumber ?? ''} onChange={(e) => setFilter('materialNumber', e.target.value)} placeholder="输入 8 位或完整物料号" className={`${inputClass} w-full pl-9`} /></div></label>
+        <label className="flex min-w-0 flex-col gap-2 lg:col-span-3"><span className="text-xs font-semibold text-slate-600">物料号</span><div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><input type="search" value={draft.materialNumber ?? ''} onChange={(e) => setFilter('materialNumber', e.target.value)} placeholder="输入 8 位或完整物料号" className={`${inputClass} w-full pl-9`} /></div></label>
+        <div className="flex min-w-0 flex-col gap-2 lg:col-span-3"><span className="text-xs font-semibold text-slate-600">机型</span><SearchableSelect value={draft.productModel} options={options.productModels} allLabel="全部机型" onChange={(value) => setFilter('productModel', value)} /></div>
         <div className="flex min-w-0 flex-col gap-2 lg:col-span-3"><span className="text-xs font-semibold text-slate-600">基地</span><SearchableSelect value={draft.base} options={options.bases} allLabel="全部基地" onChange={(value) => setFilter('base', value)} /></div>
         <div className="flex min-w-0 flex-col gap-2 lg:col-span-3"><span className="text-xs font-semibold text-slate-600">客户 ID</span><SearchableSelect value={draft.customerId} options={options.customerIds} allLabel="全部客户" onChange={(value) => setFilter('customerId', value)} /></div>
       </form>

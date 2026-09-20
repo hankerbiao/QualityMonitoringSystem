@@ -37,6 +37,7 @@ class LRRFaultDetailsResponse(BaseModel):
 
 class LRROptions(BaseModel):
     materialNumbers: list[str] = Field(default_factory=list)
+    productModels: list[str] = Field(default_factory=list)
     bases: list[str] = Field(default_factory=list)
     customerIds: list[str] = Field(default_factory=list)
 
