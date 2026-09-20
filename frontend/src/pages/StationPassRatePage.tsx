@@ -17,6 +17,7 @@ import * as XLSX from 'xlsx';
 import { rtyApi } from '../api/rtyApi';
 import type { StationGroupBy, StationPassDetail, StationPassQuery, StationPassRate } from '../types';
 import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
+import { MonthQuickPicker } from '../components/shared/MonthQuickPicker';
 import { combinedStationPassRate } from '../utils/stationPassRate';
 import { useSettings } from '../context/SettingsContext';
 
@@ -272,6 +273,11 @@ export default function StationPassRatePage() {
     setter(value);
     invalidateResults();
   };
+  const updateDateRange = (from: string, to: string) => {
+    setDateFrom(from);
+    setDateTo(to);
+    invalidateResults();
+  };
 
   const dimensionLabel = dimensionLabels[groupBy];
   const colSpan = matrix.stations.length + 3;
@@ -349,6 +355,7 @@ export default function StationPassRatePage() {
                 <span className="text-xs text-slate-400">-</span>
                 <input type="date" value={dateTo} onChange={(event) => updateField(setDateTo, event.target.value)} className="w-full rounded-sm border border-slate-300 px-2 py-1.5 text-xs text-slate-700 outline-none transition-all focus:border-blue-600 focus:ring-1 focus:ring-blue-600" />
               </div>
+              <MonthQuickPicker from={dateFrom} to={dateTo} onChange={updateDateRange} accent="blue" defaultExpanded={false} className="mt-2" />
             </div>
             <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-44">统计维度<select value={groupBy} onChange={(event) => updateField(setGroupBy, event.target.value as StationGroupBy)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none transition-colors focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"><option value="salesOrder">销售订单号</option><option value="productionOrder">生产订单号</option><option value="productModel">机型</option></select></label>
             <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-44">服务器 SN<input value={serialNumber} onChange={(event) => updateField(setSerialNumber, event.target.value)} placeholder="精确输入 SN" className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" /></label>

@@ -27,6 +27,7 @@ import type {
   DoaTimeGranularity,
 } from "../types/doa";
 import { DashboardSwitcher } from "../components/shared/DashboardSwitcher";
+import { MonthQuickPicker } from "../components/shared/MonthQuickPicker";
 
 const defaultFilters: DoaFilters = {
   dateFrom: "",
@@ -277,6 +278,14 @@ export default function DoaPage() {
               </select>
             </label>
           </div>
+          <MonthQuickPicker
+            from={filters.dateFrom}
+            to={filters.dateTo}
+            onChange={(dateFrom, dateTo) => apply({ dateFrom, dateTo })}
+            accent="emerald"
+            defaultExpanded={false}
+            className="mt-3 md:max-w-3xl"
+          />
         </section>
         {error && (
           <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

@@ -4,6 +4,7 @@ import { rtyApi } from '../../api/rtyApi';
 import type { RTYFilterParams } from '../../types';
 import { ExportPanel } from './ExportPanel';
 import { RTY_EXPORT_COLUMNS } from './exportColumns';
+import { MonthQuickPicker } from '../shared/MonthQuickPicker';
 
 const COMPOSITE_MODELS = new Set(['6210 C21 BOX', '6215 C32']);
 
@@ -114,6 +115,9 @@ function DateRangePicker({ value, onChange }: { value: DateRange; onChange: (ran
                 className="h-9 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-500/15"
               />
             </label>
+          </div>
+          <div className="border-t border-slate-100 px-3 pb-3 pt-2">
+            <MonthQuickPicker from={start} to={end} onChange={(nextStart, nextEnd) => { setStart(nextStart); setEnd(nextEnd); }} accent="blue" />
           </div>
           <div className="flex items-center justify-between border-t border-slate-100 px-3 py-2.5">
             <button

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { metadataApi } from '../api/metadataApi';
 import type { MetadataTableResponse } from '../types/metadata';
+import { MonthQuickPicker } from '../components/shared/MonthQuickPicker';
 
 const PAGE_SIZE = 25;
 const FILTER_KEYS = [
@@ -123,6 +124,7 @@ export default function MetadataTablePage() {
   }, [load, initialFilters, initialSearch]);
 
   const visibleColumns = data?.columns || [];
+  const hasAcceptedDateFilters = data?.filters.some((filter) => filter.key === 'acceptedDateFrom' || filter.key === 'acceptedDateTo') ?? false;
 
   const submitSearch = (event: FormEvent) => {
     event.preventDefault();
@@ -166,6 +168,7 @@ export default function MetadataTablePage() {
               <div className="min-w-0"><p className="text-sm text-slate-600">{data.description}</p><p className="mt-1 text-xs text-slate-400">共 {formatNumber(data.total)} 条记录 · 展示关键字段，点击行查看完整原始记录</p></div>
               <form onSubmit={submitSearch} className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
                 {data.filters.map((filter) => <label key={filter.key} className="flex min-w-0 flex-col gap-1"><span className="text-[11px] font-medium text-slate-500">{filter.label}</span><input type={filter.inputType || 'text'} value={draftFilters[filter.key] || ''} onChange={(event) => setDraftFilters((current) => ({ ...current, [filter.key]: event.target.value }))} placeholder={filter.inputType === 'date' ? undefined : `搜索${filter.label}`} className="h-9 min-w-0 rounded-md border border-slate-200 bg-white px-3 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/15" /></label>)}
+                {hasAcceptedDateFilters && <div className="sm:col-span-2 lg:col-span-4 xl:col-span-6"><MonthQuickPicker from={draftFilters.acceptedDateFrom || ''} to={draftFilters.acceptedDateTo || ''} onChange={(from, to) => setDraftFilters((current) => ({ ...current, acceptedDateFrom: from, acceptedDateTo: to }))} accent="blue" defaultExpanded={false} /></div>}
                 <div className="relative min-w-0 self-end"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><input value={draftSearch} onChange={(event) => setDraftSearch(event.target.value)} placeholder="搜索关键字段" className="h-9 w-full rounded-md border border-slate-200 bg-white pl-9 pr-3 text-sm outline-none focus:border-blue-400 focus:ring-2 focus:ring-blue-500/15" /></div>
                 <button type="submit" className="h-9 self-end rounded-md bg-slate-900 px-4 text-sm font-medium text-white hover:bg-slate-700">搜索</button>
               </form>
