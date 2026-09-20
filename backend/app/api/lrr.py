@@ -106,7 +106,6 @@ def aggregate_lrr(
             (key, group)
             for key, group in active.items()
             if (order in group["orders"] if order else sales in group["sales"])
-            and fault_month == group["month"].replace("-", "")
         )
         candidates = list(link_candidates)
         if fault_material:
@@ -123,6 +122,19 @@ def aggregate_lrr(
                 if group["match_description"]
                 and _normalized_description(group["match_description"]) == fault_description
             ]
+
+        # Planned-date filters select BOM orders by GSTRS. A repair can happen
+        # in a later month, so do not discard a uniquely identified order
+        # merely because its NG month differs from the BOM month. If one order
+        # spans multiple BOM months, use the NG month only as a tie-breaker.
+        if len(candidates) > 1 and fault_month:
+            month_candidates = [
+                (key, group)
+                for key, group in candidates
+                if fault_month == group["month"].replace("-", "")
+            ]
+            if len(month_candidates) == 1:
+                candidates = month_candidates
 
         # A repair without an exact material number is counted only when its
         # order, month and description resolve to one PN. This prevents a

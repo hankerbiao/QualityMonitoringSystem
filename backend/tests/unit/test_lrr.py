@@ -92,6 +92,33 @@ def test_lrr_does_not_match_known_production_order_through_shared_sales_order():
     assert details == []
 
 
+def test_lrr_matches_fault_to_planned_order_when_repair_is_in_a_later_month():
+    rows, details = aggregate_lrr(
+        [
+            {
+                "AUFNR_1": "1",
+                "MATNR": "PN-1",
+                "MAKTX": "CPU A",
+                "GSTRS": "20260729",
+                "MENGE_A": 10,
+            }
+        ],
+        [
+            {
+                "_id": "fault-repaired-in-august",
+                "AUFNR": "1",
+                "MATNR": "PN-1",
+                "ZDATE_WX": "20260802",
+                "PCODE": "SN-1",
+            }
+        ],
+    )
+
+    assert rows[0].month == "2026-07"
+    assert rows[0].faultCount == 1
+    assert details[0].month == "2026-07"
+
+
 def test_lrr_supports_compacted_fault_counts():
     rows, details = aggregate_lrr(
         [
