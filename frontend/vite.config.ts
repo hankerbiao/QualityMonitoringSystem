@@ -13,6 +13,10 @@ export default defineConfig(() => {
         '@': path.resolve(__dirname, '.'),
       },
     },
+    build: {
+      // Gzip reporting is useful for audits, but not needed for deployment.
+      reportCompressedSize: false,
+    },
     server: {
       port: 4000,
       proxy: {

@@ -13,6 +13,7 @@ def test_lrr_groups_usage_by_material_and_month_and_matches_fault_description():
                 "AUFNR_1": "1",
                 "MATNR": "PN-1",
                 "MAKTX": "CPU A",
+                "GSTRS": "20260105",
                 "BUDAT_MKPF": "20260115",
                 "MENGE_A": 10,
             },
@@ -20,6 +21,7 @@ def test_lrr_groups_usage_by_material_and_month_and_matches_fault_description():
                 "AUFNR_1": "1",
                 "MATNR": "PN-1",
                 "MAKTX": "CPU A",
+                "GSTRS": "20260105",
                 "BUDAT_MKPF": "20260120",
                 "MENGE_A": 2,
             },
@@ -27,6 +29,7 @@ def test_lrr_groups_usage_by_material_and_month_and_matches_fault_description():
                 "AUFNR_1": "1",
                 "MATNR": "PN-1",
                 "MAKTX": "CPU A",
+                "GSTRS": "20260205",
                 "BUDAT_MKPF": "20260201",
                 "MENGE_A": 5,
             },
@@ -34,6 +37,7 @@ def test_lrr_groups_usage_by_material_and_month_and_matches_fault_description():
                 "AUFNR_1": "1",
                 "MATNR": "PN-2",
                 "MAKTX": "MEM B",
+                "GSTRS": "20260105",
                 "BUDAT_MKPF": "20260115",
                 "MENGE_A": 3,
             },
@@ -68,11 +72,20 @@ def test_lrr_supports_compacted_fault_counts():
                 "AUFNR_1": "1",
                 "MATNR": "PN-1",
                 "MAKTX": "CPU A",
+                "GSTRS": "20260105",
                 "BUDAT_MKPF": "20260101",
                 "MENGE_A": 10,
             }
         ],
-        [{"_id": "f1", "mfg_order": "1", "ZJXMC": "CPU A", "_fault_count": 3}],
+        [
+            {
+                "_id": "f1",
+                "mfg_order": "1",
+                "ZJXMC": "CPU A",
+                "ZDATE_WX": "20260125",
+                "_fault_count": 3,
+            }
+        ],
         include_details=False,
     )
     assert rows[0].faultCount == 3
@@ -87,6 +100,7 @@ def test_lrr_detail_uses_station_and_time_when_fault_code_is_absent():
                 "AUFNR_1": "1",
                 "MATNR": "PN-1",
                 "MAKTX": "CPU A",
+                "GSTRS": "20260205",
                 "BUDAT_MKPF": "20260201",
                 "MENGE_A": 1,
             }
@@ -117,6 +131,7 @@ def test_lrr_does_not_assign_repairs_when_bom_material_description_is_missing():
                 "AUFNR_1": "1",
                 "MATNR": "PN-1",
                 "MAKTX": "",
+                "GSTRS": "20260505",
                 "BUDAT_MKPF": "20260501",
                 "MENGE_A": 1,
             }
@@ -143,6 +158,7 @@ def test_lrr_prefers_exact_fault_material_number_when_description_is_missing():
                 "AUFNR_1": "1",
                 "MATNR": "PN-1",
                 "MAKTX": "",
+                "GSTRS": "20260205",
                 "BUDAT_MKPF": "20260201",
                 "MENGE_A": 1,
             },
@@ -150,6 +166,7 @@ def test_lrr_prefers_exact_fault_material_number_when_description_is_missing():
                 "AUFNR_1": "1",
                 "MATNR": "PN-2",
                 "MAKTX": "",
+                "GSTRS": "20260205",
                 "BUDAT_MKPF": "20260201",
                 "MENGE_A": 1,
             },
@@ -177,6 +194,7 @@ def test_lrr_skips_ambiguous_description_matches_instead_of_counting_every_pn():
                 "AUFNR_1": "1",
                 "MATNR": "PN-1",
                 "MAKTX": "CPU A",
+                "GSTRS": "20260205",
                 "BUDAT_MKPF": "20260201",
                 "MENGE_A": 1,
             },
@@ -184,6 +202,7 @@ def test_lrr_skips_ambiguous_description_matches_instead_of_counting_every_pn():
                 "AUFNR_1": "1",
                 "MATNR": "PN-2",
                 "MAKTX": "CPU A",
+                "GSTRS": "20260205",
                 "BUDAT_MKPF": "20260201",
                 "MENGE_A": 1,
             },
@@ -202,6 +221,7 @@ def test_lrr_counts_a_precisely_identified_pn_even_when_descriptions_are_shared(
                 "AUFNR_1": "1",
                 "MATNR": "PN-1",
                 "MAKTX": "CPU A",
+                "GSTRS": "20260205",
                 "BUDAT_MKPF": "20260201",
                 "MENGE_A": 1,
             },
@@ -209,6 +229,7 @@ def test_lrr_counts_a_precisely_identified_pn_even_when_descriptions_are_shared(
                 "AUFNR_1": "1",
                 "MATNR": "PN-2",
                 "MAKTX": "CPU A",
+                "GSTRS": "20260205",
                 "BUDAT_MKPF": "20260201",
                 "MENGE_A": 1,
             },
@@ -229,6 +250,7 @@ def test_lrr_deduplicates_mirrored_records_but_keeps_separate_repairs_for_one_sn
                 "AUFNR_1": "1",
                 "MATNR": "PN-1",
                 "MAKTX": "CPU A",
+                "GSTRS": "20260205",
                 "BUDAT_MKPF": "20260201",
                 "MENGE_A": 10,
             }
@@ -241,3 +263,65 @@ def test_lrr_deduplicates_mirrored_records_but_keeps_separate_repairs_for_one_sn
     )
 
     assert rows[0].faultCount == 2
+
+
+def test_lrr_uses_gstrs_month_for_denominator_not_bom_posting_month():
+    rows, _ = aggregate_lrr(
+        [
+            {
+                "AUFNR_1": "1",
+                "MATNR": "PN-1",
+                "MAKTX": "CPU A",
+                "GSTRS": "20260105",
+                "BUDAT_MKPF": "20260110",
+                "MENGE_A": 10,
+            },
+            {
+                "AUFNR_1": "1",
+                "MATNR": "PN-1",
+                "MAKTX": "CPU A",
+                "GSTRS": "20260105",
+                "BUDAT_MKPF": "20260210",
+                "MENGE_A": 5,
+            },
+            {
+                "AUFNR_1": "1",
+                "MATNR": "PN-1",
+                "MAKTX": "CPU A",
+                "GSTRS": "20260205",
+                "BUDAT_MKPF": "20260120",
+                "MENGE_A": 20,
+            },
+        ],
+        [
+            {
+                "_id": "f1",
+                "AUFNR": "1",
+                "MATNR": "PN-1",
+                "ZDATE_WX": "20260125",
+            }
+        ],
+    )
+
+    by_month = {row.month: row for row in rows}
+    assert by_month["2026-01"].issuedQuantity == 15
+    assert by_month["2026-01"].faultCount == 1
+    assert by_month["2026-01"].lrrRate == 6.67
+    assert by_month["2026-02"].issuedQuantity == 20
+    assert by_month["2026-02"].faultCount == 0
+
+
+def test_lrr_skips_bom_rows_without_gstrs_instead_of_falling_back_to_posting_month():
+    rows, _ = aggregate_lrr(
+        [
+            {
+                "AUFNR_1": "1",
+                "MATNR": "PN-1",
+                "BUDAT_MKPF": "20260110",
+                "MENGE_A": 10,
+            }
+        ],
+        [],
+    )
+
+    assert rows == []

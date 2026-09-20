@@ -175,6 +175,32 @@ async def test_stream_text_reuses_short_lived_cache():
 
 
 @pytest.mark.asyncio
+async def test_bom_stream_falls_back_to_paginated_view_when_gstrs_is_missing():
+    client = DataGatewayClient("http://gateway.test", timeout=2)
+    calls: list[str] = []
+
+    async def request_json(method: str, path: str, **kwargs: object):
+        del method, kwargs
+        calls.append(path)
+        return {"items": [{"id": "bom-1", "GSTRS": "2026-09-20"}], "total": 1}
+
+    client.request_json = request_json  # type: ignore[method-assign]
+    client._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(200, text="id\tMATNR\nrow-1\tPN-1\n")
+        ),
+        base_url=client.base_url,
+    )
+    try:
+        rows = await client.all_bom_rows(materialCode="PN-1")
+    finally:
+        await client.close()
+
+    assert rows == [{"id": "bom-1", "GSTRS": "2026-09-20"}]
+    assert calls == ["/api/views/ZSGV_ZSD124"]
+
+
+@pytest.mark.asyncio
 async def test_station_rows_reuses_short_lived_cache():
     calls = 0
 

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import calendar
+import re
 from time import perf_counter
 from typing import Any
 
@@ -55,6 +56,19 @@ def _month_bounds(month: str | None) -> tuple[str, str]:
     )
 
 
+def _month_from_date(value: Any) -> str:
+    compact = re.sub(r"\D", "", str(value or ""))
+    if len(compact) < 6 or not compact[:6].isdigit():
+        return ""
+    month = int(compact[4:6])
+    return f"{compact[:4]}-{month:02d}" if 1 <= month <= 12 else ""
+
+
+def _compact_date(value: Any) -> str:
+    compact = re.sub(r"\D", "", str(value or ""))
+    return compact[:8] if len(compact) >= 8 and compact[:8].isdigit() else ""
+
+
 def normalize_bom(item: dict[str, Any]) -> dict[str, Any]:
     raw = _raw(item)
     # The BOM stream projection omits MAKTX in some gateway deployments,
@@ -75,6 +89,9 @@ def normalize_bom(item: dict[str, Any]) -> dict[str, Any]:
         "MATNR": raw.get("MATNR") or "",
         "MAKTX": material_description,
         "LGORT": raw.get("LGORT") or raw.get("WERKS") or "",
+        "GSTRS": str(
+            raw.get("GSTRS") or item.get("GSTRS") or item.get("plannedStartDate") or ""
+        )[:10],
         "BUDAT_MKPF": str(raw.get("BUDAT_MKPF") or "")[:8],
     }
 
@@ -146,6 +163,8 @@ async def load_bom(
     base: str | None = None,
     customer_id: str | None = None,
     month: str | None = None,
+    planned_date_from: str | None = None,
+    planned_date_to: str | None = None,
     order_keyword: str | None = None,
 ) -> list[dict[str, Any]]:
     # Some deployed gateway versions do not apply productionOrder/salesOrder
@@ -155,9 +174,10 @@ async def load_bom(
     search_terms.extend(_split_values(production_order))
     search_terms.extend(_split_values(sales_order))
     search_terms = list(dict.fromkeys(search_terms))
-    date_start, date_end = date_from or "", date_to or ""
-    if month and not date_start and not date_end:
-        date_start, date_end = _month_bounds(month)
+    date_start, date_end = date_from or planned_date_from or "", date_to or planned_date_to or ""
+    requested_month = _month_from_date(month)
+    requested_date_from = _compact_date(planned_date_from)
+    requested_date_to = _compact_date(planned_date_to)
     base_filters = {
         "dateFrom": date_start,
         "dateTo": date_end,
@@ -250,8 +270,13 @@ async def load_bom(
             row["_skip"] = True
         if sales_values and (sales.lstrip("0") or "0") not in sales_values:
             row["_skip"] = True
-        raw_month = str(row.get("BUDAT_MKPF") or "")[:6]
-        if month and raw_month != month.replace("-", ""):
+        row_month = _month_from_date(row.get("GSTRS"))
+        if requested_month and row_month != requested_month:
+            row["_skip"] = True
+        planned_date = _compact_date(row.get("GSTRS"))
+        if requested_date_from and (not planned_date or planned_date < requested_date_from):
+            row["_skip"] = True
+        if requested_date_to and (not planned_date or planned_date > requested_date_to):
             row["_skip"] = True
         if order_keywords and not any(
             keyword in f"{production} {sales}".lower() for keyword in order_keywords

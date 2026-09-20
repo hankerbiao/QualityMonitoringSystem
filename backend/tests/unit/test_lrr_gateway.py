@@ -20,6 +20,7 @@ async def test_load_bom_normalizes_gateway_rows_and_applies_exact_filters(monkey
                 "MENGE_A": "3",
                 "MATNR": "MAT-1",
                 "LGORT": "BASE-A",
+                "GSTRS": "20260805",
                 "BUDAT_MKPF": "20260831",
             },
             {
@@ -29,6 +30,7 @@ async def test_load_bom_normalizes_gateway_rows_and_applies_exact_filters(monkey
                 "MENGE_A": "4",
                 "MATNR": "MAT-2",
                 "LGORT": "BASE-B",
+                "GSTRS": "20260805",
                 "BUDAT_MKPF": "20260831",
             },
         ]
@@ -59,17 +61,65 @@ async def test_load_bom_normalizes_gateway_rows_and_applies_exact_filters(monkey
 
 
 @pytest.mark.asyncio
-async def test_load_bom_month_adds_gateway_date_bounds(monkeypatch):
+async def test_load_bom_month_filters_by_gstrs_without_using_budat_bounds(monkeypatch):
     captured: dict[str, str] = {}
 
     async def all_bom_rows(**filters: str):
         captured.update(filters)
+        return [
+            {
+                "id": "bom-jan",
+                "AUFNR_1": "000000000001",
+                "MATNR": "PN-1",
+                "GSTRS": "2026-02-05",
+                "BUDAT_MKPF": "20260131",
+                "MENGE_A": "1",
+            },
+            {
+                "id": "bom-feb",
+                "AUFNR_1": "000000000002",
+                "MATNR": "PN-2",
+                "GSTRS": "2026-03-05",
+                "BUDAT_MKPF": "20260228",
+                "MENGE_A": "1",
+            },
+        ]
+
+    async def all_orders(**_filters: str):
         return []
 
     monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
-    assert await lrr_gateway.load_bom(month="2026-02") == []
-    assert captured["dateFrom"] == "2026-02-01"
-    assert captured["dateTo"] == "2026-02-28"
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_orders", all_orders)
+    rows = await lrr_gateway.load_bom(month="2026-02")
+    assert [row["MATNR"] for row in rows] == ["PN-1"]
+    assert captured["dateFrom"] == ""
+    assert captured["dateTo"] == ""
+
+
+@pytest.mark.asyncio
+async def test_load_bom_filters_by_planned_start_date(monkeypatch):
+    captured: dict[str, str] = {}
+
+    async def all_bom_rows(**filters: str):
+        captured.update(filters)
+        return [
+            {"id": "bom-before", "MATNR": "PN-1", "GSTRS": "2026-02-01", "MENGE_A": "1"},
+            {"id": "bom-in-range", "MATNR": "PN-2", "GSTRS": "2026-02-15", "MENGE_A": "2"},
+            {"id": "bom-after", "MATNR": "PN-3", "GSTRS": "2026-03-01", "MENGE_A": "3"},
+        ]
+
+    async def all_orders(**_filters: str):
+        return []
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_orders", all_orders)
+    rows = await lrr_gateway.load_bom(
+        planned_date_from="2026-02-10", planned_date_to="2026-02-20"
+    )
+
+    assert [row["MATNR"] for row in rows] == ["PN-2"]
+    assert captured["dateFrom"] == "2026-02-10"
+    assert captured["dateTo"] == "2026-02-20"
 
 
 @pytest.mark.asyncio
@@ -112,6 +162,7 @@ async def test_load_bom_falls_back_to_paginated_view_for_material_description(mo
                 "MATNR": "PN-1",
                 "MENGE_A": "1",
                 "BUDAT_MKPF": "20260201",
+                "GSTRS": "20260205",
             }
         ]
 
@@ -124,6 +175,7 @@ async def test_load_bom_falls_back_to_paginated_view_for_material_description(mo
                 "MAKTX": "Component description",
                 "MENGE_A": "1",
                 "BUDAT_MKPF": "20260201",
+                "GSTRS": "20260205",
             }
         ]
 

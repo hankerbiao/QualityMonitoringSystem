@@ -44,7 +44,10 @@ def doa(
 
 
 async def test_dashboard_uses_only_5000_actual_shipments_and_judgment_yes(monkeypatch):
+    order_filters = {}
+
     async def all_orders(**_filters):
+        order_filters.update(_filters)
         return [
             shipment("0001", 100, "2026-09-01"),
             shipment("0002", 80, "2026-09-01", company_5000=False),
@@ -70,6 +73,12 @@ async def test_dashboard_uses_only_5000_actual_shipments_and_judgment_yes(monkey
     assert result.summary.repairCount == 2
     assert result.summary.repairRate == 2
     assert result.summary.matchedRepairRecords == 1
+    assert order_filters == {
+        "shipmentDateFrom": "",
+        "shipmentDateTo": "",
+        "company5000": "true",
+        "shipmentOnly": "true",
+    }
 
 
 async def test_dashboard_rejects_orders_without_actual_shipment_contract(monkeypatch):

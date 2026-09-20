@@ -414,12 +414,23 @@ class DataGatewayClient:
                         fields = values
                         continue
                     rows.append(dict(zip(fields, values, strict=False)))
-                    if len(rows) > max_rows:
-                        raise DataGatewayError("数据网关 BOM 结果超过单次处理上限")
+                if len(rows) > max_rows:
+                    raise DataGatewayError("数据网关 BOM 结果超过单次处理上限")
         except httpx.TimeoutException as exc:
             raise DataGatewayError("数据网关请求超时") from exc
         except httpx.HTTPError as exc:
             raise DataGatewayError(f"数据网关连接失败: {exc}") from exc
+        # Older gateway deployments expose GSTRS in the paginated BOM view
+        # but not in the low-overhead stream. LRR cannot calculate its month
+        # denominator without that field, so transparently use the complete
+        # view until the stream deployment is upgraded.
+        if "GSTRS" not in fields:
+            return await self.all_pages(
+                "GET",
+                "/api/views/ZSGV_ZSD124",
+                filters=filters,
+                max_rows=max_rows,
+            )
         if len(rows) > max_rows:
             raise DataGatewayError("数据网关 BOM 结果超过单次处理上限")
         if self.cache_ttl > 0:

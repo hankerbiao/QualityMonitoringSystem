@@ -2,6 +2,8 @@ export type LRRSortField = 'lrrRate' | 'faultCount' | 'issuedQuantity' | 'materi
 export type LRRSortDir = 'asc' | 'desc';
 
 export interface LRRFilters {
+  plannedDateFrom?: string | null;
+  plannedDateTo?: string | null;
   ngDateFrom?: string | null;
   ngDateTo?: string | null;
   materialNumber?: string | null;

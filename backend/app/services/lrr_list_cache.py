@@ -33,9 +33,11 @@ def _utc_now() -> datetime:
 class LRRListQuery:
     # Bump when the aggregation semantics change so Mongo never serves a
     # response calculated by an incompatible version of the code.
-    cache_version: str = "fault-details-v9-material-number-normalization"
+    cache_version: str = "gstrs-month-v12-planned-date-filter-material-number-normalization"
     page: int = 1
     limit: int = 50
+    planned_date_from: str | None = None
+    planned_date_to: str | None = None
     ng_date_from: str | None = None
     ng_date_to: str | None = None
     material_number: str | None = None

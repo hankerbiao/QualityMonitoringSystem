@@ -134,8 +134,8 @@ def _sales_order_scopes(orders: list[dict[str, Any]]) -> dict[str, dict[str, Any
 
 async def _gateway_orders_for_doa(filters: DoaFilters) -> list[dict[str, Any]]:
     items = await data_gateway.all_orders(
-        dateFrom=filters.dateFrom or "",
-        dateTo=filters.dateTo or "",
+        shipmentDateFrom=filters.dateFrom or "",
+        shipmentDateTo=filters.dateTo or "",
         company5000="true",
         shipmentOnly="true",
     )

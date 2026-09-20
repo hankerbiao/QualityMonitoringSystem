@@ -46,6 +46,14 @@ def _normalized_description(value: Any) -> str:
     return " ".join(str(value or "").split()).casefold()
 
 
+def _month_from_date(value: Any) -> str:
+    compact = re.sub(r"\D", "", str(value or ""))
+    if len(compact) < 6 or not compact[:6].isdigit():
+        return ""
+    month = int(compact[4:6])
+    return f"{compact[:4]}-{month:02d}" if 1 <= month <= 12 else ""
+
+
 def aggregate_lrr(
     bom_rows: list[dict[str, Any]],
     fault_rows: list[dict[str, Any]],
@@ -55,10 +63,9 @@ def aggregate_lrr(
     groups: dict[str, dict[str, Any]] = {}
     for bom in bom_rows:
         material = str(bom.get("MATNR") or "").strip()
-        raw_month = str(bom.get("BUDAT_MKPF") or "")[:6]
-        if not material or not raw_month.isdigit() or len(raw_month) != 6:
+        month = _month_from_date(bom.get("GSTRS"))
+        if not material or not month:
             continue
-        month = f"{raw_month[:4]}-{raw_month[4:]}"
         group = groups.setdefault(
             f"{material}:{month}",
             {
@@ -96,7 +103,7 @@ def aggregate_lrr(
             (key, group)
             for key, group in active.items()
             if (order in group["orders"] or sales in group["sales"])
-            and (not fault_month or fault_month == group["month"].replace("-", ""))
+            and fault_month == group["month"].replace("-", "")
         ]
         if fault_material:
             candidates = [
@@ -196,7 +203,11 @@ def _response(rows: list[LRRData], query: LRRListQuery) -> LRRListResponse:
 async def _load(query: LRRListQuery) -> LRRListResponse:
     started = perf_counter()
     bom = await lrr_gateway.load_bom(
-        material_number=query.material_number, base=query.base, customer_id=query.customer_id
+        material_number=query.material_number,
+        base=query.base,
+        customer_id=query.customer_id,
+        planned_date_from=query.planned_date_from,
+        planned_date_to=query.planned_date_to,
     )
     faults = await lrr_gateway.load_faults(
         production_orders={str(row.get("AUFNR_1") or "") for row in bom},
@@ -234,6 +245,8 @@ async def get_lrr_list(
     request: Request,
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=500),
+    plannedDateFrom: str | None = None,
+    plannedDateTo: str | None = None,
     ngDateFrom: str | None = None,
     ngDateTo: str | None = None,
     materialNumber: str | None = None,
@@ -246,6 +259,8 @@ async def get_lrr_list(
     query = LRRListQuery(
         page=page,
         limit=limit,
+        planned_date_from=plannedDateFrom,
+        planned_date_to=plannedDateTo,
         ng_date_from=ngDateFrom,
         ng_date_to=ngDateTo,
         material_number=materialNumber,
@@ -268,6 +283,8 @@ async def get_lrr_options(request: Request):
 @audit_log("QUERY", "lrr_fault_details")
 async def get_lrr_fault_details(
     request: Request,
+    plannedDateFrom: str | None = None,
+    plannedDateTo: str | None = None,
     ngDateFrom: str | None = None,
     ngDateTo: str | None = None,
     materialNumber: str | None = None,
@@ -278,7 +295,12 @@ async def get_lrr_fault_details(
 ):
     del request
     bom = await lrr_gateway.load_bom(
-        material_number=materialNumber, base=base, customer_id=customerId, month=month
+        material_number=materialNumber,
+        base=base,
+        customer_id=customerId,
+        month=month,
+        planned_date_from=plannedDateFrom,
+        planned_date_to=plannedDateTo,
     )
     faults = await lrr_gateway.load_faults(
         production_orders={str(row.get("AUFNR_1") or "") for row in bom},
