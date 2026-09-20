@@ -10,6 +10,7 @@ const DEFAULT_SETTINGS: SettingsResponse = {
   modelTargets: {},
   emailAlert: { enabled: true, emails: '', triggerCondition: '', weeklyProductionThreshold: 50 },
   cycleStatsConfig: { selectedModels: [] },
+  stationPassRateConfig: { selectedStations: [], configured: false },
 };
 
 export function SettingsProvider({ children }: { children: ReactNode }) {

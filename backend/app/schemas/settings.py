@@ -88,6 +88,13 @@ class CycleStatsConfig(BaseModel):
     )
 
 
+class StationPassRateConfig(BaseModel):
+    """工位直通率页面的组合工站配置。"""
+
+    selectedStations: list[str] = Field(default_factory=list, description="已选工站编码列表")
+    configured: bool = Field(False, description="是否已保存过工站选择")
+
+
 # ============== 统一设置响应 ==============
 
 
@@ -98,6 +105,7 @@ class SettingsResponse(BaseModel):
     modelTargets: dict[str, float] = Field(default_factory=dict)
     emailAlert: EmailAlertConfig
     cycleStatsConfig: CycleStatsConfig = Field(default_factory=CycleStatsConfig)
+    stationPassRateConfig: StationPassRateConfig = Field(default_factory=StationPassRateConfig)
 
 
 class SettingsUpdateRequest(BaseModel):
@@ -109,3 +117,4 @@ class SettingsUpdateRequest(BaseModel):
     modelTargets: dict[str, float] | None = None
     emailAlert: EmailAlertConfigUpdate | None = None
     cycleStatsConfig: CycleStatsConfig | None = None
+    stationPassRateConfig: StationPassRateConfig | None = None

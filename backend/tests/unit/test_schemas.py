@@ -12,6 +12,7 @@ from app.schemas.settings import (
     ModelTargetBase,
     ModelTargetsResponse,
     SettingsUpdateRequest,
+    StationPassRateConfig,
 )
 
 # ─── RTY Schemas ─────────────────────────────────────────────────────────────
@@ -111,3 +112,8 @@ class TestSettingsUpdateRequest:
     def test_partial_update_model_targets(self):
         req = SettingsUpdateRequest(modelTargets={"6210 C21": 99.0, "6410 X21": 98.5})
         assert req.modelTargets == {"6210 C21": 99.0, "6410 X21": 98.5}
+
+    def test_station_pass_rate_config_defaults_to_unconfigured(self):
+        config = StationPassRateConfig()
+        assert config.selectedStations == []
+        assert config.configured is False

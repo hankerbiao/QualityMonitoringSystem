@@ -1,6 +1,7 @@
 """
 Integration tests for Settings API endpoints
 """
+
 import pytest
 
 
@@ -20,7 +21,9 @@ class TestGetAllSettings:
         assert data["data"]["emailAlert"]["enabled"] is True
         assert data["data"]["cycleStatsConfig"]["selectedModels"] == []
 
-    async def test_unified_update_includes_cycle_stats_and_keeps_secrets_masked(self, client, db_clean):
+    async def test_unified_update_includes_cycle_stats_and_keeps_secrets_masked(
+        self, client, db_clean
+    ):
         response = await client.put(
             "/api/settings",
             json={
@@ -32,6 +35,32 @@ class TestGetAllSettings:
         data = response.json()["data"]
         assert data["modelTargets"] == {"X1": 98.5}
         assert data["cycleStatsConfig"] == {"selectedModels": ["X1"]}
+
+    async def test_station_pass_rate_config_persists_selected_stations(self, client, db_clean):
+        initial = await client.get("/api/settings")
+        assert initial.json()["data"]["stationPassRateConfig"] == {
+            "selectedStations": [],
+            "configured": False,
+        }
+
+        response = await client.put(
+            "/api/settings",
+            json={"stationPassRateConfig": {"selectedStations": ["OP10", "OP20"]}},
+        )
+        assert response.status_code == 200
+        assert response.json()["data"]["stationPassRateConfig"] == {
+            "selectedStations": ["OP10", "OP20"],
+            "configured": True,
+        }
+
+        stored = await db_clean.configs.find_one({"key": "station_pass_rate_config"})
+        assert stored["selectedStations"] == ["OP10", "OP20"]
+
+        reread = await client.get("/api/settings")
+        assert reread.json()["data"]["stationPassRateConfig"]["selectedStations"] == [
+            "OP10",
+            "OP20",
+        ]
 
     async def test_removed_feature_flags_are_rejected(self, client, db_clean):
         response = await client.put(

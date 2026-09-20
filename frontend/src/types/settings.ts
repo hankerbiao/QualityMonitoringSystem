@@ -32,6 +32,7 @@ export interface SettingsResponse {
   modelTargets: ModelTargets;
   emailAlert: EmailAlertConfig;
   cycleStatsConfig: CycleStatsConfig;
+  stationPassRateConfig: StationPassRateConfig;
 }
 
 export interface SettingsContextType {
@@ -45,8 +46,16 @@ export interface SettingsUpdate {
   modelTargets?: ModelTargets;
   emailAlert?: Partial<EmailAlertConfig>;
   cycleStatsConfig?: CycleStatsConfig;
+  stationPassRateConfig?: StationPassRateConfigUpdate;
 }
 
 export interface CycleStatsConfig {
   selectedModels: string[];
 }
+
+export interface StationPassRateConfig {
+  selectedStations: string[];
+  configured: boolean;
+}
+
+export type StationPassRateConfigUpdate = Pick<StationPassRateConfig, 'selectedStations'>;

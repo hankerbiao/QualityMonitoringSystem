@@ -17,11 +17,14 @@ from app.schemas.settings import (
     ProcessRecordConfig,
     SettingsResponse,
     SettingsUpdateRequest,
+    StationPassRateConfig,
 )
 from app.services.alert_mail_support import EMAIL_DEFAULT
 from app.services.credential_crypto import encrypt_credential
 
 CONFIGS = Collections.CONFIGS
+
+
 class SettingsService:
     """Read and update settings stored as key-value MongoDB documents."""
 
@@ -47,6 +50,7 @@ class SettingsService:
                 "model_targets",
                 "email_alert_config",
                 "cycle_stats_config",
+                "station_pass_rate_config",
             )
         }
         return SettingsResponse(
@@ -55,6 +59,12 @@ class SettingsService:
             emailAlert=self.email_from_doc(docs["email_alert_config"]),
             cycleStatsConfig=CycleStatsConfig(
                 selectedModels=(docs["cycle_stats_config"] or {}).get("selectedModels", [])
+            ),
+            stationPassRateConfig=StationPassRateConfig(
+                selectedStations=(docs["station_pass_rate_config"] or {}).get(
+                    "selectedStations", []
+                ),
+                configured=docs["station_pass_rate_config"] is not None,
             ),
         )
 
@@ -79,7 +89,19 @@ class SettingsService:
                 updates.append(("email_alert_config", data))
 
         if request.cycleStatsConfig is not None:
-            updates.append(("cycle_stats_config", {"selectedModels": request.cycleStatsConfig.selectedModels}))
+            updates.append(
+                ("cycle_stats_config", {"selectedModels": request.cycleStatsConfig.selectedModels})
+            )
+
+        if request.stationPassRateConfig is not None:
+            updates.append(
+                (
+                    "station_pass_rate_config",
+                    {
+                        "selectedStations": request.stationPassRateConfig.selectedStations,
+                    },
+                )
+            )
 
         for key, data in updates:
             await self.db[CONFIGS].update_one(
