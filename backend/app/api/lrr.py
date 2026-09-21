@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import re
 from collections import defaultdict
 from decimal import Decimal, InvalidOperation
 from time import perf_counter
@@ -21,18 +20,14 @@ from app.schemas.lrr import (
 )
 from app.services import lrr_gateway
 from app.services.lrr_list_cache import LRRListQuery, lrr_list_cache
+from app.services.lrr_normalization import (
+    compact_date,
+    month_from_date,
+    normalize_production_order,
+    normalize_sales_order,
+)
 
 router = APIRouter()
-
-
-def normalize_production_order(value: Any) -> str:
-    value = str(value or "").strip()
-    return value.zfill(12) if value and value.isdigit() else value
-
-
-def normalize_sales_order(value: Any) -> str:
-    value = str(value or "").strip().rsplit("--", 1)[0]
-    return value.lstrip("0") or "0" if value.isdigit() else value
 
 
 def _quantity(value: Any) -> Decimal:
@@ -46,14 +41,6 @@ def _normalized_description(value: Any) -> str:
     return " ".join(str(value or "").split()).casefold()
 
 
-def _month_from_date(value: Any) -> str:
-    compact = re.sub(r"\D", "", str(value or ""))
-    if len(compact) < 6 or not compact[:6].isdigit():
-        return ""
-    month = int(compact[4:6])
-    return f"{compact[:4]}-{month:02d}" if 1 <= month <= 12 else ""
-
-
 def aggregate_lrr(
     bom_rows: list[dict[str, Any]],
     fault_rows: list[dict[str, Any]],
@@ -63,7 +50,7 @@ def aggregate_lrr(
     groups: dict[str, dict[str, Any]] = {}
     for bom in bom_rows:
         material = str(bom.get("MATNR") or "").strip()
-        month = _month_from_date(bom.get("GSTRS"))
+        month = month_from_date(bom.get("GSTRS"))
         if not material or not month:
             continue
         group = groups.setdefault(
@@ -92,13 +79,10 @@ def aggregate_lrr(
     linked: set[tuple[str, str]] = set()
     for fault in fault_rows:
         fault_id = str(fault.get("_id") or id(fault))
-        order = normalize_production_order(fault.get("mfg_order") or fault.get("AUFNR"))
-        sales = normalize_sales_order(fault.get("sale_no") or fault.get("VBELN"))
+        order = normalize_production_order(fault.get("AUFNR"))
+        sales = normalize_sales_order(fault.get("VBELN"))
         fault_material = str(fault.get("MATNR") or "").strip()
-        compact_date = re.sub(
-            r"\D", "", str(fault.get("repair_time") or fault.get("ZDATE_WX") or "")
-        )
-        fault_month = compact_date[:6]
+        fault_month = compact_date(fault.get("ZDATE_WX"))[:6]
         # Production order is the precise ownership key. A sales order can
         # contain several production orders, so using it as an OR fallback
         # when AUFNR is present can attach a fault from another order.
@@ -106,6 +90,7 @@ def aggregate_lrr(
             (key, group)
             for key, group in active.items()
             if (order in group["orders"] if order else sales in group["sales"])
+            and fault_month == group["month"].replace("-", "")
         )
         candidates = list(link_candidates)
         if fault_material:
@@ -113,28 +98,13 @@ def aggregate_lrr(
                 (key, group) for key, group in candidates if group["material"] == fault_material
             ]
         else:
-            fault_description = _normalized_description(
-                fault.get("ZJXMC") or fault.get("materialDescription")
-            )
+            fault_description = _normalized_description(fault.get("ZJXMC"))
             candidates = [
                 (key, group)
                 for key, group in candidates
                 if group["match_description"]
                 and _normalized_description(group["match_description"]) == fault_description
             ]
-
-        # Planned-date filters select BOM orders by GSTRS. A repair can happen
-        # in a later month, so do not discard a uniquely identified order
-        # merely because its NG month differs from the BOM month. If one order
-        # spans multiple BOM months, use the NG month only as a tie-breaker.
-        if len(candidates) > 1 and fault_month:
-            month_candidates = [
-                (key, group)
-                for key, group in candidates
-                if fault_month == group["month"].replace("-", "")
-            ]
-            if len(month_candidates) == 1:
-                candidates = month_candidates
 
         # A repair without an exact material number is counted only when its
         # order, month and description resolve to one PN. This prevents a
@@ -152,18 +122,13 @@ def aggregate_lrr(
                     month=group["month"],
                     materialNumber=group["material"],
                     materialDescription=group["description"],
-                    sn=str(fault.get("PCODE") or fault.get("sn") or ""),
-                    faultType=str(
-                        fault.get("ZNGWD")
-                        or fault.get("ZNGGZ")
-                        or fault.get("fault_category")
-                        or ""
-                    ),
-                    faultDesc=str(fault.get("ZWXWD") or fault.get("fault_desc") or ""),
+                    sn=str(fault.get("PCODE") or ""),
+                    faultType=str(fault.get("ZNGWD") or ""),
+                    faultDesc=str(fault.get("ZWXWD") or ""),
                     ngTime=" ".join(
                         value
                         for value in (
-                            str(fault.get("ZDATE_WX") or fault.get("repair_time") or "").strip(),
+                            str(fault.get("ZDATE_WX") or "").strip(),
                             str(fault.get("ZTIME") or "").strip(),
                         )
                         if value

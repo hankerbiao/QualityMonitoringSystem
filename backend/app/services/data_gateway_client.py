@@ -360,6 +360,29 @@ class DataGatewayClient:
             raise DataGatewayError("数据网关 SN 故障响应格式错误")
         return [item for item in payload["items"] if isinstance(item, dict)]
 
+    async def fault_rows_by_host_barcodes(
+        self,
+        host_barcodes: list[str],
+        *,
+        date_from: str = "",
+        date_to: str = "",
+        max_rows: int = 250_000,
+    ) -> list[dict[str, Any]]:
+        """Read full fault documents for a bounded set of host barcodes."""
+        values = list(dict.fromkeys(value.strip() for value in host_barcodes if value.strip()))
+        if not values:
+            return []
+        return await self.all_pages(
+            "GET",
+            "/api/faults",
+            filters={
+                "hostBarcode": ",".join(values),
+                "dateFrom": date_from,
+                "dateTo": date_to,
+            },
+            max_rows=max_rows,
+        )
+
     async def all_faults(
         self, *, max_rows: int = 1_000_000, **filters: str
     ) -> list[dict[str, Any]]:
@@ -423,12 +446,13 @@ class DataGatewayClient:
         # Older gateway deployments expose GSTRS in the paginated BOM view
         # but not in the low-overhead stream. LRR cannot calculate its month
         # denominator without that field, so transparently use the complete
-        # view until the stream deployment is upgraded.
+        # view until the stream deployment is upgraded. Keep the date meaning
+        # explicit because the paginated view has more than one date column.
         if "GSTRS" not in fields:
             return await self.all_pages(
                 "GET",
                 "/api/views/ZSGV_ZSD124",
-                filters=filters,
+                filters={**filters, "timeField": "planned"},
                 max_rows=max_rows,
             )
         if len(rows) > max_rows:

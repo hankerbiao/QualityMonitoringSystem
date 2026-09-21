@@ -7,32 +7,24 @@ quantities, fault matching, grouping and rates remain in ``api.lrr``.
 from __future__ import annotations
 
 import asyncio
-import calendar
-import re
 from time import perf_counter
 from typing import Any
 
 from app.core.logger import log_info
 from app.services.data_gateway_client import DataGatewayError, data_gateway
+from app.services.lrr_normalization import (
+    compact_date,
+    month_bounds,
+    month_from_date,
+    normalize_production_order,
+    normalize_sales_order,
+    source_data,
+)
 from app.services.rty_shared import order_variants
 
 MAX_BATCH_ORDER_FILTERS = 200
 MAX_BATCH_SN_FILTERS = 1_000
-
-
-def _raw(item: dict[str, Any]) -> dict[str, Any]:
-    raw = item.get("raw")
-    return raw if isinstance(raw, dict) else item
-
-
-def _norm_order(value: Any) -> str:
-    text = str(value or "").strip()
-    return text.zfill(12) if text.isdigit() else text
-
-
-def _norm_sales_order(value: Any) -> str:
-    text = str(value or "").strip().rsplit("--", 1)[0]
-    return text.lstrip("0") or "0" if text.isdigit() else text
+MAX_BATCH_FULL_FAULT_FILTERS = 100
 
 
 def _norm_material_number(value: Any) -> str:
@@ -45,85 +37,65 @@ def _split_values(value: str | None) -> list[str]:
     return [item.strip() for item in str(value or "").replace("，", ",").split(",") if item.strip()]
 
 
-def _month_bounds(month: str | None) -> tuple[str, str]:
-    value = str(month or "").replace("-", "")
-    if len(value) != 6 or not value.isdigit() or not 1 <= int(value[4:]) <= 12:
-        return "", ""
-    year, month_number = int(value[:4]), int(value[4:])
-    return (
-        f"{year:04d}-{month_number:02d}-01",
-        f"{year:04d}-{month_number:02d}-{calendar.monthrange(year, month_number)[1]:02d}",
-    )
-
-
-def _month_from_date(value: Any) -> str:
-    compact = re.sub(r"\D", "", str(value or ""))
-    if len(compact) < 6 or not compact[:6].isdigit():
-        return ""
-    month = int(compact[4:6])
-    return f"{compact[:4]}-{month:02d}" if 1 <= month <= 12 else ""
-
-
-def _compact_date(value: Any) -> str:
-    compact = re.sub(r"\D", "", str(value or ""))
-    return compact[:8] if len(compact) >= 8 and compact[:8].isdigit() else ""
-
-
 def normalize_bom(item: dict[str, Any]) -> dict[str, Any]:
-    raw = _raw(item)
-    # The BOM stream projection omits MAKTX in some gateway deployments,
-    # while the paginated view may expose one of these aliases.
-    material_description = next(
-        (
-            str(raw.get(field) or item.get(field) or "").strip()
-            for field in ("MAKTX", "materialDescription", "materialDesc", "description")
-            if raw.get(field) or item.get(field)
-        ),
-        "",
-    )
+    data = source_data(item)
     return {
-        **raw,
-        "AUFNR_1": raw.get("AUFNR_1") or raw.get("AUFNR") or "",
-        "VBELN_EX": raw.get("VBELN_EX") or raw.get("VBELN") or "",
-        "MENGE_A": raw.get("MENGE_A") if raw.get("MENGE_A") is not None else raw.get("MENGE", 0),
-        "MATNR": raw.get("MATNR") or "",
-        "MAKTX": material_description,
-        "LGORT": raw.get("LGORT") or raw.get("WERKS") or "",
-        "GSTRS": str(
-            raw.get("GSTRS") or item.get("GSTRS") or item.get("plannedStartDate") or ""
-        )[:10],
-        "BUDAT_MKPF": str(raw.get("BUDAT_MKPF") or "")[:8],
+        **data,
+        "_id": item.get("id") or data.get("_id"),
+        "AUFNR_1": data.get("AUFNR_1", ""),
+        "VBELN_EX": data.get("VBELN_EX", ""),
+        "MENGE_A": data.get("MENGE_A", 0),
+        "MATNR": data.get("MATNR", ""),
+        "MAKTX": data.get("MAKTX", ""),
+        "LGORT": data.get("LGORT", ""),
+        "GSTRS": str(data.get("GSTRS", ""))[:10],
+        "BUDAT_MKPF": str(data.get("BUDAT_MKPF", ""))[:8],
     }
 
 
 def normalize_fault(item: dict[str, Any]) -> dict[str, Any]:
-    raw = _raw(item)
+    data = source_data(item)
     return {
-        **raw,
-        "_id": item.get("id") or raw.get("_source_key") or raw.get("_id"),
-        "AUFNR": raw.get("AUFNR") or item.get("productionOrder") or "",
-        "VBELN": raw.get("VBELN") or item.get("salesOrder") or "",
-        "PCODE": raw.get("PCODE") or item.get("serialNumber") or item.get("hostBarcode") or "",
-        "ZNGGZ": raw.get("ZNGGZ") or item.get("ngStation") or "",
-        "ZNGWD": (
-            raw.get("ZNGWD")
-            or raw.get("ZMCOD1")
-            or raw.get("ERROR_CODE")
-            or item.get("errorCode")
-            or ""
-        ),
-        "ZWXWD": raw.get("ZWXWD")
-        or raw.get("ZGZMS")
-        or raw.get("ERROR_MSG")
-        or raw.get("RPDESC")
-        or item.get("faultDescription")
-        or item.get("errorDescription")
-        or "",
-        "ZDATE_WX": raw.get("ZDATE_WX") or str(item.get("repairAt") or "")[:10].replace("-", ""),
-        "ZTIME": raw.get("ZTIME") or "",
-        "ZJXMC": raw.get("ZJXMC") or raw.get("MAKTX") or item.get("materialDescription") or "",
-        "MATNR": raw.get("MATNR") or item.get("materialNumber") or "",
+        **data,
+        "_id": item.get("id") or data.get("_id"),
+        "AUFNR": data.get("AUFNR", ""),
+        "VBELN": data.get("VBELN", ""),
+        "PCODE": data.get("PCODE", ""),
+        "ZNGGZ": data.get("ZNGGZ", ""),
+        "ZNGWD": data.get("ZNGWD", ""),
+        "ZWXWD": data.get("ZWXWD", ""),
+        "ZDATE_WX": data.get("ZDATE_WX", ""),
+        "ZTIME": data.get("ZTIME", ""),
+        "ZJXMC": data.get("ZJXMC", ""),
+        "MATNR": data.get("MATNR", ""),
     }
+
+
+def normalize_fault_lookup(item: dict[str, Any]) -> dict[str, Any]:
+    """Adapt the lookup endpoint's link envelope to the SAP fault contract."""
+    data = source_data(item)
+    if any(field in data for field in ("AUFNR", "VBELN", "PCODE")):
+        return normalize_fault(item)
+    return normalize_fault(
+        {
+            **data,
+            "id": item.get("id"),
+            "AUFNR": item.get("productionOrder", ""),
+            "VBELN": item.get("salesOrder", ""),
+            "PCODE": item.get("serialNumber", ""),
+        }
+    )
+
+
+def _fault_source_key(row: dict[str, Any]) -> str:
+    return str(row.get("_source_key") or row.get("_id") or "").strip()
+
+
+def _merge_full_fault_rows(
+    rows: list[dict[str, Any]], full_rows: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    full_by_key = {key: row for row in full_rows if (key := _fault_source_key(row))}
+    return [full_by_key.get(_fault_source_key(row), row) for row in rows]
 
 
 def _deduplicate_faults(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -176,12 +148,13 @@ async def load_bom(
     search_terms.extend(_split_values(sales_order))
     search_terms = list(dict.fromkeys(search_terms))
     date_start, date_end = date_from or planned_date_from or "", date_to or planned_date_to or ""
-    requested_month = _month_from_date(month)
-    requested_date_from = _compact_date(planned_date_from)
-    requested_date_to = _compact_date(planned_date_to)
+    requested_month = month_from_date(month)
+    requested_date_from = compact_date(planned_date_from)
+    requested_date_to = compact_date(planned_date_to)
     base_filters = {
         "dateFrom": date_start,
         "dateTo": date_end,
+        "timeField": "planned",
         "materialCode": _norm_material_number(material_number),
     }
     raw_rows: list[dict[str, Any]] = []
@@ -254,27 +227,21 @@ async def load_bom(
             rows.append(normalized)
     order_keywords = [value.lower() for value in _split_values(order_keyword)]
     production_values = {
-        _norm_order(value)
-        for value in str(production_order or "").replace("，", ",").split(",")
-        if value.strip()
+        normalize_production_order(value) for value in _split_values(production_order)
     }
-    sales_values = {
-        str(value).strip().lstrip("0") or "0"
-        for value in str(sales_order or "").replace("，", ",").split(",")
-        if value.strip()
-    }
+    sales_values = {normalize_sales_order(value) for value in _split_values(sales_order)}
     for row in rows:
-        production = _norm_order(row.get("AUFNR_1"))
+        production = normalize_production_order(row.get("AUFNR_1"))
         sales = str(row.get("VBELN_EX") or "").strip()
         row["AUFNR_1"] = production
         if production_values and production not in production_values:
             row["_skip"] = True
-        if sales_values and (sales.lstrip("0") or "0") not in sales_values:
+        if sales_values and normalize_sales_order(sales) not in sales_values:
             row["_skip"] = True
-        row_month = _month_from_date(row.get("GSTRS"))
+        row_month = month_from_date(row.get("GSTRS"))
         if requested_month and row_month != requested_month:
             row["_skip"] = True
-        planned_date = _compact_date(row.get("GSTRS"))
+        planned_date = compact_date(row.get("GSTRS"))
         if requested_date_from and (not planned_date or planned_date < requested_date_from):
             row["_skip"] = True
         if requested_date_to and (not planned_date or planned_date > requested_date_to):
@@ -297,25 +264,20 @@ async def load_bom(
     metadata_load_ms = (perf_counter() - metadata_started_at) * 1000
     metadata: dict[str, tuple[str, str, str]] = {}
     for item in orders:
-        raw = _raw(item)
-        data = raw.get("data") if isinstance(raw.get("data"), dict) else raw
-        key = _norm_order(item.get("aufnr") or data.get("AUFNR"))
+        key = normalize_production_order(item.get("aufnr"))
         if key:
             metadata[key] = (
-                str(
-                    data.get("LGORT") or data.get("WERKS") or item.get("inventoryLocation") or ""
-                ).strip(),
-                str(data.get("KID") or item.get("customerId") or "").strip(),
-                str(
-                    data.get("MAKTX_TH")
-                    or item.get("productionModel")
-                    or item.get("productModel")
-                    or ""
-                ).strip(),
+                str(item.get("inventoryLocation", "")).strip(),
+                str(item.get("customerId", "")).strip(),
+                str(item.get("productionModel", "")).strip(),
             )
     result = []
     for row in rows:
-        base_value, customer, model = metadata.get(_norm_order(row.get("AUFNR_1")), ("", "", ""))
+        metadata_values = metadata.get(normalize_production_order(row.get("AUFNR_1")))
+        if metadata_values is None:
+            base_value, customer, model = "", "", ""
+        else:
+            base_value, customer, model = metadata_values
         if base and base.strip() not in {str(row.get("LGORT") or "").strip(), base_value}:
             continue
         if customer_id and customer_id.strip() != customer:
@@ -336,8 +298,7 @@ async def load_bom(
 
 async def material_descriptions(material_numbers: list[str]) -> dict[str, str]:
     """Load descriptions for a bounded set of PN values from the full view."""
-    materials = list(dict.fromkeys(str(value or "").strip() for value in material_numbers))
-    materials = [value for value in materials if value]
+    materials = list(dict.fromkeys(str(value or "").strip() for value in material_numbers if value))
     if not materials:
         return {}
     try:
@@ -371,7 +332,7 @@ async def load_faults(
     if not production_orders and not sales_orders:
         return []
     if month and not date_from and not date_to:
-        date_from, date_to = _month_bounds(month)
+        date_from, date_to = month_bounds(month)
     date_start, date_end = date_from or "", date_to or ""
     # A broad GET would page through the complete repair collection. Indexed
     # POST lookups keep the query selective even when thousands of BOM orders
@@ -396,7 +357,7 @@ async def load_faults(
         fetch_by_production_order(variants[index : index + MAX_BATCH_ORDER_FILTERS])
         for index in range(0, len(variants), MAX_BATCH_ORDER_FILTERS)
     )
-    sales = sorted({_norm_sales_order(value) for value in sales_orders if _norm_sales_order(value)})
+    sales = sorted(filter(None, {normalize_sales_order(value) for value in sales_orders}))
     lookup_requests.extend(
         fetch_by_sales_order(sales[index : index + MAX_BATCH_ORDER_FILTERS])
         for index in range(0, len(sales), MAX_BATCH_ORDER_FILTERS)
@@ -417,7 +378,7 @@ async def load_faults(
         for index in range(0, len(padded_sales), MAX_BATCH_ORDER_FILTERS)
     )
     batches = await asyncio.gather(*lookup_requests)
-    links = [normalize_fault(item) for batch in batches for item in batch]
+    links = [normalize_fault_lookup(item) for batch in batches for item in batch]
     sns = sorted({str(row.get("PCODE") or "").strip() for row in links if row.get("PCODE")})
     if not sns:
         return _deduplicate_faults(links)
@@ -435,6 +396,26 @@ async def load_faults(
         )
     )
     details = [normalize_fault(item) for batch in detail_batches for item in batch]
+    missing_full_rows = sorted(
+        {
+            str(row.get("PCODE") or "").strip()
+            for row in details
+            if _fault_source_key(row) and (not row.get("ZNGWD") or not row.get("ZWXWD"))
+        }
+    )
+    if missing_full_rows:
+        full_detail_batches = await asyncio.gather(
+            *(
+                data_gateway.fault_rows_by_host_barcodes(
+                    missing_full_rows[index : index + MAX_BATCH_FULL_FAULT_FILTERS],
+                    date_from=date_start,
+                    date_to=date_end,
+                )
+                for index in range(0, len(missing_full_rows), MAX_BATCH_FULL_FAULT_FILTERS)
+            )
+        )
+        full_details = [normalize_fault(item) for batch in full_detail_batches for item in batch]
+        details = _merge_full_fault_rows(details, full_details)
     resolved_sns = {str(row.get("PCODE") or "").strip() for row in details}
     # Keep lookup-only rows when the detailed source has no matching SN,
     # so a transiently incomplete detail index does not undercount LRR.
@@ -445,33 +426,18 @@ async def load_faults(
 
 async def options() -> dict[str, list[str]]:
     orders = await data_gateway.all_orders()
-    production = {_norm_order(item.get("aufnr") or _raw(item).get("AUFNR")) for item in orders}
-    sales = {
-        str(item.get("salesOrder") or _raw(item).get("VBELN") or "").strip().lstrip("0") or "0"
-        for item in orders
-    }
+    production = {normalize_production_order(item.get("aufnr")) for item in orders}
+    sales = {normalize_sales_order(item.get("salesOrder")) for item in orders}
     bases = set()
     customers = set()
     materials = set()
     models = set()
     for item in orders:
-        raw = _raw(item)
-        data = raw.get("data") if isinstance(raw.get("data"), dict) else raw
-        materials.add(str(data.get("MATNR") or "").strip())
-        models.add(
-            str(
-                data.get("MAKTX_TH")
-                or item.get("productionModel")
-                or item.get("productModel")
-                or ""
-            ).strip()
-        )
-        bases.add(
-            str(
-                data.get("LGORT") or data.get("WERKS") or item.get("inventoryLocation") or ""
-            ).strip()
-        )
-        customers.add(str(data.get("KID") or item.get("customerId") or "").strip())
+        data = source_data(item)
+        materials.add(str(data.get("MATNR", "")).strip())
+        models.add(str(item.get("productionModel", "")).strip())
+        bases.add(str(item.get("inventoryLocation", "")).strip())
+        customers.add(str(item.get("customerId", "")).strip())
     return {
         "productionOrders": sorted(value for value in production if value),
         "salesOrders": sorted(value for value in sales if value),

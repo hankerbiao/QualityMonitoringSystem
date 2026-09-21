@@ -45,12 +45,12 @@ def test_lrr_groups_usage_by_material_and_month_and_matches_fault_description():
         [
             {
                 "_id": "f1",
-                "mfg_order": "1",
+                "AUFNR": "1",
                 "ZJXMC": "CPU A",
                 "PCODE": "SN-1",
                 "ZDATE_WX": "20260125",
             },
-            {"_id": "f2", "mfg_order": "1", "ZJXMC": "UNKNOWN", "PCODE": "SN-2"},
+            {"_id": "f2", "AUFNR": "1", "ZJXMC": "UNKNOWN", "PCODE": "SN-2"},
         ],
     )
     by_key = {(row.materialNumber, row.month): row for row in rows}
@@ -92,7 +92,7 @@ def test_lrr_does_not_match_known_production_order_through_shared_sales_order():
     assert details == []
 
 
-def test_lrr_matches_fault_to_planned_order_when_repair_is_in_a_later_month():
+def test_lrr_does_not_count_fault_when_repair_month_differs_from_planned_month():
     rows, details = aggregate_lrr(
         [
             {
@@ -115,8 +115,8 @@ def test_lrr_matches_fault_to_planned_order_when_repair_is_in_a_later_month():
     )
 
     assert rows[0].month == "2026-07"
-    assert rows[0].faultCount == 1
-    assert details[0].month == "2026-07"
+    assert rows[0].faultCount == 0
+    assert details == []
 
 
 def test_lrr_supports_compacted_fault_counts():
@@ -134,7 +134,7 @@ def test_lrr_supports_compacted_fault_counts():
         [
             {
                 "_id": "f1",
-                "mfg_order": "1",
+                "AUFNR": "1",
                 "ZJXMC": "CPU A",
                 "ZDATE_WX": "20260125",
                 "_fault_count": 3,
@@ -147,7 +147,7 @@ def test_lrr_supports_compacted_fault_counts():
     assert details == []
 
 
-def test_lrr_detail_uses_station_and_time_when_fault_code_is_absent():
+def test_lrr_detail_does_not_treat_station_as_fault_code():
     _, details = aggregate_lrr(
         [
             {
@@ -173,7 +173,7 @@ def test_lrr_detail_uses_station_and_time_when_fault_code_is_absent():
         ],
     )
 
-    assert details[0].faultType == "OP205"
+    assert details[0].faultType == ""
     assert details[0].faultDesc == "Power-on failure"
     assert details[0].ngTime == "20260202 113419"
 

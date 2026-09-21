@@ -84,6 +84,33 @@ async def test_fault_lookup_uses_post_body():
 
 
 @pytest.mark.asyncio
+async def test_fault_rows_by_host_barcodes_reads_full_fault_documents():
+    client = DataGatewayClient("http://gateway.test", timeout=2)
+    captured: dict[str, object] = {}
+
+    async def all_pages(method: str, path: str, **kwargs: object):
+        captured.update({"method": method, "path": path, **kwargs})
+        return [{"id": "fault-1"}]
+
+    client.all_pages = all_pages  # type: ignore[method-assign]
+    result = await client.fault_rows_by_host_barcodes(
+        ["SN-1", "SN-1"], date_from="2026-08-01", date_to="2026-08-31"
+    )
+
+    assert result == [{"id": "fault-1"}]
+    assert captured == {
+        "method": "GET",
+        "path": "/api/faults",
+        "filters": {
+            "hostBarcode": "SN-1",
+            "dateFrom": "2026-08-01",
+            "dateTo": "2026-08-31",
+        },
+        "max_rows": 250_000,
+    }
+
+
+@pytest.mark.asyncio
 async def test_all_orders_reuses_short_lived_cache():
     calls = 0
 
@@ -178,10 +205,12 @@ async def test_stream_text_reuses_short_lived_cache():
 async def test_bom_stream_falls_back_to_paginated_view_when_gstrs_is_missing():
     client = DataGatewayClient("http://gateway.test", timeout=2)
     calls: list[str] = []
+    captured: dict[str, object] = {}
 
     async def request_json(method: str, path: str, **kwargs: object):
-        del method, kwargs
+        del method
         calls.append(path)
+        captured.update(kwargs)
         return {"items": [{"id": "bom-1", "GSTRS": "2026-09-20"}], "total": 1}
 
     client.request_json = request_json  # type: ignore[method-assign]
@@ -198,6 +227,12 @@ async def test_bom_stream_falls_back_to_paginated_view_when_gstrs_is_missing():
 
     assert rows == [{"id": "bom-1", "GSTRS": "2026-09-20"}]
     assert calls == ["/api/views/ZSGV_ZSD124"]
+    assert captured["params"] == {
+        "page": 1,
+        "pageSize": 100,
+        "materialCode": "PN-1",
+        "timeField": "planned",
+    }
 
 
 @pytest.mark.asyncio

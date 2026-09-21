@@ -6,6 +6,30 @@ from app.services import lrr_gateway
 from app.services.data_gateway_client import DataGatewayClient, DataGatewayError
 
 
+def test_lrr_normalizers_ignore_non_sap_alias_fields():
+    bom = lrr_gateway.normalize_bom(
+        {
+            "AUFNR": "legacy-order",
+            "materialDescription": "legacy-description",
+            "plannedStartDate": "2026-08-01",
+        }
+    )
+    fault = lrr_gateway.normalize_fault(
+        {
+            "productionOrder": "legacy-order",
+            "serialNumber": "legacy-sn",
+            "errorCode": "legacy-code",
+        }
+    )
+
+    assert bom["AUFNR_1"] == ""
+    assert bom["MAKTX"] == ""
+    assert bom["GSTRS"] == ""
+    assert fault["AUFNR"] == ""
+    assert fault["PCODE"] == ""
+    assert fault["ZNGWD"] == ""
+
+
 @pytest.mark.asyncio
 async def test_load_bom_normalizes_gateway_rows_and_applies_exact_filters(monkeypatch):
     calls: list[dict[str, str]] = []
@@ -54,6 +78,7 @@ async def test_load_bom_normalizes_gateway_rows_and_applies_exact_filters(monkey
         {
             "dateFrom": "2026-08-01",
             "dateTo": "2026-08-31",
+            "timeField": "planned",
             "materialCode": "",
             "keyword": "1",
         }
@@ -82,7 +107,7 @@ async def test_load_bom_filters_by_production_model_from_order_metadata(monkeypa
 
     async def all_orders(**_filters: str):
         return [
-            {"aufnr": "1", "raw": {"data": {"MAKTX_TH": "MODEL-1"}}},
+            {"aufnr": "1", "productionModel": "MODEL-1"},
             {"aufnr": "2", "productionModel": "MODEL-2"},
         ]
 
@@ -148,9 +173,7 @@ async def test_load_bom_filters_by_planned_start_date(monkeypatch):
 
     monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
     monkeypatch.setattr(lrr_gateway.data_gateway, "all_orders", all_orders)
-    rows = await lrr_gateway.load_bom(
-        planned_date_from="2026-02-10", planned_date_to="2026-02-20"
-    )
+    rows = await lrr_gateway.load_bom(planned_date_from="2026-02-10", planned_date_to="2026-02-20")
 
     assert [row["MATNR"] for row in rows] == ["PN-2"]
     assert captured["dateFrom"] == "2026-02-10"
@@ -278,7 +301,6 @@ async def test_load_faults_resolves_lookup_links_to_full_fault_details(monkeypat
             {
                 "productionOrder": "000000000001",
                 "serialNumber": "SN-1",
-                "raw": {"AUFNR": "000000000001", "PCODE": "SN-1"},
             }
         ]
 
@@ -292,7 +314,7 @@ async def test_load_faults_resolves_lookup_links_to_full_fault_details(monkeypat
                 "ZDATE_WX": "20260202",
                 "ZTIME": "113419",
                 "ZNGGZ": "OP205",
-                "ZGZMS": "Power-on failure",
+                "ZWXWD": "Power-on failure",
             },
             {
                 "AUFNR": "000000000001",
@@ -301,7 +323,7 @@ async def test_load_faults_resolves_lookup_links_to_full_fault_details(monkeypat
                 "ZDATE_WX": "20260202",
                 "ZTIME": "113419",
                 "ZNGGZ": "OP205",
-                "ZGZMS": "Power-on failure",
+                "ZWXWD": "Power-on failure",
             },
         ]
 
@@ -314,6 +336,52 @@ async def test_load_faults_resolves_lookup_links_to_full_fault_details(monkeypat
     assert rows[0]["ZNGGZ"] == "OP205"
     assert rows[0]["ZWXWD"] == "Power-on failure"
     assert rows[0]["ZDATE_WX"] == "20260202"
+
+
+@pytest.mark.asyncio
+async def test_load_faults_enriches_missing_display_fields_from_full_fault_rows(monkeypatch):
+    async def fault_lookup(**_filters: str):
+        return [{"productionOrder": "1", "serialNumber": "SN-1"}]
+
+    async def fault_rows_by_sns(sns: list[str], **_filters: str):
+        assert sns == ["SN-1"]
+        return [
+            {
+                "_source_key": "source-1",
+                "AUFNR": "1",
+                "PCODE": "SN-1",
+                "ZDATE_WX": "20260805",
+            }
+        ]
+
+    async def fault_rows_by_host_barcodes(host_barcodes: list[str], **_filters: str):
+        assert host_barcodes == ["SN-1"]
+        return [
+            {
+                "id": "source-1",
+                "raw": {
+                    "_source_key": "source-1",
+                    "AUFNR": "1",
+                    "PCODE": "SN-1",
+                    "ZDATE_WX": "20260805",
+                    "ZNGWD": "NG type",
+                    "ZWXWD": "Repair description",
+                },
+            }
+        ]
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "fault_lookup", fault_lookup)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "fault_rows_by_sns", fault_rows_by_sns)
+    monkeypatch.setattr(
+        lrr_gateway.data_gateway,
+        "fault_rows_by_host_barcodes",
+        fault_rows_by_host_barcodes,
+    )
+
+    rows = await lrr_gateway.load_faults(production_orders={"1"})
+
+    assert rows[0]["ZNGWD"] == "NG type"
+    assert rows[0]["ZWXWD"] == "Repair description"
 
 
 @pytest.mark.asyncio

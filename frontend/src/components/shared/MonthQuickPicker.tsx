@@ -1,5 +1,5 @@
-import { ChevronDown, ChevronUp } from 'lucide-react';
-import { useState } from 'react';
+import { ChevronDown, ChevronLeft, ChevronRight, ChevronUp } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 type MonthQuickPickerMode = 'date' | 'month';
 type MonthQuickPickerAccent = 'blue' | 'cyan' | 'emerald' | 'rose';
@@ -61,6 +61,12 @@ function selectedMonth(from: string, to: string, mode: MonthQuickPickerMode): st
   return from === expectedFrom && to === expectedTo ? fromMonth : null;
 }
 
+function yearFromRange(from: string, to: string): number {
+  const value = from || to;
+  const year = Number(value.slice(0, 4));
+  return Number.isInteger(year) && year >= 2000 && year <= 2100 ? year : new Date().getFullYear();
+}
+
 export function MonthQuickPicker({
   from,
   to,
@@ -71,14 +77,38 @@ export function MonthQuickPicker({
   className = '',
 }: MonthQuickPickerProps) {
   const [expanded, setExpanded] = useState(defaultExpanded);
-  const year = Number((from || to).slice(0, 4)) || new Date().getFullYear();
+  const [year, setYear] = useState(() => yearFromRange(from, to));
   const selected = selectedMonth(from, to, mode);
   const colors = accentClasses[accent];
+
+  useEffect(() => {
+    setYear(yearFromRange(from, to));
+  }, [from, to]);
 
   return (
     <div className={`min-w-0 ${className}`}>
       <div className="flex items-center justify-between gap-2">
-        <span className="text-[11px] font-medium text-slate-500">{year} 年快捷月份</span>
+        <div className="flex items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setYear((current) => current - 1)}
+            aria-label="上一年"
+            title="上一年"
+            className="inline-flex size-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          >
+            <ChevronLeft className="size-3.5" aria-hidden="true" />
+          </button>
+          <span className="min-w-24 text-center text-[11px] font-medium text-slate-500">{year} 年快捷月份</span>
+          <button
+            type="button"
+            onClick={() => setYear((current) => current + 1)}
+            aria-label="下一年"
+            title="下一年"
+            className="inline-flex size-5 items-center justify-center rounded text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+          >
+            <ChevronRight className="size-3.5" aria-hidden="true" />
+          </button>
+        </div>
         <button
           type="button"
           onClick={() => setExpanded((current) => !current)}
