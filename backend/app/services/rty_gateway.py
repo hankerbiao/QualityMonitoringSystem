@@ -644,25 +644,16 @@ def _station_rows_in_planned_range(
     """Keep station samples whose planned start date (GSTRS) is in range."""
     result = []
     for item in records:
-        planned_date = compact_date(_station_planned_date(item))
+        planned_date = compact_date(_station_gstrs_date(item))
         if planned_date and start <= planned_date <= end:
             result.append(item)
     return result
 
 
-def _station_planned_date(item: dict[str, Any]) -> str:
+def _station_gstrs_date(item: dict[str, Any]) -> str:
     raw = _raw(item)
     nested = raw.get("data") if isinstance(raw.get("data"), dict) else raw
-    # Some gateway versions expose the planned order date (GSTRS), while the
-    # live station stream only exposes the actual pass timestamp. Support both
-    # shapes so local range filtering does not discard every live record.
-    return str(
-        nested.get("GSTRS")
-        or raw.get("GSTRS")
-        or nested.get("ACTUAL_START_TIME")
-        or raw.get("ACTUAL_START_TIME")
-        or ""
-    ).strip()
+    return str(nested.get("GSTRS") or raw.get("GSTRS") or "").strip()
 
 
 async def station_rates(
@@ -793,7 +784,7 @@ async def station_details(
                 sn=sn,
                 stationCode=station,
                 stationName=station,
-                passDate=_station_planned_date(item),
+                passDate=_station_gstrs_date(item),
                 status="passed",
             )
             for sn, item in sorted(unique.items())
@@ -816,7 +807,7 @@ async def station_details(
                 sn=sn,
                 stationCode=station,
                 stationName=station,
-                passDate=_station_planned_date(unique[sn]),
+                passDate=_station_gstrs_date(unique[sn]),
                 status="defect",
                 repairTime=f"{row.get('ZDATE_WX') or ''} {row.get('ZTIME') or ''}".strip(),
                 defectCode=str(row.get("ZNGWD") or ""),
