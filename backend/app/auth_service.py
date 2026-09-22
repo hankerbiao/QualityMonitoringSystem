@@ -128,6 +128,8 @@ class AuthService:
             or resolved_username
         )
         is_active = user.get("isActive", stored.get("isActive", True))
+        if user.get("deletedAt") or stored.get("deletedAt"):
+            is_active = False
         permissions = user.get("dashboardPermissions", stored.get("dashboardPermissions"))
         if role == "admin":
             permissions = list(ALL_DASHBOARD_PERMISSIONS)

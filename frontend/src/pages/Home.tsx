@@ -16,7 +16,6 @@ import HomeSection from '../components/home/HomeSection';
 import SettingsModal from '../components/SettingsModal';
 import {
   managementModules,
-  metadataModules,
   qualityModules,
   toolModules,
 } from '../config/homeModules';
@@ -59,12 +58,10 @@ export default function Home() {
   const dashboardPermissions = new Set(user?.dashboardPermissions ?? []);
   const canView = (id: string) => isAdmin || dashboardPermissions.has(id);
   const visibleQualityModules = qualityModules.filter((module) => canView(module.id));
-  const visibleMetadataModules = metadataModules.filter(() => canView('metadata'));
   const visibleToolModules = toolModules.filter((module) => canView(module.id));
   const visibleModules = [
     ...visibleQualityModules,
     ...visibleToolModules,
-    ...visibleMetadataModules,
     ...(isAdmin ? managementModules : []),
   ];
   const availableFunctionCount = visibleModules.filter(
@@ -82,18 +79,14 @@ export default function Home() {
         .includes(normalizedQuery),
     );
   const filteredQualityModules = filterModules(visibleQualityModules);
-  const filteredMetadataModules = filterModules(visibleMetadataModules);
   const filteredToolModules = filterModules(visibleToolModules);
   const filteredManagementModules = filterModules(managementModules);
   const showQuality = activeFilter === 'all' || activeFilter === 'quality';
-  const showMetadata = activeFilter === 'all';
   const showTools = activeFilter === 'all' || activeFilter === 'tools';
   const showManagement = isAdmin && (activeFilter === 'all' || activeFilter === 'management');
-  const hasMetadataResults = showMetadata && filteredMetadataModules.length > 0;
   const hasToolResults = showTools && filteredToolModules.length > 0;
   const resultCount =
     (showQuality ? filteredQualityModules.length : 0) +
-    (showMetadata ? filteredMetadataModules.length : 0) +
     (showTools ? filteredToolModules.length : 0) +
     (showManagement ? filteredManagementModules.length : 0);
 
@@ -264,25 +257,14 @@ export default function Home() {
             />
           )}
 
-          {(hasToolResults || hasMetadataResults) && (
+          {hasToolResults && (
             <div className="grid gap-9">
-              {hasToolResults && (
-                <HomeSection
-                  id="quality-tools"
-                  title="关键工位影像追溯"
-                  description="用于调查问题、追溯过程与定位原因。"
-                  modules={filteredToolModules}
-                />
-              )}
-
-              {hasMetadataResults && (
-                <HomeSection
-                  id="metadata-dashboards"
-                  title="元数据"
-                  description="销售订单与 SCS 原始数据源，供各质量看板关联使用。"
-                  modules={filteredMetadataModules}
-                />
-              )}
+              <HomeSection
+                id="quality-tools"
+                title="关键工位影像追溯"
+                description="用于调查问题、追溯过程与定位原因。"
+                modules={filteredToolModules}
+              />
             </div>
           )}
 

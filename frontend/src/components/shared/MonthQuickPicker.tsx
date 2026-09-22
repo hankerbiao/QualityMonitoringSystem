@@ -121,7 +121,7 @@ export function MonthQuickPicker({
         </button>
       </div>
       {expanded && (
-        <div className="mt-1.5 grid grid-cols-6 gap-1 sm:grid-cols-12">
+        <div className="mt-1.5 grid grid-cols-4 gap-1.5 min-[360px]:grid-cols-6 sm:grid-cols-12">
           {MONTHS.map((month) => {
             const key = monthKey(year, month);
             const isSelected = selected === key;
@@ -133,9 +133,9 @@ export function MonthQuickPicker({
                 type="button"
                 onClick={() => onChange(nextFrom, nextTo)}
                 aria-pressed={isSelected}
-                className={`h-7 rounded border text-xs transition-colors ${isSelected ? colors.active : colors.idle}`}
+                className={`h-8 min-w-0 whitespace-nowrap rounded border px-1 text-xs leading-none transition-colors ${isSelected ? colors.active : colors.idle}`}
               >
-                {month}月
+                {month}
               </button>
             );
           })}

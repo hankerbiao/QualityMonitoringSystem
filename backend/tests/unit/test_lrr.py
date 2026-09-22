@@ -1,4 +1,5 @@
 from app.api.lrr import (
+    _has_filter_criteria,
     _requires_full_fault_sort,
     _response,
     _usage_response,
@@ -76,6 +77,12 @@ def test_lrr_fault_sort_requires_full_fault_loading():
     assert not _requires_full_fault_sort(LRRListQuery(sort_by="issuedQuantity"))
     assert _requires_full_fault_sort(LRRListQuery(sort_by="faultCount"))
     assert _requires_full_fault_sort(LRRListQuery(sort_by="lrrRate"))
+
+
+def test_lrr_filtered_list_requires_fault_loading_even_with_month_sort():
+    assert _has_filter_criteria(LRRListQuery(product_model="MODEL-1"))
+    assert _has_filter_criteria(LRRListQuery(planned_date_from="2026-01-01"))
+    assert not _has_filter_criteria(LRRListQuery())
 
 
 def test_order_normalization_is_retained_for_internal_fault_linking():

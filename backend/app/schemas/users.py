@@ -26,6 +26,7 @@ class UpdateUserRequest(BaseModel):
     displayName: str | None = Field(default=None, min_length=1, max_length=80)
     isActive: bool | None = None
     dashboardPermissions: list[str] | None = None
+    password: str | None = Field(default=None, min_length=8, max_length=128)
 
 
 class ResetPasswordRequest(BaseModel):

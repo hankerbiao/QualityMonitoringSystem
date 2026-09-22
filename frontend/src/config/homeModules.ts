@@ -4,7 +4,6 @@ import {
   AlertTriangle,
   BarChart3,
   Camera,
-  Database,
   Factory,
   Gauge,
   Wrench,
@@ -74,19 +73,6 @@ export const qualityModules: readonly HomeModuleDefinition[] = [
     icon: BarChart3,
     accent: 'rose',
     path: '/mfr',
-    status: 'available',
-  },
-];
-
-export const metadataModules: readonly HomeModuleDefinition[] = [
-  {
-    id: 'doa-scs',
-    code: 'SCS',
-    title: 'SCS 服务单',
-    description: '查看 SCS 服务单原始字段、销售订单关联和生命周期补采信息。',
-    icon: Database,
-    accent: 'emerald',
-    path: '/metadata/scs_doa',
     status: 'available',
   },
 ];

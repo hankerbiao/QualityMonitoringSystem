@@ -17,7 +17,6 @@
 | MFR 销售订单与 SCS | `GET /api/orders/all`、`GET /api/views/SCS_DOA/stream`、`GET /api/views/SCS_CHANGE/stream` | 在保过滤、月度分母、故障关联和趋势 |
 | DOA 销售订单与 SCS | `GET /api/orders/all`、`GET /api/views/SCS_DOA/stream` | 订单关联及 DOA 计算 |
 | 工位通过率（RTY 子看板） | `GET /api/views/Z_V_ZMES_T_001/stream`、`POST /api/faults/by-sns` | 工位归一化、SN 去重、维修匹配和通过率 |
-| 元数据浏览 | `/api/orders`、`/api/faults`、`/api/views/{viewID}` | 统一表格协议和权限 |
 
 关键工位影像追溯（`process-records`）仍连接 MES 影像系统：网关当前没有 MES
 影像凭证和图片代理能力，因此不伪装成已迁移。后续若要统一入口，应先在网关增加

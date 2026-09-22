@@ -41,6 +41,11 @@ def _summary(doc: dict) -> UserSummary:
     )
 
 
+def _is_deleted(doc: dict) -> bool:
+    profile = doc.get("profile") or {}
+    return bool(doc.get("deletedAt") or profile.get("deletedAt"))
+
+
 def _permissions(values: list[str] | None) -> list[str]:
     normalized = normalize_dashboard_permissions(values)
     if values is not None and set(values) - set(ALL_DASHBOARD_PERMISSIONS):
@@ -50,10 +55,14 @@ def _permissions(values: list[str] | None) -> list[str]:
 
 @router.get("/admin/users", response_model=list[UserSummary])
 async def list_users(_: Annotated[dict, Depends(require_admin)]):
-    docs = (
-        await get_database().users.find({"role": "user"}).sort("createdAt", -1).to_list(length=1000)
-    )
-    return [_summary(doc) for doc in docs]
+    # Older local accounts may not have a top-level role; derive the role from
+    # the same compatibility profile logic used by authentication.
+    docs = await get_database().users.find({}).sort("createdAt", -1).to_list(length=1000)
+    return [
+        _summary(doc)
+        for doc in docs
+        if not _is_deleted(doc) and AuthService._user_profile(doc).get("role") != "admin"
+    ]
 
 
 @router.post("/admin/users", response_model=UserSummary, status_code=status.HTTP_201_CREATED)
@@ -113,6 +122,8 @@ async def update_user(
     doc = await db.users.find_one({"username": username})
     if not doc:
         raise HTTPException(status_code=404, detail="用户不存在")
+    if _is_deleted(doc):
+        raise HTTPException(status_code=404, detail="用户不存在")
     if (doc.get("role") or (doc.get("profile") or {}).get("role")) == "admin":
         raise HTTPException(status_code=403, detail="不能管理管理员账号")
     updates: dict = {}
@@ -138,15 +149,43 @@ async def update_user(
         updates["profile.dashboardPermissions"] = permissions
         result_doc["dashboardPermissions"] = permissions
         result_profile["dashboardPermissions"] = permissions
+    if payload.password is not None:
+        updates["passwordHash"] = _service().hash_password(payload.password)
     if not updates:
         raise HTTPException(status_code=400, detail="没有需要更新的字段")
     updates["updatedAt"] = datetime.now(timezone.utc).isoformat()
     await db.users.update_one({"username": username}, {"$set": updates})
-    if payload.isActive is False:
+    if payload.isActive is False or payload.password is not None:
         await _service().revoke_user_sessions(username)
     result_doc["profile"] = result_profile
     updated = await db.users.find_one({"username": username})
     return _summary(updated or result_doc)
+
+
+@router.delete("/admin/users/{username}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    username: str,
+    _: Annotated[dict, Depends(require_admin)],
+):
+    db = get_database()
+    doc = await db.users.find_one({"username": username})
+    if not doc or _is_deleted(doc):
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if (doc.get("role") or (doc.get("profile") or {}).get("role")) == "admin":
+        raise HTTPException(status_code=403, detail="不能删除管理员账号")
+    now = datetime.now(timezone.utc).isoformat()
+    await db.users.update_one(
+        {"username": username},
+        {
+            "$set": {
+                "deletedAt": now,
+                "isActive": False,
+                "profile.isActive": False,
+                "updatedAt": now,
+            }
+        },
+    )
+    await _service().revoke_user_sessions(username)
 
 
 @router.post("/admin/users/{username}/reset-password", response_model=UserSummary)
@@ -158,6 +197,8 @@ async def reset_password(
     db = get_database()
     doc = await db.users.find_one({"username": username})
     if not doc:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if _is_deleted(doc):
         raise HTTPException(status_code=404, detail="用户不存在")
     if (doc.get("role") or (doc.get("profile") or {}).get("role")) == "admin":
         raise HTTPException(status_code=403, detail="不能管理管理员账号")

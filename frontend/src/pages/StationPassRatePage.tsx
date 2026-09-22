@@ -138,7 +138,7 @@ export default function StationPassRatePage() {
       setAppliedQuery(null);
       setDataUpdatedAt(null);
       setHasSearched(true);
-      setError('工位过站数据加载失败，请点击刷新重试');
+      setError('工位过站数据加载失败，请重新查询重试');
     } finally {
       if (requestId === loadRequestId.current) setLoading(false);
     }
@@ -325,7 +325,6 @@ export default function StationPassRatePage() {
           </div>
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             <DashboardSwitcher />
-            <button type="button" onClick={() => void load()} disabled={loading || !hasSearched} className="inline-flex size-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-600 transition-colors hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-45" title="刷新数据" aria-label="刷新数据"><RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} /></button>
             <button type="button" onClick={exportRows} disabled={loading || !hasSearched || matrix.rows.length === 0} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-medium text-slate-700 transition-colors hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-45 sm:px-3" title="导出当前结果" aria-label="导出当前结果"><Download className="size-4" /><span className="hidden sm:inline">导出</span></button>
           </div>
         </div>

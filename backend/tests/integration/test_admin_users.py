@@ -12,6 +12,30 @@ async def _admin_token(client) -> str:
 
 @pytest.mark.integration
 class TestAdminUsers:
+    async def test_user_list_includes_legacy_non_admin_accounts(self, client, db_clean):
+        headers = {"Authorization": f"Bearer {await _admin_token(client)}"}
+        await db_clean.users.insert_many(
+            [
+                {
+                    "username": "legacy-user",
+                    "itcode": "legacy-user",
+                    "profile": {"name": "Legacy User"},
+                    "createdAt": "2026-01-01T00:00:00+00:00",
+                },
+                {
+                    "username": "legacy-admin",
+                    "itcode": "legacy-admin",
+                    "profile": {"name": "Legacy Admin", "role": "admin"},
+                    "createdAt": "2026-01-02T00:00:00+00:00",
+                },
+            ]
+        )
+
+        response = await client.get("/api/admin/users", headers=headers)
+
+        assert response.status_code == 200
+        assert [user["username"] for user in response.json()] == ["legacy-user"]
+
     async def test_admin_can_create_update_disable_and_reset_user(self, client, db_clean):
         headers = {"Authorization": f"Bearer {await _admin_token(client)}"}
         created = await client.post(
@@ -40,11 +64,20 @@ class TestAdminUsers:
         updated = await client.patch(
             "/api/admin/users/alice",
             headers=headers,
-            json={"displayName": "Alice Updated", "dashboardPermissions": ["mfr"]},
+            json={
+                "displayName": "Alice Updated",
+                "dashboardPermissions": ["mfr"],
+                "password": "updated-password",
+            },
         )
         assert updated.status_code == 200
         assert updated.json()["displayName"] == "Alice Updated"
         assert updated.json()["dashboardPermissions"] == ["mfr"]
+        assert (
+            await client.post(
+                "/api/auth/login", json={"username": "alice", "password": "updated-password"}
+            )
+        ).status_code == 200
 
         reset = await client.post(
             "/api/admin/users/alice/reset-password",
@@ -74,6 +107,21 @@ class TestAdminUsers:
                 "/api/auth/refresh", json={"refresh_token": alice_refresh_token}
             )
         ).status_code == 401
+
+        deleted = await client.delete("/api/admin/users/alice", headers=headers)
+        assert deleted.status_code == 204
+        stored = await db_clean.users.find_one({"username": "alice"})
+        assert stored["deletedAt"]
+        assert stored["isActive"] is False
+        assert "alice" not in [
+            user["username"]
+            for user in (await client.get("/api/admin/users", headers=headers)).json()
+        ]
+        assert (
+            await client.post(
+                "/api/auth/login", json={"username": "alice", "password": "replacement-password"}
+            )
+        ).status_code == 403
 
     async def test_dashboard_permissions_are_scoped_to_each_dashboard(
         self, client, monkeypatch

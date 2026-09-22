@@ -17,7 +17,6 @@ const DoaScsPage = lazy(() => import('./pages/DoaScsPage'));
 const DoaPage = lazy(() => import('./pages/DoaPage'));
 const DoaRepairsPage = lazy(() => import('./pages/DoaRepairsPage'));
 const MFRPage = lazy(() => import('./pages/MFRPage'));
-const MetadataTablePage = lazy(() => import('./pages/MetadataTablePage'));
 
 class RouteErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   state = { hasError: false };
@@ -101,7 +100,6 @@ function AppContent() {
           <Route path="/doa" element={<DashboardAccess permission="doa"><DoaPage /></DashboardAccess>} />
           <Route path="/doa/repairs" element={<DashboardAccess permission="doa-repairs"><DoaRepairsPage /></DashboardAccess>} />
           <Route path="/mfr" element={<DashboardAccess permission="mfr"><MFRPage /></DashboardAccess>} />
-          <Route path="/metadata/:tableName" element={<DashboardAccess permission="metadata"><MetadataTablePage /></DashboardAccess>} />
         </Route>
         </Routes>
       </Suspense>

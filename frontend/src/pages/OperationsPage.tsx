@@ -11,7 +11,6 @@ import {
   Eye,
   LogIn,
   MousePointerClick,
-  RefreshCw,
   Server,
   ShieldCheck,
   Users,
@@ -346,9 +345,6 @@ export default function OperationsPage() {
                 </button>
               ))}
             </div>
-            <button onClick={load} disabled={loading} className="flex h-9 w-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 transition-colors hover:bg-slate-50 hover:text-slate-800 disabled:opacity-50" title="刷新数据" aria-label="刷新数据">
-              <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-            </button>
           </div>
         </div>
       </header>
@@ -366,7 +362,7 @@ export default function OperationsPage() {
               {summaryCells.map((item) => <SummaryCell key={item.label} {...item} />)}
             </section>
 
-            {error && <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-700">刷新失败，当前展示上一次成功获取的数据。</div>}
+            {error && <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-700">加载失败，当前展示上一次成功获取的数据。</div>}
 
             <div className="grid gap-4 xl:grid-cols-[minmax(0,1.65fr)_minmax(300px,0.75fr)]">
               <div className="overflow-hidden rounded-md border border-slate-200 bg-white">

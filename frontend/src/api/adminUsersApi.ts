@@ -18,6 +18,13 @@ export interface CreateManagedUser {
   dashboardPermissions: string[];
 }
 
+export interface UpdateManagedUser {
+  displayName?: string;
+  isActive?: boolean;
+  dashboardPermissions?: string[];
+  password?: string;
+}
+
 export const adminUsersApi = {
   list: () => requestJson<ManagedUser[]>(`${API_BASE_URL}/admin/users`),
   create: (payload: CreateManagedUser) => requestJson<ManagedUser>(`${API_BASE_URL}/admin/users`, {
@@ -25,14 +32,12 @@ export const adminUsersApi = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   }),
-  update: (username: string, payload: Partial<Pick<ManagedUser, 'displayName' | 'isActive' | 'dashboardPermissions'>>) => requestJson<ManagedUser>(`${API_BASE_URL}/admin/users/${encodeURIComponent(username)}`, {
+  update: (username: string, payload: UpdateManagedUser) => requestJson<ManagedUser>(`${API_BASE_URL}/admin/users/${encodeURIComponent(username)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   }),
-  resetPassword: (username: string, password: string) => requestJson<ManagedUser>(`${API_BASE_URL}/admin/users/${encodeURIComponent(username)}/reset-password`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ password }),
+  remove: (username: string) => requestJson<void>(`${API_BASE_URL}/admin/users/${encodeURIComponent(username)}`, {
+    method: 'DELETE',
   }),
 };

@@ -15,7 +15,6 @@ from app.api import (
     data_gateway,
     doa,
     lrr,
-    metadata,
     mfr,
     operations,
     process_records,
@@ -75,7 +74,6 @@ app.add_middleware(UsageTrackingMiddleware)
 app.include_router(rty.router, prefix="/api/rty", tags=["RTY"])
 app.include_router(lrr.router, prefix="/api/lrr", tags=["LRR"])
 app.include_router(mfr.router, prefix="/api/mfr", tags=["MFR"])
-app.include_router(metadata.router, prefix="/api/metadata", tags=["Metadata"])
 app.include_router(doa.router, prefix="/api/doa", tags=["DOA"])
 app.include_router(alert_report.router, prefix="/api/alert-report", tags=["AlertReport"])
 app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])

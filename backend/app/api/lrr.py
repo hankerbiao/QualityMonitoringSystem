@@ -237,6 +237,23 @@ def _requires_full_fault_sort(query: LRRListQuery) -> bool:
     return query.sort_by in {"faultCount", "lrrRate"}
 
 
+def _has_filter_criteria(query: LRRListQuery) -> bool:
+    """Only calculate faults after the user has narrowed the LRR scope."""
+    return any(
+        value
+        for value in (
+            query.planned_date_from,
+            query.planned_date_to,
+            query.ng_date_from,
+            query.ng_date_to,
+            query.material_number,
+            query.product_model,
+            query.base,
+            query.customer_id,
+        )
+    )
+
+
 async def _load(query: LRRListQuery) -> LRRListResponse:
     started = perf_counter()
     bom = await lrr_gateway.load_bom(
@@ -248,7 +265,7 @@ async def _load(query: LRRListQuery) -> LRRListResponse:
         planned_date_to=query.planned_date_to,
     )
     usage_rows = aggregate_lrr(bom, [], include_details=False)[0]
-    if _requires_full_fault_sort(query):
+    if _has_filter_criteria(query) or _requires_full_fault_sort(query):
         faults = await lrr_gateway.load_faults(
             production_orders={str(row.get("AUFNR_1") or "") for row in bom},
             sales_orders={str(row.get("VBELN_EX") or "") for row in bom},
@@ -259,8 +276,9 @@ async def _load(query: LRRListQuery) -> LRRListResponse:
         response = _response(rows, query)
         fault_scope = "full"
     else:
-        # Month/material/usage sorting can be served from the BOM projection.
-        # Faults are loaded only when the user opens one row's details.
+        # The unfiltered warm-cache path stays lightweight. Filtered queries
+        # take the full branch above so the dashboard can show fault counts and
+        # rates immediately after the user submits conditions.
         response = _usage_response(usage_rows, query)
         fault_scope = "lazy"
     # The rich view may ignore a multi-material filter on older gateway

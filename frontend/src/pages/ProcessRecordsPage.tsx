@@ -8,7 +8,6 @@ import {
   Clock3,
   ExternalLink,
   Loader2,
-  RefreshCw,
   Search,
   X,
 } from 'lucide-react';
@@ -185,14 +184,6 @@ export default function ProcessRecordsPage() {
             />
             30 秒自动刷新
           </label>
-          <button
-            title="立即刷新"
-            onClick={() => setRefreshToken((value) => value + 1)}
-            disabled={loading}
-            className="p-1.5 border border-slate-200 text-slate-500 hover:bg-slate-50 rounded-sm disabled:opacity-50"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-          </button>
         </div>
       </header>
 

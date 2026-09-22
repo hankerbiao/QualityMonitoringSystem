@@ -9,7 +9,6 @@ import {
   Database,
   FileSearch,
   LoaderCircle,
-  RefreshCw,
   RotateCcw,
   Search,
   SlidersHorizontal,
@@ -170,9 +169,6 @@ export default function DoaScsPage() {
               <p className="truncate text-xs text-slate-400">仅显示 is_5000=true 的 DOA 原始数据</p>
             </div>
           </div>
-          <button type="button" onClick={() => load(page, filters)} disabled={loading} className="flex size-9 items-center justify-center rounded-md border border-slate-200 bg-white text-slate-500 hover:bg-slate-50 disabled:opacity-50" title="刷新数据" aria-label="刷新数据">
-            <RefreshCw className={`size-4 ${loading ? 'animate-spin' : ''}`} />
-          </button>
         </div>
       </header>
 
@@ -191,7 +187,7 @@ export default function DoaScsPage() {
           <div className="flex min-h-[420px] flex-col items-center justify-center rounded-md border border-slate-200 bg-white text-center"><XCircle className="mb-3 size-8 text-rose-300" /><p className="text-sm font-medium text-slate-700">{error}</p><button type="button" onClick={() => load(page, filters)} className="mt-4 rounded-md bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-700">重新加载</button></div>
         ) : data && pagination ? (
           <>
-            {error && <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-700">刷新失败，当前展示上一次成功获取的数据。</div>}
+            {error && <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-xs text-amber-700">加载失败，当前展示上一次成功获取的数据。</div>}
             {summary && (
               <section className="grid overflow-hidden rounded-md border border-slate-200 bg-white sm:grid-cols-2 xl:grid-cols-4">
                 <StatCard label="SCS 总记录" value={formatNumber(summary.total)} detail="当前原始数据范围" tone="bg-emerald-50 text-emerald-600" icon={Database} />
