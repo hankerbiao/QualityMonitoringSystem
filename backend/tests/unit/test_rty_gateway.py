@@ -366,6 +366,7 @@ async def test_station_rates_filter_input_by_gstrs_not_actual_pass_time(monkeypa
         ]
     )
     monkeypatch.setattr(gateway, "all_station_rows", station_rows)
+    monkeypatch.setattr(gateway, "all_orders", AsyncMock(return_value=[]))
     monkeypatch.setattr(rty_gateway, "_faults_for_sns", AsyncMock(return_value=[]))
 
     rows = await rty_gateway.station_rates(
@@ -399,6 +400,7 @@ async def test_station_rates_excludes_rows_without_gstrs(monkeypatch):
         ]
     )
     monkeypatch.setattr(gateway, "all_station_rows", station_rows)
+    monkeypatch.setattr(gateway, "all_orders", AsyncMock(return_value=[]))
     monkeypatch.setattr(rty_gateway, "_faults_for_sns", AsyncMock(return_value=[]))
 
     rows = await rty_gateway.station_rates(
@@ -407,3 +409,68 @@ async def test_station_rates_excludes_rows_without_gstrs(monkeypatch):
 
     assert rows == []
     assert station_rows.await_args.kwargs["productModel"] == "M-1"
+
+
+@pytest.mark.asyncio
+async def test_station_rates_uses_the_same_wmeng_and_fault_sn_summary_as_rty(monkeypatch):
+    gateway = rty_gateway.data_gateway
+    monkeypatch.setattr(
+        gateway,
+        "all_orders",
+        AsyncMock(
+            return_value=[
+                {
+                    "aufnr": "1",
+                    "productionModel": "6210 C21",
+                    "inventoryLocation": "B1",
+                    "plannedStartDate": "2026-07-15",
+                    "orderQuantity": 101,
+                    "raw": {
+                        "data": {
+                            "AUFNR": "1",
+                            "MAKTX_TH": "6210 C21",
+                            "LGORT": "B1",
+                            "WMENG": 101,
+                            "IF_L6": "",
+                        }
+                    },
+                }
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        gateway,
+        "all_station_rows",
+        AsyncMock(
+            return_value=[
+                {
+                    "PCODE": "SN-1",
+                    "SPEC": "Line-OP205:装配",
+                    "MAKTX_TH": "6210 C21",
+                    "LGORT": "B1",
+                    "GSTRS": "20260715",
+                    "IF_L6": "",
+                }
+            ]
+        ),
+    )
+    faults = AsyncMock(
+        return_value=[
+            {"AUFNR": "1", "PCODE": "SN-1"},
+            {"AUFNR": "000000000001", "PCODE": "SN-1"},
+            {"AUFNR": "1", "PCODE": "SN-2"},
+        ]
+    )
+    monkeypatch.setattr(gateway, "fault_lookup", faults)
+    monkeypatch.setattr(rty_gateway, "_faults_for_sns", AsyncMock(return_value=[]))
+
+    rows = await rty_gateway.station_rates(
+        "2026-07-01", "2026-07-31", product_model="6210 C21", group_by="productModel"
+    )
+
+    assert len(rows) == 1
+    assert rows[0].inputCount == 1
+    assert rows[0].totalInputCount == 101
+    assert rows[0].totalDefectCount == 2
+    assert faults.await_args.kwargs["date_from"] == "20260701"
+    assert faults.await_args.kwargs["date_to"] == "20260731"

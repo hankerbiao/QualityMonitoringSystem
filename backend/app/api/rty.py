@@ -90,9 +90,10 @@ async def get_station_pass_rates(
     productModel: str | None = None,
     base: str | None = None,
     groupBy: StationGroupByQuery = "salesOrder",
+    orderScope: OrderScopeQuery = "normal",
 ):
     rows = await rty_gateway.station_rates(
-        dateFrom, dateTo, serialNumber, productModel, base, groupBy
+        dateFrom, dateTo, serialNumber, productModel, base, groupBy, orderScope
     )
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 个工位")
 
@@ -112,6 +113,7 @@ async def get_station_pass_details(
     base: str | None = None,
     groupBy: StationGroupBy = "salesOrder",
     dimensionValue: str | None = None,
+    orderScope: OrderScopeQuery = "normal",
 ):
     rows = await rty_gateway.station_details(
         stationCode.strip(),
@@ -123,6 +125,7 @@ async def get_station_pass_details(
         base,
         groupBy,
         dimensionValue,
+        orderScope,
     )
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 条明细")
 

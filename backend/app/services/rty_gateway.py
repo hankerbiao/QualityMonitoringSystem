@@ -627,6 +627,7 @@ def _matches_station_filters(
     product_model: str | None,
     base: str | None,
     group_by: str,
+    order_scope: str = "normal",
     dimension_value: str | None = None,
 ) -> bool:
     if serial_number and str(raw.get("PCODE") or "").strip() != serial_number.strip():
@@ -634,6 +635,8 @@ def _matches_station_filters(
     if product_model and str(raw.get("MAKTX_TH") or "").strip() != product_model.strip():
         return False
     if base and str(raw.get("LGORT") or "").strip() != base.strip():
+        return False
+    if (str(raw.get("IF_L6") or "") == "X") != (order_scope == "l6"):
         return False
     return not dimension_value or _station_dimension_value(raw, group_by) == dimension_value
 
@@ -663,6 +666,7 @@ async def station_rates(
     product_model: str | None = None,
     base: str | None = None,
     group_by: str = "salesOrder",
+    order_scope: str = "normal",
 ) -> list[StationPassRate]:
     start, end = _date_range(date_from, date_to)
     records = await data_gateway.all_station_rows(
@@ -674,8 +678,58 @@ async def station_rates(
         base=base or "",
     )
     records = _station_rows_in_planned_range(records, start, end)
+    # The summary shown beside the station columns must use the same source
+    # and counting rules as RTY: WMENG is the denominator and fault SNs are
+    # globally de-duplicated per RTY dimension.
+    orders = await _orders(
+        {
+            "dateFrom": f"{start[:4]}-{start[4:6]}-{start[6:]}",
+            "dateTo": f"{end[:4]}-{end[4:6]}-{end[6:]}",
+            "serialNumber": serial_number or "",
+            "productModel": product_model or "",
+            "base": base or "",
+            "orderScope": order_scope,
+        }
+    )
+    summary_groups: dict[str, dict[str, Any]] = {}
+    for row in orders:
+        data = row["data"]
+        dimension_value = _station_dimension_value(data, group_by)
+        group = summary_groups.setdefault(
+            dimension_value,
+            {"input": 0.0, "orders": set(), "model": str(data.get("MAKTX_TH") or "")},
+        )
+        group["input"] += _num(data.get("WMENG"))
+        group["orders"].add(row["aufnr"])
+
+    normal_orders = {
+        order
+        for group in summary_groups.values()
+        if group["model"] not in COMPOSITE_MODEL_ITEMS
+        for order in group["orders"]
+    }
+    normal_faults = await _fault_sns_by_orders(
+        normal_orders, date_from=start, date_to=end
+    )
+    composite_groups = {
+        dimension: group
+        for dimension, group in summary_groups.items()
+        if group["model"] in COMPOSITE_MODEL_ITEMS
+    }
+    composite_faults = await _fault_sns_by_composite_groups(
+        composite_groups, date_from=start, date_to=end
+    )
+    summary_counts: dict[str, tuple[int, int]] = {}
+    for dimension, group in summary_groups.items():
+        faults = normal_faults
+        if group["model"] in COMPOSITE_MODEL_ITEMS:
+            faults = composite_faults.get(dimension, {})
+        defect_sns = set().union(
+            *(faults.get(normalize_order(order), set()) for order in group["orders"])
+        )
+        summary_counts[dimension] = (round(group["input"]), len(defect_sns))
+
     by_station: dict[tuple[str, str], dict[str, Any]] = {}
-    dimension_sns: dict[str, set[str]] = defaultdict(set)
     for item in records:
         raw = _raw(item)
         sn = str(raw.get("PCODE") or "").strip()
@@ -696,13 +750,13 @@ async def station_rates(
                 product_model=product_model,
                 base=base,
                 group_by=group_by,
+                order_scope=order_scope,
             )
         ):
             dimension_value = _station_dimension_value(raw, group_by)
             by_station.setdefault((dimension_value, station), {"sns": set(), "name": station})[
                 "sns"
             ].add(sn)
-            dimension_sns[dimension_value].add(sn)
     all_sns = {sn for value in by_station.values() for sn in value["sns"]}
     repairs = await _faults_for_sns(all_sns, date_from=start, date_to=end)
     defect_by_station = {
@@ -714,9 +768,6 @@ async def station_rates(
         }
         for (dimension_value, station), value in by_station.items()
     }
-    dimension_defect_sns: dict[str, set[str]] = defaultdict(set)
-    for (dimension_value, _station), defects in defect_by_station.items():
-        dimension_defect_sns[dimension_value].update(defects)
     return [
         StationPassRate(
             dimensionValue=dimension_value,
@@ -735,8 +786,8 @@ async def station_rates(
             )
             if value["sns"]
             else 100.0,
-            totalInputCount=len(dimension_sns[dimension_value]),
-            totalDefectCount=len(dimension_defect_sns[dimension_value]),
+            totalInputCount=summary_counts.get(dimension_value, (0, 0))[0],
+            totalDefectCount=summary_counts.get(dimension_value, (0, 0))[1],
         )
         for (dimension_value, station), value in sorted(by_station.items())
     ]
@@ -752,6 +803,7 @@ async def station_details(
     base: str | None = None,
     group_by: str = "salesOrder",
     dimension_value: str | None = None,
+    order_scope: str = "normal",
 ) -> list[StationPassDetail]:
     start, end = _date_range(date_from, date_to)
     records = await data_gateway.all_station_rows(
@@ -779,6 +831,7 @@ async def station_details(
                 product_model=product_model,
                 base=base,
                 group_by=group_by,
+                order_scope=order_scope,
                 dimension_value=dimension_value,
             )
         ):

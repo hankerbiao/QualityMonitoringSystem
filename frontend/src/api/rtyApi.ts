@@ -92,7 +92,7 @@ function buildRtyQuery(params: RTYFilterParams): URLSearchParams {
 }
 
 function buildStationPassQuery(params: StationPassQuery): URLSearchParams {
-  const qs = new URLSearchParams({ groupBy: params.groupBy });
+  const qs = new URLSearchParams({ groupBy: params.groupBy, orderScope: params.orderScope || 'normal' });
   if (params.dateFrom) qs.set('dateFrom', params.dateFrom);
   if (params.dateTo) qs.set('dateTo', params.dateTo);
   if (params.serialNumber) qs.set('serialNumber', params.serialNumber);

@@ -51,6 +51,7 @@ export interface StationPassQuery {
   productModel?: string;
   base?: string;
   groupBy: StationGroupBy;
+  orderScope?: 'normal' | 'l6';
   dimensionValue?: string;
 }
 

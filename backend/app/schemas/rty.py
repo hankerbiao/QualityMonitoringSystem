@@ -65,7 +65,7 @@ class RTYListResponse(BaseModel):
 
 
 class StationPassRate(BaseModel):
-    """工位过站直通率：过站 SN 为分母，匹配工位的维修 SN 为故障数。"""
+    """工位过站直通率，汇总值与 RTY 保持同一订单口径。"""
 
     dimensionValue: str = Field(..., description="统计维度值，如销售订单号、生产订单号或机型")
     stationCode: str = Field(
@@ -75,8 +75,8 @@ class StationPassRate(BaseModel):
     inputCount: int = Field(..., ge=0, description="该工位去重后的过站 SN 数")
     defectCount: int = Field(..., ge=0, description="该工位去重后的维修 SN 数")
     passRate: float = Field(..., ge=0, le=100, description="过站直通率百分比")
-    totalInputCount: int = Field(..., ge=0, description="该统计维度去重后的过站 SN 数")
-    totalDefectCount: int = Field(..., ge=0, description="该统计维度去重后的维修 SN 数")
+    totalInputCount: int = Field(..., ge=0, description="与 RTY 一致的 WMENG 汇总")
+    totalDefectCount: int = Field(..., ge=0, description="与 RTY 一致的故障 SN 去重数")
 
 
 class StationPassDetail(BaseModel):
