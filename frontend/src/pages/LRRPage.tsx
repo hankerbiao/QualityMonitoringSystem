@@ -11,7 +11,7 @@ import type { LRRData, LRRFaultDetail, LRRFilters, LRRListResponse } from '../ty
 import { displayMaterialNumber } from '../utils/lrr';
 
 const PAGE_SIZE = 50;
-const EMPTY_FILTERS: LRRFilters = { sortBy: 'lrrRate', sortDir: 'desc' };
+const EMPTY_FILTERS: LRRFilters = { sortBy: 'month', sortDir: 'asc' };
 const rateClass = (rate: number | null) => rate === null ? 'bg-slate-50 text-slate-400' : rate < 2 ? 'bg-emerald-50 text-emerald-800' : rate < 5 ? 'bg-amber-50 text-amber-800' : 'bg-red-50 text-red-800';
 
 function DetailModal({ title, items, loading, onClose }: { title: string; items: LRRFaultDetail[]; loading: boolean; onClose: () => void }) {

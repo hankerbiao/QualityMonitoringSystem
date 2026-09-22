@@ -1,4 +1,4 @@
-export type LRRSortField = 'lrrRate' | 'faultCount' | 'issuedQuantity' | 'materialNumber';
+export type LRRSortField = 'month' | 'lrrRate' | 'faultCount' | 'issuedQuantity' | 'materialNumber';
 export type LRRSortDir = 'asc' | 'desc';
 
 export interface LRRFilters {

@@ -1,4 +1,25 @@
-from app.api.lrr import aggregate_lrr, normalize_production_order, normalize_sales_order
+from app.api.lrr import _response, aggregate_lrr, normalize_production_order, normalize_sales_order
+from app.schemas.lrr import LRRData
+from app.services.lrr_list_cache import LRRListQuery
+
+
+def test_lrr_default_list_order_is_ascending_by_month():
+    rows = [
+        LRRData(
+            id=f"PN-1:{month}",
+            month=month,
+            materialNumber="PN-1",
+            materialDescription="CPU A",
+            issuedQuantity=100,
+            faultCount=faults,
+            lrrRate=faults,
+        )
+        for month, faults in (("2026-09", 9), ("2026-01", 8), ("2026-03", 4))
+    ]
+
+    response = _response(rows, LRRListQuery())
+
+    assert [row.month for row in response.items] == ["2026-01", "2026-03", "2026-09"]
 
 
 def test_order_normalization_is_retained_for_internal_fault_linking():

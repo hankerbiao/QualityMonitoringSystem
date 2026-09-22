@@ -44,8 +44,8 @@ class LRRListQuery:
     product_model: str | None = None
     base: str | None = None
     customer_id: str | None = None
-    sort_by: str = "lrrRate"
-    sort_dir: str = "desc"
+    sort_by: str = "month"
+    sort_dir: str = "asc"
 
     @property
     def fingerprint(self) -> str:

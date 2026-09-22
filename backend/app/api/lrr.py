@@ -154,8 +154,8 @@ def aggregate_lrr(
 def _response(rows: list[LRRData], query: LRRListQuery) -> LRRListResponse:
     sort_field = (
         query.sort_by
-        if query.sort_by in {"materialNumber", "issuedQuantity", "faultCount", "lrrRate"}
-        else "lrrRate"
+        if query.sort_by in {"month", "materialNumber", "issuedQuantity", "faultCount", "lrrRate"}
+        else "month"
     )
     rows = sorted(
         rows,
@@ -235,8 +235,8 @@ async def get_lrr_list(
     productModel: str | None = None,
     base: str | None = None,
     customerId: str | None = None,
-    sortBy: str = "lrrRate",
-    sortDir: str = "desc",
+    sortBy: str = "month",
+    sortDir: str = "asc",
 ):
     del request
     query = LRRListQuery(

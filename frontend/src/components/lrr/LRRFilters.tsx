@@ -10,7 +10,7 @@ interface Props {
   onReset: () => void;
 }
 
-const EMPTY_DRAFT: LRRFilters = { sortBy: 'lrrRate', sortDir: 'desc' };
+const EMPTY_DRAFT: LRRFilters = { sortBy: 'month', sortDir: 'asc' };
 
 interface SearchableSelectProps {
   value: string | null | undefined;
