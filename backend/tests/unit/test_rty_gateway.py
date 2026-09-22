@@ -376,3 +376,34 @@ async def test_station_rates_filter_input_by_gstrs_not_actual_pass_time(monkeypa
         ("M-1", "OP205", 1)
     ]
     assert station_rows.await_args.kwargs["timeField"] == "planned"
+
+
+@pytest.mark.asyncio
+async def test_station_rates_falls_back_to_actual_start_time_when_gstrs_is_missing(monkeypatch):
+    gateway = rty_gateway.data_gateway
+    station_rows = AsyncMock(
+        return_value=[
+            {
+                "PCODE": "SN-IN",
+                "SPEC": "Line-OP205:装配",
+                "MAKTX_TH": "M-1",
+                "ACTUAL_START_TIME": "2026-05-15 08:00:00",
+            },
+            {
+                "PCODE": "SN-OUT",
+                "SPEC": "Line-OP205:装配",
+                "MAKTX_TH": "M-1",
+                "ACTUAL_START_TIME": "2026-06-15 08:00:00",
+            },
+        ]
+    )
+    monkeypatch.setattr(gateway, "all_station_rows", station_rows)
+    monkeypatch.setattr(rty_gateway, "_faults_for_sns", AsyncMock(return_value=[]))
+
+    rows = await rty_gateway.station_rates(
+        "2026-05-01", "2026-05-31", product_model="M-1", group_by="productModel"
+    )
+
+    assert [(row.dimensionValue, row.stationCode, row.inputCount) for row in rows] == [
+        ("M-1", "OP205", 1)
+    ]

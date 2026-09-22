@@ -653,7 +653,16 @@ def _station_rows_in_planned_range(
 def _station_planned_date(item: dict[str, Any]) -> str:
     raw = _raw(item)
     nested = raw.get("data") if isinstance(raw.get("data"), dict) else raw
-    return str(nested.get("GSTRS") or raw.get("GSTRS") or "").strip()
+    # Some gateway versions expose the planned order date (GSTRS), while the
+    # live station stream only exposes the actual pass timestamp. Support both
+    # shapes so local range filtering does not discard every live record.
+    return str(
+        nested.get("GSTRS")
+        or raw.get("GSTRS")
+        or nested.get("ACTUAL_START_TIME")
+        or raw.get("ACTUAL_START_TIME")
+        or ""
+    ).strip()
 
 
 async def station_rates(
