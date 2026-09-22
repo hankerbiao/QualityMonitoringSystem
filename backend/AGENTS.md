@@ -23,13 +23,13 @@ uv run python init_default_settings.py   # 初始化默认配置
 ```
 app/
 ├── main.py              # FastAPI 入口，lifespan 管理，CORS，路由注册
-├── auth_service.py      # OA JWT 验签，Session 创建/验证，双 token 管理
+├── auth_service.py      # 本地密码认证、Session 创建/验证，双 token 管理
 ├── api/
 │   ├── rty.py          # RTY 列表、工位投入与维修故障明细接口
 │   ├── settings.py     # 设置、影像数据源、机型指标和邮件预警接口
-│   └── auth.py         # OA callback, /me, /logout, /refresh
+│   └── auth.py         # 本地登录、/me、/logout、/refresh
 ├── core/
-│   ├── config.py       # pydantic-settings (MongoDB 27019, OA JWT secret)
+│   ├── config.py       # pydantic-settings (MongoDB 27019, JWT secret)
 │   └── logger.py       # Loguru + audit logger
 └── db/
     └── mongodb.py      # Motor 异步连接
@@ -40,7 +40,7 @@ app/
 - **MongoDB 端口**: 27019 (非默认 27017)
 - **配置存储**: configs 集合，key-value 文档 (mes_config, model_targets, email_alert_config)
 - **Session**: sessions 集合，TTL 索引 30 天
-- **OA 登录**: JWT 验签 → Session 创建 → 302 重定向前端
+- **本地登录**: Argon2id 密码校验 → Session 创建 → 双 token
 - **统一响应**: `Response[T]` (success, message, data, error)
 - **审计日志**: audit_logger 记录所有写操作
 - **RTY 口径**: 2026 年 SAP 工位记录中的去重 `PCODE` 为投入，维修记录中同 SN 的 2026 数据计为故障；客户字段不属于 RTY 列表契约
@@ -54,7 +54,7 @@ app/
 ## Gotchas
 
 - DEBUG=false 时关闭 /docs 和 /redoc
-- OA JWT secret 必填，从 .env 读取
+- JWT secret 必填，从 .env 读取
 - MES 密码明文存储
 - CORS 允许所有来源
 

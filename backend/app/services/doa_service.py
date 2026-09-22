@@ -17,8 +17,13 @@ from app.schemas.doa import (
     DoaSummary,
     DoaTrendItem,
 )
+from app.services.async_ttl_cache import AsyncTTLCache
 from app.services.data_gateway_client import DataGatewayError, data_gateway
 from app.services.scs_gateway import scs_gateway
+
+DOA_CACHE_TTL_SECONDS = 60.0
+_DOA_REPAIRS_CACHE = AsyncTTLCache()
+_DOA_DASHBOARD_CACHE = AsyncTTLCache()
 
 
 def _date(value: Any) -> str | None:
@@ -158,7 +163,7 @@ async def _gateway_orders_for_doa(filters: DoaFilters) -> list[dict[str, Any]]:
     ]
 
 
-async def _doa_gateway_repairs(filters: DoaFilters) -> list[dict[str, Any]]:
+async def _load_doa_gateway_repairs(filters: DoaFilters) -> list[dict[str, Any]]:
     orders = await _gateway_orders_for_doa(filters)
     by_sales = _sales_order_scopes(orders)
     scs, changes = await asyncio.gather(
@@ -171,9 +176,7 @@ async def _doa_gateway_repairs(filters: DoaFilters) -> list[dict[str, Any]]:
         ),
         scs_gateway.all("SCS_CHANGE", company5000="true"),
     )
-    changed = {
-        row["service_order"] for row in changes if _is_valid_hardware_replacement(row)
-    }
+    changed = {row["service_order"] for row in changes if _is_valid_hardware_replacement(row)}
     rows = []
     for item in scs:
         if item["judgment"] != "是":
@@ -199,7 +202,25 @@ async def _doa_gateway_repairs(filters: DoaFilters) -> list[dict[str, Any]]:
     return rows
 
 
+async def _doa_gateway_repairs(filters: DoaFilters) -> list[dict[str, Any]]:
+    key = filters.model_dump_json()
+    return await _DOA_REPAIRS_CACHE.get_or_set(
+        key,
+        lambda: _load_doa_gateway_repairs(filters),
+        ttl_seconds=DOA_CACHE_TTL_SECONDS,
+    )
+
+
 async def build_doa_dashboard(filters: DoaFilters) -> DoaDashboardResponse:
+    key = filters.model_dump_json()
+    return await _DOA_DASHBOARD_CACHE.get_or_set(
+        key,
+        lambda: _build_doa_dashboard(filters),
+        ttl_seconds=DOA_CACHE_TTL_SECONDS,
+    )
+
+
+async def _build_doa_dashboard(filters: DoaFilters) -> DoaDashboardResponse:
     orders, repairs, eligible_rows = await asyncio.gather(
         _gateway_orders_for_doa(filters),
         _doa_gateway_repairs(filters),

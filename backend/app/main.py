@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.api import (
+    admin_users,
     alert_report,
     auth,
     data_gateway,
@@ -85,6 +86,7 @@ app.include_router(
     tags=["Process Records"],
 )
 app.include_router(auth.router, prefix="/api", tags=["Auth"])
+app.include_router(admin_users.router, prefix="/api", tags=["Admin Users"])
 app.include_router(operations.router, prefix="/api/operations", tags=["Operations"])
 app.include_router(sn_info.router, prefix="/api/sn-info", tags=["SN Info"])
 

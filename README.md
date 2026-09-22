@@ -80,7 +80,6 @@ JWT_SECRET=
 ALERT_TOKEN_SECRET=
 DEFAULT_ADMIN_USERNAME=
 DEFAULT_ADMIN_PASSWORD=
-OA_JWT_SECRET=
 AUTH_COOKIE_SECURE=true
 ```
 
@@ -176,7 +175,7 @@ QualityMonitoringSystem/
 | `POST` | `/api/auth/refresh` | 使用 refresh token 换发 access token |
 | `GET` | `/api/auth/me` | 获取当前用户 |
 | `POST` | `/api/auth/logout` | 退出登录并删除 Session |
-| `GET/POST` | `/api/auth/oa/callback` | 兼容旧 OA 回调 |
+| `POST` | `/api/auth/login` | 本地用户名密码登录 |
 
 ### RTY
 
@@ -254,7 +253,7 @@ MFR（整机现网月化故障率）通过 `/api/mfr/dashboard` 提供，按自�
 - `ProtectedLayout` 必须等待 `isAuthLoaded=true` 后再判断登录状态，避免刷新后误跳登录页。
 - Tailwind v4 使用 CSS-first 配置，入口在 `frontend/src/index.css`。
 - MongoDB 默认地址为 `10.17.154.252:27019`，本地或生产环境请以 `.env` 为准。
-- OA 回调接口仍保留兼容旧流程，但当前前端登录页使用本地账号密码登录。
+- 用户权限由管理员在系统配置中维护，可控制账号状态和可访问看板。
 
 ## 部署提示
 
@@ -283,7 +282,6 @@ JWT_SECRET=<strong-random-secret>
 ALERT_TOKEN_SECRET=<strong-random-secret>
 DEFAULT_ADMIN_USERNAME=<your-admin-user>
 DEFAULT_ADMIN_PASSWORD=<strong-password>
-OA_JWT_SECRET=<oa-issued-secret>
 AUTH_COOKIE_SECURE=true
 CORS_ORIGINS=["https://your-frontend.example.com"]
 APP_PUBLIC_BASE_URL=https://your-frontend.example.com

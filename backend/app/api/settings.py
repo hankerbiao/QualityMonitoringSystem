@@ -13,8 +13,9 @@
 
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 
+from app.api.auth import require_admin
 from app.db.mongodb import get_database
 from app.models.documents import Collections
 from app.schemas.common import Response
@@ -34,7 +35,7 @@ from app.services.process_record_service import process_record_gateway
 from app.services.settings_service import SettingsService
 from app.services.weekly_alert import get_weekly_production_candidates, run_weekly_production_check
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_admin)])
 
 CONFIGS = Collections.CONFIGS
 

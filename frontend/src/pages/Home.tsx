@@ -20,6 +20,7 @@ import {
   qualityModules,
   toolModules,
 } from '../config/homeModules';
+import type { HomeModuleDefinition } from '../config/homeModules';
 import { useAuth } from '../context/AuthContext';
 
 type ModuleFilter = 'all' | 'quality' | 'tools' | 'management';
@@ -55,9 +56,15 @@ export default function Home() {
   const department = user?.部门 || user?.department || '';
   const email = user?.邮件 || user?.email || '';
   const isAdmin = user?.role === 'admin';
+  const dashboardPermissions = new Set(user?.dashboardPermissions ?? []);
+  const canView = (id: string) => isAdmin || dashboardPermissions.has(id);
+  const visibleQualityModules = qualityModules.filter((module) => canView(module.id));
+  const visibleMetadataModules = metadataModules.filter(() => canView('metadata'));
+  const visibleToolModules = toolModules.filter((module) => canView(module.id));
   const visibleModules = [
-    ...qualityModules,
-    ...toolModules,
+    ...visibleQualityModules,
+    ...visibleToolModules,
+    ...visibleMetadataModules,
     ...(isAdmin ? managementModules : []),
   ];
   const availableFunctionCount = visibleModules.filter(
@@ -67,16 +74,16 @@ export default function Home() {
     (module) => module.status === 'planned',
   ).length;
   const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
-  const filterModules = (modules: typeof qualityModules) =>
+  const filterModules = (modules: readonly HomeModuleDefinition[]) =>
     modules.filter((module) =>
       [module.code, module.title, module.description]
         .join(' ')
         .toLocaleLowerCase()
         .includes(normalizedQuery),
     );
-  const filteredQualityModules = filterModules(qualityModules);
-  const filteredMetadataModules = filterModules(metadataModules);
-  const filteredToolModules = filterModules(toolModules);
+  const filteredQualityModules = filterModules(visibleQualityModules);
+  const filteredMetadataModules = filterModules(visibleMetadataModules);
+  const filteredToolModules = filterModules(visibleToolModules);
   const filteredManagementModules = filterModules(managementModules);
   const showQuality = activeFilter === 'all' || activeFilter === 'quality';
   const showMetadata = activeFilter === 'all';
@@ -184,7 +191,7 @@ export default function Home() {
               <span className="size-2 rounded-full bg-amber-400" aria-hidden="true" />
               {plannedFunctionCount} 个建设中
             </span>
-            <button
+            {isAdmin && <button
               type="button"
               onClick={openSettings}
               aria-label="系统配置管理"
@@ -192,7 +199,7 @@ export default function Home() {
             >
               <SettingsIcon className="size-3.5" aria-hidden="true" />
               <span>系统配置</span>
-            </button>
+            </button>}
           </div>
         </div>
 

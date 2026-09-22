@@ -9,12 +9,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from app.api.auth import get_current_user
+from app.auth_permissions import dashboard_dependency
 from app.db.mongodb import get_database
 from app.models.documents import Collections
 from app.services.data_gateway_client import DataGatewayError, data_gateway
 from app.services.scs_gateway import normalize_change, normalize_doa, scs_gateway
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(dashboard_dependency("metadata"))])
 
 SCS_DOA_TABLE = "scs_doa"
 SCS_CHANGE_TABLE = "scs_change"

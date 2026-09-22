@@ -5,6 +5,14 @@ Integration tests for Settings API endpoints
 import pytest
 
 
+@pytest.fixture(autouse=True)
+async def authenticate_as_admin(client):
+    response = await client.post(
+        "/api/auth/login", json={"username": "admin", "password": "admin123"}
+    )
+    client.headers.update({"Authorization": f"Bearer {response.json()['access_token']}"})
+
+
 @pytest.mark.integration
 class TestGetAllSettings:
     """Tests for GET /api/settings"""

@@ -5,7 +5,7 @@
 ```
 QualityMonitoringSystem/
 ├── frontend/           # React + Vite + TypeScript + Tailwind v4
-├── backend/            # FastAPI (RTY + Settings + OA 登录)
+├── backend/            # FastAPI (RTY + Settings + 本地登录)
 └── docker/             # Reserved
 ```
 
@@ -67,7 +67,7 @@ uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 4001
 ## Key Gotchas
 
 - **Auth Flow**: `ProtectedLayout` 必须在 `isAuthLoaded` 为 true 后才检查登录状态
-- **Backend host**: OA callback 从外部 IP 访问后端，必须加 `--host 0.0.0.0`
+- **Backend host**: 生产或局域网访问后端时必须加 `--host 0.0.0.0`
 - **Tailwind v4**: CSS-first 配置，在 `index.css` 中使用 `@import "tailwindcss"`
 - **HMR**: `DISABLE_HMR=true` 时禁用热更新
 
@@ -75,6 +75,6 @@ uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 4001
 
 - ✅ RTY 数据 + 图表 + Excel 导出
 - ✅ Settings 管理 (MES/机型指标/邮件预警)
-- ✅ OA 登录 + 双 Token 自动刷新
+- ✅ 本地登录 + 双 Token 自动刷新
 - 🚧 LRR/DOA/MFR 页面
 - 🚧 邮件发送

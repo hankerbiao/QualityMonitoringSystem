@@ -2,9 +2,10 @@
 
 from typing import Literal
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import Response as FastAPIResponse
 
+from app.auth_permissions import dashboard_dependency
 from app.schemas.common import Response
 from app.schemas.process_records import ProcessRecordFilterOptions, ProcessRecordRealtimeData
 from app.services.credential_crypto import CredentialEncryptionError
@@ -14,7 +15,7 @@ from app.services.process_record_service import (
     process_record_gateway,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(dashboard_dependency("process-records"))])
 
 
 @router.get("/realtime", response_model=Response[ProcessRecordRealtimeData])

@@ -16,17 +16,6 @@ import pytest
 from tests.mock_motor import MockMotorClient
 
 
-def _make_jwt(payload: dict, secret: str) -> str:
-    now = datetime.now(timezone.utc)
-    exp = now + timedelta(hours=1)
-    full = {**payload, "exp": int(exp.timestamp()), "iat": int(now.timestamp())}
-    h_b64 = base64.urlsafe_b64encode(json.dumps({"alg": "HS256", "typ": "JWT"}).encode()).rstrip(b"=").decode()
-    p_b64 = base64.urlsafe_b64encode(json.dumps(full, ensure_ascii=False).encode()).rstrip(b"=").decode()
-    sig = hmac.new(secret.encode(), f"{h_b64}.{p_b64}".encode(), hashlib.sha256).digest()
-    s_b64 = base64.urlsafe_b64encode(sig).rstrip(b"=").decode()
-    return f"{h_b64}.{p_b64}.{s_b64}"
-
-
 def _make_access_token(itcode: str, secret: str, minutes: int = 15) -> str:
     now = datetime.now(timezone.utc)
     exp = now + timedelta(minutes=minutes)
@@ -50,7 +39,6 @@ def _mock_settings():
         PROCESS_RECORD_CREDENTIAL_KEY="-Y1CqTw8-WDwRbbkyZ8wAEZbs4uT29bW-U7zQZd4eG4=",
         DEFAULT_ADMIN_USERNAME="admin",
         DEFAULT_ADMIN_PASSWORD="admin123",
-        OA_JWT_SECRET="test-oa-jwt-secret-key-for-testing-only",
         SESSION_EXPIRE_DAYS=30,
         ACCESS_TOKEN_EXPIRE_MINUTES=15,
         REFRESH_TOKEN_EXPIRE_DAYS=30,
@@ -123,7 +111,7 @@ def app():
     from fastapi import FastAPI
     from fastapi.middleware.cors import CORSMiddleware
 
-    from app.api import auth, doa, metadata, mfr, operations, rty, settings
+    from app.api import admin_users, auth, doa, metadata, mfr, operations, rty, settings
 
     @asynccontextmanager
     async def noop_lifespan(app):
@@ -136,6 +124,7 @@ def app():
     test_app.include_router(rty.router, prefix="/api/rty", tags=["RTY"])
     test_app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
     test_app.include_router(auth.router, prefix="/api", tags=["Auth"])
+    test_app.include_router(admin_users.router, prefix="/api", tags=["Admin Users"])
     test_app.include_router(operations.router, prefix="/api/operations", tags=["Operations"])
     test_app.include_router(doa.router, prefix="/api/doa", tags=["DOA"])
     test_app.include_router(mfr.router, prefix="/api/mfr", tags=["MFR"])
@@ -153,35 +142,22 @@ def client(db_clean, app):
     return AsyncClient(transport=transport, base_url="http://test")
 
 
+@pytest.fixture
+async def admin_client(db_clean, app):
+    """Authenticated client for administrator-only integration tests."""
+    from httpx import ASGITransport, AsyncClient
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as http_client:
+        response = await http_client.post(
+            "/api/auth/login", json={"username": "admin", "password": "admin123"}
+        )
+        token = response.json()["access_token"]
+        http_client.headers.update({"Authorization": f"Bearer {token}"})
+        yield http_client
+
+
 # ─── Token Factories ─────────────────────────────────────────────────────────
-
-@pytest.fixture
-def valid_jwt():
-    return _make_jwt(
-        {"itcode": "testuser", "name": "Test User", "department": "QA"},
-        "test-oa-jwt-secret-key-for-testing-only",
-    )
-
-
-@pytest.fixture
-def valid_jwt_no_itcode():
-    return _make_jwt(
-        {"name": "No Itcode"},
-        "test-oa-jwt-secret-key-for-testing-only",
-    )
-
-
-@pytest.fixture
-def expired_jwt():
-    past = datetime.now(timezone.utc) - timedelta(hours=2)
-    payload = {"itcode": "testuser", "exp": int(past.timestamp()), "iat": int(past.timestamp())}
-    h_b64 = base64.urlsafe_b64encode(json.dumps({"alg": "HS256", "typ": "JWT"}).encode()).rstrip(b"=").decode()
-    p_b64 = base64.urlsafe_b64encode(json.dumps(payload).encode()).rstrip(b"=").decode()
-    secret = "test-oa-jwt-secret-key-for-testing-only"
-    sig = hmac.new(secret.encode(), f"{h_b64}.{p_b64}".encode(), hashlib.sha256).digest()
-    s_b64 = base64.urlsafe_b64encode(sig).rstrip(b"=").decode()
-    return f"{h_b64}.{p_b64}.{s_b64}"
-
 
 @pytest.fixture
 def make_test_access_token(_mock_settings):

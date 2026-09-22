@@ -4,10 +4,10 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.api.auth import get_current_user
+from app.api.auth import get_current_user, require_admin
 from app.services.data_gateway_client import DataGatewayError, data_gateway
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(require_admin)])
 
 
 @router.get("/status")

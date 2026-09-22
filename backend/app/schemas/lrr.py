@@ -1,5 +1,7 @@
 """Pydantic models for the material-PN LRR dashboard."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -9,15 +11,16 @@ class LRRData(BaseModel):
     materialNumber: str = ""
     materialDescription: str = ""
     issuedQuantity: float = 0.0
-    faultCount: int = 0
+    faultCount: int | None = None
     lrrRate: float | None = None
 
 
 class LRRSummary(BaseModel):
     materialCount: int = 0
     issuedQuantity: float = 0.0
-    totalFaults: int = 0
+    totalFaults: int | None = None
     overallLrr: float | None = None
+    scope: Literal["usage", "page", "full"] = "full"
 
 
 class LRRListResponse(BaseModel):

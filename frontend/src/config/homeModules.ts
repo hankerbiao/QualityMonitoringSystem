@@ -57,7 +57,7 @@ export const qualityModules: readonly HomeModuleDefinition[] = [
     status: 'available',
   },
   {
-    id: 'doa-repair',
+    id: 'doa',
     code: 'DOA',
     title: 'DOA 报修率',
     description: '按出货数统计开箱报修率，支持客户、机型与周期多维下钻。',

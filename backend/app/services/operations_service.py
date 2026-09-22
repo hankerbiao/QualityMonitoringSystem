@@ -42,6 +42,13 @@ BUSINESS_MODULES = (
     "alert-report",
 )
 
+
+def _project(cursor: Any, fields: dict[str, int]) -> Any:
+    """Apply a Mongo projection while keeping the lightweight test cursor compatible."""
+    project = getattr(cursor, "project", None)
+    return project(fields) if callable(project) else cursor
+
+
 def module_from_path(path: str) -> str:
     """把前端路由或 API 路径归一为稳定的功能模块。"""
     clean_path = (path or "/").split("?", 1)[0].rstrip("/") or "/"
@@ -181,12 +188,27 @@ async def build_operations_dashboard(db: Any, days: int) -> dict[str, Any]:
     current_start = current_start_local.astimezone(timezone.utc)
     previous_start = (current_start_local - timedelta(days=days)).astimezone(timezone.utc)
 
+    events_cursor = _project(
+        db.usage_events.find({"timestamp": {"$gte": previous_start}}),
+        {
+            "eventType": 1,
+            "itcode": 1,
+            "module": 1,
+            "path": 1,
+            "statusCode": 1,
+            "durationMs": 1,
+            "timestamp": 1,
+        },
+    )
+    sessions_cursor = _project(
+        db.sessions.find({"createdAt": {"$gte": previous_start.isoformat()}}),
+        {"sessionId": 1, "itcode": 1, "createdAt": 1},
+    )
+    users_cursor = _project(db.users.find({}), {"itcode": 1, "profile": 1})
     events, sessions, users, total_users, sync_data_sources = await asyncio.gather(
-        db.usage_events.find({"timestamp": {"$gte": previous_start}}).to_list(length=200_000),
-        db.sessions.find({"createdAt": {"$gte": previous_start.isoformat()}}).to_list(
-            length=100_000
-        ),
-        db.users.find({}).to_list(length=20_000),
+        events_cursor.to_list(length=200_000),
+        sessions_cursor.to_list(length=100_000),
+        users_cursor.to_list(length=20_000),
         db.users.count_documents({}),
         _sync_data_sources(db),
     )

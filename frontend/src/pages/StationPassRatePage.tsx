@@ -347,8 +347,8 @@ export default function StationPassRatePage() {
           <form className="flex flex-wrap items-end gap-2 border-b border-slate-100 bg-slate-50/70 px-4 py-3" onSubmit={(event) => { event.preventDefault(); void load(); }}>
             <div className="flex-1 min-w-[200px] max-w-xs">
               <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-                时间范围
-                <button type="button" className="ml-1 cursor-help text-slate-400 hover:text-slate-600" title="工位实际过站日期">?</button>
+                计划开始日期（GSTRS）
+                <button type="button" className="ml-1 cursor-help text-slate-400 hover:text-slate-600" title="按销售订单计划开始日期 GSTRS 统计">?</button>
               </label>
               <div className="flex items-center space-x-1">
                 <input type="date" value={dateFrom} onChange={(event) => updateField(setDateFrom, event.target.value)} className="w-full rounded-sm border border-slate-300 px-2 py-1.5 text-xs text-slate-700 outline-none transition-all focus:border-blue-600 focus:ring-1 focus:ring-blue-600" />

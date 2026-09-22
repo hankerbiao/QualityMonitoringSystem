@@ -82,21 +82,18 @@
   2. **预警触发逻辑**：核心规则：`当前周期内某一机型的实际直通率 (RTY) < 该机型设定的直通率指标`。触发后生成系统告警。
   3. **告警配置设计**：提供周期直通率邮件监控的一键开关。支持配置多个接收人邮箱，并可勾选在邮件中附带数据明细。
 
-## 7. OA 单点登录 (Auth)
+## 7. 本地登录与权限 (Auth)
 - **登录入口**：ProtectedLayout 拦截所有未登录访问，重定向到登录页。
+- **登录方式**：用户使用管理员创建的本地用户名和密码登录，密码只以 Argon2id 哈希保存。
+- **角色**：管理员账号由环境变量初始化；普通用户由管理员创建、激活或禁用。
+- **看板权限**：管理员拥有全部看板权限，普通用户按管理员配置的看板权限访问；前后端均执行权限校验。
 - **双 Token 机制**：
   - **access_token**：短期令牌，有效期 15 分钟，用于所有 API 请求鉴权
   - **refresh_token**：长期令牌，有效期 30 天，用于 access_token 过期后换发新令牌
-- **OA 回调**：支持两种回调格式：
-  - GET: `?status=success&access_token=xxx&refresh_token=xxx&expires_in=900` (OA 直接重定向)
-  - POST: `?status=success&payload=JWT` (前端 JS 调用，后端返回双 token)
 - **Token 存储**：
   - access_token + expires_in → localStorage (`qualiboard-access-token`, `qualiboard-token-expiry`)
-  - refresh_token → sessionStorage (浏览器关闭后清除，30 天有效期以服务端为准)
-- **自动刷新**：前端在以下时机自动刷新 access_token：
-  - 每次 API 请求前检查，若剩余有效期 < 60 秒则先刷新
-  - 收到 401 响应时立即刷新
-- **前端处理**：存储 Token，等 `setUser()` 完成后再跳转，避免 ProtectedLayout 提前 redirect。
+  - refresh_token → localStorage (30 天有效期以服务端为准)
+- **自动刷新**：前端在每次 API 请求前检查 access_token，剩余有效期不足 60 秒时先刷新；刷新失败则清理本地令牌并返回登录页。
 - **后端 Session**：MongoDB sessions 集合存储 refresh_token + access_token，TTL 30 天。
 
 ## 8. 后续扩展计划

@@ -258,6 +258,40 @@ async def test_rty_list_only_loads_faults_for_the_requested_page(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_composite_faults_use_padded_binding_orders_and_map_child_sn_to_head_sn(monkeypatch):
+    queried_bindings: list[dict[str, str]] = []
+
+    async def faults(orders, *, date_from=None, date_to=None, chunk_size=500):
+        if orders == {"1"}:
+            return []
+        assert orders == {"2"}
+        return [{"AUFNR": "2", "PCODE": "ITEM-SN"}]
+
+    async def bindings(filters):
+        queried_bindings.append(filters)
+        return [
+            {
+                "raw": {
+                    "AUFNR_HEAD": "000000000001",
+                    "AUFNR_ITEM": "000000000002",
+                    "ZCODE_HEAD": "HEAD-SN",
+                    "ZCODE_ITEM": "ITEM-SN",
+                }
+            }
+        ]
+
+    monkeypatch.setattr(rty_gateway, "_faults_for_orders", faults)
+    monkeypatch.setattr(rty_gateway, "_bindings", bindings)
+
+    result = await rty_gateway._fault_sns_by_composite_groups(
+        {"group": {"orders": {"1"}}}, date_from="2026-01-01", date_to="2026-12-31"
+    )
+
+    assert result["group"]["1"] == {"HEAD-SN"}
+    assert queried_bindings == [{"headOrder": "000000000001"}]
+
+
+@pytest.mark.asyncio
 async def test_all_pages_handles_null_items(monkeypatch):
     gateway = rty_gateway.data_gateway
     monkeypatch.setattr(
@@ -281,6 +315,7 @@ async def test_station_detail_repairs_use_the_same_local_station_match_as_summar
                         "PCODE": "SN-1",
                         "SPEC": "Line-OP205:装配",
                         "MAKTX_TH": "M-1",
+                        "GSTRS": "20260515",
                         "ACTUAL_START_TIME": "2026-05-01 08:00:00",
                     }
                 }
@@ -305,4 +340,39 @@ async def test_station_detail_repairs_use_the_same_local_station_match_as_summar
     )
 
     assert [row.sn for row in rows] == ["SN-1"]
+    assert rows[0].passDate == "20260515"
     assert faults.await_args.kwargs["station"] == ""
+
+
+@pytest.mark.asyncio
+async def test_station_rates_filter_input_by_gstrs_not_actual_pass_time(monkeypatch):
+    gateway = rty_gateway.data_gateway
+    station_rows = AsyncMock(
+        return_value=[
+            {
+                "PCODE": "SN-IN",
+                "SPEC": "Line-OP205:装配",
+                "MAKTX_TH": "M-1",
+                "GSTRS": "20260515",
+                "ACTUAL_START_TIME": "20260615 08:00:00",
+            },
+            {
+                "PCODE": "SN-OUT",
+                "SPEC": "Line-OP205:装配",
+                "MAKTX_TH": "M-1",
+                "GSTRS": "20260615",
+                "ACTUAL_START_TIME": "20260515 08:00:00",
+            },
+        ]
+    )
+    monkeypatch.setattr(gateway, "all_station_rows", station_rows)
+    monkeypatch.setattr(rty_gateway, "_faults_for_sns", AsyncMock(return_value=[]))
+
+    rows = await rty_gateway.station_rates(
+        "2026-05-01", "2026-05-31", product_model="M-1", group_by="productModel"
+    )
+
+    assert [(row.dimensionValue, row.stationCode, row.inputCount) for row in rows] == [
+        ("M-1", "OP205", 1)
+    ]
+    assert station_rows.await_args.kwargs["timeField"] == "planned"

@@ -55,6 +55,12 @@ def normalize_bom(item: dict[str, Any]) -> dict[str, Any]:
 
 def normalize_fault(item: dict[str, Any]) -> dict[str, Any]:
     data = source_data(item)
+    # Some repair records store the replaced material in RECORD01REPAIRM
+    # instead of MATNR. Keep MATNR as the canonical field for LRR matching,
+    # but only fall back when MATNR is genuinely empty.
+    material_number = str(data.get("MATNR") or "").strip() or str(
+        data.get("RECORD01REPAIRM") or ""
+    ).strip()
     return {
         **data,
         "_id": item.get("id") or data.get("_id"),
@@ -67,7 +73,7 @@ def normalize_fault(item: dict[str, Any]) -> dict[str, Any]:
         "ZDATE_WX": data.get("ZDATE_WX", ""),
         "ZTIME": data.get("ZTIME", ""),
         "ZJXMC": data.get("ZJXMC", ""),
-        "MATNR": data.get("MATNR", ""),
+        "MATNR": material_number,
     }
 
 

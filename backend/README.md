@@ -31,7 +31,7 @@ chmod +x deploy.sh
 PORT=8010 ./deploy.sh deploy  # 指定端口
 ```
 
-生产部署前必须在 `.env` 中显式填写 `JWT_SECRET`、`ALERT_TOKEN_SECRET`、与 OA 系统一致的 `OA_JWT_SECRET`、`DEFAULT_ADMIN_USERNAME` 和强管理员密码。部署脚本不会自动生成或覆盖这些凭据，启动时会拒绝空值、占位值和弱值。脚本不会自动运行 `init_default_settings.py`，避免覆盖已有业务配置；首次确需初始化时显式执行 `./deploy.sh init-config`。
+生产部署前必须在 `.env` 中显式填写 `JWT_SECRET`、`ALERT_TOKEN_SECRET`、`DEFAULT_ADMIN_USERNAME` 和强管理员密码。部署脚本不会自动生成或覆盖这些凭据，启动时会拒绝空值、占位值和弱值。脚本不会自动运行 `init_default_settings.py`，避免覆盖已有业务配置；首次确需初始化时显式执行 `./deploy.sh init-config`。
 
 ### 1. 安装依赖
 
@@ -79,12 +79,12 @@ backend/
 ├── app/
 │   ├── __init__.py
 │   ├── main.py              # FastAPI 应用入口 (生命周期、CORS、路由注册)
-│   ├── auth_service.py      # OA 登录认证服务 (JWT 验证、Session 管理)
+│   ├── auth_service.py      # 本地密码认证服务 (Argon2id、Session 管理)
 │   ├── api/                 # API 路由
 │   │   ├── __init__.py
 │   │   ├── rty.py          # RTY 数据接口 (列表、明细、周期统计)
 │   │   ├── settings.py     # 系统配置接口 (MES/机型指标/邮件)
-│   │   └── auth.py         # 认证接口 (OA 回调、登出)
+│   │   └── auth.py         # 认证接口 (本地登录、登出)
 │   ├── core/               # 核心模块
 │   │   ├── __init__.py
 │   │   ├── config.py       # 配置管理 (pydantic-settings)
@@ -161,22 +161,17 @@ Session、邮件和 MES 影像仍由本服务负责。
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/auth/oa/callback` | OA 登录回调，返回双 token，重定向到前端 |
-| POST | `/api/auth/oa/callback` | OA 登录回调，JSON 响应 |
+| POST | `/api/auth/login` | 本地用户名密码登录 |
 | POST | `/api/auth/refresh` | 用 refresh_token 换发新 access_token |
 | GET | `/api/auth/me` | 获取当前用户信息 (Bearer token) |
 | POST | `/api/auth/logout` | 退出登录，删除 Session |
 
 #### 双 Token 认证流程
 
-1. 前端调用 `GET /api/auth/oa/callback?next=http://前端地址`
-2. 后端返回 302，重定向到 OA 登录页
-3. 用户在 OA 完成登录
-4. OA 回调 `GET /api/auth/oa/callback?status=success&payload=JWT&next=前端地址`
-5. 后端验证 JWT，签发双 token，存储 refresh_token 到 MongoDB，返回 302 重定向到 `前端地址/login?status=success&access_token=xxx&refresh_token=xxx&expires_in=900`
-6. 前端存储双 token，后续 API 请求携带 `Authorization: Bearer <access_token>`
-7. access_token 临近过期 (60s) 或 401 时，前端自动调用 `POST /api/auth/refresh` 换发新令牌
-8. refresh_token 过期或登出时，需重新 OA 登录
+1. 用户使用本地用户名密码登录
+2. 后端使用 Argon2id 校验密码，签发双 token 并创建 MongoDB Session
+3. 前端存储双 token，后续 API 请求携带 `Authorization: Bearer <access_token>`
+4. access_token 临近过期 (60s) 或 401 时，前端自动调用 `POST /api/auth/refresh` 换发新令牌
 
 #### Token 配置
 
@@ -233,10 +228,6 @@ Session、邮件和 MES 影像仍由本服务负责。
 | `DEBUG` | 调试模式 | true |
 | `MONGODB_URL` | MongoDB 连接地址 | mongodb://10.17.154.252:27019 |
 | `MONGODB_DB_NAME` | 数据库名称 | quality_monitoring |
-| `OA_JWT_SECRET` | OA JWT 验签密钥 | (必填) |
-| `OA_LOGIN_URL` | OA 回调地址 | http://10.2.48.65/auth/oa/callback |
-| `OA_APP_NAME` | OA 应用名 | qualiboard |
-| `OA_LOGIN_BASE_URL` | OA 登录页地址 | http://tl.cooacloud.com/springboard_v3/login_proxy |
 | `SESSION_EXPIRE_DAYS` | Session 过期天数 | 30 |
 | `LOG_DIR` | 日志目录 | logs |
 | `LOG_LEVEL` | 日志级别 | INFO |

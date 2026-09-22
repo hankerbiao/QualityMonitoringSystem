@@ -13,8 +13,12 @@ from app.schemas.mfr import (
     MFRSummary,
     MFRTrendItem,
 )
+from app.services.async_ttl_cache import AsyncTTLCache
 from app.services.data_gateway_client import data_gateway
 from app.services.scs_gateway import scs_gateway
+
+MFR_CACHE_TTL_SECONDS = 60.0
+_MFR_DASHBOARD_CACHE = AsyncTTLCache()
 
 
 def _parse_date(value: Any) -> date | None:
@@ -92,6 +96,15 @@ def _rate(faults: int, fleet: float) -> float | None:
 
 
 async def build_mfr_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
+    key = filters.model_dump_json()
+    return await _MFR_DASHBOARD_CACHE.get_or_set(
+        key,
+        lambda: _build_mfr_dashboard(filters),
+        ttl_seconds=MFR_CACHE_TTL_SECONDS,
+    )
+
+
+async def _build_mfr_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
     start = _parse_date(filters.dateFrom)
     end = _parse_date(filters.dateTo)
     if not start or not end or start > end:

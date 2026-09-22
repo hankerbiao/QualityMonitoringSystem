@@ -18,8 +18,11 @@ class TestOperationsDashboard:
 
         await db_clean.users.insert_one(
             {
+                "username": "alice",
                 "itcode": "alice",
-                "profile": {"itcode": "alice", "name": "Alice Zhang"},
+                "role": "admin",
+                "isActive": True,
+                "profile": {"itcode": "alice", "name": "Alice Zhang", "role": "admin"},
                 "createdAt": now.isoformat(),
             }
         )
@@ -50,19 +53,20 @@ class TestOperationsDashboard:
         assert data["modules"][0]["pageViews"] == 1
         assert data["recentActivity"][0]["displayName"] == "Alice Zhang"
 
-    async def test_rejects_invalid_period(self, client, make_test_access_token):
-        token = make_test_access_token("alice")
+    async def test_rejects_invalid_period(self, client):
+        # The operations dashboard is administrator-only.
+        admin_token = (await client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})).json()["access_token"]
         response = await client.get(
             "/api/operations/dashboard?days=365",
-            headers={"Authorization": f"Bearer {token}"},
+            headers={"Authorization": f"Bearer {admin_token}"},
         )
         assert response.status_code == 422
 
-    async def test_reports_sync_data_sources(self, client, make_test_access_token, monkeypatch):
+    async def test_reports_sync_data_sources(self, client, monkeypatch):
         from app.services import operations_service
 
-        token = make_test_access_token("alice")
-        headers = {"Authorization": f"Bearer {token}"}
+        await client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+        headers = {"Authorization": f"Bearer {(await client.post('/api/auth/login', json={'username': 'admin', 'password': 'admin123'})).json()['access_token']}"}
 
         async def data_status():
             return {

@@ -68,6 +68,21 @@ function ProtectedLayout() {
   return <Outlet />;
 }
 
+function DashboardAccess({ permission, children }: { permission: string; children: ReactNode }) {
+  const { user } = useAuth();
+  if (user?.role !== 'admin' && !user?.dashboardPermissions?.includes(permission)) {
+    return (
+      <main className="flex min-h-[60vh] items-center justify-center bg-slate-50 p-6">
+        <div className="max-w-md text-center">
+          <h1 className="text-xl font-semibold text-slate-900">暂无访问权限</h1>
+          <p className="mt-2 text-sm text-slate-500">当前账号未开通此看板，请联系管理员配置权限。</p>
+        </div>
+      </main>
+    );
+  }
+  return <>{children}</>;
+}
+
 function AppContent() {
   return (
     <RouteErrorBoundary>
@@ -77,16 +92,16 @@ function AppContent() {
         <Route path="/alert-report/:token" element={<AlertReportPage />} />
         <Route element={<ProtectedLayout />}>
           <Route path="/" element={<Home />} />
-          <Route path="/rty" element={<RTYPage />} />
-          <Route path="/station-pass-rate" element={<StationPassRatePage />} />
-          <Route path="/lrr" element={<LRRPage />} />
-          <Route path="/process-records" element={<ProcessRecordsPage />} />
-          <Route path="/operations" element={<OperationsPage />} />
-          <Route path="/doa/raw" element={<DoaScsPage />} />
-          <Route path="/doa" element={<DoaPage />} />
-          <Route path="/doa/repairs" element={<DoaRepairsPage />} />
-          <Route path="/mfr" element={<MFRPage />} />
-          <Route path="/metadata/:tableName" element={<MetadataTablePage />} />
+          <Route path="/rty" element={<DashboardAccess permission="rty"><RTYPage /></DashboardAccess>} />
+          <Route path="/station-pass-rate" element={<DashboardAccess permission="station-pass-rate"><StationPassRatePage /></DashboardAccess>} />
+          <Route path="/lrr" element={<DashboardAccess permission="lrr"><LRRPage /></DashboardAccess>} />
+          <Route path="/process-records" element={<DashboardAccess permission="process-records"><ProcessRecordsPage /></DashboardAccess>} />
+          <Route path="/operations" element={<DashboardAccess permission="admin"><OperationsPage /></DashboardAccess>} />
+          <Route path="/doa/raw" element={<DashboardAccess permission="doa"><DoaScsPage /></DashboardAccess>} />
+          <Route path="/doa" element={<DashboardAccess permission="doa"><DoaPage /></DashboardAccess>} />
+          <Route path="/doa/repairs" element={<DashboardAccess permission="doa-repairs"><DoaRepairsPage /></DashboardAccess>} />
+          <Route path="/mfr" element={<DashboardAccess permission="mfr"><MFRPage /></DashboardAccess>} />
+          <Route path="/metadata/:tableName" element={<DashboardAccess permission="metadata"><MetadataTablePage /></DashboardAccess>} />
         </Route>
         </Routes>
       </Suspense>

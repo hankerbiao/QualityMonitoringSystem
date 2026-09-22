@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
-import { Settings, Save, BellRing, Target, X, CheckCircle, Loader2, Camera } from 'lucide-react';
+import { Settings, Save, BellRing, Target, X, CheckCircle, Loader2, Camera, Users } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
-import { ModelTargetsTab, EmailAlertTab, ProcessRecordConfigTab } from './settings';
+import { ModelTargetsTab, EmailAlertTab, ProcessRecordConfigTab, UserManagementTab } from './settings';
+import { useAuth } from '../context/AuthContext';
 import type { ProcessRecordConfig } from '../types';
 
 interface SettingsModalProps {
@@ -9,12 +10,13 @@ interface SettingsModalProps {
   onSaved: () => void;
 }
 
-type TabKey = 'processRecords' | 'rty' | 'email';
+type TabKey = 'processRecords' | 'rty' | 'email' | 'users';
 
 const TABS: { key: TabKey; label: string; icon: typeof Save }[] = [
   { key: 'processRecords', label: '影像数据源', icon: Camera },
   { key: 'rty', label: '机型指标配置', icon: Target },
   { key: 'email', label: '邮件预警规则', icon: BellRing },
+  { key: 'users', label: '用户管理', icon: Users },
 ];
 
 export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) {
@@ -27,6 +29,7 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
   const { settings, updateSettings, loading: settingsLoading } = useSettings();
+  const { user } = useAuth();
 
   const [processRecordConfig, setProcessRecordConfig] = useState<ProcessRecordConfig>({ username: '', password: '', hasPassword: false });
   const [emailConfig, setEmailConfig] = useState({ enabled: true, emails: '', triggerCondition: '', weeklyProductionThreshold: 50 });
@@ -108,7 +111,7 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
 
         <div className="flex flex-1 overflow-hidden bg-white">
           <nav className="w-56 bg-slate-50 border-r border-slate-200 flex flex-col p-3 gap-1">
-            {TABS.map(({ key, label, icon: Icon }) => (
+            {TABS.filter(({ key }) => key !== 'users' || user?.role === 'admin').map(({ key, label, icon: Icon }) => (
               <button
                 key={key}
                 onClick={() => setActiveTab(key)}
@@ -130,6 +133,7 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
             {activeTab === 'email' && (
               <EmailAlertTab config={emailConfig} onChange={setEmailConfig} />
             )}
+            {activeTab === 'users' && user?.role === 'admin' && <UserManagementTab />}
           </div>
         </div>
       </div>

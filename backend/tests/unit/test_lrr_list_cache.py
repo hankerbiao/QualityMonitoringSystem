@@ -153,7 +153,7 @@ async def test_lrr_default_prewarm_uses_canonical_query(monkeypatch):
     assert captured["query"] == LRRListQuery(
         page=1,
         limit=50,
-        sort_by="lrrRate",
-        sort_dir="desc",
+        sort_by="month",
+        sort_dir="asc",
     )
     assert captured["refresh"] is True

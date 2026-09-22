@@ -7,8 +7,9 @@ from decimal import Decimal, InvalidOperation
 from time import perf_counter
 from typing import Any
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 
+from app.auth_permissions import dashboard_dependency
 from app.core.logger import audit_log, log_info
 from app.schemas.lrr import (
     LRRData,
@@ -27,7 +28,7 @@ from app.services.lrr_normalization import (
     normalize_sales_order,
 )
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(dashboard_dependency("lrr"))])
 
 
 def _quantity(value: Any) -> Decimal:
@@ -81,7 +82,11 @@ def aggregate_lrr(
         fault_id = str(fault.get("_id") or id(fault))
         order = normalize_production_order(fault.get("AUFNR"))
         sales = normalize_sales_order(fault.get("VBELN"))
-        fault_material = str(fault.get("MATNR") or "").strip()
+        # Normalized gateway rows expose the fallback material as MATNR, but
+        # retain this direct fallback for older/raw repair rows.
+        fault_material = (
+            str(fault.get("MATNR") or "").strip() or str(fault.get("RECORD01REPAIRM") or "").strip()
+        )
         fault_month = compact_date(fault.get("ZDATE_WX"))[:6]
         # Production order is the precise ownership key. A sales order can
         # contain several production orders, so using it as an OR fallback
@@ -151,7 +156,23 @@ def aggregate_lrr(
     return rows, details
 
 
-def _response(rows: list[LRRData], query: LRRListQuery) -> LRRListResponse:
+def _month_matches_date_range(month: str, date_from: str | None, date_to: str | None) -> bool:
+    """Keep monthly rows whose month overlaps the selected NG date range."""
+    if not date_from and not date_to:
+        return True
+    start_month = month_from_date(date_from) if date_from else ""
+    end_month = month_from_date(date_to) if date_to else ""
+    if date_from and not start_month or date_to and not end_month:
+        return False
+    return (not start_month or month >= start_month) and (not end_month or month <= end_month)
+
+
+def _sorted_rows(rows: list[LRRData], query: LRRListQuery) -> list[LRRData]:
+    rows = [
+        row
+        for row in rows
+        if _month_matches_date_range(row.month, query.ng_date_from, query.ng_date_to)
+    ]
     sort_field = (
         query.sort_by
         if query.sort_by in {"month", "materialNumber", "issuedQuantity", "faultCount", "lrrRate"}
@@ -162,23 +183,58 @@ def _response(rows: list[LRRData], query: LRRListQuery) -> LRRListResponse:
         key=lambda row: (getattr(row, sort_field) is None, getattr(row, sort_field) or 0),
         reverse=query.sort_dir == "desc",
     )
-    start = (query.page - 1) * query.limit
+    return rows
+
+
+def _summary(rows: list[LRRData], *, scope: str) -> LRRSummary:
     total_quantity = sum((_quantity(row.issuedQuantity) for row in rows), Decimal(0))
+    known_faults = [row.faultCount for row in rows if row.faultCount is not None]
+    total_faults = sum(known_faults) if len(known_faults) == len(rows) else None
+    return LRRSummary(
+        materialCount=len(rows),
+        issuedQuantity=float(total_quantity),
+        totalFaults=total_faults,
+        overallLrr=round(total_faults / float(total_quantity) * 100, 2)
+        if total_quantity and total_faults is not None
+        else None,
+        scope=scope,
+    )
+
+
+def _response(rows: list[LRRData], query: LRRListQuery) -> LRRListResponse:
+    rows = _sorted_rows(rows, query)
+    start = (query.page - 1) * query.limit
     return LRRListResponse(
         items=rows[start : start + query.limit],
         total=len(rows),
         page=query.page,
         limit=query.limit,
         has_more=start + query.limit < len(rows),
-        summary=LRRSummary(
-            materialCount=len(rows),
-            issuedQuantity=float(total_quantity),
-            totalFaults=sum(row.faultCount for row in rows),
-            overallLrr=round(sum(row.faultCount for row in rows) / float(total_quantity) * 100, 2)
-            if total_quantity
-            else None,
-        ),
+        summary=_summary(rows, scope="full"),
     )
+
+
+def _usage_response(usage_rows: list[LRRData], query: LRRListQuery) -> LRRListResponse:
+    """Return the fast list projection without loading the fault collection."""
+    sorted_usage = _sorted_rows(usage_rows, query)
+    start = (query.page - 1) * query.limit
+    items = [
+        row.model_copy(update={"faultCount": None, "lrrRate": None})
+        for row in sorted_usage[start : start + query.limit]
+    ]
+    return LRRListResponse(
+        items=items,
+        total=len(sorted_usage),
+        page=query.page,
+        limit=query.limit,
+        has_more=start + query.limit < len(sorted_usage),
+        summary=_summary(items, scope="usage"),
+    )
+
+
+def _requires_full_fault_sort(query: LRRListQuery) -> bool:
+    """Fault-derived sort keys require counts for every material/month row."""
+    return query.sort_by in {"faultCount", "lrrRate"}
 
 
 async def _load(query: LRRListQuery) -> LRRListResponse:
@@ -191,24 +247,35 @@ async def _load(query: LRRListQuery) -> LRRListResponse:
         planned_date_from=query.planned_date_from,
         planned_date_to=query.planned_date_to,
     )
-    faults = await lrr_gateway.load_faults(
-        production_orders={str(row.get("AUFNR_1") or "") for row in bom},
-        sales_orders={str(row.get("VBELN_EX") or "") for row in bom},
-        date_from=query.ng_date_from,
-        date_to=query.ng_date_to,
-    )
-    rows = aggregate_lrr(bom, faults, include_details=False)[0]
-    response = _response(rows, query)
-    # The stream projection used for the large BOM scan may omit MAKTX. Fill
-    # only the requested page's PN values from the richer paginated view.
+    usage_rows = aggregate_lrr(bom, [], include_details=False)[0]
+    if _requires_full_fault_sort(query):
+        faults = await lrr_gateway.load_faults(
+            production_orders={str(row.get("AUFNR_1") or "") for row in bom},
+            sales_orders={str(row.get("VBELN_EX") or "") for row in bom},
+            date_from=query.ng_date_from,
+            date_to=query.ng_date_to,
+        )
+        rows = aggregate_lrr(bom, faults, include_details=False)[0]
+        response = _response(rows, query)
+        fault_scope = "full"
+    else:
+        # Month/material/usage sorting can be served from the BOM projection.
+        # Faults are loaded only when the user opens one row's details.
+        response = _usage_response(usage_rows, query)
+        fault_scope = "lazy"
+    # The rich view may ignore a multi-material filter on older gateway
+    # deployments and turn a small description lookup into another full scan.
+    # Keep the fast list path bounded; detail/export requests can still use the
+    # richer view when the user explicitly asks for fault data.
     missing = [row.materialNumber for row in response.items if not row.materialDescription]
-    if missing:
+    if missing and fault_scope == "full":
         descriptions = await lrr_gateway.material_descriptions(missing)
         for row in response.items:
             if not row.materialDescription:
                 row.materialDescription = descriptions.get(row.materialNumber, "")
     log_info(
-        f"LRR gateway query={query.fingerprint[:12]} total_ms={(perf_counter() - started) * 1000:.1f}"
+        f"LRR gateway query={query.fingerprint[:12]} fault_scope={fault_scope} "
+        f"bom_rows={len(bom)} total_ms={(perf_counter() - started) * 1000:.1f}"
     )
     return response
 

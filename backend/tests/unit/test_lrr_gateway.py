@@ -30,6 +30,26 @@ def test_lrr_normalizers_ignore_non_sap_alias_fields():
     assert fault["ZNGWD"] == ""
 
 
+def test_lrr_fault_material_falls_back_to_record01repairm_when_matnr_is_empty():
+    fault = lrr_gateway.normalize_fault(
+        {
+            "AUFNR": "000000000001",
+            "MATNR": "   ",
+            "RECORD01REPAIRM": "PN-FALLBACK",
+        }
+    )
+
+    assert fault["MATNR"] == "PN-FALLBACK"
+
+
+def test_lrr_fault_material_prefers_matnr_over_record01repairm():
+    fault = lrr_gateway.normalize_fault(
+        {"MATNR": "PN-PRIMARY", "RECORD01REPAIRM": "PN-FALLBACK"}
+    )
+
+    assert fault["MATNR"] == "PN-PRIMARY"
+
+
 @pytest.mark.asyncio
 async def test_load_bom_normalizes_gateway_rows_and_applies_exact_filters(monkeypatch):
     calls: list[dict[str, str]] = []

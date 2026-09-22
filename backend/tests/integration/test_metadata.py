@@ -6,7 +6,15 @@ from app.services.data_gateway_client import DataGatewayError
 
 
 @pytest.mark.integration
-async def test_metadata_table_rejects_unknown_table(client, make_test_access_token):
+async def test_metadata_table_rejects_unknown_table(client, db_clean, make_test_access_token):
+    await db_clean.users.insert_one(
+        {
+            "username": "metadata-user",
+            "role": "user",
+            "isActive": True,
+            "dashboardPermissions": ["metadata"],
+        }
+    )
     response = await client.get(
         "/api/metadata/tables/not_allowed",
         headers={"Authorization": f"Bearer {make_test_access_token('metadata-user')}"},
@@ -16,8 +24,17 @@ async def test_metadata_table_rejects_unknown_table(client, make_test_access_tok
 
 
 @pytest.mark.integration
-async def test_scs_metadata_reads_gateway_rows(client, make_test_access_token, monkeypatch):
+async def test_scs_metadata_reads_gateway_rows(client, db_clean, make_test_access_token, monkeypatch):
     from app.api import metadata
+
+    await db_clean.users.insert_one(
+        {
+            "username": "metadata-user",
+            "role": "user",
+            "isActive": True,
+            "dashboardPermissions": ["metadata"],
+        }
+    )
 
     async def page(view_id, **_kwargs):
         assert view_id == "SCS_DOA"
@@ -52,9 +69,18 @@ async def test_scs_metadata_reads_gateway_rows(client, make_test_access_token, m
 
 @pytest.mark.integration
 async def test_scs_metadata_translates_gateway_errors_to_bad_gateway(
-    client, make_test_access_token, monkeypatch
+    client, db_clean, make_test_access_token, monkeypatch
 ):
     from app.api import metadata
+
+    await db_clean.users.insert_one(
+        {
+            "username": "metadata-user",
+            "role": "user",
+            "isActive": True,
+            "dashboardPermissions": ["metadata"],
+        }
+    )
 
     async def page(*_args, **_kwargs):
         raise DataGatewayError("gateway unavailable")

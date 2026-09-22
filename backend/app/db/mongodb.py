@@ -56,10 +56,12 @@ async def create_indexes() -> None:
 
     # 用户索引
     await mongodb.db.users.create_index("itcode", unique=True)
+    await mongodb.db.users.create_index("username", unique=True, sparse=True)
 
     # 会话索引
     await mongodb.db.sessions.create_index("sessionId", unique=True)
     await mongodb.db.sessions.create_index("expiresAt")
+    await mongodb.db.sessions.create_index("createdAt")
 
     # 运营监控事件：按时间聚合，原始明细保留 180 天
     await mongodb.db.usage_events.create_index([("itcode", 1), ("timestamp", -1)])

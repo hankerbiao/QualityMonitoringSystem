@@ -1,0 +1,175 @@
+"""Administrator-only local user management endpoints."""
+
+from datetime import datetime, timezone
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, HTTPException, status
+from pymongo.errors import DuplicateKeyError
+
+from app.api.auth import require_admin
+from app.auth_permissions import (
+    ALL_DASHBOARD_PERMISSIONS,
+    normalize_dashboard_permissions,
+)
+from app.auth_service import AuthService
+from app.core.config import get_settings
+from app.db.mongodb import get_database
+from app.schemas.users import (
+    CreateUserRequest,
+    ResetPasswordRequest,
+    UpdateUserRequest,
+    UserSummary,
+)
+
+router = APIRouter()
+
+
+def _service() -> AuthService:
+    return AuthService(get_database())
+
+
+def _summary(doc: dict) -> UserSummary:
+    profile = AuthService._user_profile(doc)
+    return UserSummary(
+        username=profile["username"],
+        displayName=profile["name"],
+        role=profile["role"],
+        isActive=profile["isActive"],
+        dashboardPermissions=profile["dashboardPermissions"],
+        createdAt=doc.get("createdAt"),
+        updatedAt=doc.get("updatedAt"),
+    )
+
+
+def _permissions(values: list[str] | None) -> list[str]:
+    normalized = normalize_dashboard_permissions(values)
+    if values is not None and set(values) - set(ALL_DASHBOARD_PERMISSIONS):
+        raise HTTPException(status_code=422, detail="包含无效的看板权限")
+    return normalized
+
+
+@router.get("/admin/users", response_model=list[UserSummary])
+async def list_users(_: Annotated[dict, Depends(require_admin)]):
+    docs = (
+        await get_database().users.find({"role": "user"}).sort("createdAt", -1).to_list(length=1000)
+    )
+    return [_summary(doc) for doc in docs]
+
+
+@router.post("/admin/users", response_model=UserSummary, status_code=status.HTTP_201_CREATED)
+async def create_user(
+    payload: CreateUserRequest,
+    _: Annotated[dict, Depends(require_admin)],
+):
+    db = get_database()
+    username = payload.username.strip()
+    if username == get_settings().DEFAULT_ADMIN_USERNAME:
+        raise HTTPException(status_code=409, detail="该用户名保留给管理员")
+    if await db.users.find_one({"username": username}) or await db.users.find_one(
+        {"itcode": username}
+    ):
+        raise HTTPException(status_code=409, detail="用户名已存在")
+    display_name = payload.displayName.strip()
+    if not display_name:
+        raise HTTPException(status_code=422, detail="显示姓名不能为空")
+    now = datetime.now(timezone.utc).isoformat()
+    permissions = _permissions(payload.dashboardPermissions)
+    profile = {
+        "itcode": username,
+        "username": username,
+        "name": display_name,
+        "姓名": display_name,
+        "role": "user",
+        "auth_type": "local",
+        "isActive": True,
+        "dashboardPermissions": permissions,
+    }
+    doc = {
+        "username": username,
+        "itcode": username,
+        "displayName": display_name,
+        "role": "user",
+        "isActive": True,
+        "dashboardPermissions": permissions,
+        "passwordHash": _service().hash_password(payload.password),
+        "profile": profile,
+        "createdAt": now,
+        "updatedAt": now,
+    }
+    try:
+        await db.users.insert_one(doc)
+    except DuplicateKeyError:
+        raise HTTPException(status_code=409, detail="用户名已存在") from None
+    return _summary(doc)
+
+
+@router.patch("/admin/users/{username}", response_model=UserSummary)
+async def update_user(
+    username: str,
+    payload: UpdateUserRequest,
+    _: Annotated[dict, Depends(require_admin)],
+):
+    db = get_database()
+    doc = await db.users.find_one({"username": username})
+    if not doc:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if (doc.get("role") or (doc.get("profile") or {}).get("role")) == "admin":
+        raise HTTPException(status_code=403, detail="不能管理管理员账号")
+    updates: dict = {}
+    result_doc = dict(doc)
+    result_profile = dict(doc.get("profile") or {})
+    if payload.displayName is not None:
+        display_name = payload.displayName.strip()
+        if not display_name:
+            raise HTTPException(status_code=422, detail="显示姓名不能为空")
+        updates["displayName"] = display_name
+        updates["profile.name"] = display_name
+        updates["profile.姓名"] = display_name
+        result_doc["displayName"] = display_name
+        result_profile.update({"name": display_name, "姓名": display_name})
+    if payload.isActive is not None:
+        updates["isActive"] = payload.isActive
+        updates["profile.isActive"] = payload.isActive
+        result_doc["isActive"] = payload.isActive
+        result_profile["isActive"] = payload.isActive
+    if payload.dashboardPermissions is not None:
+        permissions = _permissions(payload.dashboardPermissions)
+        updates["dashboardPermissions"] = permissions
+        updates["profile.dashboardPermissions"] = permissions
+        result_doc["dashboardPermissions"] = permissions
+        result_profile["dashboardPermissions"] = permissions
+    if not updates:
+        raise HTTPException(status_code=400, detail="没有需要更新的字段")
+    updates["updatedAt"] = datetime.now(timezone.utc).isoformat()
+    await db.users.update_one({"username": username}, {"$set": updates})
+    if payload.isActive is False:
+        await _service().revoke_user_sessions(username)
+    result_doc["profile"] = result_profile
+    updated = await db.users.find_one({"username": username})
+    return _summary(updated or result_doc)
+
+
+@router.post("/admin/users/{username}/reset-password", response_model=UserSummary)
+async def reset_password(
+    username: str,
+    payload: ResetPasswordRequest,
+    _: Annotated[dict, Depends(require_admin)],
+):
+    db = get_database()
+    doc = await db.users.find_one({"username": username})
+    if not doc:
+        raise HTTPException(status_code=404, detail="用户不存在")
+    if (doc.get("role") or (doc.get("profile") or {}).get("role")) == "admin":
+        raise HTTPException(status_code=403, detail="不能管理管理员账号")
+    await db.users.update_one(
+        {"username": username},
+        {
+            "$set": {
+                "passwordHash": _service().hash_password(payload.password),
+                "updatedAt": datetime.now(timezone.utc).isoformat(),
+            }
+        },
+    )
+    await _service().revoke_user_sessions(username)
+    updated = await db.users.find_one({"username": username})
+    return _summary(updated or doc)

@@ -44,11 +44,6 @@ class Settings(BaseSettings):
     DEFAULT_ADMIN_USERNAME: str = ""
     DEFAULT_ADMIN_PASSWORD: str = ""
 
-    # OA 登录配置（保留兼容旧回调，前端不再使用）
-    OA_JWT_SECRET: str = ""
-    OA_LOGIN_URL: str = "http://10.2.48.65/auth/oa/callback"
-    OA_APP_NAME: str = "qualiboard"
-    OA_LOGIN_BASE_URL: str = "http://tl.cooacloud.com/springboard_v3/login_proxy"
     SESSION_EXPIRE_DAYS: int = 30
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
     REFRESH_TOKEN_EXPIRE_DAYS: int = 30
@@ -93,8 +88,8 @@ def validate_security_settings(settings: Settings) -> None:
 
     required_secrets = {
         "JWT_SECRET": settings.JWT_SECRET,
-        "OA_JWT_SECRET": settings.OA_JWT_SECRET,
         "ALERT_TOKEN_SECRET": settings.ALERT_TOKEN_SECRET,
+        "DEFAULT_ADMIN_USERNAME": settings.DEFAULT_ADMIN_USERNAME,
         "DEFAULT_ADMIN_PASSWORD": settings.DEFAULT_ADMIN_PASSWORD,
     }
     invalid = [name for name, value in required_secrets.items() if _is_weak_secret(value, name)]
@@ -109,6 +104,8 @@ def _is_weak_secret(value: str, name: str) -> bool:
         return True
     if name == "DEFAULT_ADMIN_PASSWORD":
         return normalized in {"admin", "admin123", "password", "changeme"} or len(value) < 12
+    if name == "DEFAULT_ADMIN_USERNAME":
+        return not normalized
     return len(value) < 32
 
 

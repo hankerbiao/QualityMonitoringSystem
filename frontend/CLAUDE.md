@@ -41,13 +41,13 @@ src/
 ├── api/                      # API 层
 │   ├── rtyApi.ts            # RTY 数据接口 (带过滤参数)
 │   ├── settingsApi.ts       # 系统配置接口 (统一保存)
-│   ├── authApi.ts           # 认证接口 (OA 登录代理)
+│   ├── authApi.ts           # 认证接口 (本地用户名密码登录)
 ├── components/
 │   ├── SettingsModal.tsx    # 系统配置管理弹窗 (MES/机型/邮件)
 │   ├── DefectModal.tsx      # 故障明细弹窗
 │   ├── InputModal.tsx       # 投入明细弹窗
 │   ├── AlertConfigModal.tsx # 预警配置弹窗
-│   └── ProtectedLayout.tsx  # 受保护布局 (OA 登录验证)
+│   └── ProtectedLayout.tsx  # 受保护布局 (本地登录验证)
 ├── pages/
 │   ├── Home.tsx             # 首页 (Bento Grid 四模块卡片)
 │   └── RTYPage.tsx          # RTY 整机直通率页面
@@ -68,17 +68,15 @@ src/
 - **过滤参数**: 集中在 RTYPage 组件的 `filters` state (`RTYFilterParams` 接口)
 - **图表**: Recharts `ResponsiveContainer` + `ComposedChart` (Bar + Line 双轴)
 
-## OA 登录流程 (双 Token)
+## 本地登录流程 (双 Token)
 
 1. 访问受保护路由 → ProtectedLayout 检查 access_token
 2. 无 Token → 重定向到 `/login`
-3. 点击「OA 登录」→ 调用 `GET /api/auth/oa/callback?next=前端地址`
-4. 后端 302 重定向到 OA 登录页
-5. OA 回调 `GET /api/auth/oa/callback?status=success&payload=JWT`
-6. 后端签发双 token，存储 refresh_token，返回 302 → `前端/login?access_token=xxx&refresh_token=xxx`
-7. 前端 `LoginPage` 存储双 token，调用 `getCurrentUser()` 验证后跳转首页
-8. **自动刷新**: access_token 剩余 < 60s 时提前刷新；收到 401 立即刷新
-9. refresh_token 过期或登出 → 重新 OA 登录
+3. `LoginPage` 调用 `POST /api/auth/login` 提交用户名和密码
+4. 后端用 Argon2id 校验密码，签发双 token，返回用户角色和看板权限
+5. 前端存储双 token，调用 `getCurrentUser()` 验证后跳转首页
+6. **自动刷新**: access_token 剩余 < 60s 时提前刷新；收到 401 立即刷新
+7. refresh_token 过期或登出 → 重新使用本地账号登录
 
 ## 系统配置管理 (SettingsModal)
 

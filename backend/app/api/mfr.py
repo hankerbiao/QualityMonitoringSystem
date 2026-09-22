@@ -5,10 +5,11 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.api.auth import get_current_user
+from app.auth_permissions import dashboard_dependency
 from app.schemas.mfr import MFRDashboardResponse, MFRFilters
 from app.services.mfr_service import build_mfr_dashboard
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(dashboard_dependency("mfr"))])
 
 
 @router.get("/dashboard", response_model=MFRDashboardResponse)

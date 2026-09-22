@@ -208,23 +208,3 @@ export async function loginWithPassword(username: string, password: string): Pro
 
   return response.json();
 }
-
-export async function submitOALogin(params: {
-  status: string;
-  payload: string;
-  next: string | null;
-}): Promise<LoginResponse> {
-  const response = await fetch(`${API_BASE_URL}/auth/oa/callback`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(params),
-  });
-
-  if (!response.ok) {
-    const payload = await response.json().catch(() => null);
-    const message = payload?.detail || payload?.error || 'OA 登录失败，请稍后重试';
-    throw new Error(message);
-  }
-
-  return response.json();
-}

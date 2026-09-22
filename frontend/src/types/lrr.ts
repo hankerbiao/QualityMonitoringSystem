@@ -20,7 +20,7 @@ export interface LRRData {
   month: string;
   materialDescription: string;
   issuedQuantity: number;
-  faultCount: number;
+  faultCount: number | null;
   lrrRate: number | null;
   materialNumber: string;
 }
@@ -28,8 +28,9 @@ export interface LRRData {
 export interface LRRSummary {
   materialCount: number;
   issuedQuantity: number;
-  totalFaults: number;
+  totalFaults: number | null;
   overallLrr: number | null;
+  scope?: 'usage' | 'page' | 'full';
 }
 
 export interface LRRListResponse {

@@ -2,8 +2,9 @@
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Query, Request
+from fastapi import APIRouter, Depends, Query, Request
 
+from app.auth_permissions import dashboard_dependency
 from app.core.logger import audit_log
 from app.db.mongodb import get_database
 from app.models.documents import Collections
@@ -67,13 +68,21 @@ async def _targets() -> dict[str, float]:
     return (document or {}).get("targets", {}) or {}
 
 
-@router.get("/cycle-data", response_model=Response[list[RTYData]])
+@router.get(
+    "/cycle-data",
+    response_model=Response[list[RTYData]],
+    dependencies=[Depends(dashboard_dependency("rty"))],
+)
 async def get_rty_cycle_data(orderScope: OrderScopeQuery = "normal", customer: str | None = None):
     rows = await rty_gateway.cycle_data(orderScope, customer, await _targets())
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 条周期统计数据")
 
 
-@router.get("/station-pass-rates", response_model=Response[list[StationPassRate]])
+@router.get(
+    "/station-pass-rates",
+    response_model=Response[list[StationPassRate]],
+    dependencies=[Depends(dashboard_dependency("station-pass-rate"))],
+)
 async def get_station_pass_rates(
     dateFrom: str | None = None,
     dateTo: str | None = None,
@@ -88,7 +97,11 @@ async def get_station_pass_rates(
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 个工位")
 
 
-@router.get("/station-pass-details", response_model=Response[list[StationPassDetail]])
+@router.get(
+    "/station-pass-details",
+    response_model=Response[list[StationPassDetail]],
+    dependencies=[Depends(dashboard_dependency("station-pass-rate"))],
+)
 async def get_station_pass_details(
     stationCode: str = Query(..., min_length=1),
     dateFrom: str | None = None,
@@ -101,13 +114,24 @@ async def get_station_pass_details(
     dimensionValue: str | None = None,
 ):
     rows = await rty_gateway.station_details(
-        stationCode.strip(), dateFrom, dateTo, detailType, serialNumber, productModel,
-        base, groupBy, dimensionValue,
+        stationCode.strip(),
+        dateFrom,
+        dateTo,
+        detailType,
+        serialNumber,
+        productModel,
+        base,
+        groupBy,
+        dimensionValue,
     )
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 条明细")
 
 
-@router.get("/list", response_model=PaginatedResponse[RTYData])
+@router.get(
+    "/list",
+    response_model=PaginatedResponse[RTYData],
+    dependencies=[Depends(dashboard_dependency("rty"))],
+)
 @audit_log("QUERY", "rty_list")
 async def get_rty_list(
     request: Request,
@@ -127,9 +151,16 @@ async def get_rty_list(
     del request
     return await rty_gateway.rty_list(
         _order_filters(
-            sales_order=salesOrder, production_order=productionOrder, serial_number=serialNumber,
-            base=base, product_model=productModel, customer=customer, date_from=dateFrom,
-            date_to=dateTo, order_scope=orderScope, calculation_method=calculationMethod,
+            sales_order=salesOrder,
+            production_order=productionOrder,
+            serial_number=serialNumber,
+            base=base,
+            product_model=productModel,
+            customer=customer,
+            date_from=dateFrom,
+            date_to=dateTo,
+            order_scope=orderScope,
+            calculation_method=calculationMethod,
         ),
         page,
         limit,
@@ -137,7 +168,11 @@ async def get_rty_list(
     )
 
 
-@router.get("/excluded-orders", response_model=PaginatedResponse[ExcludedOrder])
+@router.get(
+    "/excluded-orders",
+    response_model=PaginatedResponse[ExcludedOrder],
+    dependencies=[Depends(dashboard_dependency("rty"))],
+)
 @audit_log("QUERY", "rty_excluded_orders")
 async def get_excluded_orders(
     request: Request,
@@ -156,16 +191,26 @@ async def get_excluded_orders(
     del request
     return await rty_gateway.excluded_orders(
         _order_filters(
-            sales_order=salesOrder, production_order=productionOrder, serial_number=serialNumber,
-            base=base, product_model=productModel, customer=customer, date_from=dateFrom,
-            date_to=dateTo, order_scope=orderScope,
+            sales_order=salesOrder,
+            production_order=productionOrder,
+            serial_number=serialNumber,
+            base=base,
+            product_model=productModel,
+            customer=customer,
+            date_from=dateFrom,
+            date_to=dateTo,
+            order_scope=orderScope,
         ),
         page,
         limit,
     )
 
 
-@router.get("/defects/by-filters", response_model=Response[list[DefectDetail]])
+@router.get(
+    "/defects/by-filters",
+    response_model=Response[list[DefectDetail]],
+    dependencies=[Depends(dashboard_dependency("rty"))],
+)
 @audit_log("QUERY", "defect_by_filters")
 async def get_defect_details_by_filters(
     request: Request,
@@ -182,19 +227,31 @@ async def get_defect_details_by_filters(
 ):
     del request, calculationMethod
     filters = _order_filters(
-        sales_order=salesOrder, production_order=productionOrder, serial_number=serialNumber,
-        base=base, product_model=productModel, customer=customer, date_from=dateFrom,
-        date_to=dateTo, order_scope=orderScope,
+        sales_order=salesOrder,
+        production_order=productionOrder,
+        serial_number=serialNumber,
+        base=base,
+        product_model=productModel,
+        customer=customer,
+        date_from=dateFrom,
+        date_to=dateTo,
+        order_scope=orderScope,
     )
     orders = await rty_gateway._orders(filters)
     rows = await rty_gateway.details_by_orders(
-        {row["aufnr"] for row in orders}, productModel,
-        date_from=filters["dateFrom"], date_to=filters["dateTo"],
+        {row["aufnr"] for row in orders},
+        productModel,
+        date_from=filters["dateFrom"],
+        date_to=filters["dateTo"],
     )
     return Response(success=True, data=rows, message="网关故障明细查询完成")
 
 
-@router.get("/defects", response_model=Response[list[DefectDetail]])
+@router.get(
+    "/defects",
+    response_model=Response[list[DefectDetail]],
+    dependencies=[Depends(dashboard_dependency("rty"))],
+)
 async def get_defect_details(sns: str = Query(..., description="机器序列号列表，逗号分隔")):
     values = _split_values(sns)
     if not values:
@@ -206,14 +263,24 @@ async def get_defect_details(sns: str = Query(..., description="机器序列号�
     return Response(success=True, data=data, message=f"查询到 {len(data)} 条维修故障记录")
 
 
-@router.get("/defects/by-order", response_model=Response[list[DefectDetail]])
+@router.get(
+    "/defects/by-order",
+    response_model=Response[list[DefectDetail]],
+    dependencies=[Depends(dashboard_dependency("rty"))],
+)
 async def get_defect_details_by_order(productionOrder: str = Query(...)):
     rows = await rty_gateway.details_by_orders(set(_split_values(productionOrder)))
     return Response(success=True, data=rows, message="网关故障明细查询完成")
 
 
-@router.get("/sales-order-summary", response_model=Response[list[SalesOrderSummary]])
-async def get_sales_order_summary(salesOrders: str = Query(...), orderScope: OrderScopeQuery = "normal"):
+@router.get(
+    "/sales-order-summary",
+    response_model=Response[list[SalesOrderSummary]],
+    dependencies=[Depends(dashboard_dependency("rty"))],
+)
+async def get_sales_order_summary(
+    salesOrders: str = Query(...), orderScope: OrderScopeQuery = "normal"
+):
     rows = await rty_gateway.sales_order_summary(_split_values(salesOrders), orderScope)
     return Response(success=True, data=rows, message="网关销售订单汇总完成")
 
@@ -224,8 +291,14 @@ async def _scope_orders(order_scope: OrderScope) -> list[dict[str, object]]:
     )
 
 
-@router.get("/production-orders/by-sales-order", response_model=Response[list[str]])
-async def get_production_orders_by_sales_order(salesOrder: str = Query(...), orderScope: OrderScopeQuery = "normal"):
+@router.get(
+    "/production-orders/by-sales-order",
+    response_model=Response[list[str]],
+    dependencies=[Depends(dashboard_dependency("rty"))],
+)
+async def get_production_orders_by_sales_order(
+    salesOrder: str = Query(...), orderScope: OrderScopeQuery = "normal"
+):
     rows = await rty_gateway._orders({"salesOrder": salesOrder, "orderScope": orderScope})
     return Response(success=True, data=sorted({str(row["aufnr"]) for row in rows}))
 
@@ -245,37 +318,72 @@ def _option_totals(rows: list[dict[str, object]], field: str) -> dict[str, float
     return totals
 
 
-@router.get("/product-models", response_model=Response[list[dict[str, object]]])
+@router.get(
+    "/product-models",
+    response_model=Response[list[dict[str, object]]],
+    dependencies=[Depends(dashboard_dependency("rty"))],
+)
 async def get_product_models(orderScope: OrderScopeQuery = "normal"):
     totals = _option_totals(await _scope_orders(orderScope), "MAKTX_TH")
-    return Response(success=True, data=[{"model": key, "count": round(value)} for key, value in sorted(totals.items())])
+    return Response(
+        success=True,
+        data=[{"model": key, "count": round(value)} for key, value in sorted(totals.items())],
+    )
 
 
-@router.get("/bases", response_model=Response[list[dict[str, object]]])
+@router.get(
+    "/bases",
+    response_model=Response[list[dict[str, object]]],
+    dependencies=[Depends(dashboard_dependency("rty"))],
+)
 async def get_bases(orderScope: OrderScopeQuery = "normal"):
     totals = _option_totals(await _scope_orders(orderScope), "LGORT")
-    return Response(success=True, data=[{"base": key, "count": round(value)} for key, value in sorted(totals.items())])
+    return Response(
+        success=True,
+        data=[{"base": key, "count": round(value)} for key, value in sorted(totals.items())],
+    )
 
 
-@router.get("/customers", response_model=Response[list[str]])
+@router.get(
+    "/customers",
+    response_model=Response[list[str]],
+    dependencies=[Depends(dashboard_dependency("rty"))],
+)
 async def get_customers(orderScope: OrderScopeQuery = "normal"):
-    return Response(success=True, data=sorted(_option_totals(await _scope_orders(orderScope), "KID")))
+    return Response(
+        success=True, data=sorted(_option_totals(await _scope_orders(orderScope), "KID"))
+    )
 
 
-@router.get("/filter-options", response_model=Response[dict[str, list]])
+@router.get(
+    "/filter-options",
+    response_model=Response[dict[str, list]],
+    dependencies=[Depends(dashboard_dependency("rty"))],
+)
 async def get_filter_options(orderScope: OrderScopeQuery = "normal"):
     rows = await _scope_orders(orderScope)
     models = _option_totals(rows, "MAKTX_TH")
     bases = _option_totals(rows, "LGORT")
-    return Response(success=True, data={
-        "productModels": [{"model": key, "count": round(value)} for key, value in sorted(models.items())],
-        "bases": [{"base": key, "count": round(value)} for key, value in sorted(bases.items())],
-        "customers": sorted(_option_totals(rows, "KID")),
-    })
+    return Response(
+        success=True,
+        data={
+            "productModels": [
+                {"model": key, "count": round(value)} for key, value in sorted(models.items())
+            ],
+            "bases": [{"base": key, "count": round(value)} for key, value in sorted(bases.items())],
+            "customers": sorted(_option_totals(rows, "KID")),
+        },
+    )
 
 
-@router.get("/sales-orders", response_model=Response[list[str]])
-async def get_sales_orders(q: str = "", limit: int = Query(10, ge=1, le=50), orderScope: OrderScopeQuery = "normal"):
+@router.get(
+    "/sales-orders",
+    response_model=Response[list[str]],
+    dependencies=[Depends(dashboard_dependency("rty"))],
+)
+async def get_sales_orders(
+    q: str = "", limit: int = Query(10, ge=1, le=50), orderScope: OrderScopeQuery = "normal"
+):
     rows = await _scope_orders(orderScope)
     orders = sorted(_option_totals(rows, "VBELN"))
     if q:

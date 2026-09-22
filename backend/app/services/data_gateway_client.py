@@ -46,6 +46,7 @@ class DataGatewayClient:
         ] = {}
         self._text_cache: dict[tuple[str, tuple[tuple[str, str], ...]], tuple[float, Any]] = {}
         self._list_inflight: dict[object, asyncio.Task[list[dict[str, Any]]]] = {}
+        self._text_inflight: dict[object, asyncio.Task[str]] = {}
         self._orders_cache_lock = asyncio.Lock()
         self._loop: asyncio.AbstractEventLoop | None = None
 
@@ -67,6 +68,7 @@ class DataGatewayClient:
             self._views_cache.clear()
             self._text_cache.clear()
             self._list_inflight.clear()
+            self._text_inflight.clear()
             self._orders_cache_lock = asyncio.Lock()
         self._loop = loop
         if self._client is None:
@@ -90,6 +92,7 @@ class DataGatewayClient:
             self._views_cache.clear()
             self._text_cache.clear()
             self._list_inflight.clear()
+            self._text_inflight.clear()
 
     async def _cached_list(
         self,
@@ -164,18 +167,38 @@ class DataGatewayClient:
     ) -> str:
         if not self.enabled:
             raise DataGatewayError("DATA_GATEWAY_URL 未配置")
+        if not path.endswith("/stream"):
+            return await self._request_text_network(method, path, params=params)
+
         cache_key = (
             path,
             tuple(sorted((str(key), str(value)) for key, value in (params or {}).items() if value)),
         )
         now = time.monotonic()
-        if self.cache_ttl > 0 and path.endswith("/stream"):
+        async with self._orders_cache_lock:
+            cached = self._text_cache.get(cache_key)
+            if self.cache_ttl > 0 and cached and cached[0] > now:
+                return cached[1]
+            if cached:
+                self._text_cache.pop(cache_key, None)
+            task = self._text_inflight.get(cache_key)
+            if task is None:
+                task = asyncio.create_task(self._request_text_network(method, path, params=params))
+                self._text_inflight[cache_key] = task
+        try:
+            text = await task
+        finally:
             async with self._orders_cache_lock:
-                cached = self._text_cache.get(cache_key)
-                if cached and cached[0] > now:
-                    return cached[1]
-                if cached:
-                    self._text_cache.pop(cache_key, None)
+                if self._text_inflight.get(cache_key) is task:
+                    self._text_inflight.pop(cache_key, None)
+        if self.cache_ttl > 0:
+            async with self._orders_cache_lock:
+                self._text_cache[cache_key] = (time.monotonic() + self.cache_ttl, text)
+        return text
+
+    async def _request_text_network(
+        self, method: str, path: str, *, params: dict[str, Any] | None = None
+    ) -> str:
         try:
             response = await (await self._http()).request(method, path, params=params)
         except httpx.TimeoutException as exc:
@@ -191,11 +214,7 @@ class DataGatewayClient:
                 detail or f"数据网关请求失败 ({response.status_code})",
                 status_code=response.status_code,
             )
-        text = response.text
-        if self.cache_ttl > 0 and path.endswith("/stream"):
-            async with self._orders_cache_lock:
-                self._text_cache[cache_key] = (time.monotonic() + self.cache_ttl, text)
-        return text
+        return response.text
 
     async def health(self) -> dict[str, Any]:
         return await self.request_json("GET", "/api/health")

@@ -202,6 +202,33 @@ async def test_stream_text_reuses_short_lived_cache():
 
 
 @pytest.mark.asyncio
+async def test_stream_text_coalesces_concurrent_loads():
+    calls = 0
+
+    async def request_text(*_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        await asyncio.sleep(0)
+        return "id\tvalue\n1\trow\n"
+
+    client = DataGatewayClient("http://gateway.test", timeout=2)
+    client.request_text = request_text  # type: ignore[method-assign]
+    # Exercise the same behavior through the internal single-flight primitive
+    # without making a real network request.
+    client._request_text_network = request_text  # type: ignore[method-assign]
+    try:
+        first, second = await asyncio.gather(
+            DataGatewayClient.request_text(client, "GET", "/api/views/SCS_CHANGE/stream"),
+            DataGatewayClient.request_text(client, "GET", "/api/views/SCS_CHANGE/stream"),
+        )
+    finally:
+        await client.close()
+
+    assert calls == 1
+    assert first == second
+
+
+@pytest.mark.asyncio
 async def test_bom_stream_falls_back_to_paginated_view_when_gstrs_is_missing():
     client = DataGatewayClient("http://gateway.test", timeout=2)
     calls: list[str] = []

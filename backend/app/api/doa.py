@@ -5,6 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 
 from app.api.auth import get_current_user
+from app.auth_permissions import dashboard_dependency
 from app.schemas.doa import (
     DoaDashboardResponse,
     DoaFilters,
@@ -43,12 +44,12 @@ def _filters(
     )  # type: ignore[arg-type]
 
 
-@router.get("/options")
+@router.get("/options", dependencies=[Depends(dashboard_dependency("doa"))])
 async def doa_options(_: Annotated[dict, Depends(get_current_user)]):
     return await get_doa_options()
 
 
-@router.get("/raw")
+@router.get("/raw", dependencies=[Depends(dashboard_dependency("doa"))])
 async def doa_raw(
     _: Annotated[dict, Depends(get_current_user)],
     page: int = Query(1, ge=1),
@@ -84,7 +85,11 @@ async def doa_raw(
     )
 
 
-@router.get("/dashboard", response_model=DoaDashboardResponse)
+@router.get(
+    "/dashboard",
+    response_model=DoaDashboardResponse,
+    dependencies=[Depends(dashboard_dependency("doa"))],
+)
 async def doa_dashboard(
     _: Annotated[dict, Depends(get_current_user)],
     dateFrom: str | None = Query(None),
@@ -108,7 +113,11 @@ async def doa_dashboard(
     )
 
 
-@router.get("/repairs", response_model=DoaRepairsResponse)
+@router.get(
+    "/repairs",
+    response_model=DoaRepairsResponse,
+    dependencies=[Depends(dashboard_dependency("doa-repairs"))],
+)
 async def doa_repairs(
     _: Annotated[dict, Depends(get_current_user)],
     dateFrom: str | None = Query(None),

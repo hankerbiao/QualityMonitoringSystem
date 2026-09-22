@@ -8,6 +8,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.auth import get_current_user
+from app.auth_permissions import dashboard_dependency
 from app.schemas.common import Response
 from app.schemas.sn_info import (
     SnInfoItem,
@@ -17,7 +18,7 @@ from app.schemas.sn_info import (
 )
 from app.services.sap_sn_info_service import SapSnInfoService
 
-router = APIRouter()
+router = APIRouter(dependencies=[Depends(dashboard_dependency("rty"))])
 
 
 def _normalize_item(record: dict, source: str) -> SnInfoItem:

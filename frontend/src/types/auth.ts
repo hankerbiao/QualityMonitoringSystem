@@ -1,6 +1,16 @@
 export interface UserProfile {
   itcode: string;
-  [key: string]: string | undefined;
+  username?: string;
+  role?: 'admin' | 'user';
+  isActive?: boolean;
+  dashboardPermissions?: string[];
+  name?: string;
+  姓名?: string;
+  真实姓名?: string;
+  部门?: string;
+  department?: string;
+  邮件?: string;
+  email?: string;
 }
 
 export interface AuthContextType {

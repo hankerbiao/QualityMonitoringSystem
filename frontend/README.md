@@ -57,7 +57,7 @@ frontend/
 │   ├── api/                    # API 接口层
 │   │   ├── rtyApi.ts           # RTY 数据接口
 │   │   ├── settingsApi.ts      # 系统配置接口
-│   │   ├── authApi.ts          # 认证接口 (OA 登录)
+│   │   ├── authApi.ts          # 认证接口 (本地登录)
 │   ├── components/             # 可复用组件
 │   │   ├── SettingsModal.tsx   # 系统配置管理弹窗
 │   │   ├── DefectModal.tsx     # 故障明细弹窗
@@ -66,7 +66,7 @@ frontend/
 │   ├── pages/                  # 页面组件
 │   │   ├── Home.tsx            # 首页 (模块导航)
 │   │   ├── RTYPage.tsx         # RTY 整机直通率页面
-│   │   └── ProtectedLayout.tsx # 受保护布局 (OA 登录验证)
+│   │   └── ProtectedLayout.tsx # 受保护布局 (本地登录验证)
 │   ├── context/                # React Context
 │   │   ├── AuthContext.tsx      # 登录状态
 │   │   └── SettingsContext.tsx  # 系统配置
@@ -83,7 +83,7 @@ frontend/
 
 ### 已实现
 
-- **OA 单点登录**：集成企业内部 OA 系统，支持 JWT Token 鉴权
+- **本地账号登录**：使用用户名密码和 Argon2id 密码哈希
 - **RTY 数据看板**：多维度数据展示、图表可视化、明细穿透
 - **过滤条件**：时间范围、统计方式(整体/过站)、计算方法(普通/复合机型)、基地、客户、订单等
 - **周期统计**：累计投入、综合平均、直通率趋势图
@@ -104,8 +104,7 @@ frontend/
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/auth/oa/callback` | OA 登录回调 (GET 302 重定向) |
-| POST | `/api/auth/oa/callback` | OA 登录回调 (POST JSON) |
+| POST | `/api/auth/login` | 本地用户名密码登录 |
 | GET | `/api/auth/me` | 获取当前用户信息 |
 | POST | `/api/auth/logout` | 退出登录 |
 
@@ -134,13 +133,11 @@ frontend/
 ## 认证流程 (双 Token)
 
 1. 用户访问前端，受保护路由重定向到登录页
-2. 点击「OA 登录」调用后端 `/api/auth/oa/callback` GET 接口
-3. 后端 302 重定向到 OA 登录页
-4. OA 登录成功后回调 `/api/auth/oa/callback?status=success&payload=JWT`
-5. 后端验证 JWT，签发 access_token (15分钟) + refresh_token (30天)，返回 302 重定向到前端 `/login?access_token=xxx&refresh_token=xxx&expires_in=900`
-6. 前端存储双 token，跳转到首页
-7. **自动刷新**：access_token 剩余有效期 < 60 秒时，下次 API 请求前自动刷新；收到 401 时立即刷新
-8. refresh_token 过期或登出时，需重新 OA 登录
+2. 输入本地用户名和密码登录
+3. 后端使用 Argon2id 校验密码并签发 access_token (15分钟) + refresh_token (30天)
+4. 前端存储双 token，跳转到首页
+5. **自动刷新**：access_token 剩余有效期 < 60 秒时，下次 API 请求前自动刷新；收到 401 时立即刷新
+6. refresh_token 过期或登出时，重新使用本地账号登录
 
 ## 环境变量
 
