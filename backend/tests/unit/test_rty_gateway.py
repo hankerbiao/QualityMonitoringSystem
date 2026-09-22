@@ -376,6 +376,7 @@ async def test_station_rates_filter_input_by_gstrs_not_actual_pass_time(monkeypa
         ("M-1", "OP205", 1)
     ]
     assert station_rows.await_args.kwargs["timeField"] == "planned"
+    assert station_rows.await_args.kwargs["productModel"] == "M-1"
 
 
 @pytest.mark.asyncio
@@ -405,3 +406,4 @@ async def test_station_rates_excludes_rows_without_gstrs(monkeypatch):
     )
 
     assert rows == []
+    assert station_rows.await_args.kwargs["productModel"] == "M-1"

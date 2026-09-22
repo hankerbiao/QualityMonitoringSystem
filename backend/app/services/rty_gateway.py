@@ -669,6 +669,9 @@ async def station_rates(
         dateFrom=f"{start[:4]}-{start[4:6]}-{start[6:]}",
         dateTo=f"{end[:4]}-{end[4:6]}-{end[6:]}",
         timeField="planned",
+        sn=serial_number or "",
+        productModel=product_model or "",
+        base=base or "",
     )
     records = _station_rows_in_planned_range(records, start, end)
     by_station: dict[tuple[str, str], dict[str, Any]] = {}
@@ -755,6 +758,9 @@ async def station_details(
         dateFrom=f"{start[:4]}-{start[4:6]}-{start[6:]}",
         dateTo=f"{end[:4]}-{end[4:6]}-{end[6:]}",
         timeField="planned",
+        sn=serial_number or "",
+        productModel=product_model or "",
+        base=base or "",
     )
     records = _station_rows_in_planned_range(records, start, end)
     unique: dict[str, dict[str, Any]] = {}
