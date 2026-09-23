@@ -472,5 +472,5 @@ async def test_station_rates_uses_the_same_wmeng_and_fault_sn_summary_as_rty(mon
     assert rows[0].inputCount == 1
     assert rows[0].totalInputCount == 101
     assert rows[0].totalDefectCount == 2
-    assert faults.await_args.kwargs["date_from"] == "20260701"
-    assert faults.await_args.kwargs["date_to"] == "20260731"
+    assert faults.await_args.kwargs["date_from"] == "20260101"
+    assert faults.await_args.kwargs["date_to"] == "20261231"

@@ -709,7 +709,7 @@ async def station_rates(
         for order in group["orders"]
     }
     normal_faults = await _fault_sns_by_orders(
-        normal_orders, date_from=start, date_to=end
+        normal_orders, date_from=REPAIR_YEAR_START, date_to=REPAIR_YEAR_END
     )
     composite_groups = {
         dimension: group
@@ -717,7 +717,7 @@ async def station_rates(
         if group["model"] in COMPOSITE_MODEL_ITEMS
     }
     composite_faults = await _fault_sns_by_composite_groups(
-        composite_groups, date_from=start, date_to=end
+        composite_groups, date_from=REPAIR_YEAR_START, date_to=REPAIR_YEAR_END
     )
     summary_counts: dict[str, tuple[int, int]] = {}
     for dimension, group in summary_groups.items():
