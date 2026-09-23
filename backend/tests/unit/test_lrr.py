@@ -188,6 +188,36 @@ def test_lrr_groups_usage_by_material_and_month_and_matches_fault_description():
     assert details[0].ngTime == "20260125"
 
 
+def test_lrr_matches_repair_material_to_zero_padded_bom_material():
+    rows, details = aggregate_lrr(
+        [
+            {
+                "AUFNR_1": "1",
+                "MATNR": "000000000057000766",
+                "MAKTX": "C30-D324 机箱",
+                "GSTRS": "20260905",
+                "MENGE_A": 473,
+            }
+        ],
+        [
+            {
+                "_id": "repair-6102114804622475",
+                "AUFNR": "1",
+                "RECORD01REPAIRM": "57000766",
+                "PCODE": "6102114804622475",
+                "ZDATE_WX": "20260912",
+                "ZWXWD": "故障维修",
+            }
+        ],
+    )
+
+    assert rows[0].materialNumber == "000000000057000766"
+    assert rows[0].faultCount == 1
+    assert rows[0].lrrRate == 0.21
+    assert details[0].materialNumber == "000000000057000766"
+    assert details[0].sn == "6102114804622475"
+
+
 def test_lrr_does_not_match_known_production_order_through_shared_sales_order():
     rows, details = aggregate_lrr(
         [

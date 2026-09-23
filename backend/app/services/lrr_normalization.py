@@ -26,6 +26,11 @@ def normalize_sales_order(value: Any) -> str:
     return text.lstrip("0") or "0" if text.isdigit() else text
 
 
+def normalize_material_number(value: Any) -> str:
+    text = str(value or "").strip()
+    return text.lstrip("0") or "0" if text.isdigit() else text
+
+
 def month_from_date(value: Any) -> str:
     compact = re.sub(r"\D", "", str(value or ""))
     if len(compact) < 6:

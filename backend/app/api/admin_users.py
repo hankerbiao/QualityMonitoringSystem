@@ -74,10 +74,6 @@ async def create_user(
     username = payload.username.strip()
     if username == get_settings().DEFAULT_ADMIN_USERNAME:
         raise HTTPException(status_code=409, detail="该用户名保留给管理员")
-    if await db.users.find_one({"username": username}) or await db.users.find_one(
-        {"itcode": username}
-    ):
-        raise HTTPException(status_code=409, detail="用户名已存在")
     display_name = payload.displayName.strip()
     if not display_name:
         raise HTTPException(status_code=422, detail="显示姓名不能为空")
@@ -105,6 +101,42 @@ async def create_user(
         "createdAt": now,
         "updatedAt": now,
     }
+
+    matches = await db.users.find(
+        {"$or": [{"username": username}, {"itcode": username}]}
+    ).to_list(length=10)
+    if matches:
+        if any(not _is_deleted(match) for match in matches):
+            raise HTTPException(status_code=409, detail="用户名已存在")
+
+        # MongoDB keeps username and itcode unique even for soft-deleted users.
+        # Reuse the old document so the new account can keep the same identity
+        # without dropping the historical record or violating those indexes.
+        existing = matches[0]
+        try:
+            await db.users.update_one(
+                {"_id": existing["_id"]},
+                {
+                    "$set": {
+                        "username": username,
+                        "itcode": username,
+                        "displayName": display_name,
+                        "role": "user",
+                        "isActive": True,
+                        "dashboardPermissions": permissions,
+                        "passwordHash": doc["passwordHash"],
+                        "profile": profile,
+                        "deletedAt": None,
+                        "updatedAt": now,
+                    }
+                },
+            )
+        except DuplicateKeyError:
+            raise HTTPException(status_code=409, detail="用户名已存在") from None
+        await _service().revoke_user_sessions(username)
+        refreshed = await db.users.find_one({"_id": existing["_id"]})
+        return _summary(refreshed or {**existing, **doc, "deletedAt": None, "updatedAt": now})
+
     try:
         await db.users.insert_one(doc)
     except DuplicateKeyError:

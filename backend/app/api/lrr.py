@@ -27,6 +27,7 @@ from app.services.lrr_list_cache import LRRListQuery, lrr_list_cache
 from app.services.lrr_normalization import (
     compact_date,
     month_from_date,
+    normalize_material_number,
     normalize_production_order,
     normalize_sales_order,
 )
@@ -142,8 +143,11 @@ def aggregate_lrr(
         )
         candidates = list(link_candidates)
         if fault_material:
+            normalized_fault_material = normalize_material_number(fault_material)
             candidates = [
-                (key, group) for key, group in candidates if group["material"] == fault_material
+                (key, group)
+                for key, group in candidates
+                if normalize_material_number(group["material"]) == normalized_fault_material
             ]
         else:
             fault_description = _normalized_description(fault.get("ZJXMC"))

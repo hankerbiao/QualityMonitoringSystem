@@ -123,6 +123,28 @@ class TestAdminUsers:
             )
         ).status_code == 403
 
+        recreated = await client.post(
+            "/api/admin/users",
+            headers=headers,
+            json={
+                "username": "alice",
+                "displayName": "Alice Recreated",
+                "password": "recreated-password",
+                "dashboardPermissions": ["doa"],
+            },
+        )
+        assert recreated.status_code == 201
+        assert recreated.json()["displayName"] == "Alice Recreated"
+        assert recreated.json()["dashboardPermissions"] == ["doa"]
+        stored = await db_clean.users.find_one({"username": "alice"})
+        assert stored["isActive"] is True
+        assert stored["deletedAt"] is None
+        assert (
+            await client.post(
+                "/api/auth/login", json={"username": "alice", "password": "recreated-password"}
+            )
+        ).status_code == 200
+
     async def test_dashboard_permissions_are_scoped_to_each_dashboard(
         self, client, monkeypatch
     ):
