@@ -708,26 +708,32 @@ async def station_rates(
     order_scope: str = "normal",
 ) -> list[StationPassRate]:
     start, end = _date_range(date_from, date_to)
-    records = await data_gateway.all_station_rows(
-        dateFrom=f"{start[:4]}-{start[4:6]}-{start[6:]}",
-        dateTo=f"{end[:4]}-{end[4:6]}-{end[6:]}",
-        timeField="planned",
-        sn=serial_number or "",
-        productModel=product_model or "",
-        base=base or "",
-    )
-    # The summary shown beside the station columns must use the same source
-    # and counting rules as RTY: WMENG is the denominator and fault SNs are
-    # globally de-duplicated per RTY dimension.
-    orders = await _orders(
-        {
-            "dateFrom": f"{start[:4]}-{start[4:6]}-{start[6:]}",
-            "dateTo": f"{end[:4]}-{end[4:6]}-{end[6:]}",
-            "serialNumber": serial_number or "",
-            "productModel": product_model or "",
-            "base": base or "",
-            "orderScope": order_scope,
-        }
+    date_from_iso = f"{start[:4]}-{start[4:6]}-{start[6:]}"
+    date_to_iso = f"{end[:4]}-{end[4:6]}-{end[6:]}"
+    # Station rows and orders are independent. The summary faults only need
+    # orders, while station defects only need the serial numbers below.
+    records, orders = await asyncio.gather(
+        data_gateway.all_station_rows(
+            dateFrom=date_from_iso,
+            dateTo=date_to_iso,
+            timeField="planned",
+            sn=serial_number or "",
+            productModel=product_model or "",
+            base=base or "",
+        ),
+        # The summary shown beside the station columns must use the same source
+        # and counting rules as RTY: WMENG is the denominator and fault SNs are
+        # globally de-duplicated per RTY dimension.
+        _orders(
+            {
+                "dateFrom": date_from_iso,
+                "dateTo": date_to_iso,
+                "serialNumber": serial_number or "",
+                "productModel": product_model or "",
+                "base": base or "",
+                "orderScope": order_scope,
+            }
+        ),
     )
     records = _station_rows_in_planned_range(records, start, end)
     summary_groups: dict[str, dict[str, Any]] = {}
@@ -740,33 +746,6 @@ async def station_rates(
         )
         group["input"] += _num(data.get("WMENG"))
         group["orders"].add(row["aufnr"])
-
-    normal_orders = {
-        order
-        for group in summary_groups.values()
-        if group["model"] not in COMPOSITE_MODEL_ITEMS
-        for order in group["orders"]
-    }
-    normal_faults = await _fault_sns_by_orders(
-        normal_orders, date_from=REPAIR_YEAR_START, date_to=REPAIR_YEAR_END
-    )
-    composite_groups = {
-        dimension: group
-        for dimension, group in summary_groups.items()
-        if group["model"] in COMPOSITE_MODEL_ITEMS
-    }
-    composite_faults = await _fault_sns_by_composite_groups(
-        composite_groups, date_from=REPAIR_YEAR_START, date_to=REPAIR_YEAR_END
-    )
-    summary_counts: dict[str, tuple[int, int]] = {}
-    for dimension, group in summary_groups.items():
-        faults = normal_faults
-        if group["model"] in COMPOSITE_MODEL_ITEMS:
-            faults = composite_faults.get(dimension, {})
-        defect_sns = set().union(
-            *(faults.get(normalize_order(order), set()) for order in group["orders"])
-        )
-        summary_counts[dimension] = (round(group["input"]), len(defect_sns))
 
     by_station: dict[tuple[str, str], dict[str, Any]] = {}
     for item in records:
@@ -797,14 +776,41 @@ async def station_rates(
                 "sns"
             ].add(sn)
     all_sns = {sn for value in by_station.values() for sn in value["sns"]}
-    repairs = await _station_repairs_for_sns(all_sns, date_from=start, date_to=end)
+    normal_orders = {
+        order
+        for group in summary_groups.values()
+        if group["model"] not in COMPOSITE_MODEL_ITEMS
+        for order in group["orders"]
+    }
+    composite_groups = {
+        dimension: group
+        for dimension, group in summary_groups.items()
+        if group["model"] in COMPOSITE_MODEL_ITEMS
+    }
+    repairs, normal_faults, composite_faults = await asyncio.gather(
+        _station_repairs_for_sns(all_sns, date_from=start, date_to=end),
+        _fault_sns_by_orders(normal_orders, date_from=REPAIR_YEAR_START, date_to=REPAIR_YEAR_END),
+        _fault_sns_by_composite_groups(
+            composite_groups, date_from=REPAIR_YEAR_START, date_to=REPAIR_YEAR_END
+        ),
+    )
+    summary_counts: dict[str, tuple[int, int]] = {}
+    for dimension, group in summary_groups.items():
+        faults = normal_faults
+        if group["model"] in COMPOSITE_MODEL_ITEMS:
+            faults = composite_faults.get(dimension, {})
+        defect_sns = set().union(
+            *(faults.get(normalize_order(order), set()) for order in group["orders"])
+        )
+        summary_counts[dimension] = (round(group["input"]), len(defect_sns))
+    repairs_by_station: dict[str, set[str]] = defaultdict(set)
+    for row in repairs:
+        repair_station = normalize_station_code(str(row.get("ZNGGZ") or ""))
+        repair_sn = str(row.get("PCODE") or "")
+        if repair_station and repair_sn:
+            repairs_by_station[repair_station].add(repair_sn)
     defect_by_station = {
-        (dimension_value, station): {
-            str(row.get("PCODE") or "")
-            for row in repairs
-            if normalize_station_code(str(row.get("ZNGGZ") or "")) == station
-            and str(row.get("PCODE") or "") in value["sns"]
-        }
+        (dimension_value, station): repairs_by_station.get(station, set()) & value["sns"]
         for (dimension_value, station), value in by_station.items()
     }
     return [
@@ -898,9 +904,7 @@ async def station_details(
                 ).strip()
                 if sn in repairs_by_sn
                 else "",
-                defectCode=str(repairs_by_sn[sn].get("ZNGWD") or "")
-                if sn in repairs_by_sn
-                else "",
+                defectCode=str(repairs_by_sn[sn].get("ZNGWD") or "") if sn in repairs_by_sn else "",
                 description=str(repairs_by_sn[sn].get("ZWXWD") or "")
                 if sn in repairs_by_sn
                 else "",

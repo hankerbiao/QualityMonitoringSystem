@@ -37,6 +37,13 @@ class DataGatewayError(RuntimeError):
         self.retryable = retryable
 
 
+def _repair_row_has_planned_field(row: dict[str, Any]) -> bool:
+    if "GSTRS" in row or "plannedStartDate" in row:
+        return True
+    raw = row.get("raw")
+    return isinstance(raw, dict) and ("GSTRS" in raw or "plannedStartDate" in raw)
+
+
 class DataGatewayClient:
     """Small async client with bounded timeouts and consistent errors."""
 
@@ -436,31 +443,69 @@ class DataGatewayClient:
         station: str = "",
         time_field: str = "",
     ) -> list[dict[str, Any]]:
-        if time_field:
-            return await self.all_pages(
-                "GET",
-                "/api/faults/by-sns",
-                filters={
-                    # Station PCODE is the repair gateway's host barcode.
-                    "hostBarcode": ",".join(sns),
-                    "dateFrom": date_from,
-                    "dateTo": date_to,
-                    "station": station,
-                    "timeField": time_field,
-                },
-                max_rows=250_000,
+        # The gateway bulk cap is 10,000 SNs. POST stays on the PCODE index and
+        # avoids the paginated GET, which counts, sorts, and overflows the URL
+        # once a station month contains a few thousand serial numbers.
+        values = list(dict.fromkeys(value.strip() for value in sns if value and value.strip()))
+        if not values:
+            return []
+        rows: list[dict[str, Any]] = []
+        for index in range(0, len(values), 5_000):
+            body: dict[str, Any] = {
+                "sns": values[index : index + 5_000],
+                "dateFrom": date_from,
+                "dateTo": date_to,
+                "station": station,
+            }
+            if time_field:
+                body["timeField"] = time_field
+            payload = await self.request_json("POST", "/api/faults/by-sns", json=body)
+            if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
+                raise DataGatewayError(
+                    "生产数据源返回了无效 SN 故障数据，请联系管理员",
+                    code="DATA_GATEWAY_BAD_RESPONSE",
+                )
+            rows.extend(item for item in payload["items"] if isinstance(item, dict))
+        # Older gateways ignore timeField and omit GSTRS, so a planned-date
+        # request would otherwise drop every repair in the local date check.
+        if time_field == "planned" and rows and not _repair_row_has_planned_field(rows[0]):
+            return await self._fault_rows_by_sns_paged(
+                values,
+                date_from=date_from,
+                date_to=date_to,
+                station=station,
+                time_field=time_field,
             )
-        payload = await self.request_json(
-            "POST",
-            "/api/faults/by-sns",
-            json={"sns": sns, "dateFrom": date_from, "dateTo": date_to, "station": station},
-        )
-        if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
-            raise DataGatewayError(
-                "生产数据源返回了无效 SN 故障数据，请联系管理员",
-                code="DATA_GATEWAY_BAD_RESPONSE",
+        return rows
+
+    async def _fault_rows_by_sns_paged(
+        self,
+        sns: list[str],
+        *,
+        date_from: str,
+        date_to: str,
+        station: str,
+        time_field: str,
+    ) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        # Keep each hostBarcode query under common reverse-proxy URL limits.
+        for index in range(0, len(sns), 200):
+            chunk = sns[index : index + 200]
+            rows.extend(
+                await self.all_pages(
+                    "GET",
+                    "/api/faults/by-sns",
+                    filters={
+                        "hostBarcode": ",".join(chunk),
+                        "dateFrom": date_from,
+                        "dateTo": date_to,
+                        "station": station,
+                        "timeField": time_field,
+                    },
+                    max_rows=250_000,
+                )
             )
-        return [item for item in payload["items"] if isinstance(item, dict)]
+        return rows
 
     async def fault_rows_by_host_barcodes(
         self,

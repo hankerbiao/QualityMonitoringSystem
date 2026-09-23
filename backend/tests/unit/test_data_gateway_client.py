@@ -326,14 +326,52 @@ async def test_station_rows_falls_back_to_paginated_view_when_planned_gstrs_is_m
 
 
 @pytest.mark.asyncio
-async def test_fault_rows_by_sns_uses_planned_get_query_when_requested():
+async def test_fault_rows_by_sns_posts_planned_time_field():
     client = DataGatewayClient("http://gateway.test", timeout=2)
     captured: dict[str, object] = {}
 
-    async def all_pages(method: str, path: str, **kwargs: object):
+    async def request_json(method: str, path: str, **kwargs: object):
         captured.update({"method": method, "path": path, **kwargs})
+        return {"items": [{"PCODE": "SN-1", "GSTRS": "2026-07-15"}]}
+
+    client.request_json = request_json  # type: ignore[method-assign]
+    rows = await client.fault_rows_by_sns(
+        ["SN-1", " SN-1 ", ""],
+        date_from="2026-07-01",
+        date_to="2026-07-31",
+        time_field="planned",
+    )
+
+    assert rows == [{"PCODE": "SN-1", "GSTRS": "2026-07-15"}]
+    assert captured == {
+        "method": "POST",
+        "path": "/api/faults/by-sns",
+        "json": {
+            "sns": ["SN-1"],
+            "dateFrom": "2026-07-01",
+            "dateTo": "2026-07-31",
+            "station": "",
+            "timeField": "planned",
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_fault_rows_by_sns_falls_back_when_gateway_omits_planned_date():
+    client = DataGatewayClient("http://gateway.test", timeout=2)
+    calls: list[str] = []
+
+    async def request_json(method: str, path: str, **kwargs: object):
+        calls.append(method)
+        return {"items": [{"PCODE": "SN-1", "ZDATE_WX": "20260720"}]}
+
+    async def all_pages(method: str, path: str, **kwargs: object):
+        calls.append(method)
+        assert kwargs["filters"]["timeField"] == "planned"
+        assert kwargs["filters"]["hostBarcode"] == "SN-1"
         return [{"PCODE": "SN-1", "GSTRS": "2026-07-15"}]
 
+    client.request_json = request_json  # type: ignore[method-assign]
     client.all_pages = all_pages  # type: ignore[method-assign]
     rows = await client.fault_rows_by_sns(
         ["SN-1"],
@@ -343,15 +381,4 @@ async def test_fault_rows_by_sns_uses_planned_get_query_when_requested():
     )
 
     assert rows == [{"PCODE": "SN-1", "GSTRS": "2026-07-15"}]
-    assert captured == {
-        "method": "GET",
-        "path": "/api/faults/by-sns",
-        "filters": {
-            "hostBarcode": "SN-1",
-            "dateFrom": "2026-07-01",
-            "dateTo": "2026-07-31",
-            "station": "",
-            "timeField": "planned",
-        },
-        "max_rows": 250_000,
-    }
+    assert calls == ["POST", "GET"]
