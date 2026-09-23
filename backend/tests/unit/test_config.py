@@ -64,3 +64,9 @@ def test_settings_ignores_hana_sync_variables():
     settings = Settings(HANA_ADDRESS="hana.internal", HANA_USER="sync_user")
 
     assert settings.MONGODB_DB_NAME == "quality_monitoring"
+
+
+def test_data_gateway_timeout_default_allows_slow_production_queries():
+    settings = _production_settings()
+
+    assert settings.DATA_GATEWAY_TIMEOUT_SECONDS == 120.0

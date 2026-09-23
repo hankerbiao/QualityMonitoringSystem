@@ -31,7 +31,7 @@ class Settings(BaseSettings):
     # Read-only data gateway for SAP/HANA-backed dashboard data. It is the
     # authoritative source for all migrated quality dashboard data.
     DATA_GATEWAY_URL: str = ""
-    DATA_GATEWAY_TIMEOUT_SECONDS: float = 15.0
+    DATA_GATEWAY_TIMEOUT_SECONDS: float = 120.0
     # Short-lived source cache shared by dashboard requests.  This caches
     # gateway responses only; all dashboard calculations remain in this app.
     DATA_GATEWAY_CACHE_TTL_SECONDS: float = 10.0
