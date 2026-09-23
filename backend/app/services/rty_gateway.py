@@ -191,7 +191,12 @@ async def _faults(filters: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 async def _faults_for_sns(
-    sns: set[str], *, date_from: str, date_to: str, station: str | None = None
+    sns: set[str],
+    *,
+    date_from: str,
+    date_to: str,
+    station: str | None = None,
+    time_field: str = "",
 ) -> list[dict[str, Any]]:
     """Query repairs in bounded SN batches so URLs and Mongo filters stay manageable."""
     values = sorted(value for value in sns if value)
@@ -204,13 +209,47 @@ async def _faults_for_sns(
 
     async def fetch(chunk: list[str]) -> list[dict[str, Any]]:
         async with semaphore:
-            rows = await data_gateway.fault_rows_by_sns(
-                chunk, date_from=date_from, date_to=date_to, station=station or ""
-            )
+            filters: dict[str, Any] = {
+                "date_from": date_from,
+                "date_to": date_to,
+                "station": station or "",
+            }
+            if time_field:
+                filters["time_field"] = time_field
+            rows = await data_gateway.fault_rows_by_sns(chunk, **filters)
             return [normalize_fault_row(row) for row in rows]
 
     batches = await asyncio.gather(*(fetch(chunk) for chunk in chunks))
     return [row for batch in batches for row in batch]
+
+
+def _repair_gstrs_date(row: dict[str, Any]) -> str:
+    raw = _raw(row)
+    nested = raw.get("data") if isinstance(raw.get("data"), dict) else raw
+    return str(nested.get("GSTRS") or raw.get("GSTRS") or "").strip()
+
+
+async def _station_repairs_for_sns(
+    sns: set[str], *, date_from: str, date_to: str
+) -> list[dict[str, Any]]:
+    """Return station repairs whose repair-table planned start is in range.
+
+    The gateway's default fault date parameters use the repair date
+    (ZDATE_WX). Station RTY explicitly requests its planned-start variant
+    (GSTRS) and keeps a local field check as a defense against gateway drift.
+    """
+    rows = await _faults_for_sns(
+        sns,
+        date_from=date_from,
+        date_to=date_to,
+        time_field="planned",
+    )
+    return [
+        row
+        for row in rows
+        if (planned_date := compact_date(_repair_gstrs_date(row)))
+        and date_from <= planned_date <= date_to
+    ]
 
 
 async def _faults_for_orders(
@@ -758,7 +797,7 @@ async def station_rates(
                 "sns"
             ].add(sn)
     all_sns = {sn for value in by_station.values() for sn in value["sns"]}
-    repairs = await _faults_for_sns(all_sns, date_from=start, date_to=end)
+    repairs = await _station_repairs_for_sns(all_sns, date_from=start, date_to=end)
     defect_by_station = {
         (dimension_value, station): {
             str(row.get("PCODE") or "")
@@ -837,7 +876,7 @@ async def station_details(
         ):
             unique.setdefault(sn, {"raw": raw, "code": code})
     if detail_type == "input":
-        repairs = await _faults_for_sns(set(unique), date_from=start, date_to=end)
+        repairs = await _station_repairs_for_sns(set(unique), date_from=start, date_to=end)
         repairs_by_sn: dict[str, dict[str, Any]] = {}
         for row in repairs:
             if normalize_station_code(str(row.get("ZNGGZ") or "")) != station:
@@ -873,7 +912,7 @@ async def station_details(
         ]
     if not unique:
         return []
-    repairs = await _faults_for_sns(unique, date_from=start, date_to=end)
+    repairs = await _station_repairs_for_sns(set(unique), date_from=start, date_to=end)
     seen: set[str] = set()
     result: list[StationPassDetail] = []
     for row in repairs:

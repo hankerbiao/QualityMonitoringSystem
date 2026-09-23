@@ -67,6 +67,51 @@ function rateTone(rate: number) {
   return 'bg-red-50 text-red-800 hover:bg-red-100 focus-visible:ring-red-500';
 }
 
+function CalculationHelpDialog({ onClose }: { onClose: () => void }) {
+  return (
+    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4" onClick={onClose}>
+      <section role="dialog" aria-modal="true" aria-labelledby="calculation-help-title" className="w-full max-w-2xl overflow-hidden rounded-md border border-slate-200 bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+          <div className="flex items-center gap-2"><CircleHelp className="size-4 text-cyan-700" /><h2 id="calculation-help-title" className="text-sm font-semibold text-slate-900">工位直通率计算口径</h2></div>
+          <button type="button" onClick={onClose} className="inline-flex size-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800" title="关闭" aria-label="关闭说明"><X className="size-4" /></button>
+        </div>
+        <div className="max-h-[75vh] space-y-4 overflow-y-auto px-5 py-4 text-sm leading-6 text-slate-600">
+          <section>
+            <h3 className="font-semibold text-slate-800">单工站直通率</h3>
+            <p>分母 = 该工站时间范围内过站的唯一机器 SN；维修扣减 = 同一 SN 匹配同一工站的唯一维修 SN；分子 = 分母 - 维修扣减。</p>
+            <p className="mt-1">直通率 = 分子 ÷ 分母 × 100%。</p>
+          </section>
+          <section>
+            <h3 className="mb-2 font-semibold text-slate-800">字段对照</h3>
+            <div className="overflow-hidden rounded-md border border-slate-200">
+              <table className="w-full text-left text-xs">
+                <thead className="bg-slate-50 text-slate-600"><tr><th className="border-b border-slate-200 px-3 py-2">用途</th><th className="border-b border-slate-200 px-3 py-2">数据字段</th><th className="border-b border-slate-200 px-3 py-2">中文含义</th></tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                  <tr><td className="px-3 py-2">过站 SN / 分母</td><td className="px-3 py-2 font-mono text-slate-800">station_records_sap.PCODE</td><td className="px-3 py-2">机器序列号，按 SN 去重</td></tr>
+                  <tr><td className="px-3 py-2">过站日期筛选</td><td className="px-3 py-2 font-mono text-slate-800">station_records_sap.GSTRS</td><td className="px-3 py-2">计划开始时间</td></tr>
+                  <tr><td className="px-3 py-2">工站匹配</td><td className="px-3 py-2 font-mono text-slate-800">station_records_sap.SPEC / OPERATION</td><td className="px-3 py-2">过站工站编码</td></tr>
+                  <tr><td className="px-3 py-2">维修 SN / 扣减</td><td className="px-3 py-2 font-mono text-slate-800">repair_records_sap.PCODE</td><td className="px-3 py-2">维修记录对应的机器序列号，按 SN 去重</td></tr>
+                  <tr><td className="px-3 py-2">维修日期筛选</td><td className="px-3 py-2 font-mono text-slate-800">repair_records_sap.GSTRS</td><td className="px-3 py-2">计划开始时间，当前统计使用该字段</td></tr>
+                  <tr><td className="px-3 py-2">维修工站匹配</td><td className="px-3 py-2 font-mono text-slate-800">repair_records_sap.ZNGGZ</td><td className="px-3 py-2">维修不良工站</td></tr>
+                  <tr><td className="px-3 py-2">详情展示</td><td className="px-3 py-2 font-mono text-slate-800">repair_records_sap.ZDATE_WX</td><td className="px-3 py-2">实际维修日期，不参与本统计日期筛选</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </section>
+          <section>
+            <h3 className="font-semibold text-slate-800">RTY 汇总列</h3>
+            <p>RTY 汇总列使用订单的 <span className="font-mono text-slate-800">WMENG</span>（订单产量）作为分母，订单计划开始日期使用 <span className="font-mono text-slate-800">GSTRS</span>；它与各工站过站 SN 数不是同一统计口径。</p>
+          </section>
+          <section>
+            <h3 className="font-semibold text-slate-800">组合工站直通率</h3>
+            <p>将已选择工站的单站直通率转为小数后相乘，再转回百分比。它表示选定工站组合表现，不是 RTY 汇总值。</p>
+          </section>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export default function StationPassRatePage() {
   const navigate = useNavigate();
   const { settings, updateSettings } = useSettings();
@@ -480,7 +525,7 @@ export default function StationPassRatePage() {
         </section>
       </main>
 
-      {calculationHelpOpen && <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4" onClick={() => setCalculationHelpOpen(false)}><section role="dialog" aria-modal="true" aria-labelledby="calculation-help-title" className="w-full max-w-xl overflow-hidden rounded-md border border-slate-200 bg-white shadow-xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-slate-200 px-5 py-4"><div className="flex items-center gap-2"><CircleHelp className="size-4 text-cyan-700" /><h2 id="calculation-help-title" className="text-sm font-semibold text-slate-900">工位直通率计算口径</h2></div><button type="button" onClick={() => setCalculationHelpOpen(false)} className="inline-flex size-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800" title="关闭" aria-label="关闭说明"><X className="size-4" /></button></div><div className="space-y-4 px-5 py-4 text-sm leading-6 text-slate-600"><section><h3 className="font-semibold text-slate-800">RTY直通率</h3><p>按生产订单计划开工日期（GSTRS）归属所选月份；分母为符合当前机型、基地、订单范围等筛选条件的订单产量 WMENG 之和；分子为这些生产订单关联的故障机器 SN 去重数。故障按 2026 全年维修记录统计，与 RTY 热力图口径一致。</p></section><section><h3 className="font-semibold text-slate-800">单工站直通率</h3><p>单站直通率 =（该工站过站唯一 SN 数 - 匹配该工站维修记录的唯一 SN 数）÷ 该工站过站唯一 SN 数 × 100%。维修记录按所选日期范围筛选。</p></section><section><h3 className="font-semibold text-slate-800">组合工站直通率</h3><p>先分别计算每个已选工站的单站直通率，再将各站百分比换算为小数后相乘，最后转回百分比：组合直通率 = 单站1 × 单站2 × … × 单站N。任一已选工站没有过站数据时显示“ - ”；它反映所选工站组合表现，不是 RTY 汇总值。</p></section><p className="border-t border-slate-100 pt-3 text-xs text-slate-500">单个 SN 在不同工站可分别计入对应工站；因此单工站及组合工站指标不要求与 RTY 故障数相等。</p></div></section></div>}
+      {calculationHelpOpen && <CalculationHelpDialog onClose={() => setCalculationHelpOpen(false)} />}
 
       {stationConfigOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={closeStationConfig}><div role="dialog" aria-modal="true" aria-labelledby="station-config-title" className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-md bg-white shadow-xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-slate-200 px-5 py-4"><div><h2 id="station-config-title" className="text-sm font-semibold text-slate-900">配置组合工站</h2><p className="mt-0.5 text-xs text-slate-500">已选择的工站用于计算工站直通率，完成后会长期保存</p></div><button type="button" onClick={closeStationConfig} disabled={stationConfigSaving} aria-label="关闭" title="关闭" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-40"><X className="size-4" /></button></div><div className="flex items-center justify-between border-b border-slate-100 px-5 py-3"><span className="text-xs text-slate-500">已选 {selectedStations.length} / {matrix.stations.length} 个</span><div className="flex items-center gap-3"><button type="button" onClick={() => setSelectedStations(matrix.stations)} disabled={stationConfigSaving} className="text-xs font-medium text-cyan-700 hover:text-cyan-800 disabled:opacity-40">全选</button><button type="button" onClick={() => setSelectedStations([])} disabled={!selectedStations.length || stationConfigSaving} className="text-xs font-medium text-slate-500 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40">清空</button></div></div><div className="grid grid-cols-2 gap-x-6 gap-y-2 overflow-y-auto px-5 py-4 sm:grid-cols-3">{matrix.stations.map((station) => <label key={station} className="inline-flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={selectedStations.includes(station)} disabled={stationConfigSaving} onChange={() => toggleStation(station)} className="size-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" /><span className="font-mono">{station}</span></label>)}</div><div className="flex items-center justify-between border-t border-slate-100 px-5 py-3">{stationConfigError ? <span className="text-xs text-red-600">{stationConfigError}</span> : <span className="text-xs text-slate-400">当前选择将在后续查询中自动恢复</span>}<button type="button" onClick={() => void saveStationConfig()} disabled={stationConfigSaving} className="inline-flex h-9 items-center rounded-md bg-cyan-600 px-4 text-sm font-medium text-white hover:bg-cyan-700 disabled:cursor-wait disabled:opacity-60">{stationConfigSaving ? '保存中...' : '完成'}</button></div></div></div>}
 

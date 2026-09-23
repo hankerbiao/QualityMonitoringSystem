@@ -434,7 +434,22 @@ class DataGatewayClient:
         date_from: str = "",
         date_to: str = "",
         station: str = "",
+        time_field: str = "",
     ) -> list[dict[str, Any]]:
+        if time_field:
+            return await self.all_pages(
+                "GET",
+                "/api/faults/by-sns",
+                filters={
+                    # Station PCODE is the repair gateway's host barcode.
+                    "hostBarcode": ",".join(sns),
+                    "dateFrom": date_from,
+                    "dateTo": date_to,
+                    "station": station,
+                    "timeField": time_field,
+                },
+                max_rows=250_000,
+            )
         payload = await self.request_json(
             "POST",
             "/api/faults/by-sns",
@@ -627,6 +642,16 @@ class DataGatewayClient:
                 code="DATA_GATEWAY_UNAVAILABLE",
                 retryable=True,
             ) from exc
+        if filters.get("timeField") == "planned" and "GSTRS" not in fields:
+            # Older gateway deployments omit the planned start date from the
+            # station stream projection. Use the paginated view so the RTY
+            # service can enforce its GSTRS date contract locally.
+            return await self.all_pages(
+                "GET",
+                "/api/views/Z_V_ZMES_T_001",
+                filters={**filters, "timeField": "planned"},
+                max_rows=max_rows,
+            )
         if self.cache_ttl > 0:
             async with self._orders_cache_lock:
                 self._text_cache[cache_key] = (time.monotonic() + self.cache_ttl, rows)

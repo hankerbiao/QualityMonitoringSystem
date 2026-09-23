@@ -286,3 +286,72 @@ async def test_station_rows_reuses_short_lived_cache():
 
     assert calls == 1
     assert first == second == [{"id": "row-1", "PCODE": "SN1"}]
+
+
+@pytest.mark.asyncio
+async def test_station_rows_falls_back_to_paginated_view_when_planned_gstrs_is_missing():
+    client = DataGatewayClient("http://gateway.test", timeout=2)
+    captured: dict[str, object] = {}
+
+    async def request_json(method: str, path: str, **kwargs: object):
+        captured.update({"method": method, "path": path, **kwargs})
+        return {"items": [{"id": "station-1", "GSTRS": "2026-07-15"}], "total": 1}
+
+    client.request_json = request_json  # type: ignore[method-assign]
+    client._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(200, text="id\tPCODE\nrow-1\tSN1\n")
+        ),
+        base_url=client.base_url,
+    )
+    try:
+        rows = await client.all_station_rows(
+            dateFrom="2026-07-01", dateTo="2026-07-31", timeField="planned"
+        )
+    finally:
+        await client.close()
+
+    assert rows == [{"id": "station-1", "GSTRS": "2026-07-15"}]
+    assert captured == {
+        "method": "GET",
+        "path": "/api/views/Z_V_ZMES_T_001",
+        "params": {
+            "page": 1,
+            "pageSize": 100,
+            "dateFrom": "2026-07-01",
+            "dateTo": "2026-07-31",
+            "timeField": "planned",
+        },
+    }
+
+
+@pytest.mark.asyncio
+async def test_fault_rows_by_sns_uses_planned_get_query_when_requested():
+    client = DataGatewayClient("http://gateway.test", timeout=2)
+    captured: dict[str, object] = {}
+
+    async def all_pages(method: str, path: str, **kwargs: object):
+        captured.update({"method": method, "path": path, **kwargs})
+        return [{"PCODE": "SN-1", "GSTRS": "2026-07-15"}]
+
+    client.all_pages = all_pages  # type: ignore[method-assign]
+    rows = await client.fault_rows_by_sns(
+        ["SN-1"],
+        date_from="2026-07-01",
+        date_to="2026-07-31",
+        time_field="planned",
+    )
+
+    assert rows == [{"PCODE": "SN-1", "GSTRS": "2026-07-15"}]
+    assert captured == {
+        "method": "GET",
+        "path": "/api/faults/by-sns",
+        "filters": {
+            "hostBarcode": "SN-1",
+            "dateFrom": "2026-07-01",
+            "dateTo": "2026-07-31",
+            "station": "",
+            "timeField": "planned",
+        },
+        "max_rows": 250_000,
+    }

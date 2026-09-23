@@ -324,7 +324,14 @@ async def test_station_detail_repairs_use_the_same_local_station_match_as_summar
     )
     faults = AsyncMock(
         return_value=[
-            {"raw": {"PCODE": "SN-1", "ZNGGZ": "Line-OP205:装配", "ZDATE_WX": "20260502"}}
+            {
+                "raw": {
+                    "PCODE": "SN-1",
+                    "ZNGGZ": "Line-OP205:装配",
+                    "GSTRS": "20260515",
+                    "ZDATE_WX": "20260702",
+                }
+            }
         ]
     )
     monkeypatch.setattr(gateway, "fault_rows_by_sns", faults)
@@ -342,6 +349,7 @@ async def test_station_detail_repairs_use_the_same_local_station_match_as_summar
     assert [row.sn for row in rows] == ["SN-1"]
     assert rows[0].passDate == "20260515"
     assert faults.await_args.kwargs["station"] == ""
+    assert faults.await_args.kwargs["time_field"] == "planned"
 
 
 @pytest.mark.asyncio
@@ -379,7 +387,8 @@ async def test_station_input_details_include_matching_fault_fields(monkeypatch):
                     "ZNGGZ": "Line-OP205:装配",
                     "ZNGWD": "F-001",
                     "ZWXWD": "装配异常",
-                    "ZDATE_WX": "20260520",
+                    "GSTRS": "20260520",
+                    "ZDATE_WX": "20260720",
                     "ZTIME": "103000",
                     "ZUSER": "tester",
                 }
@@ -409,7 +418,7 @@ async def test_station_input_details_include_matching_fault_fields(monkeypatch):
     assert rows[0].sn == "SN-1"
     assert rows[0].defectCode == "F-001"
     assert rows[0].description == "装配异常"
-    assert rows[0].repairTime == "20260520 103000"
+    assert rows[0].repairTime == "20260720 103000"
     assert rows[1].sn == "SN-2"
     assert rows[1].defectCode == ""
     assert rows[1].description == ""
@@ -417,6 +426,7 @@ async def test_station_input_details_include_matching_fault_fields(monkeypatch):
         "date_from": "20260501",
         "date_to": "20260531",
         "station": "",
+        "time_field": "planned",
     }
 
 
@@ -485,6 +495,40 @@ async def test_station_rates_excludes_rows_without_gstrs(monkeypatch):
 
     assert rows == []
     assert station_rows.await_args.kwargs["productModel"] == "M-1"
+
+
+@pytest.mark.asyncio
+async def test_station_repairs_filter_by_repair_table_gstrs_not_repair_date(monkeypatch):
+    repairs = AsyncMock(
+        return_value=[
+            {
+                "raw": {
+                    "PCODE": "SN-IN",
+                    "GSTRS": "20260520",
+                    "ZDATE_WX": "20260720",
+                }
+            },
+            {
+                "raw": {
+                    "PCODE": "SN-OUT",
+                    "GSTRS": "20260720",
+                    "ZDATE_WX": "20260520",
+                }
+            },
+        ]
+    )
+    monkeypatch.setattr(rty_gateway, "_faults_for_sns", repairs)
+
+    rows = await rty_gateway._station_repairs_for_sns(
+        {"SN-IN", "SN-OUT"}, date_from="20260501", date_to="20260531"
+    )
+
+    assert [row["raw"]["PCODE"] for row in rows] == ["SN-IN"]
+    assert repairs.await_args.kwargs == {
+        "date_from": "20260501",
+        "date_to": "20260531",
+        "time_field": "planned",
+    }
 
 
 @pytest.mark.asyncio
