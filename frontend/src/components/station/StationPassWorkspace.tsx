@@ -1,3 +1,5 @@
+import { useState } from 'react';
+import { ChevronDown } from 'lucide-react';
 import {
   datePresetRange,
   matchingDatePreset,
@@ -209,12 +211,26 @@ export function StationPassFindings({
   onOpen: (rate: StationRateRow) => void;
 }) {
   const bands: StationRateBand[] = ['alert', 'watch', 'met'];
+  const [expanded, setExpanded] = useState(false);
 
   return (
-    <section className="grid border-t border-slate-100 bg-white lg:grid-cols-[240px_minmax(0,0.9fr)_minmax(0,1.1fr)] lg:divide-x lg:divide-slate-100">
-      <div className="px-4 py-3">
-        <h3 className="text-xs font-semibold text-slate-500">工位分布</h3>
-        <div className="mt-2 space-y-1">
+    <section className="border-t border-slate-100 bg-white">
+      <button
+        type="button"
+        aria-expanded={expanded}
+        onClick={() => setExpanded((current) => !current)}
+        className="flex w-full items-center justify-between px-4 py-3 text-left transition-colors hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-cyan-600"
+      >
+        <span>
+          <span className="block text-sm font-semibold text-slate-700">工位分析</span>
+          <span className="mt-0.5 block text-xs text-slate-400">工位分布、最低工站和最低工位</span>
+        </span>
+        <ChevronDown className={`size-4 text-slate-400 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+      </button>
+      {expanded && <div className="grid border-t border-slate-100 lg:grid-cols-[240px_minmax(0,0.9fr)_minmax(0,1.1fr)] lg:divide-x lg:divide-slate-100">
+        <div className="px-4 py-3">
+          <h3 className="text-xs font-semibold text-slate-500">工位分布</h3>
+          <div className="mt-2 space-y-1">
           {bands.map((band) => {
             const meta = bandMeta[band];
             const pressed = band !== 'met' && focus === band;
@@ -239,11 +255,11 @@ export function StationPassFindings({
               </button>
             );
           })}
+          </div>
         </div>
-      </div>
-      <div className="px-4 py-3">
-        <h3 className="text-xs font-semibold text-slate-500">最低工站</h3>
-        <ul className="mt-1">
+        <div className="px-4 py-3">
+          <h3 className="text-xs font-semibold text-slate-500">最低工站</h3>
+          <ul className="mt-1">
           {summary.stations.map((station) => (
             <li key={station.stationCode} className="flex items-center gap-3 border-b border-slate-100 py-2 last:border-b-0">
               <div className="min-w-0 flex-1">
@@ -263,11 +279,11 @@ export function StationPassFindings({
               </div>
             </li>
           ))}
-        </ul>
-      </div>
-      <div className="px-4 py-3">
-        <h3 className="text-xs font-semibold text-slate-500">最低工位</h3>
-        <div className="mt-1">
+          </ul>
+        </div>
+        <div className="px-4 py-3">
+          <h3 className="text-xs font-semibold text-slate-500">最低工位</h3>
+          <div className="mt-1">
           {summary.lowest.map((row) => (
             <button
               key={`${row.dimensionValue}:${row.stationCode}`}
@@ -286,8 +302,9 @@ export function StationPassFindings({
               </div>
             </button>
           ))}
+          </div>
         </div>
-      </div>
+      </div>}
     </section>
   );
 }
