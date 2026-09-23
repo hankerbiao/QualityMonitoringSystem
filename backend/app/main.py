@@ -23,6 +23,7 @@ from app.api import (
     sn_info,
 )
 from app.core.config import get_settings, validate_security_settings
+from app.core.context import get_request_id
 from app.core.lifecycle import shutdown_infrastructure, startup_infrastructure
 from app.core.logger import log_error
 from app.core.middleware import RequestContextMiddleware, UsageTrackingMiddleware
@@ -105,10 +106,19 @@ async def http_exception_handler(request: Request, exc: HTTPException):
     )
     # 若 detail 本身是字典（如结构化的 502 错误体），原样返回，保留结构
     if isinstance(exc.detail, dict):
-        return JSONResponse(status_code=exc.status_code, content=exc.detail)
+        payload = {"success": False, **exc.detail}
+        payload.setdefault("requestId", get_request_id())
+        return JSONResponse(status_code=exc.status_code, content=payload)
     return JSONResponse(
         status_code=exc.status_code,
-        content={"success": False, "error": str(exc.detail)},
+        content={
+            "success": False,
+            "code": "HTTP_ERROR",
+            "error": str(exc.detail),
+            "message": str(exc.detail),
+            "retryable": False,
+            "requestId": get_request_id(),
+        },
     )
 
 
@@ -123,7 +133,14 @@ async def data_gateway_exception_handler(request: Request, exc: DataGatewayError
     )
     return JSONResponse(
         status_code=status_code,
-        content={"success": False, "error": str(exc)},
+        content={
+            "success": False,
+            "code": exc.code,
+            "error": str(exc),
+            "message": str(exc),
+            "retryable": exc.retryable,
+            "requestId": get_request_id(),
+        },
     )
 
 
@@ -133,7 +150,14 @@ async def unhandled_exception_handler(request: Request, exc: Exception):
     log_error(f"Unhandled error: {exc}", path=request.url.path, exc_info=exc)
     return JSONResponse(
         status_code=500,
-        content={"success": False, "error": "Internal Server Error"},
+        content={
+            "success": False,
+            "code": "INTERNAL_ERROR",
+            "error": "系统内部错误，请稍后重试",
+            "message": "系统内部错误，请稍后重试",
+            "retryable": True,
+            "requestId": get_request_id(),
+        },
     )
 
 

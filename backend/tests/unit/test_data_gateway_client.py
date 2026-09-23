@@ -44,6 +44,8 @@ async def test_gateway_errors_are_normalized():
         with pytest.raises(DataGatewayError, match="MongoDB unavailable") as error:
             await client.health()
         assert error.value.status_code == 503
+        assert error.value.code == "DATA_GATEWAY_UNAVAILABLE"
+        assert error.value.retryable is True
     finally:
         await client.close()
 

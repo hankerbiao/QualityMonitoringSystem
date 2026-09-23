@@ -23,9 +23,18 @@ from app.core.config import get_settings
 class DataGatewayError(RuntimeError):
     """A gateway request failed or returned an invalid response."""
 
-    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int | None = None,
+        code: str = "DATA_GATEWAY_ERROR",
+        retryable: bool = False,
+    ) -> None:
         super().__init__(message)
         self.status_code = status_code
+        self.code = code
+        self.retryable = retryable
 
 
 class DataGatewayClient:
@@ -121,7 +130,8 @@ class DataGatewayClient:
                     self._list_inflight.pop(cache_key, None)
         if len(items) > max_rows:
             raise DataGatewayError(
-                f"数据网关结果共 {len(items)} 条，超过本系统单次处理上限 {max_rows} 条；请缩小日期或筛选范围"
+                f"数据网关结果共 {len(items)} 条，超过本系统单次处理上限 {max_rows} 条；请缩小日期或筛选范围",
+                code="QUERY_TOO_LARGE",
             )
         if self.cache_ttl > 0:
             async with self._orders_cache_lock:
@@ -137,24 +147,41 @@ class DataGatewayClient:
         json: Any = None,
     ) -> Any:
         if not self.enabled:
-            raise DataGatewayError("DATA_GATEWAY_URL 未配置")
+            raise DataGatewayError(
+                "DATA_GATEWAY_URL 未配置",
+                code="DATA_GATEWAY_UNAVAILABLE",
+                retryable=False,
+            )
         try:
             response = await (await self._http()).request(method, path, params=params, json=json)
         except httpx.TimeoutException as exc:
-            raise DataGatewayError("数据网关请求超时") from exc
+            raise DataGatewayError(
+                "生产数据源响应超时，请缩小查询范围后重试",
+                code="DATA_GATEWAY_TIMEOUT",
+                retryable=True,
+            ) from exc
         except httpx.HTTPError as exc:
-            raise DataGatewayError(f"数据网关连接失败: {exc}") from exc
+            raise DataGatewayError(
+                "生产数据源暂时不可用，请稍后重试",
+                code="DATA_GATEWAY_UNAVAILABLE",
+                retryable=True,
+            ) from exc
         try:
             payload = response.json()
         except ValueError as exc:
             raise DataGatewayError(
-                "数据网关返回了无效 JSON", status_code=response.status_code
+                "生产数据源返回了无效数据，请联系管理员",
+                status_code=response.status_code,
+                code="DATA_GATEWAY_BAD_RESPONSE",
             ) from exc
         if not response.is_success:
             detail = payload.get("error") if isinstance(payload, dict) else None
+            retryable = response.status_code >= 500 or response.status_code == 429
             raise DataGatewayError(
-                detail or f"数据网关请求失败 ({response.status_code})",
+                detail or "生产数据源拒绝了本次查询",
                 status_code=response.status_code,
+                code="DATA_GATEWAY_UNAVAILABLE" if retryable else "DATA_GATEWAY_REJECTED",
+                retryable=retryable,
             )
         return payload
 
@@ -166,7 +193,11 @@ class DataGatewayClient:
         params: dict[str, Any] | None = None,
     ) -> str:
         if not self.enabled:
-            raise DataGatewayError("DATA_GATEWAY_URL 未配置")
+            raise DataGatewayError(
+                "DATA_GATEWAY_URL 未配置",
+                code="DATA_GATEWAY_UNAVAILABLE",
+                retryable=False,
+            )
         if not path.endswith("/stream"):
             return await self._request_text_network(method, path, params=params)
 
@@ -202,17 +233,31 @@ class DataGatewayClient:
         try:
             response = await (await self._http()).request(method, path, params=params)
         except httpx.TimeoutException as exc:
-            raise DataGatewayError("数据网关请求超时") from exc
+            raise DataGatewayError(
+                "生产数据源响应超时，请缩小查询范围后重试",
+                code="DATA_GATEWAY_TIMEOUT",
+                retryable=True,
+            ) from exc
         except httpx.HTTPError as exc:
-            raise DataGatewayError(f"数据网关连接失败: {exc}") from exc
+            raise DataGatewayError(
+                "生产数据源暂时不可用，请稍后重试",
+                code="DATA_GATEWAY_UNAVAILABLE",
+                retryable=True,
+            ) from exc
         if not response.is_success:
             try:
                 detail = response.json().get("error")
             except ValueError:
                 detail = None
             raise DataGatewayError(
-                detail or f"数据网关请求失败 ({response.status_code})",
+                detail or "生产数据源拒绝了本次查询",
                 status_code=response.status_code,
+                code=(
+                    "DATA_GATEWAY_UNAVAILABLE"
+                    if response.status_code >= 500 or response.status_code == 429
+                    else "DATA_GATEWAY_REJECTED"
+                ),
+                retryable=response.status_code >= 500 or response.status_code == 429,
             )
         return response.text
 
@@ -250,18 +295,28 @@ class DataGatewayClient:
                 params={"page": page, **request_filters},
             )
             if not isinstance(payload, dict):
-                raise DataGatewayError("数据网关列表响应格式错误")
+                raise DataGatewayError(
+                    "生产数据源返回了无效列表数据，请联系管理员",
+                    code="DATA_GATEWAY_BAD_RESPONSE",
+                )
             items = payload.get("items") or []
             if not isinstance(items, list):
-                raise DataGatewayError("数据网关列表响应格式错误")
+                raise DataGatewayError(
+                    "生产数据源返回了无效列表数据，请联系管理员",
+                    code="DATA_GATEWAY_BAD_RESPONSE",
+                )
             raw_total = payload.get("total")
             try:
                 total = int(raw_total) if raw_total is not None else len(items)
             except (TypeError, ValueError) as exc:
-                raise DataGatewayError("数据网关列表响应格式错误") from exc
+                raise DataGatewayError(
+                    "生产数据源返回了无效列表数据，请联系管理员",
+                    code="DATA_GATEWAY_BAD_RESPONSE",
+                ) from exc
             if total > max_rows:
                 raise DataGatewayError(
-                    f"数据网关结果共 {total} 条，超过本系统单次处理上限 {max_rows} 条；请缩小日期或筛选范围"
+                    f"当前查询结果约 {total} 条，超过本系统单次处理上限 {max_rows} 条；请缩小日期或增加筛选条件",
+                    code="QUERY_TOO_LARGE",
                 )
             return [item for item in items if isinstance(item, dict)], total
 
@@ -283,7 +338,11 @@ class DataGatewayClient:
         for _, items in sorted(page_results):
             rows.extend(items)
         if len(rows) < total and len(rows) < max_rows:
-            raise DataGatewayError("数据网关分页响应不完整")
+            raise DataGatewayError(
+                "生产数据源分页结果不完整，请稍后重试",
+                code="DATA_GATEWAY_BAD_RESPONSE",
+                retryable=True,
+            )
         return rows[:max_rows]
 
     async def order_detail(self, order_id: str) -> dict[str, Any]:
@@ -335,7 +394,10 @@ class DataGatewayClient:
         async def load() -> list[dict[str, Any]]:
             payload = await self.request_json("GET", "/api/orders/all", params=filters)
             if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
-                raise DataGatewayError("数据网关订单响应格式错误")
+                raise DataGatewayError(
+                    "生产数据源返回了无效订单数据，请联系管理员",
+                    code="DATA_GATEWAY_BAD_RESPONSE",
+                )
             return [item for item in payload["items"] if isinstance(item, dict)]
 
         return await self._cached_list(self._orders_cache, ("orders", cache_key), load, max_rows)
@@ -359,7 +421,10 @@ class DataGatewayClient:
             },
         )
         if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
-            raise DataGatewayError("数据网关故障关联响应格式错误")
+            raise DataGatewayError(
+                "生产数据源返回了无效故障关联数据，请联系管理员",
+                code="DATA_GATEWAY_BAD_RESPONSE",
+            )
         return [item for item in payload["items"] if isinstance(item, dict)]
 
     async def fault_rows_by_sns(
@@ -376,7 +441,10 @@ class DataGatewayClient:
             json={"sns": sns, "dateFrom": date_from, "dateTo": date_to, "station": station},
         )
         if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
-            raise DataGatewayError("数据网关 SN 故障响应格式错误")
+            raise DataGatewayError(
+                "生产数据源返回了无效 SN 故障数据，请联系管理员",
+                code="DATA_GATEWAY_BAD_RESPONSE",
+            )
         return [item for item in payload["items"] if isinstance(item, dict)]
 
     async def fault_rows_by_host_barcodes(
@@ -443,8 +511,14 @@ class DataGatewayClient:
             ) as response:
                 if not response.is_success:
                     raise DataGatewayError(
-                        f"数据网关请求失败 ({response.status_code})",
+                        "生产数据源拒绝了本次 BOM 查询",
                         status_code=response.status_code,
+                        code=(
+                            "DATA_GATEWAY_UNAVAILABLE"
+                            if response.status_code >= 500 or response.status_code == 429
+                            else "DATA_GATEWAY_REJECTED"
+                        ),
+                        retryable=response.status_code >= 500 or response.status_code == 429,
                     )
                 fields: list[str] = []
                 rows: list[dict[str, Any]] = []
@@ -457,11 +531,22 @@ class DataGatewayClient:
                         continue
                     rows.append(dict(zip(fields, values, strict=False)))
                 if len(rows) > max_rows:
-                    raise DataGatewayError("数据网关 BOM 结果超过单次处理上限")
+                    raise DataGatewayError(
+                        "BOM 查询结果超过本系统单次处理上限，请缩小日期或增加筛选条件",
+                        code="QUERY_TOO_LARGE",
+                    )
         except httpx.TimeoutException as exc:
-            raise DataGatewayError("数据网关请求超时") from exc
+            raise DataGatewayError(
+                "生产数据源响应超时，请缩小查询范围后重试",
+                code="DATA_GATEWAY_TIMEOUT",
+                retryable=True,
+            ) from exc
         except httpx.HTTPError as exc:
-            raise DataGatewayError(f"数据网关连接失败: {exc}") from exc
+            raise DataGatewayError(
+                "生产数据源暂时不可用，请稍后重试",
+                code="DATA_GATEWAY_UNAVAILABLE",
+                retryable=True,
+            ) from exc
         # Older gateway deployments expose GSTRS in the paginated BOM view
         # but not in the low-overhead stream. LRR cannot calculate its month
         # denominator without that field, so transparently use the complete
@@ -475,7 +560,10 @@ class DataGatewayClient:
                 max_rows=max_rows,
             )
         if len(rows) > max_rows:
-            raise DataGatewayError("数据网关 BOM 结果超过单次处理上限")
+            raise DataGatewayError(
+                "BOM 查询结果超过本系统单次处理上限，请缩小日期或增加筛选条件",
+                code="QUERY_TOO_LARGE",
+            )
         if self.cache_ttl > 0:
             async with self._orders_cache_lock:
                 self._text_cache[cache_key] = (time.monotonic() + self.cache_ttl, rows)
@@ -503,8 +591,14 @@ class DataGatewayClient:
             ) as response:
                 if not response.is_success:
                     raise DataGatewayError(
-                        f"数据网关请求失败 ({response.status_code})",
+                        "生产数据源拒绝了本次工位查询",
                         status_code=response.status_code,
+                        code=(
+                            "DATA_GATEWAY_UNAVAILABLE"
+                            if response.status_code >= 500 or response.status_code == 429
+                            else "DATA_GATEWAY_REJECTED"
+                        ),
+                        retryable=response.status_code >= 500 or response.status_code == 429,
                     )
                 fields: list[str] = []
                 rows: list[dict[str, Any]] = []
@@ -517,11 +611,22 @@ class DataGatewayClient:
                         continue
                     rows.append(dict(zip(fields, values, strict=False)))
                     if len(rows) > max_rows:
-                        raise DataGatewayError("数据网关工位结果超过单次处理上限")
+                        raise DataGatewayError(
+                            "工位查询结果超过本系统单次处理上限，请缩小日期或增加筛选条件",
+                            code="QUERY_TOO_LARGE",
+                        )
         except httpx.TimeoutException as exc:
-            raise DataGatewayError("数据网关请求超时") from exc
+            raise DataGatewayError(
+                "生产数据源响应超时，请缩小查询范围后重试",
+                code="DATA_GATEWAY_TIMEOUT",
+                retryable=True,
+            ) from exc
         except httpx.HTTPError as exc:
-            raise DataGatewayError(f"数据网关连接失败: {exc}") from exc
+            raise DataGatewayError(
+                "生产数据源暂时不可用，请稍后重试",
+                code="DATA_GATEWAY_UNAVAILABLE",
+                retryable=True,
+            ) from exc
         if self.cache_ttl > 0:
             async with self._orders_cache_lock:
                 self._text_cache[cache_key] = (time.monotonic() + self.cache_ttl, rows)

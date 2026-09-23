@@ -36,6 +36,31 @@ DEFAULT_ADMIN_PASSWORD=<strong-password>
 
 ## 快速开始
 
+### 源码一键启动
+
+配置好 `backend/.env` 后，可以在项目根目录直接启动前后端开发服务：
+
+```bash
+./start.sh
+```
+
+脚本会复用已有的 `backend/.venv` 和 `frontend/node_modules`；依赖不存在时分别执行
+`uv sync` 和 `npm ci`。服务会以前台方式运行，按 `Ctrl+C` 会同时停止前端和后端。
+
+- 前端：`http://localhost:4000`
+- 后端健康检查：`http://localhost:4001/health`
+
+首次使用时，如果还没有后端环境文件：
+
+```bash
+cp backend/.env.example backend/.env
+# 编辑 backend/.env，至少配置 DATA_GATEWAY_URL
+./start.sh
+```
+
+可通过环境变量覆盖端口，例如 `BACKEND_PORT=4011 ./start.sh`；已有依赖且不希望脚本检查安装时，使用
+`./start.sh --skip-install`。
+
 ### Docker Compose（推荐部署方式）
 
 ```bash

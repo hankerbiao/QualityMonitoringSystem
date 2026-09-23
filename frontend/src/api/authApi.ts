@@ -152,13 +152,67 @@ export interface ApiEnvelope<T> {
   detail?: string;
 }
 
+export interface ApiErrorPayload {
+  code?: string;
+  error?: string;
+  message?: string;
+  detail?: string;
+  retryable?: boolean;
+  requestId?: string;
+}
+
+export class ApiRequestError extends Error {
+  readonly code: string;
+  readonly retryable: boolean;
+  readonly requestId?: string;
+  readonly status: number | undefined;
+
+  constructor(
+    message: string,
+    options: {
+      code?: string;
+      retryable?: boolean;
+      requestId?: string;
+      status?: number;
+    } = {},
+  ) {
+    super(message);
+    this.name = 'ApiRequestError';
+    this.code = options.code ?? 'API_REQUEST_FAILED';
+    this.retryable = options.retryable ?? false;
+    this.requestId = options.requestId;
+    this.status = options.status;
+  }
+}
+
 /** Parse an authenticated JSON response and normalize HTTP errors. */
 export async function requestJson<T>(input: string, init: RequestInit = {}): Promise<T> {
-  const response = await apiFetch(input, init);
+  let response: Response;
+  try {
+    response = await apiFetch(input, init);
+  } catch (error) {
+    if (error instanceof ApiRequestError) throw error;
+    if (error instanceof Error && error.message === 'UNAUTHORIZED') {
+      throw new ApiRequestError('登录状态已过期，请重新登录', {
+        code: 'AUTH_REQUIRED',
+      });
+    }
+    throw new ApiRequestError('网络连接失败，请检查服务状态后重试', {
+      code: 'NETWORK_ERROR',
+      retryable: true,
+    });
+  }
+
   const payload = await response.json().catch(() => null);
   if (!response.ok) {
-    const message = payload?.error || payload?.detail || payload?.message;
-    throw new Error(message || `请求失败 (${response.status})`);
+    const errorPayload = (payload ?? {}) as ApiErrorPayload;
+    const message = errorPayload.error || errorPayload.message || errorPayload.detail;
+    throw new ApiRequestError(message || `请求失败 (${response.status})`, {
+      code: errorPayload.code ?? (response.status === 401 ? 'AUTH_REQUIRED' : 'API_REQUEST_FAILED'),
+      retryable: errorPayload.retryable ?? response.status >= 500,
+      requestId: errorPayload.requestId ?? response.headers.get('X-Request-ID') ?? undefined,
+      status: response.status,
+    });
   }
   return payload as T;
 }

@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   ArrowLeft,
@@ -11,6 +11,7 @@ import {
   Search,
   X,
 } from 'lucide-react';
+import { apiFetch } from '../api/authApi';
 import { processRecordsApi } from '../api/processRecordsApi';
 import type {
   ProcessRecordItem,
@@ -46,6 +47,95 @@ function formatRawValue(value: unknown): string {
   if (value === null || value === undefined || value === '') return '-';
   if (typeof value === 'object') return JSON.stringify(value, null, 2);
   return String(value);
+}
+
+function AuthenticatedImage({
+  source,
+  path,
+  alt,
+  className,
+  loading,
+}: {
+  source: 'system1' | 'system2';
+  path: string;
+  alt: string;
+  className: string;
+  loading?: 'eager' | 'lazy';
+}) {
+  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [visibleRequestKey, setVisibleRequestKey] = useState<string | null>(null);
+  const targetRef = useRef<HTMLSpanElement>(null);
+  const requestKey = `${source}:${path}`;
+  const shouldLoad = loading === 'eager' || visibleRequestKey === requestKey;
+
+  useEffect(() => {
+    if (loading === 'eager') {
+      setVisibleRequestKey(requestKey);
+      return;
+    }
+
+    const target = targetRef.current;
+    if (!target || !('IntersectionObserver' in window)) {
+      setVisibleRequestKey(requestKey);
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries.some((entry) => entry.isIntersecting)) {
+          setVisibleRequestKey(requestKey);
+          observer.disconnect();
+        }
+      },
+      { rootMargin: '200px' },
+    );
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [loading, requestKey]);
+
+  useEffect(() => {
+    if (!shouldLoad) {
+      setImageUrl(null);
+      return;
+    }
+
+    let active = true;
+    let objectUrl: string | null = null;
+    const controller = new AbortController();
+
+    const load = async () => {
+      try {
+        const response = await apiFetch(processRecordsApi.imageUrl(source, path), {
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`图片请求失败 (${response.status})`);
+        const blob = await response.blob();
+        const nextObjectUrl = URL.createObjectURL(blob);
+        if (!active) {
+          URL.revokeObjectURL(nextObjectUrl);
+          return;
+        }
+        objectUrl = nextObjectUrl;
+        setImageUrl(nextObjectUrl);
+      } catch {
+        if (active) setImageUrl(null);
+      }
+    };
+
+    setImageUrl(null);
+    void load();
+    return () => {
+      active = false;
+      controller.abort();
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [path, shouldLoad, source]);
+
+  if (!imageUrl || !shouldLoad) {
+    return <span ref={targetRef} className={`${className} flex items-center justify-center`} aria-label={`${alt}加载中`}><Loader2 className="w-4 h-4 animate-spin text-slate-400" /></span>;
+  }
+
+  return <img src={imageUrl} alt={alt} className={className} loading={loading} />;
 }
 
 export default function ProcessRecordsPage() {
@@ -314,7 +404,7 @@ export default function ProcessRecordsPage() {
                               onClick={(event) => { event.stopPropagation(); setPreview({ source: row.source, path: photo.path }); }}
                               className="w-10 h-10 border border-slate-200 rounded-sm overflow-hidden bg-slate-100"
                             >
-                              <img src={processRecordsApi.imageUrl(row.source, photo.path)} alt="工位现场" className="w-full h-full object-cover" loading="lazy" />
+                              <AuthenticatedImage source={row.source} path={photo.path} alt="工位现场" className="w-full h-full object-cover" loading="lazy" />
                             </button>
                           ))}
                           <span className="text-slate-400">{row.photos.length} 张</span>
@@ -360,7 +450,7 @@ export default function ProcessRecordsPage() {
                 <div className="grid grid-cols-3 gap-2">
                   {detail.photos.map((photo, index) => (
                     <button key={`${photo.path}-${index}`} onClick={() => setPreview({ source: detail.source, path: photo.path })} className="aspect-square border border-slate-200 rounded-sm overflow-hidden bg-slate-100">
-                      <img src={processRecordsApi.imageUrl(detail.source, photo.path)} alt={`现场图片 ${index + 1}`} className="w-full h-full object-cover" />
+                      <AuthenticatedImage source={detail.source} path={photo.path} alt={`现场图片 ${index + 1}`} className="w-full h-full object-cover" loading="lazy" />
                     </button>
                   ))}
                 </div>
@@ -381,7 +471,7 @@ export default function ProcessRecordsPage() {
       {preview && (
         <div className="fixed inset-0 z-50 bg-slate-950/85 flex items-center justify-center p-6" onClick={() => setPreview(null)}>
           <button title="关闭图片" onClick={() => setPreview(null)} className="absolute top-4 right-4 p-2 text-white/80 hover:text-white"><X className="w-6 h-6" /></button>
-          <img src={processRecordsApi.imageUrl(preview.source, preview.path)} alt="关键工位原图" className="max-w-full max-h-full object-contain" />
+          <AuthenticatedImage source={preview.source} path={preview.path} alt="关键工位原图" className="max-w-full max-h-full object-contain" loading="eager" />
         </div>
       )}
     </div>

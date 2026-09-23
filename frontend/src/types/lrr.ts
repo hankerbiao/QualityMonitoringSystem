@@ -33,6 +33,21 @@ export interface LRRSummary {
   scope?: 'usage' | 'page' | 'full';
 }
 
+export interface LRRTrendPoint {
+  month: string;
+  issuedQuantity: number;
+  faultCount: number | null;
+  lrrRate: number | null;
+}
+
+export interface LRRMaterialRank {
+  materialNumber: string;
+  materialDescription: string;
+  issuedQuantity: number;
+  faultCount: number;
+  lrrRate: number | null;
+}
+
 export interface LRRListResponse {
   items: LRRData[];
   total: number;
@@ -40,6 +55,8 @@ export interface LRRListResponse {
   limit: number;
   has_more: boolean;
   summary: LRRSummary;
+  trend?: LRRTrendPoint[];
+  hotspots?: LRRMaterialRank[];
 }
 
 export interface LRROptions {

@@ -117,6 +117,22 @@ class TestProcessRecordConfig:
         )
         assert response.json()["data"] == {"username": "new-user", "hasPassword": True}
 
+    async def test_connection_test_returns_bad_request_for_unreadable_password(
+        self, client, db_clean
+    ):
+        await db_clean.configs.insert_one(
+            {
+                "key": "process_record_config",
+                "username": "caokp",
+                "passwordCiphertext": "not-a-valid-fernet-ciphertext",
+            }
+        )
+
+        response = await client.post("/api/settings/process-records/test")
+
+        assert response.status_code == 400
+        assert response.json()["detail"] == "Stored credential cannot be decrypted"
+
 
 @pytest.mark.integration
 class TestModelTargets:

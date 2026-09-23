@@ -30,7 +30,11 @@ from app.schemas.settings import (
     SettingsResponse,
     SettingsUpdateRequest,
 )
-from app.services.credential_crypto import decrypt_credential, encrypt_credential
+from app.services.credential_crypto import (
+    CredentialEncryptionError,
+    decrypt_credential,
+    encrypt_credential,
+)
 from app.services.process_record_service import process_record_gateway
 from app.services.settings_service import SettingsService
 from app.services.weekly_alert import get_weekly_production_candidates, run_weekly_production_check
@@ -129,7 +133,10 @@ async def test_process_record_config(config: ProcessRecordConfigUpdate | None = 
     username = ((config.username if config else None) or stored.get("username") or "").strip()
     password = config.password if config else None
     if not password and stored.get("passwordCiphertext"):
-        password = decrypt_credential(stored["passwordCiphertext"])
+        try:
+            password = decrypt_credential(stored["passwordCiphertext"])
+        except CredentialEncryptionError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not username or not password:
         raise HTTPException(status_code=400, detail="请先填写账号和密码")
     result = await process_record_gateway.test_credentials(username, password)

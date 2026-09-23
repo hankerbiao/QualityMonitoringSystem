@@ -345,6 +345,82 @@ async def test_station_detail_repairs_use_the_same_local_station_match_as_summar
 
 
 @pytest.mark.asyncio
+async def test_station_input_details_include_matching_fault_fields(monkeypatch):
+    gateway = rty_gateway.data_gateway
+    monkeypatch.setattr(
+        gateway,
+        "all_station_rows",
+        AsyncMock(
+            return_value=[
+                {
+                    "raw": {
+                        "PCODE": "SN-1",
+                        "SPEC": "Line-OP205:装配",
+                        "MAKTX_TH": "M-1",
+                        "GSTRS": "20260515",
+                    }
+                },
+                {
+                    "raw": {
+                        "PCODE": "SN-2",
+                        "SPEC": "Line-OP205:装配",
+                        "MAKTX_TH": "M-1",
+                        "GSTRS": "20260516",
+                    }
+                },
+            ]
+        ),
+    )
+    faults = AsyncMock(
+        return_value=[
+            {
+                "raw": {
+                    "PCODE": "SN-1",
+                    "ZNGGZ": "Line-OP205:装配",
+                    "ZNGWD": "F-001",
+                    "ZWXWD": "装配异常",
+                    "ZDATE_WX": "20260520",
+                    "ZTIME": "103000",
+                    "ZUSER": "tester",
+                }
+            },
+            {
+                "raw": {
+                    "PCODE": "SN-2",
+                    "ZNGGZ": "Line-OP210:测试",
+                    "ZNGWD": "F-002",
+                    "ZWXWD": "其他工位异常",
+                }
+            },
+        ]
+    )
+    monkeypatch.setattr(gateway, "fault_rows_by_sns", faults)
+
+    rows = await rty_gateway.station_details(
+        "OP205",
+        "2026-05-01",
+        "2026-05-31",
+        "input",
+        product_model="M-1",
+        group_by="productModel",
+        dimension_value="M-1",
+    )
+
+    assert rows[0].sn == "SN-1"
+    assert rows[0].defectCode == "F-001"
+    assert rows[0].description == "装配异常"
+    assert rows[0].repairTime == "20260520 103000"
+    assert rows[1].sn == "SN-2"
+    assert rows[1].defectCode == ""
+    assert rows[1].description == ""
+    assert faults.await_args.kwargs == {
+        "date_from": "20260501",
+        "date_to": "20260531",
+        "station": "",
+    }
+
+
+@pytest.mark.asyncio
 async def test_station_rates_filter_input_by_gstrs_not_actual_pass_time(monkeypatch):
     gateway = rty_gateway.data_gateway
     station_rows = AsyncMock(

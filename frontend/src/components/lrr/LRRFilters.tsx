@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { ChevronDown, RotateCcw, Search, SlidersHorizontal } from 'lucide-react';
 import { lrrApi } from '../../api/lrrApi';
+import { ApiRequestError } from '../../api/authApi';
 import { MonthQuickPicker } from '../shared/MonthQuickPicker';
 import type { LRRFilters, LRROptions } from '../../types';
+import { matchingPlannedRange, recentPlannedRange } from '../../utils/lrr';
 
 interface Props {
   filters: LRRFilters;
@@ -11,6 +13,7 @@ interface Props {
 }
 
 const EMPTY_DRAFT: LRRFilters = { sortBy: 'month', sortDir: 'asc' };
+const FILTER_FIELDS = ['materialNumber', 'productModel', 'base', 'customerId', 'plannedDateFrom', 'plannedDateTo'] as const;
 
 interface SearchableSelectProps {
   value: string | null | undefined;
@@ -93,13 +96,25 @@ function SearchableSelect({ value, options, allLabel, onChange }: SearchableSele
 
 export default function LRRFilters({ filters, onSearch, onReset }: Props) {
   const [options, setOptions] = useState<LRROptions>({ materialNumbers: [], productModels: [], bases: [], customerIds: [] });
+  const [optionsError, setOptionsError] = useState<ApiRequestError | null>(null);
   const [draft, setDraft] = useState<LRRFilters>(filters);
 
-  useEffect(() => { lrrApi.getOptions().then(setOptions).catch(() => undefined); }, []);
+  const loadOptions = useCallback(async () => {
+    setOptionsError(null);
+    try {
+      setOptions(await lrrApi.getOptions());
+    } catch (error) {
+      setOptionsError(error instanceof ApiRequestError ? error : new ApiRequestError('筛选选项加载失败，请重试', { code: 'OPTIONS_LOAD_FAILED', retryable: true }));
+    }
+  }, []);
+
+  useEffect(() => { void loadOptions(); }, [loadOptions]);
   useEffect(() => setDraft(filters), [filters]);
 
-  const activeKeys = ['materialNumber', 'productModel', 'base', 'customerId', 'plannedDateFrom', 'plannedDateTo'] as const;
-  const hasActive = activeKeys.some((key) => Boolean(draft[key] || filters[key]));
+  const normalizedValue = (value: string | null | undefined) => value || '';
+  const hasActive = FILTER_FIELDS.some((key) => Boolean(draft[key]));
+  const activeCount = FILTER_FIELDS.filter((key) => Boolean(draft[key])).length;
+  const hasPendingChanges = FILTER_FIELDS.some((key) => normalizedValue(draft[key]) !== normalizedValue(filters[key]));
   const inputClass = 'h-10 min-w-0 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100';
   const setFilter = <K extends keyof LRRFilters>(key: K, value: LRRFilters[K]) => setDraft((current) => ({ ...current, [key]: value }));
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -112,18 +127,49 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
   };
 
   return (
-    <section className="border-y border-slate-100 bg-slate-50/70 px-4 py-5 sm:px-5 lg:px-6">
-      <form onSubmit={submit} className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-x-5 lg:gap-y-5">
-        <div className="flex items-center gap-2 text-sm font-semibold text-slate-800 lg:col-span-12"><SlidersHorizontal className="size-4 text-cyan-700" />筛选条件</div>
+    <section className="bg-slate-50/70 px-4 py-4 sm:px-5 lg:px-6">
+      {optionsError && <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-2 border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"><span>{optionsError.message || '筛选选项加载失败，请重试'}</span><button type="button" onClick={() => void loadOptions()} className="inline-flex items-center gap-1 font-medium hover:underline"><RotateCcw className="size-3.5" />重试</button></div>}
+      <form onSubmit={submit} className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-x-5 lg:gap-y-4">
+        <div className="flex min-h-5 items-center justify-between gap-3 lg:col-span-12">
+          <div className="flex items-center gap-2 text-sm font-semibold text-slate-800"><SlidersHorizontal className="size-4 text-cyan-700" />筛选条件</div>
+          <div className="flex flex-wrap items-center justify-end gap-2 text-xs" aria-live="polite">
+            <div className="flex flex-wrap gap-1">
+              {([1, 2, 3] as const).map((months) => {
+                const active = matchingPlannedRange(draft.plannedDateFrom, draft.plannedDateTo) === months;
+                return (
+                  <button
+                    key={months}
+                    type="button"
+                    aria-pressed={active}
+                    onClick={() => {
+                      const range = recentPlannedRange(months);
+                      const next = { ...draft, ...range, materialNumber: draft.materialNumber?.trim() || null };
+                      setDraft(next);
+                      onSearch(next);
+                    }}
+                    className={`h-8 rounded-md border px-2.5 ${active ? 'border-cyan-700 bg-cyan-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    {months === 1 ? '本月' : `近${months}个月`}
+                  </button>
+                );
+              })}
+            </div>
+            {activeCount > 0 && <span className="font-medium text-slate-500">已选 {activeCount} 项</span>}
+            <span className={hasPendingChanges ? 'font-medium text-amber-700' : 'hidden'}>条件尚未查询</span>
+          </div>
+        </div>
 
         {/* NG 时间筛选暂时隐藏，保留字段兼容后续恢复。 */}
-        <div className="flex min-w-0 flex-col gap-2 lg:col-span-5"><span className="text-xs font-semibold text-slate-600">计划开始时间（GSTRS）</span><div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2"><input type="date" value={draft.plannedDateFrom ?? ''} max={draft.plannedDateTo ?? undefined} onChange={(e) => setFilter('plannedDateFrom', e.target.value || null)} aria-label="计划开始时间起始日" className={`${inputClass} w-full`} /><span className="text-xs text-slate-400">至</span><input type="date" value={draft.plannedDateTo ?? ''} min={draft.plannedDateFrom ?? undefined} onChange={(e) => setFilter('plannedDateTo', e.target.value || null)} aria-label="计划开始时间截止日" className={`${inputClass} w-full`} /></div><MonthQuickPicker from={draft.plannedDateFrom ?? ''} to={draft.plannedDateTo ?? ''} onChange={(from, to) => setDraft((current) => ({ ...current, plannedDateFrom: from, plannedDateTo: to }))} accent="cyan" /></div>
-        <div className="flex items-end gap-2 lg:col-span-2"><div className="flex flex-1 flex-col gap-1"><button type="submit" className="inline-flex h-10 items-center justify-center gap-1.5 rounded-md bg-cyan-600 px-3 text-sm font-medium text-white hover:bg-cyan-700"><Search className="size-4" />查询</button></div><button type="button" onClick={reset} disabled={!hasActive} className="inline-flex size-10 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40" title="重置筛选" aria-label="重置筛选"><RotateCcw className="size-4" /></button></div>
+        <div className="flex min-w-0 flex-col gap-2 lg:col-span-6"><span className="text-xs font-semibold text-slate-600">计划开始时间（GSTRS）</span><div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2"><input type="date" value={draft.plannedDateFrom ?? ''} max={draft.plannedDateTo ?? undefined} onChange={(e) => setFilter('plannedDateFrom', e.target.value || null)} aria-label="计划开始时间起始日" className={`${inputClass} w-full`} /><span className="text-xs text-slate-400">至</span><input type="date" value={draft.plannedDateTo ?? ''} min={draft.plannedDateFrom ?? undefined} onChange={(e) => setFilter('plannedDateTo', e.target.value || null)} aria-label="计划开始时间截止日" className={`${inputClass} w-full`} /></div><MonthQuickPicker from={draft.plannedDateFrom ?? ''} to={draft.plannedDateTo ?? ''} onChange={(from, to) => setDraft((current) => ({ ...current, plannedDateFrom: from, plannedDateTo: to }))} accent="cyan" defaultExpanded={false} /></div>
+        <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_auto] lg:col-span-6 lg:self-start lg:gap-3">
+          <label className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">物料号</span><div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><input type="search" value={draft.materialNumber ?? ''} onChange={(e) => setFilter('materialNumber', e.target.value)} placeholder="输入 8 位或完整物料号" className={`${inputClass} w-full pl-9`} /></div></label>
+          <div className="flex items-end gap-2">
+            <button type="submit" className="inline-flex h-10 min-w-28 items-center justify-center gap-1.5 rounded-md bg-cyan-600 px-4 text-sm font-medium text-white transition-colors hover:bg-cyan-700 focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:ring-offset-2"><Search className="size-4" />查询</button>
+            <button type="button" onClick={reset} disabled={!hasActive} className="inline-flex size-10 shrink-0 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-cyan-200 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-40" title="重置筛选" aria-label="重置筛选"><RotateCcw className="size-4" /></button>
+          </div>
+        </div>
 
-        <label className="flex min-w-0 flex-col gap-2 lg:col-span-3"><span className="text-xs font-semibold text-slate-600">物料号</span><div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><input type="search" value={draft.materialNumber ?? ''} onChange={(e) => setFilter('materialNumber', e.target.value)} placeholder="输入 8 位或完整物料号" className={`${inputClass} w-full pl-9`} /></div></label>
-        <div className="flex min-w-0 flex-col gap-2 lg:col-span-3"><span className="text-xs font-semibold text-slate-600">机型</span><SearchableSelect value={draft.productModel} options={options.productModels} allLabel="全部机型" onChange={(value) => setFilter('productModel', value)} /></div>
-        <div className="flex min-w-0 flex-col gap-2 lg:col-span-3"><span className="text-xs font-semibold text-slate-600">基地</span><SearchableSelect value={draft.base} options={options.bases} allLabel="全部基地" onChange={(value) => setFilter('base', value)} /></div>
-        <div className="flex min-w-0 flex-col gap-2 lg:col-span-3"><span className="text-xs font-semibold text-slate-600">客户 ID</span><SearchableSelect value={draft.customerId} options={options.customerIds} allLabel="全部客户" onChange={(value) => setFilter('customerId', value)} /></div>
+        <div className="grid grid-cols-1 gap-4 border-t border-slate-200 pt-4 sm:grid-cols-3 lg:col-span-12 lg:gap-5"><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">机型</span><SearchableSelect value={draft.productModel} options={options.productModels} allLabel="全部机型" onChange={(value) => setFilter('productModel', value)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">基地</span><SearchableSelect value={draft.base} options={options.bases} allLabel="全部基地" onChange={(value) => setFilter('base', value)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">客户 ID</span><SearchableSelect value={draft.customerId} options={options.customerIds} allLabel="全部客户" onChange={(value) => setFilter('customerId', value)} /></div></div>
       </form>
     </section>
   );

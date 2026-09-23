@@ -23,6 +23,21 @@ class LRRSummary(BaseModel):
     scope: Literal["usage", "page", "full"] = "full"
 
 
+class LRRTrendPoint(BaseModel):
+    month: str = ""
+    issuedQuantity: float = 0.0
+    faultCount: int | None = None
+    lrrRate: float | None = None
+
+
+class LRRMaterialRank(BaseModel):
+    materialNumber: str = ""
+    materialDescription: str = ""
+    issuedQuantity: float = 0.0
+    faultCount: int = 0
+    lrrRate: float | None = None
+
+
 class LRRListResponse(BaseModel):
     items: list[LRRData] = Field(default_factory=list)
     total: int = 0
@@ -30,6 +45,8 @@ class LRRListResponse(BaseModel):
     limit: int = 50
     has_more: bool = False
     summary: LRRSummary = Field(default_factory=LRRSummary)
+    trend: list[LRRTrendPoint] = Field(default_factory=list)
+    hotspots: list[LRRMaterialRank] = Field(default_factory=list)
 
 
 class LRRFaultDetailsResponse(BaseModel):

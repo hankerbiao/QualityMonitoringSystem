@@ -1,8 +1,12 @@
+import pytest
+from fastapi import HTTPException
+
 from app.api.lrr import (
     _has_filter_criteria,
     _requires_full_fault_sort,
     _response,
     _usage_response,
+    _validate_lrr_date_range,
     aggregate_lrr,
     normalize_production_order,
     normalize_sales_order,
@@ -28,6 +32,25 @@ def test_lrr_default_list_order_is_ascending_by_month():
     response = _response(rows, LRRListQuery())
 
     assert [row.month for row in response.items] == ["2026-01", "2026-03", "2026-09"]
+
+
+def test_lrr_dashboard_uses_the_full_result_not_the_current_page():
+    rows = [
+        LRRData(id="A:2026-01", month="2026-01", materialNumber="PN-A", materialDescription="CPU", issuedQuantity=100, faultCount=10, lrrRate=10),
+        LRRData(id="B:2026-01", month="2026-01", materialNumber="PN-B", materialDescription="MEM", issuedQuantity=50, faultCount=20, lrrRate=40),
+        LRRData(id="A:2026-02", month="2026-02", materialNumber="PN-A", materialDescription="CPU", issuedQuantity=100, faultCount=5, lrrRate=5),
+    ]
+
+    response = _response(rows, LRRListQuery(page=1, limit=1))
+
+    assert response.items[0].id == "A:2026-01"
+    assert [(point.month, point.faultCount, point.issuedQuantity) for point in response.trend] == [
+        ("2026-01", 30, 150),
+        ("2026-02", 5, 100),
+    ]
+    assert [item.materialNumber for item in response.hotspots] == ["PN-B", "PN-A"]
+    assert response.hotspots[0].faultCount == 20
+    assert response.hotspots[1].faultCount == 15
 
 
 def test_lrr_ng_date_filter_limits_rows_to_overlapping_months():
@@ -83,6 +106,22 @@ def test_lrr_filtered_list_requires_fault_loading_even_with_month_sort():
     assert _has_filter_criteria(LRRListQuery(product_model="MODEL-1"))
     assert _has_filter_criteria(LRRListQuery(planned_date_from="2026-01-01"))
     assert not _has_filter_criteria(LRRListQuery())
+
+
+def test_lrr_rejects_reversed_date_range():
+    with pytest.raises(HTTPException) as error:
+        _validate_lrr_date_range("2026-02-01", "2026-01-31", "计划日期")
+
+    assert error.value.status_code == 422
+    assert error.value.detail["code"] == "INVALID_QUERY"
+
+
+def test_lrr_rejects_date_range_over_three_months():
+    with pytest.raises(HTTPException) as error:
+        _validate_lrr_date_range("2026-01-01", "2026-04-04", "计划日期")
+
+    assert error.value.status_code == 422
+    assert error.value.detail["code"] == "QUERY_TOO_LARGE"
 
 
 def test_order_normalization_is_retained_for_internal_fault_linking():

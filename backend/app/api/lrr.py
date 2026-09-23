@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import date
 from decimal import Decimal, InvalidOperation
 from time import perf_counter
 from typing import Any
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.auth_permissions import dashboard_dependency
 from app.core.logger import audit_log, log_info
@@ -16,8 +17,10 @@ from app.schemas.lrr import (
     LRRFaultDetail,
     LRRFaultDetailsResponse,
     LRRListResponse,
+    LRRMaterialRank,
     LRROptions,
     LRRSummary,
+    LRRTrendPoint,
 )
 from app.services import lrr_gateway
 from app.services.lrr_list_cache import LRRListQuery, lrr_list_cache
@@ -29,6 +32,46 @@ from app.services.lrr_normalization import (
 )
 
 router = APIRouter(dependencies=[Depends(dashboard_dependency("lrr"))])
+MAX_LRR_DATE_RANGE_DAYS = 93
+
+
+def _validate_lrr_date_range(start: str | None, end: str | None, label: str) -> None:
+    if not start and not end:
+        return
+    try:
+        start_date = date.fromisoformat(start) if start else None
+        end_date = date.fromisoformat(end) if end else None
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "INVALID_QUERY",
+                "error": f"{label}必须使用 YYYY-MM-DD 格式",
+                "message": f"{label}必须使用 YYYY-MM-DD 格式",
+                "retryable": False,
+            },
+        ) from exc
+
+    if start_date and end_date and start_date > end_date:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "INVALID_QUERY",
+                "error": f"{label}起始日期不能晚于结束日期",
+                "message": f"{label}起始日期不能晚于结束日期",
+                "retryable": False,
+            },
+        )
+    if start_date and end_date and (end_date - start_date).days + 1 > MAX_LRR_DATE_RANGE_DAYS:
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "QUERY_TOO_LARGE",
+                "error": f"{label}查询范围不能超过 {MAX_LRR_DATE_RANGE_DAYS} 天，请缩小范围",
+                "message": f"{label}查询范围不能超过 {MAX_LRR_DATE_RANGE_DAYS} 天，请缩小范围",
+                "retryable": False,
+            },
+        )
 
 
 def _quantity(value: Any) -> Decimal:
@@ -201,6 +244,65 @@ def _summary(rows: list[LRRData], *, scope: str) -> LRRSummary:
     )
 
 
+def _trend(rows: list[LRRData]) -> list[LRRTrendPoint]:
+    buckets: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        bucket = buckets.setdefault(
+            row.month, {"quantity": Decimal(0), "faults": 0, "known": True}
+        )
+        bucket["quantity"] += _quantity(row.issuedQuantity)
+        if row.faultCount is None:
+            bucket["known"] = False
+        else:
+            bucket["faults"] += row.faultCount
+    points: list[LRRTrendPoint] = []
+    for month in sorted(buckets):
+        bucket = buckets[month]
+        quantity = float(bucket["quantity"])
+        faults = bucket["faults"] if bucket["known"] else None
+        points.append(
+            LRRTrendPoint(
+                month=month,
+                issuedQuantity=quantity,
+                faultCount=faults,
+                lrrRate=round(faults / quantity * 100, 2) if faults is not None and quantity else None,
+            )
+        )
+    return points
+
+
+def _hotspots(rows: list[LRRData], limit: int = 8) -> list[LRRMaterialRank]:
+    if any(row.faultCount is None for row in rows):
+        return []
+    groups: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        group = groups.setdefault(
+            row.materialNumber,
+            {"description": "", "quantity": Decimal(0), "faults": 0},
+        )
+        if row.materialDescription:
+            group["description"] = row.materialDescription
+        group["quantity"] += _quantity(row.issuedQuantity)
+        group["faults"] += row.faultCount or 0
+    ranked = []
+    for material, group in groups.items():
+        quantity = float(group["quantity"])
+        faults = int(group["faults"])
+        if faults <= 0 or quantity <= 0:
+            continue
+        ranked.append(
+            LRRMaterialRank(
+                materialNumber=material,
+                materialDescription=group["description"],
+                issuedQuantity=quantity,
+                faultCount=faults,
+                lrrRate=round(faults / quantity * 100, 2),
+            )
+        )
+    ranked.sort(key=lambda item: (-item.faultCount, -(item.lrrRate or 0), item.materialNumber))
+    return ranked[:limit]
+
+
 def _response(rows: list[LRRData], query: LRRListQuery) -> LRRListResponse:
     rows = _sorted_rows(rows, query)
     start = (query.page - 1) * query.limit
@@ -211,6 +313,8 @@ def _response(rows: list[LRRData], query: LRRListQuery) -> LRRListResponse:
         limit=query.limit,
         has_more=start + query.limit < len(rows),
         summary=_summary(rows, scope="full"),
+        trend=_trend(rows),
+        hotspots=_hotspots(rows),
     )
 
 
@@ -324,6 +428,8 @@ async def get_lrr_list(
     sortDir: str = "asc",
 ):
     del request
+    _validate_lrr_date_range(plannedDateFrom, plannedDateTo, "计划日期")
+    _validate_lrr_date_range(ngDateFrom, ngDateTo, "故障日期")
     query = LRRListQuery(
         page=page,
         limit=limit,
@@ -364,6 +470,8 @@ async def get_lrr_fault_details(
     limit: int = Query(50000, ge=1, le=50000),
 ):
     del request
+    _validate_lrr_date_range(plannedDateFrom, plannedDateTo, "计划日期")
+    _validate_lrr_date_range(ngDateFrom, ngDateTo, "故障日期")
     bom = await lrr_gateway.load_bom(
         material_number=materialNumber,
         product_model=productModel,

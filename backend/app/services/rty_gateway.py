@@ -677,7 +677,6 @@ async def station_rates(
         productModel=product_model or "",
         base=base or "",
     )
-    records = _station_rows_in_planned_range(records, start, end)
     # The summary shown beside the station columns must use the same source
     # and counting rules as RTY: WMENG is the denominator and fault SNs are
     # globally de-duplicated per RTY dimension.
@@ -691,6 +690,7 @@ async def station_rates(
             "orderScope": order_scope,
         }
     )
+    records = _station_rows_in_planned_range(records, start, end)
     summary_groups: dict[str, dict[str, Any]] = {}
     for row in orders:
         data = row["data"]
@@ -837,6 +837,14 @@ async def station_details(
         ):
             unique.setdefault(sn, {"raw": raw, "code": code})
     if detail_type == "input":
+        repairs = await _faults_for_sns(set(unique), date_from=start, date_to=end)
+        repairs_by_sn: dict[str, dict[str, Any]] = {}
+        for row in repairs:
+            if normalize_station_code(str(row.get("ZNGGZ") or "")) != station:
+                continue
+            sn = str(row.get("PCODE") or "").strip()
+            if sn and sn in unique:
+                repairs_by_sn.setdefault(sn, row)
         return [
             StationPassDetail(
                 id=f"{station}:{sn}",
@@ -845,6 +853,21 @@ async def station_details(
                 stationName=station,
                 passDate=_station_gstrs_date(item),
                 status="passed",
+                repairTime=(
+                    f"{repairs_by_sn[sn].get('ZDATE_WX') or ''} "
+                    f"{repairs_by_sn[sn].get('ZTIME') or ''}"
+                ).strip()
+                if sn in repairs_by_sn
+                else "",
+                defectCode=str(repairs_by_sn[sn].get("ZNGWD") or "")
+                if sn in repairs_by_sn
+                else "",
+                description=str(repairs_by_sn[sn].get("ZWXWD") or "")
+                if sn in repairs_by_sn
+                else "",
+                repairPerson=str(repairs_by_sn[sn].get("ZUSER") or "")
+                if sn in repairs_by_sn
+                else "",
             )
             for sn, item in sorted(unique.items())
         ]
