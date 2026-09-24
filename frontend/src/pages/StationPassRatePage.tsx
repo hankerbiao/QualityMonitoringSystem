@@ -209,7 +209,7 @@ export default function StationPassRatePage() {
       setAppliedQuery(null);
       setDataUpdatedAt(null);
       setHasSearched(true);
-      setError('工位过站数据加载失败，请重新查询重试');
+      setError(err instanceof Error && err.message ? err.message : '工位过站数据加载失败，请重新查询重试');
     } finally {
       if (requestId === loadRequestId.current) setLoading(false);
     }

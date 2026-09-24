@@ -44,6 +44,12 @@ def _repair_row_has_planned_field(row: dict[str, Any]) -> bool:
     return isinstance(raw, dict) and ("GSTRS" in raw or "plannedStartDate" in raw)
 
 
+# A full year of station passes is already above one million rows (about 1.67
+# million in 2026). Keep a hard ceiling so an unbounded stream cannot exhaust
+# the API process, but leave room for the rest of this year.
+STATION_STREAM_MAX_ROWS = 5_000_000
+
+
 class DataGatewayClient:
     """Small async client with bounded timeouts and consistent errors."""
 
@@ -630,7 +636,7 @@ class DataGatewayClient:
         return rows
 
     async def all_station_rows(
-        self, *, max_rows: int = 1_000_000, **filters: str
+        self, *, max_rows: int = STATION_STREAM_MAX_ROWS, **filters: str
     ) -> list[dict[str, Any]]:
         """Read the station source projection through the TSV stream."""
         cache_key = (
@@ -672,7 +678,7 @@ class DataGatewayClient:
                     rows.append(dict(zip(fields, values, strict=False)))
                     if len(rows) > max_rows:
                         raise DataGatewayError(
-                            "工位查询结果超过本系统单次处理上限，请缩小日期或增加筛选条件",
+                            f"工位查询结果超过本系统单次处理上限 {max_rows} 条，请缩小日期或增加筛选条件",
                             code="QUERY_TOO_LARGE",
                         )
         except httpx.TimeoutException as exc:

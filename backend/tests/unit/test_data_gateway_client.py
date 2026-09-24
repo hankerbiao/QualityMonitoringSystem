@@ -382,3 +382,19 @@ async def test_fault_rows_by_sns_falls_back_when_gateway_omits_planned_date():
 
     assert rows == [{"PCODE": "SN-1", "GSTRS": "2026-07-15"}]
     assert calls == ["POST", "GET"]
+
+
+@pytest.mark.asyncio
+async def test_station_rows_reject_a_stream_above_the_row_cap():
+    def handler(_request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="id\tPCODE\n1\tA\n2\tB\n")
+
+    client = DataGatewayClient("http://gateway.test", timeout=2)
+    client._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url=client.base_url
+    )
+    try:
+        with pytest.raises(DataGatewayError, match="单次处理上限 1 条"):
+            await client.all_station_rows(dateFrom="2026-01-01", max_rows=1)
+    finally:
+        await client.close()
