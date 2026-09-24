@@ -43,9 +43,7 @@ def test_lrr_fault_material_falls_back_to_record01repairm_when_matnr_is_empty():
 
 
 def test_lrr_fault_material_prefers_matnr_over_record01repairm():
-    fault = lrr_gateway.normalize_fault(
-        {"MATNR": "PN-PRIMARY", "RECORD01REPAIRM": "PN-FALLBACK"}
-    )
+    fault = lrr_gateway.normalize_fault({"MATNR": "PN-PRIMARY", "RECORD01REPAIRM": "PN-FALLBACK"})
 
     assert fault["MATNR"] == "PN-PRIMARY"
 
@@ -231,7 +229,7 @@ async def test_load_bom_preserves_full_and_non_numeric_material_numbers(monkeypa
 
 
 @pytest.mark.asyncio
-async def test_load_bom_falls_back_to_paginated_view_for_material_description(monkeypatch):
+async def test_load_bom_attaches_description_when_stream_omits_it(monkeypatch):
     async def all_bom_rows(**_filters: str):
         return [
             {
@@ -244,29 +242,92 @@ async def test_load_bom_falls_back_to_paginated_view_for_material_description(mo
             }
         ]
 
-    async def all_pages(*_args: object, **_kwargs: object):
-        return [
-            {
-                "id": "bom-1",
-                "AUFNR_1": "000000000001",
-                "MATNR": "PN-1",
-                "MAKTX": "Component description",
-                "MENGE_A": "1",
-                "BUDAT_MKPF": "20260201",
-                "GSTRS": "20260205",
-            }
-        ]
+    requested: list[list[str]] = []
+
+    async def descriptions(materials: list[str]) -> dict[str, str]:
+        requested.append(materials)
+        return {"PN-1": "Component description"}
 
     async def all_orders(**_filters: str):
         return []
 
     monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
-    monkeypatch.setattr(lrr_gateway.data_gateway, "all_pages", all_pages)
+    monkeypatch.setattr(lrr_gateway, "material_descriptions", descriptions)
     monkeypatch.setattr(lrr_gateway.data_gateway, "all_orders", all_orders)
 
     rows = await lrr_gateway.load_bom(material_number="PN-1", month="2026-02")
 
+    assert requested == [["PN-1"]]
     assert rows[0]["MAKTX"] == "Component description"
+    assert rows[0]["_match_description"] == ""
+
+
+@pytest.mark.asyncio
+async def test_material_descriptions_reads_one_stream_chunk(monkeypatch):
+    calls: list[dict[str, str]] = []
+
+    async def all_bom_rows(**filters: str):
+        calls.append(filters)
+        return [
+            {"MATNR": part, "MAKTX": f"desc {part}"} for part in filters["materialCode"].split(",")
+        ]
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
+
+    assert await lrr_gateway.material_descriptions(["PN-1", "PN-1", " PN-2 "]) == {
+        "PN-1": "desc PN-1",
+        "PN-2": "desc PN-2",
+    }
+    assert calls == [{"materialCode": "PN-1,PN-2"}]
+
+
+@pytest.mark.asyncio
+async def test_material_descriptions_retries_pn_omitted_by_chunk_limit(monkeypatch):
+    calls: list[str] = []
+
+    async def all_bom_rows(**filters: str):
+        calls.append(filters["materialCode"])
+        if filters["materialCode"] == "PN-1,PN-2":
+            return [{"MATNR": "PN-1", "MAKTX": "one"}]
+        return [{"MATNR": filters["materialCode"], "MAKTX": "two"}]
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
+
+    assert await lrr_gateway.material_descriptions(["PN-1", "PN-2"]) == {
+        "PN-1": "one",
+        "PN-2": "two",
+    }
+    assert calls == ["PN-1,PN-2", "PN-2"]
+
+
+@pytest.mark.asyncio
+async def test_material_descriptions_stops_when_old_stream_has_no_maktx(monkeypatch):
+    pages: list[int] = []
+
+    async def all_bom_rows(**_filters: str):
+        return [{"MATNR": "PN-1", "MENGE_A": "1"}]
+
+    async def view(_view_id: str, **kwargs: object):
+        pages.append(int(kwargs["page"]))
+        if kwargs["materialCode"] == "PN-1" and kwargs["page"] == 1:
+            return {"items": [{"MATNR": "PN-1", "MAKTX": "paged"}]}
+        return {"items": [{"MATNR": "OTHER", "MAKTX": "unrelated"}]}
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "view", view)
+
+    assert await lrr_gateway.material_descriptions(["PN-1", "PN-2"]) == {"PN-1": "paged"}
+    assert pages == [1, 1]
+
+
+@pytest.mark.asyncio
+async def test_material_descriptions_returns_partial_result_when_gateway_fails(monkeypatch):
+    async def all_bom_rows(**_filters: str):
+        raise DataGatewayError("down")
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
+
+    assert await lrr_gateway.material_descriptions(["PN-1"]) == {}
 
 
 @pytest.mark.asyncio

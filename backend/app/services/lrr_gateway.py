@@ -58,9 +58,9 @@ def normalize_fault(item: dict[str, Any]) -> dict[str, Any]:
     # Some repair records store the replaced material in RECORD01REPAIRM
     # instead of MATNR. Keep MATNR as the canonical field for LRR matching,
     # but only fall back when MATNR is genuinely empty.
-    material_number = str(data.get("MATNR") or "").strip() or str(
-        data.get("RECORD01REPAIRM") or ""
-    ).strip()
+    material_number = (
+        str(data.get("MATNR") or "").strip() or str(data.get("RECORD01REPAIRM") or "").strip()
+    )
     return {
         **data,
         "_id": item.get("id") or data.get("_id"),
@@ -184,45 +184,23 @@ async def load_bom(
 
     # The low-overhead stream intentionally uses a narrow projection on some
     # gateway versions and therefore has no material description. A PN-scoped
-    # detail request is small enough to use the regular view, whose projection
-    # includes MAKTX, so the detail modal remains informative.
+    # description lookup stays bounded: one description per material, not every
+    # historical posting of that material.
     if (
         material_number
         and raw_rows
         and not any(normalize_bom(item).get("MAKTX") for item in raw_rows)
     ):
-        paged_rows = await data_gateway.all_pages(
-            "GET",
-            "/api/views/ZSGV_ZSD124",
-            filters={**base_filters, "keyword": ""},
-            max_rows=1_000_000,
+        materials = list(
+            dict.fromkeys(str(normalize_bom(item).get("MATNR") or "").strip() for item in raw_rows)
         )
-        if paged_rows:
-            descriptions_by_key = {
-                str(item.get("id") or item.get("_id") or ""): str(
-                    normalize_bom(item).get("MAKTX") or ""
-                ).strip()
-                for item in paged_rows
-                if item.get("id") or item.get("_id")
-            }
-            descriptions_by_material: dict[str, str] = {}
-            for item in paged_rows:
-                normalized = normalize_bom(item)
-                material = str(normalized.get("MATNR") or "").strip()
-                description = str(normalized.get("MAKTX") or "").strip()
-                if material and description and material not in descriptions_by_material:
-                    descriptions_by_material[material] = description
-            # Keep the streamed row as the source of matching semantics, but
-            # attach the richer description for presentation.
-            for item in raw_rows:
-                key = str(item.get("id") or item.get("_id") or "")
-                material = str(item.get("MATNR") or "").strip()
-                description = descriptions_by_key.get(key) or descriptions_by_material.get(
-                    material, ""
-                )
-                if description:
-                    item["_match_description"] = str(item.get("MAKTX") or "").strip()
-                    item["MAKTX"] = description
+        descriptions = await material_descriptions([value for value in materials if value])
+        for item in raw_rows:
+            material = str(normalize_bom(item).get("MATNR") or "").strip()
+            description = descriptions.get(material, "")
+            if description:
+                item["_match_description"] = str(item.get("MAKTX") or "").strip()
+                item["MAKTX"] = description
     seen: set[str] = set()
     rows = []
     for item in raw_rows:
@@ -302,27 +280,89 @@ async def load_bom(
     return result
 
 
-async def material_descriptions(material_numbers: list[str]) -> dict[str, str]:
-    """Load descriptions for a bounded set of PN values from the full view."""
-    materials = list(dict.fromkeys(str(value or "").strip() for value in material_numbers if value))
-    if not materials:
-        return {}
-    try:
-        rows = await data_gateway.all_pages(
-            "GET",
-            "/api/views/ZSGV_ZSD124",
-            filters={"materialCode": ",".join(materials), "keyword": ""},
-            max_rows=1_000_000,
-        )
-    except DataGatewayError:
-        return {}
-    result: dict[str, str] = {}
+def _chunked(values: list[str], size: int) -> list[list[str]]:
+    return [values[index : index + size] for index in range(0, len(values), size)]
+
+
+def _descriptions_from_rows(rows: list[dict[str, Any]]) -> dict[str, str]:
+    found: dict[str, str] = {}
     for row in rows:
         normalized = normalize_bom(row)
         material = str(normalized.get("MATNR") or "").strip()
         description = str(normalized.get("MAKTX") or "").strip()
-        if material and description and material not in result:
-            result[material] = description
+        if material and description and material not in found:
+            found[material] = description
+    return found
+
+
+async def _descriptions_from_pages(materials: list[str]) -> dict[str, str]:
+    """Read one described posting per PN from the full view.
+
+    Used only when a gateway stream omits MAKTX. Stop as soon as the PN is
+    described, and stop immediately if a page does not contain that PN. Older
+    gateways can ignore a material filter; continuing would page the full
+    posting history.
+    """
+    found: dict[str, str] = {}
+    for material in materials:
+        for page in range(1, 4):
+            payload = await data_gateway.view(
+                "ZSGV_ZSD124",
+                page=page,
+                page_size=100,
+                materialCode=material,
+            )
+            items = payload.get("items") if isinstance(payload, dict) else None
+            if not isinstance(items, list) or not items:
+                break
+            page_rows = [item for item in items if isinstance(item, dict)]
+            descriptions = _descriptions_from_rows(page_rows)
+            if material in descriptions:
+                found[material] = descriptions[material]
+                break
+            page_materials = {
+                str(normalize_bom(item).get("MATNR") or "").strip() for item in page_rows
+            }
+            if material not in page_materials:
+                break
+    return found
+
+
+async def _descriptions_for_codes(materials: list[str]) -> tuple[dict[str, str], bool]:
+    rows = await data_gateway.all_bom_rows(materialCode=",".join(materials))
+    found = _descriptions_from_rows(rows)
+    if rows and not found:
+        return await _descriptions_from_pages(materials), True
+    return found, False
+
+
+async def material_descriptions(material_numbers: list[str]) -> dict[str, str]:
+    """Load one description per PN without paging every historical posting."""
+    materials = list(
+        dict.fromkeys(
+            str(value or "").strip() for value in material_numbers if str(value or "").strip()
+        )
+    )
+    if not materials:
+        return {}
+    result: dict[str, str] = {}
+    try:
+        for chunk in _chunked(materials, 20):
+            found, used_pages = await _descriptions_for_codes(chunk)
+            for material in chunk:
+                if description := found.get(material):
+                    result[material] = description
+            omitted = [material for material in chunk if material not in result]
+            # A chunk can hit the gateway row cap before every PN appears.
+            # Retry those PN values alone instead of reading the whole chunk again.
+            # Paging already visits each requested PN, so it must not be repeated.
+            if omitted and found and not used_pages and len(chunk) > 1:
+                for material in omitted:
+                    single, _used_pages = await _descriptions_for_codes([material])
+                    if description := single.get(material):
+                        result[material] = description
+    except DataGatewayError:
+        return result
     return result
 
 
