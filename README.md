@@ -96,7 +96,7 @@ chmod +x deploy.sh
 ./deploy.sh
 ```
 
-脚本会创建虚拟环境、安装依赖、生成本地加密密钥、校验显式认证凭据、启动服务并检查 `/health`。首次生产部署前请检查 `backend/.env`，尤其是：
+脚本会创建虚拟环境、安装依赖、生成本地加密密钥、校验显式认证凭据、启动服务并检查 `/health`。首次生产部署前请检查 `backend/.env`，尤其是：`PROCESS_RECORD_CREDENTIAL_KEY` 必须在使用同一 MongoDB 的部署之间保持不变，否则已保存的影像数据源密码密文无法自动恢复。
 
 ```bash
 DEBUG=false

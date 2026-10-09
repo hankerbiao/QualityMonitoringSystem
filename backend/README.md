@@ -21,7 +21,7 @@ chmod +x deploy.sh
 ./deploy.sh
 ```
 
-脚本会自动创建 `.venv`、安装/更新运行依赖、从 `.env.example` 创建 `.env`、生成本地加密密钥、校验显式认证凭据、启动后端并检查 `/health`。重复执行 `./deploy.sh` 即可更新并重启。
+脚本会自动创建 `.venv`、安装/更新运行依赖、从 `.env.example` 创建 `.env`、生成本地加密密钥、校验显式认证凭据、启动后端并检查 `/health`。重复执行 `./deploy.sh` 即可更新并重启。`PROCESS_RECORD_CREDENTIAL_KEY` 用于加密关键工位影像数据源密码，必须在使用同一 MongoDB 的部署之间保持不变；如果密钥丢失，历史密码密文无法自动恢复，只能重新保存账号密码。
 
 ```bash
 ./deploy.sh status            # 进程与健康状态

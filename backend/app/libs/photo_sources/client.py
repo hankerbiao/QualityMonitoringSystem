@@ -2,6 +2,7 @@
 
 import asyncio
 import json
+import time
 from dataclasses import dataclass
 from pathlib import PurePosixPath
 from typing import Any
@@ -30,12 +31,15 @@ class SourceDefinition:
 class PhotoSourceClient:
     """每个上游系统持有一个独立的 Token/Cookie 会话。"""
 
+    LOGIN_STATUS_CHECK_INTERVAL = 300.0
+
     def __init__(self, definition: SourceDefinition, username: str, password: str):
         self.definition = definition
         self.username = username
         self.password = password
         self._faker = Faker()
         self._logged_in = False
+        self._last_login_status_check: float | None = None
         self._login_lock = asyncio.Lock()
         self._client = httpx.AsyncClient(
             base_url=definition.api_base_url,
@@ -49,6 +53,33 @@ class PhotoSourceClient:
 
     async def close(self) -> None:
         await self._client.aclose()
+
+    @staticmethod
+    def _response_requires_login(response: httpx.Response) -> bool:
+        """Handle upstreams that report an expired session in a 200 response."""
+        if response.status_code in (401, 403):
+            return True
+        try:
+            payload = response.json()
+        except (TypeError, ValueError):
+            return False
+        if not isinstance(payload, dict):
+            return False
+        status_value = payload.get("status")
+        return status_value is False or status_value in (401, 403, "401", "403")
+
+    @staticmethod
+    def _payload_is_logged_out(payload: Any) -> bool:
+        if not isinstance(payload, dict):
+            return False
+        if payload.get("loggedIn") is False or payload.get("isLogin") is False:
+            return True
+        if payload.get("status") is False:
+            return True
+        data = payload.get("data")
+        return isinstance(data, dict) and (
+            data.get("loggedIn") is False or data.get("isLogin") is False
+        )
 
     async def login(self, force: bool = False) -> dict[str, Any]:
         async with self._login_lock:
@@ -82,12 +113,18 @@ class PhotoSourceClient:
             if token:
                 self._client.headers["Authorization"] = f"Bearer {token}"
             self._logged_in = True
+            self._last_login_status_check = time.monotonic()
             return payload
 
     async def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:
         await self.login()
+        if (
+            self._last_login_status_check is None
+            or time.monotonic() - self._last_login_status_check >= self.LOGIN_STATUS_CHECK_INTERVAL
+        ):
+            await self.get_login_status()
         response = await self._client.request(method, url, headers=self._headers(), **kwargs)
-        if response.status_code in (401, 403):
+        if self._response_requires_login(response):
             self._logged_in = False
             await self.login(force=True)
             response = await self._client.request(method, url, headers=self._headers(), **kwargs)
@@ -102,16 +139,24 @@ class PhotoSourceClient:
             headers=self._headers(),
         )
         if response.status_code == 404:
+            self._last_login_status_check = time.monotonic()
             return {"loggedIn": self._logged_in}
-        if response.status_code in (401, 403):
+        if self._response_requires_login(response):
             self._logged_in = False
             await self.login(force=True)
             response = await self._client.post(
                 "/api/user/GetCurrentUserInfo",
                 headers=self._headers(),
             )
+            if self._response_requires_login(response):
+                raise RuntimeError("上游登录状态刷新失败")
         response.raise_for_status()
         payload = response.json()
+        if self._payload_is_logged_out(payload):
+            self._logged_in = False
+            await self.login(force=True)
+            return {"loggedIn": True}
+        self._last_login_status_check = time.monotonic()
         return payload if isinstance(payload, dict) else {"loggedIn": True}
 
     async def fetch_page(

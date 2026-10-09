@@ -205,6 +205,15 @@ class ProcessRecordGateway:
             *(client.close() for client in clients.values()), return_exceptions=True
         )
 
+    async def invalidate_clients(self) -> None:
+        """Drop cached upstream sessions after the shared credential is saved."""
+        async with self._config_lock:
+            clients, self._clients = self._clients, {}
+            self._credentials = None
+            await asyncio.gather(
+                *(client.close() for client in clients.values()), return_exceptions=True
+            )
+
     async def _configured_credentials(self) -> tuple[str, str]:
         doc = await get_database().configs.find_one({"key": CONFIG_KEY})
         username = _text((doc or {}).get("username")).strip()

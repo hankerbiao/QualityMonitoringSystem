@@ -61,6 +61,15 @@ function formatUpdatedAt(value: Date | null) {
     : null;
 }
 
+function formatDuration(milliseconds: number) {
+  const totalSeconds = Math.max(0, milliseconds) / 1000;
+  if (totalSeconds < 60) return `${totalSeconds.toFixed(1)} 秒`;
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = Math.round(totalSeconds - minutes * 60);
+  if (seconds === 60) return `${minutes + 1} 分 0 秒`;
+  return `${minutes} 分 ${seconds} 秒`;
+}
+
 function rateTone(rate: number) {
   if (rate >= 98) return 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 focus-visible:ring-emerald-500';
   if (rate >= 95) return 'bg-amber-50 text-amber-800 hover:bg-amber-100 focus-visible:ring-amber-500';
@@ -138,12 +147,15 @@ export default function StationPassRatePage() {
   const [error, setError] = useState('');
   const [appliedQuery, setAppliedQuery] = useState<StationPassQuery | null>(null);
   const [dataUpdatedAt, setDataUpdatedAt] = useState<Date | null>(null);
+  const [queryDurationMs, setQueryDurationMs] = useState<number | null>(null);
+  const [loadingElapsedMs, setLoadingElapsedMs] = useState(0);
   const [detail, setDetail] = useState<DetailState | null>(null);
   const [detailRows, setDetailRows] = useState<StationPassDetail[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [optionsLoading, setOptionsLoading] = useState(true);
   const [rowFocus, setRowFocus] = useState<StationRowFocus>('all');
   const loadRequestId = useRef(0);
+  const queryStartedAt = useRef<number | null>(null);
   const queryRef = useRef<StationQueryState>({
     dateFrom: initialDateRange.from,
     dateTo: initialDateRange.to,
@@ -166,6 +178,8 @@ export default function StationPassRatePage() {
     setHasSearched(false);
     setAppliedQuery(null);
     setDataUpdatedAt(null);
+    setQueryDurationMs(null);
+    queryStartedAt.current = null;
     setRowFocus('all');
     setError('');
   };
@@ -188,11 +202,15 @@ export default function StationPassRatePage() {
       groupBy: next.groupBy,
       orderScope: next.orderScope,
     };
+    const startedAt = performance.now();
+    queryStartedAt.current = startedAt;
+    setLoadingElapsedMs(0);
     setLoading(true);
     setError('');
     try {
       const response = await rtyApi.getStationPassRates(query);
       if (requestId !== loadRequestId.current) return;
+      setQueryDurationMs(performance.now() - startedAt);
       setRows(response);
       const stations = Array.from(new Set(response.map((row) => row.stationCode))).sort((left, right) => left.localeCompare(right, 'zh-CN'));
       const savedStations = settings.stationPassRateConfig.selectedStations;
@@ -205,6 +223,7 @@ export default function StationPassRatePage() {
     } catch (err) {
       console.error('Failed to fetch station pass rates', err);
       if (requestId !== loadRequestId.current) return;
+      setQueryDurationMs(performance.now() - startedAt);
       setRows([]);
       setAppliedQuery(null);
       setDataUpdatedAt(null);
@@ -214,6 +233,14 @@ export default function StationPassRatePage() {
       if (requestId === loadRequestId.current) setLoading(false);
     }
   }, [settings.stationPassRateConfig]);
+
+  useEffect(() => {
+    if (!loading || queryStartedAt.current == null) return;
+    const timer = window.setInterval(() => {
+      if (queryStartedAt.current != null) setLoadingElapsedMs(performance.now() - queryStartedAt.current);
+    }, 200);
+    return () => window.clearInterval(timer);
+  }, [loading]);
 
   useEffect(() => {
     let cancelled = false;
@@ -449,6 +476,7 @@ export default function StationPassRatePage() {
             <div className="flex min-w-0 items-center gap-2"><div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-cyan-50 text-cyan-700"><SlidersHorizontal className="size-4" /></div><h2 className="text-sm font-semibold text-slate-800">{dimensionLabel}工位直通率</h2></div>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
               {updatedAt && <span>更新于 {updatedAt}</span>}
+              {loading ? <span className="font-mono text-cyan-700">已查询 {formatDuration(loadingElapsedMs)}</span> : queryDurationMs != null && <span className="font-mono">查询耗时 {formatDuration(queryDurationMs)}</span>}
               {hasSearched && !loading && !error && <span className="font-medium text-slate-700">{rowFocus === 'all' ? matrix.rows.length.toLocaleString('zh-CN') : `${tableRows.length.toLocaleString('zh-CN')}/${matrix.rows.length.toLocaleString('zh-CN')}`} 个{dimensionLabel}</span>}
               <span className="inline-flex items-center gap-1.5"><i className="size-2 rounded-full bg-emerald-500" />达标 &gt;= 98%</span>
               <span className="inline-flex items-center gap-1.5"><i className="size-2 rounded-full bg-amber-500" />关注 95% - 98%</span>
@@ -518,7 +546,7 @@ export default function StationPassRatePage() {
             <table className="w-full min-w-max border-separate border-spacing-0 text-left">
               <thead className="text-xs font-semibold text-slate-600"><tr><th className="sticky left-0 top-0 z-20 min-w-52 border-b border-r border-slate-200 bg-slate-50 px-4 py-3 text-left shadow-[1px_0_0_0_rgb(226_232_240)]">{dimensionLabel}</th><th className="sticky left-52 top-0 z-20 min-w-30 border-b border-r border-slate-200 bg-slate-100 px-3 py-3 text-center shadow-[1px_0_0_0_rgb(226_232_240)]">RTY直通率</th><th className="sticky left-[20.5rem] top-0 z-20 min-w-32 border-b border-r border-slate-200 bg-cyan-50 px-3 py-3 text-center"><span className="inline-flex items-center justify-center gap-1">组合工站直通率<button type="button" onClick={() => setCalculationHelpOpen(true)} className="inline-flex size-5 items-center justify-center rounded-full text-cyan-700 transition-colors hover:bg-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600" title="查看组合工站直通率计算方法" aria-label="查看组合工站直通率计算方法"><CircleHelp className="size-3.5" /></button></span></th>{matrix.stations.map((station) => { const stationName = rows.find((row) => row.stationCode === station)?.stationName; return <th key={station} className="sticky top-0 z-10 min-w-32 border-b border-r border-slate-200 bg-slate-50 px-3 py-3 text-center font-mono" title={stationName || station}><span className="block text-slate-700">{station}</span>{stationName && <span className="mt-0.5 block max-w-28 truncate font-sans text-[10px] font-medium text-slate-400">{stationName}</span>}</th>; })}</tr></thead>
               <tbody className="text-xs">
-                {loading ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-slate-500"><span className="inline-flex items-center gap-2"><RefreshCw className="size-4 animate-spin text-cyan-600" />正在计算工位过站量与维修 SN 匹配关系...</span></td></tr> : error ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-red-600">{error}</td></tr> : matrix.rows.length === 0 ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-slate-500">当前条件下暂无工位过站数据</td></tr> : tableRows.length === 0 ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-slate-500">没有落在该区间的记录</td></tr> : tableRows.map((row) => { const combinedRate = combinedStationPassRate(row.stationRows, selectedStations); return <tr key={row.dimensionValue} className="group"><th className="sticky left-0 z-10 max-w-52 truncate border-b border-r border-slate-200 bg-white px-4 py-3.5 text-left font-mono font-semibold text-slate-800 shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-slate-50" title={row.dimensionValue}>{row.dimensionValue}</th><td className="sticky left-52 z-10 border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-center shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-slate-100/70"><div className="font-mono text-sm font-semibold text-slate-800">{formatRate(row.total.inputCount, row.total.defectCount)}</div><div className="mt-0.5 font-mono text-[11px] text-slate-500">{row.total.defectCount}/{row.total.inputCount}</div></td><td className="sticky left-[20.5rem] z-10 border-b border-r border-slate-200 bg-cyan-50 px-3 py-2 text-center shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-cyan-100/70"><div className="font-mono text-sm font-semibold text-cyan-900">{combinedRate === null ? '-' : `${combinedRate.toFixed(2)}%`}</div><div className="mt-0.5 text-[11px] text-cyan-700">{selectedStations.length ? `${selectedStations.length} 个工站` : '未选择工站'}</div></td>{matrix.stations.map((station) => { const rate = row.stationRows.get(station); return !rate ? <td key={station} className="border-b border-r border-slate-100 bg-slate-50/40 px-3 py-2 text-center text-slate-300">-</td> : <td key={station} className="border-b border-r border-slate-100 p-1.5 text-center"><button type="button" onClick={() => void openDetail(rate)} className={`flex min-h-13 w-full flex-col items-center justify-center rounded-sm px-2 py-1.5 font-mono transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${rateTone(rate.passRate)}`} title={`过站量 ${rate.inputCount}，维修 SN ${rate.defectCount}；点击查看明细`}><span className="text-sm font-semibold">{rate.passRate.toFixed(2)}%</span><span className="mt-0.5 text-[11px] font-medium opacity-75">{rate.defectCount}/{rate.inputCount}</span></button></td>; })}</tr>; })}
+                {loading ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-slate-500"><span className="inline-flex items-center gap-2"><RefreshCw className="size-4 animate-spin text-cyan-600" />正在计算工位过站量与维修 SN 匹配关系... {formatDuration(loadingElapsedMs)}</span></td></tr> : error ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-red-600">{error}</td></tr> : matrix.rows.length === 0 ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-slate-500">当前条件下暂无工位过站数据</td></tr> : tableRows.length === 0 ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-slate-500">没有落在该区间的记录</td></tr> : tableRows.map((row) => { const combinedRate = combinedStationPassRate(row.stationRows, selectedStations); return <tr key={row.dimensionValue} className="group"><th className="sticky left-0 z-10 max-w-52 truncate border-b border-r border-slate-200 bg-white px-4 py-3.5 text-left font-mono font-semibold text-slate-800 shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-slate-50" title={row.dimensionValue}>{row.dimensionValue}</th><td className="sticky left-52 z-10 border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-center shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-slate-100/70"><div className="font-mono text-sm font-semibold text-slate-800">{formatRate(row.total.inputCount, row.total.defectCount)}</div><div className="mt-0.5 font-mono text-[11px] text-slate-500">{row.total.defectCount}/{row.total.inputCount}</div></td><td className="sticky left-[20.5rem] z-10 border-b border-r border-slate-200 bg-cyan-50 px-3 py-2 text-center shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-cyan-100/70"><div className="font-mono text-sm font-semibold text-cyan-900">{combinedRate === null ? '-' : `${combinedRate.toFixed(2)}%`}</div><div className="mt-0.5 text-[11px] text-cyan-700">{selectedStations.length ? `${selectedStations.length} 个工站` : '未选择工站'}</div></td>{matrix.stations.map((station) => { const rate = row.stationRows.get(station); return !rate ? <td key={station} className="border-b border-r border-slate-100 bg-slate-50/40 px-3 py-2 text-center text-slate-300">-</td> : <td key={station} className="border-b border-r border-slate-100 p-1.5 text-center"><button type="button" onClick={() => void openDetail(rate)} className={`flex min-h-13 w-full flex-col items-center justify-center rounded-sm px-2 py-1.5 font-mono transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${rateTone(rate.passRate)}`} title={`过站量 ${rate.inputCount}，维修 SN ${rate.defectCount}；点击查看明细`}><span className="text-sm font-semibold">{rate.passRate.toFixed(2)}%</span><span className="mt-0.5 text-[11px] font-medium opacity-75">{rate.defectCount}/{rate.inputCount}</span></button></td>; })}</tr>; })}
               </tbody>
             </table>
           </div>}

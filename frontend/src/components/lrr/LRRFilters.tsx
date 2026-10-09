@@ -160,7 +160,19 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
         </div>
 
         {/* NG 时间筛选暂时隐藏，保留字段兼容后续恢复。 */}
-        <div className="flex min-w-0 flex-col gap-2 lg:col-span-6"><span className="text-xs font-semibold text-slate-600">计划开始时间（GSTRS）</span><div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2"><input type="date" value={draft.plannedDateFrom ?? ''} max={draft.plannedDateTo ?? undefined} onChange={(e) => setFilter('plannedDateFrom', e.target.value || null)} aria-label="计划开始时间起始日" className={`${inputClass} w-full`} /><span className="text-xs text-slate-400">至</span><input type="date" value={draft.plannedDateTo ?? ''} min={draft.plannedDateFrom ?? undefined} onChange={(e) => setFilter('plannedDateTo', e.target.value || null)} aria-label="计划开始时间截止日" className={`${inputClass} w-full`} /></div><MonthQuickPicker from={draft.plannedDateFrom ?? ''} to={draft.plannedDateTo ?? ''} onChange={(from, to) => setDraft((current) => ({ ...current, plannedDateFrom: from, plannedDateTo: to }))} accent="cyan" defaultExpanded={false} /></div>
+        <div className="flex min-w-0 flex-col gap-2 lg:col-span-6">
+          <span className="text-xs font-semibold text-slate-600">计划开始时间（GSTRS）</span>
+          <div className="overflow-hidden rounded-md border border-slate-300 bg-white focus-within:border-cyan-500 focus-within:ring-2 focus-within:ring-cyan-100">
+            <div className="grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-stretch">
+              <input type="date" value={draft.plannedDateFrom ?? ''} max={draft.plannedDateTo ?? undefined} onChange={(e) => setFilter('plannedDateFrom', e.target.value || null)} aria-label="计划开始时间起始日" className="h-10 min-w-0 border-0 bg-transparent px-3 text-sm text-slate-700 outline-none" />
+              <span className="flex items-center border-x border-slate-200 px-2.5 text-xs text-slate-400">至</span>
+              <input type="date" value={draft.plannedDateTo ?? ''} min={draft.plannedDateFrom ?? undefined} onChange={(e) => setFilter('plannedDateTo', e.target.value || null)} aria-label="计划开始时间截止日" className="h-10 min-w-0 border-0 bg-transparent px-3 text-sm text-slate-700 outline-none" />
+            </div>
+            <div className="border-t border-slate-100 px-3 py-2">
+              <MonthQuickPicker from={draft.plannedDateFrom ?? ''} to={draft.plannedDateTo ?? ''} onChange={(from, to) => setDraft((current) => ({ ...current, plannedDateFrom: from, plannedDateTo: to }))} accent="cyan" defaultExpanded={false} />
+            </div>
+          </div>
+        </div>
         <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_auto] lg:col-span-6 lg:self-start lg:gap-3">
           <label className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">物料号</span><div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><input type="search" value={draft.materialNumber ?? ''} onChange={(e) => setFilter('materialNumber', e.target.value)} placeholder="输入 8 位或完整物料号" className={`${inputClass} w-full pl-9`} /></div></label>
           <div className="flex items-end gap-2">

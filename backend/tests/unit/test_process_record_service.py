@@ -14,11 +14,16 @@ from app.services.process_record_service import (
 
 
 class FakeResponse:
-    def __init__(self, payload):
+    def __init__(self, payload, status_code=200):
         self._payload = payload
+        self.status_code = status_code
 
     def json(self):
         return self._payload
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise RuntimeError(f"HTTP {self.status_code}")
 
 
 def test_normalize_system1_collects_three_photo_slots():
@@ -113,6 +118,64 @@ async def test_fetch_page_builds_source_specific_sn_filter(monkeypatch):
             "displayType": "text",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_login_status_refreshes_an_expired_upstream_session():
+    client = PhotoSourceClient(SOURCE_DEFINITIONS["system1"], "user", "password")
+    calls = []
+    status_checks = 0
+
+    async def fake_post(url, **kwargs):
+        nonlocal status_checks
+        calls.append(url)
+        if url == "/api/user/login":
+            return FakeResponse({"status": 0})
+        status_checks += 1
+        return FakeResponse({"status": 401} if status_checks == 1 else {"loggedIn": True})
+
+    client._client.post = fake_post
+    try:
+        result = await client.get_login_status()
+    finally:
+        await client.close()
+
+    assert result == {"loggedIn": True}
+    assert calls == [
+        "/api/user/login",
+        "/api/user/GetCurrentUserInfo",
+        "/api/user/login",
+        "/api/user/GetCurrentUserInfo",
+    ]
+
+
+@pytest.mark.asyncio
+async def test_request_relogs_and_retries_when_upstream_returns_auth_status():
+    client = PhotoSourceClient(SOURCE_DEFINITIONS["system1"], "user", "password")
+    login_count = 0
+    request_count = 0
+
+    async def fake_post(url, **kwargs):
+        nonlocal login_count
+        assert url == "/api/user/login"
+        login_count += 1
+        return FakeResponse({"status": 0})
+
+    async def fake_request(method, url, **kwargs):
+        nonlocal request_count
+        request_count += 1
+        return FakeResponse({"status": 401} if request_count == 1 else {"status": 0})
+
+    client._client.post = fake_post
+    client._client.request = fake_request
+    try:
+        response = await client._request("POST", "/api/test")
+    finally:
+        await client.close()
+
+    assert response.json() == {"status": 0}
+    assert login_count == 2
+    assert request_count == 2
 
 
 @pytest.mark.asyncio

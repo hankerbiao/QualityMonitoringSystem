@@ -89,7 +89,13 @@ async def get_all_settings():
 @router.put("", response_model=Response[SettingsResponse])
 async def update_all_settings(request: SettingsUpdateRequest):
     """批量更新系统配置"""
-    return Response(success=True, data=await _service().update_all(request))
+    try:
+        data = await _service().update_all(request)
+    except CredentialEncryptionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if request.processRecords is not None:
+        await process_record_gateway.invalidate_clients()
+    return Response(success=True, data=data)
 
 
 # ============== 关键工位影像追溯配置接口 ==============
@@ -108,13 +114,17 @@ async def update_process_record_config(config: ProcessRecordConfigUpdate):
     data = config.model_dump(exclude_none=True)
     password = data.pop("password", None)
     if password:
-        data["passwordCiphertext"] = encrypt_credential(password)
+        try:
+            data["passwordCiphertext"] = encrypt_credential(password)
+        except CredentialEncryptionError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not data:
         raise HTTPException(status_code=400, detail="No fields to update")
     data["updatedAt"] = datetime.now(timezone.utc)
     await get_database()[CONFIGS].update_one(
         {"key": "process_record_config"}, {"$set": data}, upsert=True
     )
+    await process_record_gateway.invalidate_clients()
     doc = await _read_doc("process_record_config")
     return Response(
         success=True,
