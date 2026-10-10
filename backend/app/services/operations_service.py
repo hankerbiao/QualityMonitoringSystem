@@ -71,6 +71,16 @@ def module_from_path(path: str) -> str:
     return "other"
 
 
+def _is_home_page_view(event: dict[str, Any]) -> bool:
+    """识别系统首页访问，兼容历史事件和未写入 module 的旧数据。"""
+    if event.get("eventType") != "page_view":
+        return False
+    return (
+        event.get("module") in ("home", "系统首页")
+        or module_from_path(str(event.get("path", ""))) == "home"
+    )
+
+
 def _as_datetime(value: Any) -> datetime | None:
     if isinstance(value, datetime):
         return value.replace(tzinfo=value.tzinfo or timezone.utc).astimezone(timezone.utc)
@@ -166,6 +176,8 @@ async def _sync_data_sources(_db: Any) -> list[dict[str, Any]]:
 
 
 async def record_page_view(db: Any, itcode: str, path: str) -> None:
+    if module_from_path(path) == "home":
+        return
     now = datetime.now(timezone.utc)
     await db.usage_events.insert_one(
         {
@@ -217,9 +229,16 @@ async def build_operations_dashboard(db: Any, days: int) -> dict[str, Any]:
         parsed = _as_datetime(value)
         return parsed is not None and start <= parsed < end
 
-    current_events = [e for e in events if in_period(e.get("timestamp"), current_start, now)]
+    current_events = [
+        e
+        for e in events
+        if in_period(e.get("timestamp"), current_start, now) and not _is_home_page_view(e)
+    ]
     previous_events = [
-        e for e in events if in_period(e.get("timestamp"), previous_start, current_start)
+        e
+        for e in events
+        if in_period(e.get("timestamp"), previous_start, current_start)
+        and not _is_home_page_view(e)
     ]
     current_sessions = [s for s in sessions if in_period(s.get("createdAt"), current_start, now)]
     previous_sessions = [

@@ -40,6 +40,22 @@ class TestOperationsDashboard:
             json={"event_type": "page_view", "path": "/rty"},
         )
         assert track_response.status_code == 204
+        home_response = await client.post(
+            "/api/operations/events",
+            headers=headers,
+            json={"event_type": "page_view", "path": "/"},
+        )
+        assert home_response.status_code == 204
+        await db_clean.usage_events.insert_one(
+            {
+                "eventType": "page_view",
+                "itcode": "alice",
+                "module": "home",
+                "path": "/",
+                "statusCode": 200,
+                "timestamp": now,
+            }
+        )
 
         response = await client.get("/api/operations/dashboard?days=30", headers=headers)
         assert response.status_code == 200
@@ -52,10 +68,14 @@ class TestOperationsDashboard:
         assert data["modules"][0]["key"] == "rty"
         assert data["modules"][0]["pageViews"] == 1
         assert data["recentActivity"][0]["displayName"] == "Alice Zhang"
+        assert all(item["module"] != "系统首页" for item in data["recentActivity"])
+        assert await db_clean.usage_events.count_documents({}) == 2
 
     async def test_rejects_invalid_period(self, client):
         # The operations dashboard is administrator-only.
-        admin_token = (await client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})).json()["access_token"]
+        admin_token = (
+            await client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
+        ).json()["access_token"]
         response = await client.get(
             "/api/operations/dashboard?days=365",
             headers={"Authorization": f"Bearer {admin_token}"},
@@ -66,7 +86,9 @@ class TestOperationsDashboard:
         from app.services import operations_service
 
         await client.post("/api/auth/login", json={"username": "admin", "password": "admin123"})
-        headers = {"Authorization": f"Bearer {(await client.post('/api/auth/login', json={'username': 'admin', 'password': 'admin123'})).json()['access_token']}"}
+        headers = {
+            "Authorization": f"Bearer {(await client.post('/api/auth/login', json={'username': 'admin', 'password': 'admin123'})).json()['access_token']}"
+        }
 
         async def data_status():
             return {
