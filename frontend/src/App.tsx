@@ -14,9 +14,8 @@ const LoginPage = lazy(() => import('./pages/LoginPage'));
 const AlertReportPage = lazy(() => import('./pages/AlertReportPage'));
 const OperationsPage = lazy(() => import('./pages/OperationsPage'));
 const DoaScsPage = lazy(() => import('./pages/DoaScsPage'));
-const DoaPage = lazy(() => import('./pages/DoaPage'));
 const DoaRepairsPage = lazy(() => import('./pages/DoaRepairsPage'));
-const MFRPage = lazy(() => import('./pages/MFRPage'));
+const UnderDevelopmentPage = lazy(() => import('./pages/UnderDevelopmentPage'));
 
 class RouteErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   state = { hasError: false };
@@ -97,9 +96,9 @@ function AppContent() {
           <Route path="/process-records" element={<DashboardAccess permission="process-records"><ProcessRecordsPage /></DashboardAccess>} />
           <Route path="/operations" element={<DashboardAccess permission="admin"><OperationsPage /></DashboardAccess>} />
           <Route path="/doa/raw" element={<DashboardAccess permission="doa"><DoaScsPage /></DashboardAccess>} />
-          <Route path="/doa" element={<DashboardAccess permission="doa"><DoaPage /></DashboardAccess>} />
+          <Route path="/doa" element={<DashboardAccess permission="doa"><UnderDevelopmentPage title="DOA 报修率" description="开箱报修率质量看板" /></DashboardAccess>} />
           <Route path="/doa/repairs" element={<DashboardAccess permission="doa-repairs"><DoaRepairsPage /></DashboardAccess>} />
-          <Route path="/mfr" element={<DashboardAccess permission="mfr"><MFRPage /></DashboardAccess>} />
+          <Route path="/mfr" element={<DashboardAccess permission="mfr"><UnderDevelopmentPage title="MFR（现网月化故障率）" description="现网月化故障率质量看板" /></DashboardAccess>} />
         </Route>
         </Routes>
       </Suspense>

@@ -3,11 +3,11 @@ import { Link, useLocation } from 'react-router-dom';
 import { ChevronDown, LayoutDashboard } from 'lucide-react';
 
 const dashboards = [
-  { path: '/rty', label: 'RTY', description: '整机综合直通率' },
-  { path: '/station-pass-rate', label: 'STATION RTY', description: '工位过站直通率' },
-  { path: '/lrr', label: 'LRR', description: '工厂阶段部件故障率' },
-  { path: '/doa', label: 'DOA', description: '报修率' },
-  { path: '/mfr', label: 'MFR', description: '现网月化故障率' },
+  { path: '/rty', label: 'RTY', description: '整机综合直通率', status: 'available' },
+  { path: '/station-pass-rate', label: 'STATION RTY', description: '工位过站直通率', status: 'available' },
+  { path: '/lrr', label: 'LRR', description: '工厂阶段部件故障率', status: 'available' },
+  { path: '/doa', label: 'DOA', description: '报修率', status: 'planned' },
+  { path: '/mfr', label: 'MFR', description: '现网月化故障率', status: 'planned' },
 ] as const;
 
 export function DashboardSwitcher() {
@@ -50,6 +50,19 @@ export function DashboardSwitcher() {
         <div role="menu" aria-label="切换质量看板" className="absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-md border border-slate-200 bg-white py-1 shadow-lg shadow-slate-900/10">
           {dashboards.map((dashboard) => {
             const isCurrent = dashboard.path === pathname;
+            if (dashboard.status === 'planned') {
+              return (
+                <span
+                  key={dashboard.path}
+                  role="menuitem"
+                  aria-disabled="true"
+                  className="flex cursor-not-allowed items-center justify-between gap-3 px-3 py-2.5 text-slate-400"
+                >
+                  <span className="text-sm font-semibold">{dashboard.label}</span>
+                  <span className="text-xs text-slate-400">开发中</span>
+                </span>
+              );
+            }
             return (
               <Link
                 key={dashboard.path}

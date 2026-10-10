@@ -65,9 +65,9 @@ function ModuleIcon({ module, compact }: { module: HomeModuleDefinition; compact
 
 function PlannedBadge() {
   return (
-    <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700 ring-1 ring-inset ring-amber-200">
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-500 ring-1 ring-inset ring-slate-200">
       <Clock3 className="size-3.5" aria-hidden="true" />
-      规划中
+      开发中
     </span>
   );
 }

@@ -63,7 +63,7 @@ export const qualityModules: readonly HomeModuleDefinition[] = [
     icon: Wrench,
     accent: 'emerald',
     path: '/doa',
-    status: 'available',
+    status: 'planned',
   },
   {
     id: 'mfr',
@@ -73,7 +73,7 @@ export const qualityModules: readonly HomeModuleDefinition[] = [
     icon: BarChart3,
     accent: 'rose',
     path: '/mfr',
-    status: 'available',
+    status: 'planned',
   },
 ];
 
