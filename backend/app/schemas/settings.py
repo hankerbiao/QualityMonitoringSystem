@@ -2,7 +2,24 @@
 系统配置相关 Pydantic 模型
 """
 
-from pydantic import BaseModel, ConfigDict, Field
+from typing import Literal
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+DashboardStatus = Literal["available", "planned"]
+DASHBOARD_STATUS_KEYS = frozenset({"rty", "station-pass-rate", "lrr", "doa", "mfr"})
+DEFAULT_DASHBOARD_STATUSES: dict[str, DashboardStatus] = {
+    "rty": "available",
+    "station-pass-rate": "available",
+    "lrr": "available",
+    "doa": "planned",
+    "mfr": "planned",
+}
+
+
+def default_dashboard_statuses() -> dict[str, DashboardStatus]:
+    return DEFAULT_DASHBOARD_STATUSES.copy()
+
 
 # ============== 关键工位影像追溯配置 ==============
 
@@ -104,6 +121,9 @@ class SettingsResponse(BaseModel):
     processRecords: ProcessRecordConfig
     modelTargets: dict[str, float] = Field(default_factory=dict)
     emailAlert: EmailAlertConfig
+    dashboardStatuses: dict[str, DashboardStatus] = Field(
+        default_factory=default_dashboard_statuses
+    )
     cycleStatsConfig: CycleStatsConfig = Field(default_factory=CycleStatsConfig)
     stationPassRateConfig: StationPassRateConfig = Field(default_factory=StationPassRateConfig)
 
@@ -116,5 +136,17 @@ class SettingsUpdateRequest(BaseModel):
     processRecords: ProcessRecordConfigUpdate | None = None
     modelTargets: dict[str, float] | None = None
     emailAlert: EmailAlertConfigUpdate | None = None
+    dashboardStatuses: dict[str, DashboardStatus] | None = None
     cycleStatsConfig: CycleStatsConfig | None = None
     stationPassRateConfig: StationPassRateConfig | None = None
+
+    @field_validator("dashboardStatuses")
+    @classmethod
+    def validate_dashboard_statuses(
+        cls, value: dict[str, DashboardStatus] | None
+    ) -> dict[str, DashboardStatus] | None:
+        if value is not None:
+            invalid_keys = set(value) - DASHBOARD_STATUS_KEYS
+            if invalid_keys:
+                raise ValueError(f"Invalid dashboard status keys: {sorted(invalid_keys)}")
+        return value

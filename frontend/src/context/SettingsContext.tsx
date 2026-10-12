@@ -2,6 +2,7 @@ import { createContext, useContext, useState, useEffect, useCallback, type React
 import { settingsApi } from '../api/settingsApi';
 import { useAuth } from './AuthContext';
 import type { SettingsContextType, SettingsResponse, SettingsUpdate } from '../types';
+import { DEFAULT_DASHBOARD_STATUSES } from '../config/homeModules';
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
@@ -9,12 +10,13 @@ const DEFAULT_SETTINGS: SettingsResponse = {
   processRecords: { username: '', password: '', hasPassword: false },
   modelTargets: {},
   emailAlert: { enabled: true, emails: '', triggerCondition: '', weeklyProductionThreshold: 50 },
+  dashboardStatuses: DEFAULT_DASHBOARD_STATUSES,
   cycleStatsConfig: { selectedModels: [] },
   stationPassRateConfig: { selectedStations: [], configured: false },
 };
 
 export function SettingsProvider({ children }: { children: ReactNode }) {
-  const { isAuthLoaded, isAuthenticated } = useAuth();
+  const { user, isAuthLoaded, isAuthenticated } = useAuth();
   const [settings, setSettings] = useState<SettingsResponse>(DEFAULT_SETTINGS);
   const [loading, setLoading] = useState(true);
 
@@ -28,8 +30,17 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
     let active = true;
     const loadSettings = async () => {
       try {
-        const data = await settingsApi.getAll();
-        if (active) setSettings({ ...DEFAULT_SETTINGS, ...data });
+        const [dashboardStatuses, adminSettings] = await Promise.all([
+          settingsApi.getDashboardStatuses(),
+          user?.role === 'admin' ? settingsApi.getAll() : Promise.resolve(null),
+        ]);
+        if (active) {
+          setSettings({
+            ...DEFAULT_SETTINGS,
+            ...(adminSettings ?? {}),
+            dashboardStatuses,
+          });
+        }
       } catch (err) {
         console.error('[Settings] Failed to load from backend:', err);
       } finally {
@@ -45,7 +56,7 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
       active = false;
       window.removeEventListener('settings-saved', handleSettingsSaved);
     };
-  }, [isAuthLoaded, isAuthenticated]);
+  }, [isAuthLoaded, isAuthenticated, user?.role]);
 
   const updateSettings = useCallback(async (config: SettingsUpdate) => {
     const updated = await settingsApi.updateAll(config);

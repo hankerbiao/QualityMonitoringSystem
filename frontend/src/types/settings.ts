@@ -1,3 +1,5 @@
+import type { HomeModuleStatus } from '../config/homeModules';
+
 export interface ProcessRecordConfig {
   username: string;
   password: string;
@@ -31,6 +33,7 @@ export interface SettingsResponse {
   processRecords: ProcessRecordConfig;
   modelTargets: ModelTargets;
   emailAlert: EmailAlertConfig;
+  dashboardStatuses: Record<string, HomeModuleStatus>;
   cycleStatsConfig: CycleStatsConfig;
   stationPassRateConfig: StationPassRateConfig;
 }
@@ -45,6 +48,7 @@ export interface SettingsUpdate {
   processRecords?: Partial<ProcessRecordConfig>;
   modelTargets?: ModelTargets;
   emailAlert?: Partial<EmailAlertConfig>;
+  dashboardStatuses?: Record<string, HomeModuleStatus>;
   cycleStatsConfig?: CycleStatsConfig;
   stationPassRateConfig?: StationPassRateConfigUpdate;
 }

@@ -1,6 +1,7 @@
 import { API_BASE_URL } from '../constants';
 import { requestData } from './authApi';
 import type { SettingsResponse, ProcessRecordConfig, ProcessRecordConnectionTest, SettingsUpdate } from '../types';
+import type { HomeModuleStatus } from '../config/homeModules';
 
 export interface WeeklyQualifiedModels {
   window: { from: string; to: string };
@@ -26,6 +27,10 @@ export const settingsApi = {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),
     });
+  },
+
+  async getDashboardStatuses(): Promise<Record<string, HomeModuleStatus>> {
+    return requestData<Record<string, HomeModuleStatus>>(`${API_BASE_URL}/settings/dashboard-statuses`);
   },
 
   async testProcessRecords(config: Partial<ProcessRecordConfig>): Promise<ProcessRecordConnectionTest> {

@@ -27,7 +27,34 @@ class TestGetAllSettings:
         assert data["data"]["processRecords"]["hasPassword"] is False
         assert data["data"]["modelTargets"] == {}
         assert data["data"]["emailAlert"]["enabled"] is True
+        assert data["data"]["dashboardStatuses"] == {
+            "rty": "available",
+            "station-pass-rate": "available",
+            "lrr": "available",
+            "doa": "planned",
+            "mfr": "planned",
+        }
         assert data["data"]["cycleStatsConfig"]["selectedModels"] == []
+
+    async def test_dashboard_statuses_can_be_updated_and_read_publicly(self, client, db_clean):
+        response = await client.put(
+            "/api/settings",
+            json={"dashboardStatuses": {"doa": "available", "mfr": "planned"}},
+        )
+        assert response.status_code == 200
+        assert response.json()["data"]["dashboardStatuses"]["doa"] == "available"
+
+        public_response = await client.get("/api/settings/dashboard-statuses")
+        assert public_response.status_code == 200
+        assert public_response.json()["data"]["doa"] == "available"
+        assert public_response.json()["data"]["mfr"] == "planned"
+
+    async def test_invalid_dashboard_status_is_rejected(self, client, db_clean):
+        response = await client.put(
+            "/api/settings",
+            json={"dashboardStatuses": {"doa": "released"}},
+        )
+        assert response.status_code == 422
 
     async def test_unified_update_includes_cycle_stats_and_keeps_secrets_masked(
         self, client, db_clean

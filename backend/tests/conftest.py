@@ -122,6 +122,7 @@ def app():
         CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"]
     )
     test_app.include_router(rty.router, prefix="/api/rty", tags=["RTY"])
+    test_app.include_router(settings.public_router, prefix="/api/settings", tags=["Settings"])
     test_app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
     test_app.include_router(auth.router, prefix="/api", tags=["Auth"])
     test_app.include_router(admin_users.router, prefix="/api", tags=["Admin Users"])

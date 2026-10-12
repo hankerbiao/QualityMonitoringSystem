@@ -21,6 +21,7 @@ import {
 } from '../config/homeModules';
 import type { HomeModuleDefinition } from '../config/homeModules';
 import { useAuth } from '../context/AuthContext';
+import { useSettings } from '../context/SettingsContext';
 
 type ModuleFilter = 'all' | 'quality' | 'tools' | 'management';
 
@@ -38,6 +39,7 @@ export default function Home() {
   const [searchQuery, setSearchQuery] = useState('');
   const menuRef = useRef<HTMLDivElement>(null);
   const { user, logout } = useAuth();
+  const { settings } = useSettings();
 
   useEffect(() => {
     const handler = (event: MouseEvent) => {
@@ -57,7 +59,11 @@ export default function Home() {
   const isAdmin = user?.role === 'admin';
   const dashboardPermissions = new Set(user?.dashboardPermissions ?? []);
   const canView = (id: string) => isAdmin || dashboardPermissions.has(id);
-  const visibleQualityModules = qualityModules.filter((module) => canView(module.id));
+  const configuredQualityModules = qualityModules.map((module) => ({
+    ...module,
+    status: settings.dashboardStatuses[module.id] ?? module.status,
+  }));
+  const visibleQualityModules = configuredQualityModules.filter((module) => canView(module.id));
   const visibleToolModules = toolModules.filter((module) => canView(module.id));
   const visibleModules = [
     ...visibleQualityModules,

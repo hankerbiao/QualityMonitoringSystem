@@ -77,6 +77,7 @@ app.include_router(lrr.router, prefix="/api/lrr", tags=["LRR"])
 app.include_router(mfr.router, prefix="/api/mfr", tags=["MFR"])
 app.include_router(doa.router, prefix="/api/doa", tags=["DOA"])
 app.include_router(alert_report.router, prefix="/api/alert-report", tags=["AlertReport"])
+app.include_router(settings.public_router, prefix="/api/settings", tags=["Settings"])
 app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
 app.include_router(data_gateway.router, prefix="/api/data-gateway", tags=["Data Gateway"])
 app.include_router(

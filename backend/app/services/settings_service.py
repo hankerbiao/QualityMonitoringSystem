@@ -12,7 +12,9 @@ from fastapi import HTTPException
 
 from app.models.documents import Collections
 from app.schemas.settings import (
+    DEFAULT_DASHBOARD_STATUSES,
     CycleStatsConfig,
+    DashboardStatus,
     EmailAlertConfig,
     ProcessRecordConfig,
     SettingsResponse,
@@ -49,6 +51,7 @@ class SettingsService:
                 "process_record_config",
                 "model_targets",
                 "email_alert_config",
+                "dashboard_statuses",
                 "cycle_stats_config",
                 "station_pass_rate_config",
             )
@@ -57,6 +60,7 @@ class SettingsService:
             processRecords=self.process_records_from_doc(docs["process_record_config"]),
             modelTargets=(docs["model_targets"] or {}).get("targets", {}),
             emailAlert=self.email_from_doc(docs["email_alert_config"]),
+            dashboardStatuses=self.dashboard_statuses_from_doc(docs["dashboard_statuses"]),
             cycleStatsConfig=CycleStatsConfig(
                 selectedModels=(docs["cycle_stats_config"] or {}).get("selectedModels", [])
             ),
@@ -88,6 +92,9 @@ class SettingsService:
             if data:
                 updates.append(("email_alert_config", data))
 
+        if request.dashboardStatuses is not None:
+            updates.append(("dashboard_statuses", {"statuses": request.dashboardStatuses}))
+
         if request.cycleStatsConfig is not None:
             updates.append(
                 ("cycle_stats_config", {"selectedModels": request.cycleStatsConfig.selectedModels})
@@ -110,6 +117,23 @@ class SettingsService:
                 upsert=True,
             )
         return await self.get_all()
+
+    async def get_dashboard_statuses(self) -> dict[str, DashboardStatus]:
+        return self.dashboard_statuses_from_doc(await self.read_doc("dashboard_statuses"))
+
+    @staticmethod
+    def dashboard_statuses_from_doc(
+        doc: dict[str, Any] | None,
+    ) -> dict[str, DashboardStatus]:
+        statuses = (doc or {}).get("statuses", {})
+        return {
+            **DEFAULT_DASHBOARD_STATUSES,
+            **{
+                key: value
+                for key, value in statuses.items()
+                if key in DEFAULT_DASHBOARD_STATUSES and value in ("available", "planned")
+            },
+        }
 
     @staticmethod
     def process_records_from_doc(doc: dict[str, Any] | None) -> ProcessRecordConfig:

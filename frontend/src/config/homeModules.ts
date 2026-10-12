@@ -24,6 +24,14 @@ export interface HomeModuleDefinition {
   status: HomeModuleStatus;
 }
 
+export const DEFAULT_DASHBOARD_STATUSES: Record<string, HomeModuleStatus> = {
+  rty: 'available',
+  'station-pass-rate': 'available',
+  lrr: 'available',
+  doa: 'planned',
+  mfr: 'planned',
+};
+
 export const qualityModules: readonly HomeModuleDefinition[] = [
   {
     id: 'rty',

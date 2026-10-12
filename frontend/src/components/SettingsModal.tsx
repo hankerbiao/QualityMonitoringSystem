@@ -1,21 +1,23 @@
 import { useState, useEffect } from 'react';
-import { Settings, Save, BellRing, Target, X, CheckCircle, Loader2, Camera, Users } from 'lucide-react';
+import { Settings, Save, BellRing, Target, X, CheckCircle, Loader2, Camera, Users, PanelsTopLeft } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
-import { ModelTargetsTab, EmailAlertTab, ProcessRecordConfigTab, UserManagementTab } from './settings';
+import { DashboardStatusTab, ModelTargetsTab, EmailAlertTab, ProcessRecordConfigTab, UserManagementTab } from './settings';
 import { useAuth } from '../context/AuthContext';
 import type { ProcessRecordConfig } from '../types';
+import type { HomeModuleStatus } from '../config/homeModules';
 
 interface SettingsModalProps {
   onClose: () => void;
   onSaved: () => void;
 }
 
-type TabKey = 'processRecords' | 'rty' | 'email' | 'users';
+type TabKey = 'processRecords' | 'rty' | 'email' | 'dashboardStatuses' | 'users';
 
 const TABS: { key: TabKey; label: string; icon: typeof Save }[] = [
   { key: 'processRecords', label: '影像数据源', icon: Camera },
   { key: 'rty', label: '机型指标配置', icon: Target },
   { key: 'email', label: '邮件预警规则', icon: BellRing },
+  { key: 'dashboardStatuses', label: '看板状态', icon: PanelsTopLeft },
   { key: 'users', label: '用户管理', icon: Users },
 ];
 
@@ -34,10 +36,12 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
   const [processRecordConfig, setProcessRecordConfig] = useState<ProcessRecordConfig>({ username: '', password: '', hasPassword: false });
   const [emailConfig, setEmailConfig] = useState({ enabled: true, emails: '', triggerCondition: '', weeklyProductionThreshold: 50 });
   const [modelTargets, setModelTargets] = useState<Record<string, number>>({});
+  const [dashboardStatuses, setDashboardStatuses] = useState<Record<string, HomeModuleStatus>>({});
 
   useEffect(() => {
     setProcessRecordConfig({ ...settings.processRecords, password: '' });
     setModelTargets(settings.modelTargets);
+    setDashboardStatuses(settings.dashboardStatuses);
     setEmailConfig({
       enabled: settings.emailAlert.enabled,
       emails: settings.emailAlert.emails,
@@ -53,6 +57,7 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
         processRecords: { username: processRecordConfig.username, password: processRecordConfig.password },
         modelTargets,
         emailAlert: emailConfig,
+        dashboardStatuses,
       });
       setSaved(true);
       onSaved();
@@ -132,6 +137,9 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
             )}
             {activeTab === 'email' && (
               <EmailAlertTab config={emailConfig} onChange={setEmailConfig} />
+            )}
+            {activeTab === 'dashboardStatuses' && (
+              <DashboardStatusTab statuses={dashboardStatuses} onChange={setDashboardStatuses} />
             )}
             {activeTab === 'users' && user?.role === 'admin' && <UserManagementTab />}
           </div>

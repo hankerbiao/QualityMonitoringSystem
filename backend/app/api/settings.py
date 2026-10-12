@@ -12,16 +12,18 @@
 """
 
 from datetime import datetime, timezone
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from app.api.auth import require_admin
+from app.api.auth import get_current_user, require_admin
 from app.db.mongodb import get_database
 from app.models.documents import Collections
 from app.schemas.common import Response
 from app.schemas.process_records import ProcessRecordConnectionTest
 from app.schemas.settings import (
     CycleStatsConfig,
+    DashboardStatus,
     EmailAlertConfig,
     EmailAlertConfigUpdate,
     ModelTargetsResponse,
@@ -40,6 +42,7 @@ from app.services.settings_service import SettingsService
 from app.services.weekly_alert import get_weekly_production_candidates, run_weekly_production_check
 
 router = APIRouter(dependencies=[Depends(require_admin)])
+public_router = APIRouter()
 
 CONFIGS = Collections.CONFIGS
 
@@ -75,6 +78,12 @@ def _process_records_from_doc(doc: dict | None) -> ProcessRecordConfig:
 
 def _email_from_doc(doc: dict | None) -> EmailAlertConfig:
     return SettingsService.email_from_doc(doc)
+
+
+@public_router.get("/dashboard-statuses", response_model=Response[dict[str, DashboardStatus]])
+async def get_dashboard_statuses(_: Annotated[dict, Depends(get_current_user)]):
+    """读取前端展示用的看板状态，不暴露其他管理员配置。"""
+    return Response(success=True, data=await _service().get_dashboard_statuses())
 
 
 # ============== 统一设置接口 ==============

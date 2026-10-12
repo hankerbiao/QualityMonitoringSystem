@@ -1,17 +1,20 @@
 import { useEffect, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import { ChevronDown, LayoutDashboard } from 'lucide-react';
+import { useSettings } from '../../context/SettingsContext';
+import { DEFAULT_DASHBOARD_STATUSES } from '../../config/homeModules';
 
 const dashboards = [
-  { path: '/rty', label: 'RTY', description: '整机综合直通率', status: 'available' },
-  { path: '/station-pass-rate', label: 'STATION RTY', description: '工位过站直通率', status: 'available' },
-  { path: '/lrr', label: 'LRR', description: '工厂阶段部件故障率', status: 'available' },
-  { path: '/doa', label: 'DOA', description: '报修率', status: 'planned' },
-  { path: '/mfr', label: 'MFR', description: '现网月化故障率', status: 'planned' },
+  { path: '/rty', id: 'rty', label: 'RTY', description: '整机综合直通率' },
+  { path: '/station-pass-rate', id: 'station-pass-rate', label: 'STATION RTY', description: '工位过站直通率' },
+  { path: '/lrr', id: 'lrr', label: 'LRR', description: '工厂阶段部件故障率' },
+  { path: '/doa', id: 'doa', label: 'DOA', description: '报修率' },
+  { path: '/mfr', id: 'mfr', label: 'MFR', description: '现网月化故障率' },
 ] as const;
 
 export function DashboardSwitcher() {
   const { pathname } = useLocation();
+  const { settings } = useSettings();
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const currentDashboard = dashboards.find((dashboard) => dashboard.path === pathname) ?? dashboards[0];
@@ -50,7 +53,8 @@ export function DashboardSwitcher() {
         <div role="menu" aria-label="切换质量看板" className="absolute right-0 z-50 mt-2 w-64 overflow-hidden rounded-md border border-slate-200 bg-white py-1 shadow-lg shadow-slate-900/10">
           {dashboards.map((dashboard) => {
             const isCurrent = dashboard.path === pathname;
-            if (dashboard.status === 'planned') {
+            const status = settings.dashboardStatuses[dashboard.id] ?? DEFAULT_DASHBOARD_STATUSES[dashboard.id];
+            if (status === 'planned') {
               return (
                 <span
                   key={dashboard.path}
