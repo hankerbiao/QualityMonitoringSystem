@@ -34,9 +34,17 @@ from app.services.lrr_normalization import (
 
 router = APIRouter(dependencies=[Depends(dashboard_dependency("lrr"))])
 MAX_LRR_DATE_RANGE_DAYS = 366
+MAX_LRR_UNFILTERED_MONTHS = 3
+LRR_SCOPE_FILTER_MESSAGE = "查询周期超过 3 个月，请至少增加物料号、机型、基地或客户 ID 筛选条件"
 
 
-def _validate_lrr_date_range(start: str | None, end: str | None, label: str) -> None:
+def _validate_lrr_date_range(
+    start: str | None,
+    end: str | None,
+    label: str,
+    *,
+    require_scope_filter: bool = False,
+) -> None:
     if not start and not end:
         return
     try:
@@ -63,6 +71,22 @@ def _validate_lrr_date_range(start: str | None, end: str | None, label: str) -> 
                 "retryable": False,
             },
         )
+    if (
+        require_scope_filter
+        and start_date
+        and end_date
+        and (end_date.year - start_date.year) * 12 + end_date.month - start_date.month + 1
+        > MAX_LRR_UNFILTERED_MONTHS
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail={
+                "code": "QUERY_TOO_LARGE",
+                "error": LRR_SCOPE_FILTER_MESSAGE,
+                "message": LRR_SCOPE_FILTER_MESSAGE,
+                "retryable": False,
+            },
+        )
     if start_date and end_date and (end_date - start_date).days + 1 > MAX_LRR_DATE_RANGE_DAYS:
         raise HTTPException(
             status_code=422,
@@ -73,6 +97,22 @@ def _validate_lrr_date_range(start: str | None, end: str | None, label: str) -> 
                 "retryable": False,
             },
         )
+
+
+def _has_lrr_scope_filter(
+    material_number: str | None,
+    product_model: str | None,
+    base: str | None,
+    customer_ids: list[str] | None,
+) -> bool:
+    return any(
+        (
+            str(material_number or "").strip(),
+            str(product_model or "").strip(),
+            str(base or "").strip(),
+            any(str(value or "").strip() for value in customer_ids or []),
+        )
+    )
 
 
 def _quantity(value: Any) -> Decimal:
@@ -432,8 +472,19 @@ async def get_lrr_list(
     sortDir: str = "asc",
 ):
     del request
-    _validate_lrr_date_range(plannedDateFrom, plannedDateTo, "计划日期")
-    _validate_lrr_date_range(ngDateFrom, ngDateTo, "故障日期")
+    has_scope_filter = _has_lrr_scope_filter(materialNumber, productModel, base, customerId)
+    _validate_lrr_date_range(
+        plannedDateFrom,
+        plannedDateTo,
+        "计划日期",
+        require_scope_filter=not has_scope_filter,
+    )
+    _validate_lrr_date_range(
+        ngDateFrom,
+        ngDateTo,
+        "故障日期",
+        require_scope_filter=not has_scope_filter,
+    )
     query = LRRListQuery(
         page=page,
         limit=limit,
@@ -474,8 +525,19 @@ async def get_lrr_fault_details(
     limit: int = Query(50000, ge=1, le=50000),
 ):
     del request
-    _validate_lrr_date_range(plannedDateFrom, plannedDateTo, "计划日期")
-    _validate_lrr_date_range(ngDateFrom, ngDateTo, "故障日期")
+    has_scope_filter = _has_lrr_scope_filter(materialNumber, productModel, base, customerId)
+    _validate_lrr_date_range(
+        plannedDateFrom,
+        plannedDateTo,
+        "计划日期",
+        require_scope_filter=not has_scope_filter,
+    )
+    _validate_lrr_date_range(
+        ngDateFrom,
+        ngDateTo,
+        "故障日期",
+        require_scope_filter=not has_scope_filter,
+    )
     bom = await lrr_gateway.load_bom(
         material_number=materialNumber,
         product_model=productModel,

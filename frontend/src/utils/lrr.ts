@@ -24,3 +24,11 @@ export function matchingPlannedRange(from?: string | null, to?: string | null, t
     return range.plannedDateFrom === from && range.plannedDateTo === to;
   }) ?? null;
 }
+
+export function exceedsThreeCalendarMonths(from?: string | null, to?: string | null): boolean {
+  if (!from || !to) return false;
+  const start = new Date(`${from}T00:00:00`);
+  const end = new Date(`${to}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || start > end) return false;
+  return (end.getFullYear() - start.getFullYear()) * 12 + end.getMonth() - start.getMonth() + 1 > 3;
+}

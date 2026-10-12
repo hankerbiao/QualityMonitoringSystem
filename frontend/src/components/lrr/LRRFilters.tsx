@@ -4,7 +4,7 @@ import { lrrApi } from '../../api/lrrApi';
 import { ApiRequestError } from '../../api/authApi';
 import { MonthQuickPicker } from '../shared/MonthQuickPicker';
 import type { LRRFilters, LRROptions } from '../../types';
-import { matchingPlannedRange, recentPlannedRange } from '../../utils/lrr';
+import { exceedsThreeCalendarMonths, matchingPlannedRange, recentPlannedRange } from '../../utils/lrr';
 
 interface Props {
   filters: LRRFilters;
@@ -132,10 +132,21 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
   const hasActive = FILTER_FIELDS.some((key) => Boolean(draft[key]));
   const activeCount = FILTER_FIELDS.filter((key) => Boolean(draft[key])).length;
   const hasPendingChanges = FILTER_FIELDS.some((key) => normalizedValue(draft[key]) !== normalizedValue(filters[key]));
+  const hasScopeFilter = Boolean(
+    draft.materialNumber?.trim()
+    || draft.productModel?.trim()
+    || draft.base?.trim()
+    || draft.customerIds?.some((value) => value.trim()),
+  );
+  const scopeFilterWarning = exceedsThreeCalendarMonths(draft.plannedDateFrom, draft.plannedDateTo)
+    && !hasScopeFilter
+    ? '查询周期超过 3 个月，请至少增加物料号、机型、基地或客户 ID 筛选条件'
+    : '';
   const inputClass = 'h-10 min-w-0 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100';
   const setFilter = <K extends keyof LRRFilters>(key: K, value: LRRFilters[K]) => setDraft((current) => ({ ...current, [key]: value }));
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    if (scopeFilterWarning) return;
     onSearch({ ...draft, materialNumber: draft.materialNumber?.trim() || null });
   };
   const reset = () => {
@@ -162,6 +173,7 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
                       const range = recentPlannedRange(months);
                       const next = { ...draft, ...range, materialNumber: draft.materialNumber?.trim() || null };
                       setDraft(next);
+                      if (months > 3 && !hasScopeFilter) return;
                       onSearch(next);
                     }}
                     className={`h-8 rounded-md border px-2.5 ${active ? 'border-cyan-700 bg-cyan-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}`}
@@ -200,6 +212,7 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
 
         <div className="grid grid-cols-1 gap-4 border-t border-slate-200 pt-4 sm:grid-cols-3 lg:col-span-12 lg:gap-5"><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">机型</span><SearchableSelect value={draft.productModel} options={options.productModels} allLabel="全部机型" onChange={(value) => setFilter('productModel', value as string | null)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">基地</span><SearchableSelect value={draft.base} options={options.bases} allLabel="全部基地" onChange={(value) => setFilter('base', value as string | null)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">客户 ID</span><SearchableSelect value={draft.customerIds} options={options.customerIds} allLabel="全部客户" multiple onChange={(value) => setFilter('customerIds', (value as string[] | null) ?? undefined)} /></div></div>
       </form>
+      {scopeFilterWarning && <div role="alert" className="border-t border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800 sm:px-5 lg:px-6">{scopeFilterWarning}</div>}
     </section>
   );
 }

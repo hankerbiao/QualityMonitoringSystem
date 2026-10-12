@@ -109,8 +109,36 @@ def test_lrr_filtered_list_requires_fault_loading_even_with_month_sort():
     assert not _has_filter_criteria(LRRListQuery())
 
 
-def test_lrr_accepts_a_full_year_date_range():
-    _validate_lrr_date_range("2025-01-01", "2026-01-01", "计划日期")
+def test_lrr_accepts_a_full_year_date_range_when_scope_is_filtered():
+    _validate_lrr_date_range(
+        "2025-01-01",
+        "2026-01-01",
+        "计划日期",
+        require_scope_filter=False,
+    )
+
+
+def test_lrr_rejects_more_than_three_calendar_months_without_scope_filter():
+    with pytest.raises(HTTPException) as error:
+        _validate_lrr_date_range(
+            "2026-01-01",
+            "2026-04-01",
+            "计划日期",
+            require_scope_filter=True,
+        )
+
+    assert error.value.status_code == 422
+    assert error.value.detail["code"] == "QUERY_TOO_LARGE"
+    assert "增加" in error.value.detail["message"]
+
+
+def test_lrr_accepts_three_calendar_months_without_scope_filter():
+    _validate_lrr_date_range(
+        "2026-01-01",
+        "2026-03-31",
+        "计划日期",
+        require_scope_filter=True,
+    )
 
 
 def test_lrr_rejects_reversed_date_range():
