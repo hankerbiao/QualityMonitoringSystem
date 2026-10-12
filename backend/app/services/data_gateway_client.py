@@ -48,6 +48,8 @@ def _repair_row_has_planned_field(row: dict[str, Any]) -> bool:
 # million in 2026). Keep a hard ceiling so an unbounded stream cannot exhaust
 # the API process, but leave room for the rest of this year.
 STATION_STREAM_MAX_ROWS = 5_000_000
+# shortcut: 10,000 rows, update if the gateway stream cap changes.
+BOM_STREAM_MAX_ROWS = 10_000
 
 
 class DataGatewayClient:
@@ -618,7 +620,7 @@ class DataGatewayClient:
         # denominator without that field, so transparently use the complete
         # view until the stream deployment is upgraded. Keep the date meaning
         # explicit because the paginated view has more than one date column.
-        if "GSTRS" not in fields:
+        if "GSTRS" not in fields or len(rows) == BOM_STREAM_MAX_ROWS:
             return await self.all_pages(
                 "GET",
                 "/api/views/ZSGV_ZSD124",
