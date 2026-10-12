@@ -17,7 +17,11 @@ def test_gateway_latest_accepted_at_uses_the_newest_valid_timestamp():
 
 
 async def test_gateway_doa_raw_filters_and_summarizes_rows(monkeypatch):
+    calls = 0
+
     async def all_rows(view_id, **_filters):
+        nonlocal calls
+        calls += 1
         assert view_id == "SCS_DOA"
         return [
             {
@@ -64,6 +68,15 @@ async def test_gateway_doa_raw_filters_and_summarizes_rows(monkeypatch):
     assert result["summary"]["total"] == 1
     assert result["summary"]["judgmentYes"] == 1
     assert result["items"][0]["data"]["服务单号"] == "SVC-1"
+
+    second_page = await doa_service.get_doa_raw(
+        2,
+        1,
+        DoaRawFilters(customer="客户A", acceptedDateFrom="2026-09-01", acceptedDateTo="2026-09-30"),
+    )
+
+    assert second_page["items"] == []
+    assert calls == 1
 
 
 async def test_gateway_doa_uses_linked_sales_order_when_product_name_differs(monkeypatch):

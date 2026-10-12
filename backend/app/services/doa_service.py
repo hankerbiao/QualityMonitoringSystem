@@ -24,6 +24,7 @@ from app.services.scs_gateway import scs_gateway
 DOA_CACHE_TTL_SECONDS = 60.0
 _DOA_REPAIRS_CACHE = AsyncTTLCache()
 _DOA_DASHBOARD_CACHE = AsyncTTLCache()
+_DOA_RAW_CACHE = AsyncTTLCache()
 
 
 def _date(value: Any) -> str | None:
@@ -397,10 +398,7 @@ def _raw_gateway_item(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-async def get_doa_raw(
-    page: int = 1, limit: int = 50, filters: DoaRawFilters | None = None
-) -> dict[str, Any]:
-    filters = filters or DoaRawFilters()
+async def _load_doa_raw(filters: DoaRawFilters) -> list[dict[str, Any]]:
     rows = await scs_gateway.all(
         "SCS_DOA",
         company5000="true",
@@ -412,6 +410,18 @@ async def get_doa_raw(
     )
     rows = [item for item in rows if _matches_raw_gateway(item, filters)]
     rows.sort(key=lambda item: (item["accepted_at"], item["id"]), reverse=True)
+    return rows
+
+
+async def get_doa_raw(
+    page: int = 1, limit: int = 50, filters: DoaRawFilters | None = None
+) -> dict[str, Any]:
+    filters = filters or DoaRawFilters()
+    rows = await _DOA_RAW_CACHE.get_or_set(
+        filters.model_dump_json(),
+        lambda: _load_doa_raw(filters),
+        ttl_seconds=DOA_CACHE_TTL_SECONDS,
+    )
     total = len(rows)
     selected = rows[(page - 1) * limit : page * limit]
 
