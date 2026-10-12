@@ -4,7 +4,7 @@ import { lrrApi } from '../../api/lrrApi';
 import { ApiRequestError } from '../../api/authApi';
 import { MonthQuickPicker } from '../shared/MonthQuickPicker';
 import type { LRRFilters, LRROptions } from '../../types';
-import { exceedsThreeCalendarMonths, matchingPlannedRange, recentPlannedRange } from '../../utils/lrr';
+import { exceedsTwoCalendarMonths, matchingPlannedRange, recentPlannedRange } from '../../utils/lrr';
 
 interface Props {
   filters: LRRFilters;
@@ -138,9 +138,9 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
     || draft.base?.trim()
     || draft.customerIds?.some((value) => value.trim()),
   );
-  const scopeFilterWarning = exceedsThreeCalendarMonths(draft.plannedDateFrom, draft.plannedDateTo)
+  const scopeFilterWarning = exceedsTwoCalendarMonths(draft.plannedDateFrom, draft.plannedDateTo)
     && !hasScopeFilter
-    ? '查询周期超过 3 个月，请至少增加物料号、机型、基地或客户 ID 筛选条件'
+    ? '查询周期超过 2 个月，请至少增加物料号、机型、基地或客户 ID 筛选条件'
     : '';
   const inputClass = 'h-10 min-w-0 rounded-md border border-slate-300 bg-white px-3 text-sm text-slate-700 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100';
   const setFilter = <K extends keyof LRRFilters>(key: K, value: LRRFilters[K]) => setDraft((current) => ({ ...current, [key]: value }));
@@ -173,7 +173,7 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
                       const range = recentPlannedRange(months);
                       const next = { ...draft, ...range, materialNumber: draft.materialNumber?.trim() || null };
                       setDraft(next);
-                      if (months > 3 && !hasScopeFilter) return;
+                      if (months > 2 && !hasScopeFilter) return;
                       onSearch(next);
                     }}
                     className={`h-8 rounded-md border px-2.5 ${active ? 'border-cyan-700 bg-cyan-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}`}

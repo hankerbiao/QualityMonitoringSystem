@@ -118,11 +118,11 @@ def test_lrr_accepts_a_full_year_date_range_when_scope_is_filtered():
     )
 
 
-def test_lrr_rejects_more_than_three_calendar_months_without_scope_filter():
+def test_lrr_rejects_more_than_two_calendar_months_without_scope_filter():
     with pytest.raises(HTTPException) as error:
         _validate_lrr_date_range(
             "2026-01-01",
-            "2026-04-01",
+            "2026-03-01",
             "计划日期",
             require_scope_filter=True,
         )
@@ -132,10 +132,10 @@ def test_lrr_rejects_more_than_three_calendar_months_without_scope_filter():
     assert "增加" in error.value.detail["message"]
 
 
-def test_lrr_accepts_three_calendar_months_without_scope_filter():
+def test_lrr_accepts_two_calendar_months_without_scope_filter():
     _validate_lrr_date_range(
         "2026-01-01",
-        "2026-03-31",
+        "2026-02-28",
         "计划日期",
         require_scope_filter=True,
     )

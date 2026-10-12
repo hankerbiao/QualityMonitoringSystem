@@ -34,8 +34,8 @@ from app.services.lrr_normalization import (
 
 router = APIRouter(dependencies=[Depends(dashboard_dependency("lrr"))])
 MAX_LRR_DATE_RANGE_DAYS = 366
-MAX_LRR_UNFILTERED_MONTHS = 3
-LRR_SCOPE_FILTER_MESSAGE = "查询周期超过 3 个月，请至少增加物料号、机型、基地或客户 ID 筛选条件"
+MAX_LRR_UNFILTERED_MONTHS = 2
+LRR_SCOPE_FILTER_MESSAGE = "查询周期超过 2 个月，请至少增加物料号、机型、基地或客户 ID 筛选条件"
 
 
 def _validate_lrr_date_range(

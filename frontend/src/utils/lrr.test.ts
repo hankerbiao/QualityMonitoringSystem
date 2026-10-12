@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { displayMaterialNumber, exceedsThreeCalendarMonths, matchingPlannedRange, recentPlannedRange } from './lrr';
+import { displayMaterialNumber, exceedsTwoCalendarMonths, matchingPlannedRange, recentPlannedRange } from './lrr';
 
 describe('displayMaterialNumber', () => {
   it('displays only the trailing eight characters of a long PN', () => {
@@ -24,14 +24,14 @@ describe('recentPlannedRange', () => {
   });
 });
 
-describe('exceedsThreeCalendarMonths', () => {
-  it('allows three calendar months and rejects a fourth month', () => {
-    expect(exceedsThreeCalendarMonths('2026-01-01', '2026-03-31')).toBe(false);
-    expect(exceedsThreeCalendarMonths('2026-01-01', '2026-04-01')).toBe(true);
+describe('exceedsTwoCalendarMonths', () => {
+  it('allows two calendar months and rejects a third month', () => {
+    expect(exceedsTwoCalendarMonths('2026-01-01', '2026-02-28')).toBe(false);
+    expect(exceedsTwoCalendarMonths('2026-01-01', '2026-03-01')).toBe(true);
   });
 
   it('ignores incomplete or invalid ranges', () => {
-    expect(exceedsThreeCalendarMonths('2026-01-01', null)).toBe(false);
-    expect(exceedsThreeCalendarMonths('invalid', '2026-04-01')).toBe(false);
+    expect(exceedsTwoCalendarMonths('2026-01-01', null)).toBe(false);
+    expect(exceedsTwoCalendarMonths('invalid', '2026-03-01')).toBe(false);
   });
 });
