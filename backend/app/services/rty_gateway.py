@@ -654,7 +654,7 @@ def _station_dimension_value(raw: dict[str, Any], group_by: str) -> str:
     values = {
         "salesOrder": raw.get("KDAUF") or raw.get("VBELN"),
         "productionOrder": raw.get("AUFNR"),
-        "productModel": raw.get("MAKTX_TH"),
+        "productModel": raw.get("MAKTX_TH") or raw.get("ZJXMC") or raw.get("MAKTX"),
     }
     return str(values.get(group_by) or "未关联").strip() or "未关联"
 
@@ -748,6 +748,7 @@ async def station_rates(
         group["orders"].add(row["aufnr"])
 
     by_station: dict[tuple[str, str], dict[str, Any]] = {}
+    sn_dimensions: dict[str, set[str]] = defaultdict(set)
     for item in records:
         raw = _raw(item)
         sn = str(raw.get("PCODE") or "").strip()
@@ -772,6 +773,7 @@ async def station_rates(
             )
         ):
             dimension_value = _station_dimension_value(raw, group_by)
+            sn_dimensions[sn].add(dimension_value)
             by_station.setdefault((dimension_value, station), {"sns": set(), "name": station})[
                 "sns"
             ].add(sn)
@@ -803,18 +805,20 @@ async def station_rates(
             *(faults.get(normalize_order(order), set()) for order in group["orders"])
         )
         summary_counts[dimension] = (round(group["input"]), len(defect_sns))
-    repairs_by_station: dict[str, list[str]] = defaultdict(list)
+    defect_by_station: dict[tuple[str, str], int] = defaultdict(int)
     for row in repairs:
         repair_station = normalize_station_code(str(row.get("ZNGGZ") or ""))
         repair_sn = str(row.get("PCODE") or "").strip()
-        if repair_station and repair_sn:
-            repairs_by_station[repair_station].append(repair_sn)
-    defect_by_station = {
-        (dimension_value, station): sum(
-            repair_sn in value["sns"] for repair_sn in repairs_by_station.get(station, [])
-        )
-        for (dimension_value, station), value in by_station.items()
-    }
+        if not repair_station or not repair_sn:
+            continue
+        dimensions = sn_dimensions.get(repair_sn)
+        if not dimensions:
+            dimensions = {_station_dimension_value(row, group_by)}
+        for dimension_value in dimensions:
+            if (dimension_value, repair_station) in by_station:
+                # The repair's NG station is authoritative. Do not require
+                # the same SN to have a pass row at that station.
+                defect_by_station[(dimension_value, repair_station)] += 1
     return [
         StationPassRate(
             dimensionValue=dimension_value,
@@ -865,6 +869,7 @@ async def station_details(
     )
     records = _station_rows_in_planned_range(records, start, end)
     unique: dict[str, dict[str, Any]] = {}
+    scope_records: dict[str, dict[str, Any]] = {}
     for item in records:
         raw = _raw(item)
         sn = str(raw.get("PCODE") or "").strip()
@@ -873,7 +878,6 @@ async def station_details(
         )
         if (
             sn
-            and code == station
             and _matches_station_filters(
                 raw,
                 serial_number=serial_number,
@@ -884,7 +888,9 @@ async def station_details(
                 dimension_value=dimension_value,
             )
         ):
-            unique.setdefault(sn, {"raw": raw, "code": code})
+            scope_records.setdefault(sn, item)
+            if code == station:
+                unique.setdefault(sn, {"raw": raw, "code": code})
     if detail_type == "input":
         repairs = await _station_repairs_for_sns(set(unique), date_from=start, date_to=end)
         repairs_by_sn: dict[str, dict[str, Any]] = {}
@@ -918,23 +924,24 @@ async def station_details(
             )
             for sn, item in sorted(unique.items())
         ]
-    if not unique:
+    if not scope_records:
         return []
-    repairs = await _station_repairs_for_sns(set(unique), date_from=start, date_to=end)
+    repairs = await _station_repairs_for_sns(set(scope_records), date_from=start, date_to=end)
     result: list[StationPassDetail] = []
     for row in repairs:
         if normalize_station_code(str(row.get("ZNGGZ") or "")) != station:
             continue
         sn = str(row.get("PCODE") or "").strip()
-        if not sn or sn not in unique:
+        if not sn or sn not in scope_records:
             continue
+        pass_row = scope_records[sn]
         result.append(
             StationPassDetail(
                 id=f"{station}:{sn}:defect:{len(result)}",
                 sn=sn,
                 stationCode=station,
                 stationName=station,
-                passDate=_station_gstrs_date(unique[sn]),
+                passDate=_station_gstrs_date(pass_row),
                 status="defect",
                 repairTime=f"{row.get('ZDATE_WX') or ''} {row.get('ZTIME') or ''}".strip(),
                 defectCode=str(row.get("ZNGWD") or ""),

@@ -578,6 +578,51 @@ async def test_station_rates_counts_each_matching_repair_record(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_station_rates_uses_repair_ng_station_without_same_sn_pass_row(monkeypatch):
+    gateway = rty_gateway.data_gateway
+    monkeypatch.setattr(
+        gateway,
+        "all_station_rows",
+        AsyncMock(
+            return_value=[
+                {
+                    "PCODE": "SN-1",
+                    "SPEC": "Line-OP205:装配",
+                    "MAKTX_TH": "M-1",
+                    "GSTRS": "20260515",
+                },
+                {
+                    "PCODE": "SN-2",
+                    "SPEC": "Line-OP215:综检",
+                    "MAKTX_TH": "M-1",
+                    "GSTRS": "20260516",
+                },
+            ]
+        ),
+    )
+    monkeypatch.setattr(gateway, "all_orders", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        rty_gateway,
+        "_faults_for_sns",
+        AsyncMock(
+            return_value=[
+                {"PCODE": "SN-1", "ZNGGZ": "Line-OP215:综检", "GSTRS": "20260520"},
+                {"PCODE": "SN-1", "ZNGGZ": "Line-OP215:综检", "GSTRS": "20260520"},
+            ]
+        ),
+    )
+
+    rows = await rty_gateway.station_rates(
+        "2026-05-01", "2026-05-31", product_model="M-1", group_by="productModel"
+    )
+
+    by_station = {row.stationCode: row for row in rows}
+    assert by_station["OP215"].inputCount == 1
+    assert by_station["OP215"].defectCount == 2
+    assert by_station["OP215"].passRate == 0
+
+
+@pytest.mark.asyncio
 async def test_station_rates_uses_the_same_wmeng_and_fault_sn_summary_as_rty(monkeypatch):
     gateway = rty_gateway.data_gateway
     monkeypatch.setattr(
