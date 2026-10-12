@@ -803,14 +803,16 @@ async def station_rates(
             *(faults.get(normalize_order(order), set()) for order in group["orders"])
         )
         summary_counts[dimension] = (round(group["input"]), len(defect_sns))
-    repairs_by_station: dict[str, set[str]] = defaultdict(set)
+    repairs_by_station: dict[str, list[str]] = defaultdict(list)
     for row in repairs:
         repair_station = normalize_station_code(str(row.get("ZNGGZ") or ""))
-        repair_sn = str(row.get("PCODE") or "")
+        repair_sn = str(row.get("PCODE") or "").strip()
         if repair_station and repair_sn:
-            repairs_by_station[repair_station].add(repair_sn)
+            repairs_by_station[repair_station].append(repair_sn)
     defect_by_station = {
-        (dimension_value, station): repairs_by_station.get(station, set()) & value["sns"]
+        (dimension_value, station): sum(
+            repair_sn in value["sns"] for repair_sn in repairs_by_station.get(station, [])
+        )
         for (dimension_value, station), value in by_station.items()
     }
     return [
@@ -819,11 +821,13 @@ async def station_rates(
             stationCode=station,
             stationName=value["name"],
             inputCount=len(value["sns"]),
-            defectCount=len(defect_by_station.get((dimension_value, station), set())),
+            defectCount=defect_by_station.get((dimension_value, station), 0),
             passRate=round(
                 (
-                    1
-                    - len(defect_by_station.get((dimension_value, station), set()))
+                    max(
+                        0,
+                        len(value["sns"]) - defect_by_station.get((dimension_value, station), 0),
+                    )
                     / len(value["sns"])
                 )
                 * 100,
@@ -917,18 +921,16 @@ async def station_details(
     if not unique:
         return []
     repairs = await _station_repairs_for_sns(set(unique), date_from=start, date_to=end)
-    seen: set[str] = set()
     result: list[StationPassDetail] = []
     for row in repairs:
         if normalize_station_code(str(row.get("ZNGGZ") or "")) != station:
             continue
         sn = str(row.get("PCODE") or "").strip()
-        if not sn or sn in seen:
+        if not sn or sn not in unique:
             continue
-        seen.add(sn)
         result.append(
             StationPassDetail(
-                id=f"{station}:{sn}:defect",
+                id=f"{station}:{sn}:defect:{len(result)}",
                 sn=sn,
                 stationCode=station,
                 stationName=station,

@@ -532,6 +532,52 @@ async def test_station_repairs_filter_by_repair_table_gstrs_not_repair_date(monk
 
 
 @pytest.mark.asyncio
+async def test_station_rates_counts_each_matching_repair_record(monkeypatch):
+    gateway = rty_gateway.data_gateway
+    monkeypatch.setattr(
+        gateway,
+        "all_station_rows",
+        AsyncMock(
+            return_value=[
+                {
+                    "PCODE": "SN-1",
+                    "SPEC": "Line-OP205:装配",
+                    "MAKTX_TH": "M-1",
+                    "GSTRS": "20260515",
+                },
+                {
+                    "PCODE": "SN-2",
+                    "SPEC": "Line-OP205:装配",
+                    "MAKTX_TH": "M-1",
+                    "GSTRS": "20260516",
+                },
+            ]
+        ),
+    )
+    monkeypatch.setattr(gateway, "all_orders", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        rty_gateway,
+        "_faults_for_sns",
+        AsyncMock(
+            return_value=[
+                {"PCODE": "SN-1", "ZNGGZ": "Line-OP205:装配", "GSTRS": "20260520"},
+                {"PCODE": "SN-1", "ZNGGZ": "Line-OP205:装配", "GSTRS": "20260520"},
+                {"PCODE": "SN-2", "ZNGGZ": "Line-OP205:装配", "GSTRS": "20260521"},
+            ]
+        ),
+    )
+
+    rows = await rty_gateway.station_rates(
+        "2026-05-01", "2026-05-31", product_model="M-1", group_by="productModel"
+    )
+
+    assert len(rows) == 1
+    assert rows[0].inputCount == 2
+    assert rows[0].defectCount == 3
+    assert rows[0].passRate == 0
+
+
+@pytest.mark.asyncio
 async def test_station_rates_uses_the_same_wmeng_and_fault_sn_summary_as_rty(monkeypatch):
     gateway = rty_gateway.data_gateway
     monkeypatch.setattr(
