@@ -104,8 +104,13 @@ def test_lrr_fault_sort_requires_full_fault_loading():
 
 def test_lrr_filtered_list_requires_fault_loading_even_with_month_sort():
     assert _has_filter_criteria(LRRListQuery(product_model="MODEL-1"))
+    assert _has_filter_criteria(LRRListQuery(customer_ids=("C-1", "C-2")))
     assert _has_filter_criteria(LRRListQuery(planned_date_from="2026-01-01"))
     assert not _has_filter_criteria(LRRListQuery())
+
+
+def test_lrr_accepts_a_full_year_date_range():
+    _validate_lrr_date_range("2025-01-01", "2026-01-01", "计划日期")
 
 
 def test_lrr_rejects_reversed_date_range():
@@ -116,9 +121,9 @@ def test_lrr_rejects_reversed_date_range():
     assert error.value.detail["code"] == "INVALID_QUERY"
 
 
-def test_lrr_rejects_date_range_over_three_months():
+def test_lrr_rejects_date_range_over_one_year():
     with pytest.raises(HTTPException) as error:
-        _validate_lrr_date_range("2026-01-01", "2026-04-04", "计划日期")
+        _validate_lrr_date_range("2025-01-01", "2026-01-02", "计划日期")
 
     assert error.value.status_code == 422
     assert error.value.detail["code"] == "QUERY_TOO_LARGE"

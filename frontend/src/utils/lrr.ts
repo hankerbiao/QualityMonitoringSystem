@@ -17,8 +17,8 @@ export function recentPlannedRange(monthCount: number, today = new Date()): Plan
   return { plannedDateFrom: formatDateInput(start), plannedDateTo: formatDateInput(end) };
 }
 
-export function matchingPlannedRange(from?: string | null, to?: string | null, today = new Date()): 1 | 2 | 3 | null {
-  const months = [1, 2, 3] as const;
+export function matchingPlannedRange(from?: string | null, to?: string | null, today = new Date()): 1 | 2 | 3 | 12 | null {
+  const months = [1, 2, 3, 12] as const;
   return months.find((monthCount) => {
     const range = recentPlannedRange(monthCount, today);
     return range.plannedDateFrom === from && range.plannedDateTo === to;

@@ -139,6 +139,30 @@ async def test_load_bom_filters_by_production_model_from_order_metadata(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_load_bom_filters_by_multiple_customers(monkeypatch):
+    async def all_bom_rows(**_filters: str):
+        return [
+            {"id": "bom-c1", "AUFNR_1": "000000000001", "MATNR": "PN-C1", "MENGE_A": "1"},
+            {"id": "bom-c2", "AUFNR_1": "000000000002", "MATNR": "PN-C2", "MENGE_A": "1"},
+            {"id": "bom-c3", "AUFNR_1": "000000000003", "MATNR": "PN-C3", "MENGE_A": "1"},
+        ]
+
+    async def all_orders(**_filters: str):
+        return [
+            {"aufnr": "1", "customerId": "C-1"},
+            {"aufnr": "2", "customerId": "C-2"},
+            {"aufnr": "3", "customerId": "C-3"},
+        ]
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_orders", all_orders)
+
+    rows = await lrr_gateway.load_bom(customer_ids=("C-1", "C-3"))
+
+    assert [row["MATNR"] for row in rows] == ["PN-C1", "PN-C3"]
+
+
+@pytest.mark.asyncio
 async def test_load_bom_month_filters_by_gstrs_without_using_budat_bounds(monkeypatch):
     captured: dict[str, str] = {}
 

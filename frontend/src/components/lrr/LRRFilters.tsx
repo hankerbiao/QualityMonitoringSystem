@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { ChevronDown, RotateCcw, Search, SlidersHorizontal } from 'lucide-react';
+import { Check, ChevronDown, RotateCcw, Search, SlidersHorizontal } from 'lucide-react';
 import { lrrApi } from '../../api/lrrApi';
 import { ApiRequestError } from '../../api/authApi';
 import { MonthQuickPicker } from '../shared/MonthQuickPicker';
@@ -13,20 +13,27 @@ interface Props {
 }
 
 const EMPTY_DRAFT: LRRFilters = { sortBy: 'month', sortDir: 'asc' };
-const FILTER_FIELDS = ['materialNumber', 'productModel', 'base', 'customerId', 'plannedDateFrom', 'plannedDateTo'] as const;
+const FILTER_FIELDS = ['materialNumber', 'productModel', 'base', 'customerIds', 'plannedDateFrom', 'plannedDateTo'] as const;
 
 interface SearchableSelectProps {
-  value: string | null | undefined;
+  value: string | string[] | null | undefined;
   options: string[];
   allLabel: string;
-  onChange: (value: string | null) => void;
+  onChange: (value: string | string[] | null) => void;
+  multiple?: boolean;
 }
 
-function SearchableSelect({ value, options, allLabel, onChange }: SearchableSelectProps) {
+function SearchableSelect({ value, options, allLabel, onChange, multiple = false }: SearchableSelectProps) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
+  const selectedValues = Array.isArray(value) ? value : value ? [value] : [];
   const filteredOptions = options.filter((option) => option.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  const buttonLabel = selectedValues.length === 0
+    ? allLabel
+    : multiple && selectedValues.length > 1
+      ? `已选 ${selectedValues.length} 个客户`
+      : selectedValues[0];
 
   useEffect(() => {
     const closeOnOutsideClick = (event: MouseEvent) => {
@@ -48,7 +55,7 @@ function SearchableSelect({ value, options, allLabel, onChange }: SearchableSele
         aria-expanded={open}
         className="flex h-10 w-full items-center justify-between gap-2 rounded-md border border-slate-300 bg-white px-3 text-left text-sm text-slate-700 outline-none transition focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"
       >
-        <span className="truncate">{value || allLabel}</span>
+        <span className="truncate">{buttonLabel}</span>
         <ChevronDown className={`size-4 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
       </button>
       {open && (
@@ -67,11 +74,11 @@ function SearchableSelect({ value, options, allLabel, onChange }: SearchableSele
               />
             </div>
           </div>
-          <div role="listbox" className="max-h-60 overflow-y-auto py-1">
+          <div role="listbox" aria-multiselectable={multiple} className="max-h-60 overflow-y-auto py-1">
             <button
               type="button"
-              onClick={() => { onChange(null); setOpen(false); }}
-              className={`w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-cyan-50 ${!value ? 'bg-cyan-50 font-medium text-cyan-800' : 'text-slate-600'}`}
+              onClick={() => { onChange(null); if (!multiple) setOpen(false); }}
+              className={`w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-cyan-50 ${selectedValues.length === 0 ? 'bg-cyan-50 font-medium text-cyan-800' : 'text-slate-600'}`}
             >
               {allLabel}
             </button>
@@ -80,10 +87,20 @@ function SearchableSelect({ value, options, allLabel, onChange }: SearchableSele
                 key={option}
                 type="button"
                 role="option"
-                aria-selected={value === option}
-                onClick={() => { onChange(option); setOpen(false); }}
-                className={`w-full px-3 py-1.5 text-left font-mono text-xs transition-colors hover:bg-cyan-50 ${value === option ? 'bg-cyan-50 font-medium text-cyan-800' : 'text-slate-600'}`}
+                aria-selected={selectedValues.includes(option)}
+                onClick={() => {
+                  if (!multiple) {
+                    onChange(option);
+                    setOpen(false);
+                    return;
+                  }
+                  onChange(selectedValues.includes(option)
+                    ? selectedValues.filter((selected) => selected !== option)
+                    : [...selectedValues, option]);
+                }}
+                className={`flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-xs transition-colors hover:bg-cyan-50 ${selectedValues.includes(option) ? 'bg-cyan-50 font-medium text-cyan-800' : 'text-slate-600'}`}
               >
+                {multiple && <span className={`flex size-3.5 shrink-0 items-center justify-center rounded-sm border ${selectedValues.includes(option) ? 'border-cyan-600 bg-cyan-600 text-white' : 'border-slate-300'}`}>{selectedValues.includes(option) && <Check className="size-3" />}</span>}
                 <span className="block truncate">{option}</span>
               </button>
             )) : <p className="px-3 py-3 text-xs text-slate-400">无匹配选项</p>}
@@ -111,7 +128,7 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
   useEffect(() => { void loadOptions(); }, [loadOptions]);
   useEffect(() => setDraft(filters), [filters]);
 
-  const normalizedValue = (value: string | null | undefined) => value || '';
+  const normalizedValue = (value: LRRFilters[typeof FILTER_FIELDS[number]]) => Array.isArray(value) ? value.join('\u0000') : value || '';
   const hasActive = FILTER_FIELDS.some((key) => Boolean(draft[key]));
   const activeCount = FILTER_FIELDS.filter((key) => Boolean(draft[key])).length;
   const hasPendingChanges = FILTER_FIELDS.some((key) => normalizedValue(draft[key]) !== normalizedValue(filters[key]));
@@ -134,7 +151,7 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-800"><SlidersHorizontal className="size-4 text-cyan-700" />筛选条件</div>
           <div className="flex flex-wrap items-center justify-end gap-2 text-xs" aria-live="polite">
             <div className="flex flex-wrap gap-1">
-              {([1, 2, 3] as const).map((months) => {
+              {([1, 2, 3, 12] as const).map((months) => {
                 const active = matchingPlannedRange(draft.plannedDateFrom, draft.plannedDateTo) === months;
                 return (
                   <button
@@ -149,7 +166,7 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
                     }}
                     className={`h-8 rounded-md border px-2.5 ${active ? 'border-cyan-700 bg-cyan-700 text-white' : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'}`}
                   >
-                    {months === 1 ? '本月' : `近${months}个月`}
+                    {months === 1 ? '本月' : months === 12 ? '近一年' : `近${months}个月`}
                   </button>
                 );
               })}
@@ -181,7 +198,7 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 border-t border-slate-200 pt-4 sm:grid-cols-3 lg:col-span-12 lg:gap-5"><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">机型</span><SearchableSelect value={draft.productModel} options={options.productModels} allLabel="全部机型" onChange={(value) => setFilter('productModel', value)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">基地</span><SearchableSelect value={draft.base} options={options.bases} allLabel="全部基地" onChange={(value) => setFilter('base', value)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">客户 ID</span><SearchableSelect value={draft.customerId} options={options.customerIds} allLabel="全部客户" onChange={(value) => setFilter('customerId', value)} /></div></div>
+        <div className="grid grid-cols-1 gap-4 border-t border-slate-200 pt-4 sm:grid-cols-3 lg:col-span-12 lg:gap-5"><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">机型</span><SearchableSelect value={draft.productModel} options={options.productModels} allLabel="全部机型" onChange={(value) => setFilter('productModel', value as string | null)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">基地</span><SearchableSelect value={draft.base} options={options.bases} allLabel="全部基地" onChange={(value) => setFilter('base', value as string | null)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">客户 ID</span><SearchableSelect value={draft.customerIds} options={options.customerIds} allLabel="全部客户" multiple onChange={(value) => setFilter('customerIds', (value as string[] | null) ?? undefined)} /></div></div>
       </form>
     </section>
   );

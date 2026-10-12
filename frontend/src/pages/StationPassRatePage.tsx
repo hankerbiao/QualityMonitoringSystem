@@ -152,6 +152,8 @@ export default function StationPassRatePage() {
   const [detail, setDetail] = useState<DetailState | null>(null);
   const [detailRows, setDetailRows] = useState<StationPassDetail[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [detailExporting, setDetailExporting] = useState<'input' | 'defect' | null>(null);
+  const [detailExportError, setDetailExportError] = useState('');
   const [optionsLoading, setOptionsLoading] = useState(true);
   const [rowFocus, setRowFocus] = useState<StationRowFocus>('all');
   const loadRequestId = useRef(0);
@@ -355,6 +357,7 @@ export default function StationPassRatePage() {
     setDetail({ rate, type });
     setDetailRows([]);
     setDetailLoading(true);
+    setDetailExportError('');
     try {
       const response = await rtyApi.getStationPassDetails(rate.stationCode, { ...appliedQuery, dimensionValue: rate.dimensionValue }, type);
       if (requestId !== detailRequestId.current) return;
@@ -363,6 +366,38 @@ export default function StationPassRatePage() {
       console.error('Failed to fetch station details', err);
     } finally {
       if (requestId === detailRequestId.current) setDetailLoading(false);
+    }
+  };
+
+  const exportDetailRows = async (type: 'input' | 'defect') => {
+    if (!detail || !appliedQuery || detailExporting) return;
+    setDetailExporting(type);
+    setDetailExportError('');
+    try {
+      const rows = await rtyApi.getStationPassDetails(
+        detail.rate.stationCode,
+        { ...appliedQuery, dimensionValue: detail.rate.dimensionValue },
+        type,
+      );
+      const data = rows.map((item) => ({
+        '机器 SN': item.sn,
+        过站日期: item.passDate || '-',
+        故障代码: item.defectCode || '-',
+        故障描述: item.description || '-',
+        ...(type === 'defect' ? {
+          维修人: item.repairPerson || '-',
+          维修时间: item.repairTime || '-',
+        } : {}),
+      }));
+      const sheet = XLSX.utils.json_to_sheet(data);
+      const book = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(book, sheet, type === 'input' ? '过站SN' : '维修SN');
+      XLSX.writeFile(book, `${type === 'input' ? '过站SN' : '维修SN'}_${detail.rate.stationCode}_${appliedQuery.dateFrom}_${appliedQuery.dateTo}.xlsx`);
+    } catch (err) {
+      console.error('Failed to export station details', err);
+      setDetailExportError(err instanceof Error && err.message ? err.message : '明细导出失败，请重试');
+    } finally {
+      setDetailExporting(null);
     }
   };
 
@@ -557,7 +592,7 @@ export default function StationPassRatePage() {
 
       {stationConfigOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={closeStationConfig}><div role="dialog" aria-modal="true" aria-labelledby="station-config-title" className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-md bg-white shadow-xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-slate-200 px-5 py-4"><div><h2 id="station-config-title" className="text-sm font-semibold text-slate-900">配置组合工站</h2><p className="mt-0.5 text-xs text-slate-500">已选择的工站用于计算工站直通率，完成后会长期保存</p></div><button type="button" onClick={closeStationConfig} disabled={stationConfigSaving} aria-label="关闭" title="关闭" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-40"><X className="size-4" /></button></div><div className="flex items-center justify-between border-b border-slate-100 px-5 py-3"><span className="text-xs text-slate-500">已选 {selectedStations.length} / {matrix.stations.length} 个</span><div className="flex items-center gap-3"><button type="button" onClick={() => setSelectedStations(matrix.stations)} disabled={stationConfigSaving} className="text-xs font-medium text-cyan-700 hover:text-cyan-800 disabled:opacity-40">全选</button><button type="button" onClick={() => setSelectedStations([])} disabled={!selectedStations.length || stationConfigSaving} className="text-xs font-medium text-slate-500 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40">清空</button></div></div><div className="grid grid-cols-2 gap-x-6 gap-y-2 overflow-y-auto px-5 py-4 sm:grid-cols-3">{matrix.stations.map((station) => <label key={station} className="inline-flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={selectedStations.includes(station)} disabled={stationConfigSaving} onChange={() => toggleStation(station)} className="size-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" /><span className="font-mono">{station}</span></label>)}</div><div className="flex items-center justify-between border-t border-slate-100 px-5 py-3">{stationConfigError ? <span className="text-xs text-red-600">{stationConfigError}</span> : <span className="text-xs text-slate-400">当前选择将在后续查询中自动恢复</span>}<button type="button" onClick={() => void saveStationConfig()} disabled={stationConfigSaving} className="inline-flex h-9 items-center rounded-md bg-cyan-600 px-4 text-sm font-medium text-white hover:bg-cyan-700 disabled:cursor-wait disabled:opacity-60">{stationConfigSaving ? '保存中...' : '完成'}</button></div></div></div>}
 
-      {detail && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={closeDetail}><div ref={detailDialogRef} role="dialog" aria-modal="true" aria-labelledby="station-detail-title" className="flex max-h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-md bg-white shadow-xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-slate-200 px-5 py-4"><div className="flex items-center gap-2"><FileSearch className="size-4 text-cyan-600" /><div><h2 id="station-detail-title" className="text-sm font-semibold text-slate-900">{detail.rate.dimensionValue} · {detail.rate.stationCode}</h2><p className="mt-0.5 text-xs text-slate-500">{detail.rate.stationName || '未命名工位'} · {appliedQuery?.dateFrom} 至 {appliedQuery?.dateTo}</p></div></div><button ref={detailCloseButtonRef} type="button" onClick={closeDetail} aria-label="关闭" title="关闭" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"><X className="size-4" /></button></div><div className="flex gap-2 border-b border-slate-100 px-5 py-2"><button type="button" onClick={() => void openDetail(detail.rate, 'input')} className={`rounded-md px-3 py-1.5 text-xs font-medium ${detail.type === 'input' ? 'bg-cyan-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>过站 SN</button><button type="button" onClick={() => void openDetail(detail.rate, 'defect')} className={`rounded-md px-3 py-1.5 text-xs font-medium ${detail.type === 'defect' ? 'bg-cyan-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>维修 SN</button></div><div className="overflow-auto p-4">{detailLoading ? <div className="py-12 text-center text-sm text-slate-500">正在加载明细...</div> : detailRows.length === 0 ? <div className="py-12 text-center text-sm text-slate-500">暂无明细数据</div> : <table className="w-full min-w-[820px] text-left text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-slate-600"><tr><th className="px-3 py-2">机器 SN</th><th className="px-3 py-2">过站日期</th><th className="px-3 py-2">故障代码</th><th className="px-3 py-2">故障描述</th>{detail.type === 'defect' && <><th className="px-3 py-2">维修人</th><th className="px-3 py-2">维修时间</th></>}</tr></thead><tbody className="divide-y divide-slate-100">{detailRows.map((item) => <tr key={item.id} className="hover:bg-slate-50"><td className="px-3 py-2 font-mono text-slate-700">{item.sn}</td><td className="px-3 py-2 text-slate-600">{item.passDate || '-'}</td><td className="px-3 py-2 text-red-700">{item.defectCode || '-'}</td><td className="max-w-[260px] px-3 py-2 text-slate-600">{item.description || '-'}</td>{detail.type === 'defect' && <><td className="px-3 py-2 text-slate-600">{item.repairPerson || '-'}</td><td className="px-3 py-2 text-slate-500">{item.repairTime || '-'}</td></>}</tr>)}</tbody></table>}</div><div className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">共 {detailRows.length.toLocaleString('zh-CN')} 条记录</div></div></div>}
+      {detail && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={closeDetail}><div ref={detailDialogRef} role="dialog" aria-modal="true" aria-labelledby="station-detail-title" className="flex max-h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-md bg-white shadow-xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-slate-200 px-5 py-4"><div className="flex items-center gap-2"><FileSearch className="size-4 text-cyan-600" /><div><h2 id="station-detail-title" className="text-sm font-semibold text-slate-900">{detail.rate.dimensionValue} · {detail.rate.stationCode}</h2><p className="mt-0.5 text-xs text-slate-500">{detail.rate.stationName || '未命名工位'} · {appliedQuery?.dateFrom} 至 {appliedQuery?.dateTo}</p></div></div><button ref={detailCloseButtonRef} type="button" onClick={closeDetail} aria-label="关闭" title="关闭" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"><X className="size-4" /></button></div><div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-2"><button type="button" onClick={() => void openDetail(detail.rate, 'input')} className={`rounded-md px-3 py-1.5 text-xs font-medium ${detail.type === 'input' ? 'bg-cyan-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>过站 SN</button><button type="button" onClick={() => void openDetail(detail.rate, 'defect')} className={`rounded-md px-3 py-1.5 text-xs font-medium ${detail.type === 'defect' ? 'bg-cyan-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>维修 SN</button><span className="mx-1 hidden h-5 border-l border-slate-200 sm:block" /><button type="button" onClick={() => void exportDetailRows('input')} disabled={detailExporting !== null} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-50" title="导出全部过站 SN"><Download className="size-3.5" />{detailExporting === 'input' ? '导出中...' : '导出过站 SN'}</button><button type="button" onClick={() => void exportDetailRows('defect')} disabled={detailExporting !== null} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-50" title="导出全部维修 SN"><Download className="size-3.5" />{detailExporting === 'defect' ? '导出中...' : '导出维修 SN'}</button></div><div className="overflow-auto p-4">{detailExportError && <p role="alert" className="mb-3 text-xs text-red-600">{detailExportError}</p>}{detailLoading ? <div className="py-12 text-center text-sm text-slate-500">正在加载明细...</div> : detailRows.length === 0 ? <div className="py-12 text-center text-sm text-slate-500">暂无明细数据</div> : <table className="w-full min-w-[820px] text-left text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-slate-600"><tr><th className="px-3 py-2">机器 SN</th><th className="px-3 py-2">过站日期</th><th className="px-3 py-2">故障代码</th><th className="px-3 py-2">故障描述</th>{detail.type === 'defect' && <><th className="px-3 py-2">维修人</th><th className="px-3 py-2">维修时间</th></>}</tr></thead><tbody className="divide-y divide-slate-100">{detailRows.map((item) => <tr key={item.id} className="hover:bg-slate-50"><td className="px-3 py-2 font-mono text-slate-700">{item.sn}</td><td className="px-3 py-2 text-slate-600">{item.passDate || '-'}</td><td className="px-3 py-2 text-red-700">{item.defectCode || '-'}</td><td className="max-w-[260px] px-3 py-2 text-slate-600">{item.description || '-'}</td>{detail.type === 'defect' && <><td className="px-3 py-2 text-slate-600">{item.repairPerson || '-'}</td><td className="px-3 py-2 text-slate-500">{item.repairTime || '-'}</td></>}</tr>)}</tbody></table>}</div><div className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">共 {detailRows.length.toLocaleString('zh-CN')} 条记录</div></div></div>}
     </div>
   );
 }

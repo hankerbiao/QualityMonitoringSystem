@@ -140,7 +140,7 @@ async def load_bom(
     material_number: str | None = None,
     product_model: str | None = None,
     base: str | None = None,
-    customer_id: str | None = None,
+    customer_ids: tuple[str, ...] = (),
     month: str | None = None,
     planned_date_from: str | None = None,
     planned_date_to: str | None = None,
@@ -264,7 +264,7 @@ async def load_bom(
             base_value, customer, model = metadata_values
         if base and base.strip() not in {str(row.get("LGORT") or "").strip(), base_value}:
             continue
-        if customer_id and customer_id.strip() != customer:
+        if customer_ids and customer not in customer_ids:
             continue
         if product_model and product_model.strip() != model:
             continue

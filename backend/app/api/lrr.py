@@ -6,7 +6,7 @@ from collections import defaultdict
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from time import perf_counter
-from typing import Any
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
@@ -33,7 +33,7 @@ from app.services.lrr_normalization import (
 )
 
 router = APIRouter(dependencies=[Depends(dashboard_dependency("lrr"))])
-MAX_LRR_DATE_RANGE_DAYS = 93
+MAX_LRR_DATE_RANGE_DAYS = 366
 
 
 def _validate_lrr_date_range(start: str | None, end: str | None, label: str) -> None:
@@ -357,7 +357,7 @@ def _has_filter_criteria(query: LRRListQuery) -> bool:
             query.material_number,
             query.product_model,
             query.base,
-            query.customer_id,
+            query.customer_ids,
         )
     )
 
@@ -368,7 +368,7 @@ async def _load(query: LRRListQuery) -> LRRListResponse:
         material_number=query.material_number,
         product_model=query.product_model,
         base=query.base,
-        customer_id=query.customer_id,
+        customer_ids=query.customer_ids,
         planned_date_from=query.planned_date_from,
         planned_date_to=query.planned_date_to,
     )
@@ -427,7 +427,7 @@ async def get_lrr_list(
     materialNumber: str | None = None,
     productModel: str | None = None,
     base: str | None = None,
-    customerId: str | None = None,
+    customerId: Annotated[list[str] | None, Query()] = None,
     sortBy: str = "month",
     sortDir: str = "asc",
 ):
@@ -444,7 +444,7 @@ async def get_lrr_list(
         material_number=materialNumber,
         product_model=productModel,
         base=base,
-        customer_id=customerId,
+        customer_ids=tuple(sorted(set(customerId or []))),
         sort_by=sortBy,
         sort_dir=sortDir,
     )
@@ -469,7 +469,7 @@ async def get_lrr_fault_details(
     materialNumber: str | None = None,
     productModel: str | None = None,
     base: str | None = None,
-    customerId: str | None = None,
+    customerId: Annotated[list[str] | None, Query()] = None,
     month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
     limit: int = Query(50000, ge=1, le=50000),
 ):
@@ -480,7 +480,7 @@ async def get_lrr_fault_details(
         material_number=materialNumber,
         product_model=productModel,
         base=base,
-        customer_id=customerId,
+        customer_ids=tuple(sorted(set(customerId or []))),
         month=month,
         planned_date_from=plannedDateFrom,
         planned_date_to=plannedDateTo,

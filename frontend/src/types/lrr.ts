@@ -9,7 +9,7 @@ export interface LRRFilters {
   materialNumber?: string | null;
   productModel?: string | null;
   base?: string | null;
-  customerId?: string | null;
+  customerIds?: string[] | null;
   month?: string | null;
   sortBy?: LRRSortField;
   sortDir?: LRRSortDir;

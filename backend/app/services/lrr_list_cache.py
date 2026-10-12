@@ -33,7 +33,7 @@ def _utc_now() -> datetime:
 class LRRListQuery:
     # Bump when the aggregation semantics change so Mongo never serves a
     # response calculated by an incompatible version of the code.
-    cache_version: str = "gstrs-month-v21-material-number-zero-padding-match"
+    cache_version: str = "gstrs-month-v22-multi-customer-filter"
     page: int = 1
     limit: int = 50
     planned_date_from: str | None = None
@@ -43,7 +43,7 @@ class LRRListQuery:
     material_number: str | None = None
     product_model: str | None = None
     base: str | None = None
-    customer_id: str | None = None
+    customer_ids: tuple[str, ...] = ()
     sort_by: str = "month"
     sort_dir: str = "asc"
 

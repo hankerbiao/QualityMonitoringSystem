@@ -1,0 +1,44 @@
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { lrrApi } from './lrrApi';
+import { requestJson } from './authApi';
+
+vi.mock('./authApi', () => ({ requestJson: vi.fn() }));
+
+describe('lrrApi full material list', () => {
+  afterEach(() => {
+    vi.mocked(requestJson).mockReset();
+  });
+
+  it('fetches every page with the same filters', async () => {
+    vi.mocked(requestJson)
+      .mockResolvedValueOnce({
+        items: Array.from({ length: 500 }, (_, index) => ({
+          id: `PN-${index + 1}:2026-09`,
+          materialNumber: `PN-${index + 1}`,
+        })),
+        total: 501,
+        page: 1,
+        limit: 500,
+      })
+      .mockResolvedValueOnce({
+        items: [{ id: 'PN-2:2026-09', materialNumber: 'PN-2' }],
+        total: 501,
+        page: 2,
+        limit: 500,
+      });
+
+    const items = await lrrApi.getAllLRRData({
+      plannedDateFrom: '2026-09-01',
+      plannedDateTo: '2026-09-30',
+      customerIds: ['A01', 'B01'],
+    });
+
+    expect(items).toHaveLength(501);
+    expect(items[0].id).toBe('PN-1:2026-09');
+    expect(items[500].id).toBe('PN-2:2026-09');
+    expect(vi.mocked(requestJson).mock.calls.map(([url]) => url)).toEqual([
+      '/api/lrr/list?plannedDateFrom=2026-09-01&plannedDateTo=2026-09-30&customerId=A01&customerId=B01&page=1&limit=500',
+      '/api/lrr/list?plannedDateFrom=2026-09-01&plannedDateTo=2026-09-30&customerId=A01&customerId=B01&page=2&limit=500',
+    ]);
+  });
+});

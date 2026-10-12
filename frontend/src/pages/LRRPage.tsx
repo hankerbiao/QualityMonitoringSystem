@@ -21,7 +21,7 @@ const FILTER_KEYS: Array<keyof LRRFilters> = [
   'materialNumber',
   'productModel',
   'base',
-  'customerId',
+  'customerIds',
   'month',
 ];
 const hasSearchCriteria = (candidate: LRRFilters) => FILTER_KEYS.some((key) => Boolean(candidate[key]));
@@ -160,7 +160,7 @@ function QueryGuide() {
           </div>
         ))}
       </div>
-      <p className="border-t border-slate-200 px-4 py-3 text-xs leading-5 text-slate-500 sm:px-5">计划日期范围不超过 93 天。选定条件后点查询，或使用本月、近2个月、近3个月。数量要等生产数据返回后才显示。</p>
+      <p className="border-t border-slate-200 px-4 py-3 text-xs leading-5 text-slate-500 sm:px-5">计划日期范围不超过 1 年。选定条件后点查询，或使用本月、近2个月、近3个月、近一年。数量要等生产数据返回后才显示。</p>
     </section>
   );
 }
@@ -179,6 +179,8 @@ export default function LRRPage() {
   const [error, setError] = useState<ApiRequestError | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<ApiRequestError | null>(null);
+  const [exportingMaterials, setExportingMaterials] = useState(false);
+  const [materialExportError, setMaterialExportError] = useState<ApiRequestError | null>(null);
   const [page, setPage] = useState(1);
   const sequence = useRef(0);
   const detailRequest = useRef(0);
@@ -205,6 +207,7 @@ export default function LRRPage() {
     setFilters(next);
     setPage(1);
     setError(null);
+    setMaterialExportError(null);
     if (!hasSearchCriteria(next)) {
       sequence.current += 1;
       setResponse(null);
@@ -223,6 +226,7 @@ export default function LRRPage() {
     setSearched(false);
     setError(null);
     setExportError(null);
+    setMaterialExportError(null);
     setLoading(false);
     setPage(1);
   }, []);
@@ -284,6 +288,32 @@ export default function LRRPage() {
       setExportError(normalizeApiError(err));
     } finally {
       setExporting(false);
+    }
+  };
+
+  const handleMaterialExport = async () => {
+    setExportingMaterials(true);
+    setMaterialExportError(null);
+    try {
+      const items = await lrrApi.getAllLRRData(filters);
+      const rows = items.map((item) => ({
+        月份: item.month,
+        物料PN: displayMaterialNumber(item.materialNumber),
+        完整物料PN: item.materialNumber,
+        物料描述: item.materialDescription,
+        使用总数: item.issuedQuantity,
+        故障总数: item.faultCount ?? '',
+        故障率: item.lrrRate == null ? '' : `${item.lrrRate}%`,
+      }));
+      const sheet = XLSX.utils.json_to_sheet(rows);
+      const book = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(book, sheet, '物料PN明细');
+      XLSX.writeFile(book, `LRR物料PN明细_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    } catch (err) {
+      console.error('LRR material export failed', err);
+      setMaterialExportError(normalizeApiError(err));
+    } finally {
+      setExportingMaterials(false);
     }
   };
 
@@ -350,16 +380,17 @@ export default function LRRPage() {
           <>
             <section className="grid grid-cols-2 divide-x divide-y divide-slate-200 overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm lg:grid-cols-4 lg:divide-y-0">
               {([
-                ['月度 PN', loading && !summary ? null : summary?.materialCount ?? 0, false],
-                ['使用总数', loading && !summary ? null : summary?.issuedQuantity ?? 0, false],
-                ['故障总数', loading && !summary ? null : summary?.totalFaults ?? null, false],
-                ['综合 LRR', loading && !summary ? null : summary?.overallLrr ?? null, true],
-              ] as const).map(([label, value, isRate]) => {
+                ['月度 PN', '查询范围内的月份 × 物料 PN 行数', loading && !summary ? null : summary?.materialCount ?? 0, false],
+                ['使用总数', '订单 BOM 中的物料发料数量', loading && !summary ? null : summary?.issuedQuantity ?? 0, false],
+                ['故障总数', '按生产订单和物料 PN 匹配的故障记录数', loading && !summary ? null : summary?.totalFaults ?? null, false],
+                ['综合 LRR', '故障总数 ÷ 使用总数', loading && !summary ? null : summary?.overallLrr ?? null, true],
+              ] as const).map(([label, description, value, isRate]) => {
                 const text = value == null ? (loading ? '…' : '-') : isRate ? `${value}%` : formatCount(value);
                 return (
                   <div key={label} className="px-4 py-3.5">
                     <div className="text-xs text-slate-500">{label}</div>
                     <div className={`mt-1 truncate font-mono text-xl font-semibold ${isRate ? rateText(typeof value === 'number' ? value : null) : 'text-slate-900'}`}>{text}</div>
+                    <div className="mt-1 truncate text-[11px] text-slate-400" title={description}>{description}</div>
                   </div>
                 );
               })}
@@ -439,8 +470,14 @@ export default function LRRPage() {
             <section className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
               <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 sm:px-5">
                 <h2 className="text-sm font-semibold">物料 PN 明细</h2>
-                <span className="text-xs text-slate-500">{loading ? '正在更新' : `共 ${formatCount(response?.total ?? 0)} 条`}</span>
+                <div className="flex items-center gap-2">
+                  <span className="text-xs text-slate-500">{loading ? '正在更新' : `共 ${formatCount(response?.total ?? 0)} 条`}</span>
+                  <button type="button" onClick={() => void handleMaterialExport()} disabled={loading || exportingMaterials || !response} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45" title="导出当前筛选条件下的全部物料 PN 明细" aria-label="导出全部物料 PN 明细">
+                    <Download className="size-3.5" />{exportingMaterials ? '导出中' : '导出全部'}
+                  </button>
+                </div>
               </div>
+              {materialExportError && <ErrorBanner error={materialExportError} onRetry={() => void handleMaterialExport()} />}
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[900px] border-separate border-spacing-0 text-left text-sm">
                   <thead className="text-xs font-semibold text-slate-600">
@@ -500,6 +537,14 @@ export default function LRRPage() {
           error={detailError}
           onClose={() => { detailRequest.current += 1; setDetailLoading(false); setDetailLoadingRow(null); setDetailError(null); setDetailItems(null); }}
         />
+      )}
+      {loading && (
+        <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-4" role="status" aria-live="polite">
+          <div className="pointer-events-auto inline-flex items-center gap-2 rounded-md border border-cyan-200 bg-white px-4 py-2.5 text-sm font-medium text-cyan-800 shadow-lg shadow-slate-900/10">
+            <LoadingSpinner size="sm" className="border-cyan-600 motion-reduce:animate-none" />
+            <span>数据加载中。目前正在加载数据...</span>
+          </div>
+        </div>
       )}
     </div>
   );
