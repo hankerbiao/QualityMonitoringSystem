@@ -4,6 +4,7 @@ import asyncio
 from datetime import datetime, timedelta
 
 import pytest
+from starlette.requests import Request
 
 from app.api import lrr as lrr_api
 from app.schemas.lrr import LRRListResponse
@@ -152,8 +153,47 @@ async def test_lrr_default_prewarm_uses_canonical_query(monkeypatch):
 
     assert captured["query"] == LRRListQuery(
         page=1,
-        limit=50,
+        limit=0,
         sort_by="month",
         sort_dir="asc",
     )
     assert captured["refresh"] is True
+
+
+@pytest.mark.asyncio
+async def test_lrr_list_pages_reuse_one_canonical_load(monkeypatch):
+    calls = 0
+
+    class Cache:
+        def __init__(self):
+            self.payload = None
+
+        async def get_or_load(self, query, loader, *, refresh=False):
+            nonlocal calls
+            if self.payload is None or refresh:
+                calls += 1
+                self.payload = await loader()
+            return self.payload, "miss"
+
+    async def load(_query):
+        return LRRListResponse(
+            items=[
+                {"id": "1", "month": "2026-01"},
+                {"id": "2", "month": "2026-02"},
+                {"id": "3", "month": "2026-03"},
+            ],
+            total=3,
+            page=1,
+            limit=0,
+        )
+
+    monkeypatch.setattr(lrr_api, "lrr_list_cache", Cache())
+    monkeypatch.setattr(lrr_api, "_load", load)
+
+    request = Request({"type": "http", "headers": [], "client": ("test", 1)})
+    first = await lrr_api.get_lrr_list(request=request, page=1, limit=2)
+    second = await lrr_api.get_lrr_list(request=request, page=2, limit=2)
+
+    assert [item.id for item in first.items] == ["1", "2"]
+    assert [item.id for item in second.items] == ["3"]
+    assert calls == 1

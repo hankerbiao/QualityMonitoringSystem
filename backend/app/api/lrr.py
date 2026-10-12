@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from dataclasses import replace
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from time import perf_counter
@@ -347,37 +348,62 @@ def _hotspots(rows: list[LRRData], limit: int = 8) -> list[LRRMaterialRank]:
     return ranked[:limit]
 
 
-def _response(rows: list[LRRData], query: LRRListQuery) -> LRRListResponse:
+def _full_response(rows: list[LRRData], query: LRRListQuery) -> LRRListResponse:
     rows = _sorted_rows(rows, query)
-    start = (query.page - 1) * query.limit
     return LRRListResponse(
-        items=rows[start : start + query.limit],
+        items=rows,
         total=len(rows),
-        page=query.page,
-        limit=query.limit,
-        has_more=start + query.limit < len(rows),
+        page=1,
+        limit=len(rows),
+        has_more=False,
         summary=_summary(rows, scope="full"),
         trend=_trend(rows),
         hotspots=_hotspots(rows),
     )
 
 
-def _usage_response(usage_rows: list[LRRData], query: LRRListQuery) -> LRRListResponse:
+def _paginate_response(response: LRRListResponse, query: LRRListQuery) -> LRRListResponse:
+    start = (query.page - 1) * query.limit
+    return response.model_copy(
+        update={
+            "items": response.items[start : start + query.limit],
+            "page": query.page,
+            "limit": query.limit,
+            "has_more": start + query.limit < response.total,
+        }
+    )
+
+
+def _response(rows: list[LRRData], query: LRRListQuery) -> LRRListResponse:
+    return _paginate_response(_full_response(rows, query), query)
+
+
+def _full_usage_response(usage_rows: list[LRRData], query: LRRListQuery) -> LRRListResponse:
     """Return the fast list projection without loading the fault collection."""
     sorted_usage = _sorted_rows(usage_rows, query)
-    start = (query.page - 1) * query.limit
     items = [
         row.model_copy(update={"faultCount": None, "lrrRate": None})
-        for row in sorted_usage[start : start + query.limit]
+        for row in sorted_usage
     ]
     return LRRListResponse(
         items=items,
         total=len(sorted_usage),
-        page=query.page,
-        limit=query.limit,
-        has_more=start + query.limit < len(sorted_usage),
+        page=1,
+        limit=len(items),
+        has_more=False,
         summary=_summary(items, scope="usage"),
     )
+
+
+def _usage_response(usage_rows: list[LRRData], query: LRRListQuery) -> LRRListResponse:
+    response = _paginate_response(_full_usage_response(usage_rows, query), query)
+    return response.model_copy(update={"summary": _summary(response.items, scope="usage")})
+
+
+def _canonical_lrr_cache_query(query: LRRListQuery) -> LRRListQuery:
+    # Cache the complete filtered result once; API pagination is applied after
+    # the cache lookup so page 2 does not repeat the gateway aggregation.
+    return replace(query, page=1, limit=0)
 
 
 def _requires_full_fault_sort(query: LRRListQuery) -> bool:
@@ -421,13 +447,13 @@ async def _load(query: LRRListQuery) -> LRRListResponse:
             date_to=query.ng_date_to,
         )
         rows = aggregate_lrr(bom, faults, include_details=False)[0]
-        response = _response(rows, query)
+        response = _full_response(rows, query)
         fault_scope = "full"
     else:
         # The unfiltered warm-cache path stays lightweight. Filtered queries
         # take the full branch above so the dashboard can show fault counts and
         # rates immediately after the user submits conditions.
-        response = _usage_response(usage_rows, query)
+        response = _full_usage_response(usage_rows, query)
         fault_scope = "lazy"
     # The rich view may ignore a multi-material filter on older gateway
     # deployments and turn a small description lookup into another full scan.
@@ -447,7 +473,7 @@ async def _load(query: LRRListQuery) -> LRRListResponse:
 
 
 async def warm_default_lrr_list_cache() -> None:
-    query = LRRListQuery()
+    query = _canonical_lrr_cache_query(LRRListQuery())
     try:
         await lrr_list_cache.get_or_load(query, lambda: _load(query), refresh=True)
     except Exception:
@@ -499,7 +525,9 @@ async def get_lrr_list(
         sort_by=sortBy,
         sort_dir=sortDir,
     )
-    return (await lrr_list_cache.get_or_load(query, lambda: _load(query)))[0]
+    cached_query = _canonical_lrr_cache_query(query)
+    response = (await lrr_list_cache.get_or_load(cached_query, lambda: _load(cached_query)))[0]
+    return _paginate_response(response, query)
 
 
 @router.get("/options", response_model=LRROptions)
