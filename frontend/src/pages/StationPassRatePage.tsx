@@ -87,7 +87,7 @@ function CalculationHelpDialog({ onClose }: { onClose: () => void }) {
         <div className="max-h-[75vh] space-y-4 overflow-y-auto px-5 py-4 text-sm leading-6 text-slate-600">
           <section>
             <h3 className="font-semibold text-slate-800">单工站直通率</h3>
-            <p>分母 = 该工站时间范围内过站的唯一机器 SN；维修扣减 = 匹配同一工站的维修记录数，不按 SN 去重；分子 = 分母 - 维修扣减，最低按 0 计。</p>
+            <p>分母 = 该工站时间范围内过站的唯一机器 SN；维修扣减 = 匹配同一工站的唯一维修 SN；分子 = 分母 - 维修扣减，最低按 0 计。</p>
             <p className="mt-1">直通率 = 分子 ÷ 分母 × 100%。</p>
           </section>
           <section>
@@ -99,7 +99,7 @@ function CalculationHelpDialog({ onClose }: { onClose: () => void }) {
                   <tr><td className="px-3 py-2">过站 SN / 分母</td><td className="px-3 py-2 font-mono text-slate-800">station_records_sap.PCODE</td><td className="px-3 py-2">机器序列号，按 SN 去重</td></tr>
                   <tr><td className="px-3 py-2">过站日期筛选</td><td className="px-3 py-2 font-mono text-slate-800">station_records_sap.GSTRS</td><td className="px-3 py-2">计划开始时间</td></tr>
                   <tr><td className="px-3 py-2">工站匹配</td><td className="px-3 py-2 font-mono text-slate-800">station_records_sap.SPEC / OPERATION</td><td className="px-3 py-2">过站工站编码</td></tr>
-                  <tr><td className="px-3 py-2">维修记录 / 扣减</td><td className="px-3 py-2 font-mono text-slate-800">repair_records_sap.PCODE</td><td className="px-3 py-2">维修记录对应的机器序列号，同一 SN 多条故障分别扣减</td></tr>
+                  <tr><td className="px-3 py-2">维修 SN / 扣减</td><td className="px-3 py-2 font-mono text-slate-800">repair_records_sap.PCODE</td><td className="px-3 py-2">维修记录对应的机器序列号，按 SN 去重</td></tr>
                   <tr><td className="px-3 py-2">维修日期筛选</td><td className="px-3 py-2 font-mono text-slate-800">repair_records_sap.GSTRS</td><td className="px-3 py-2">计划开始时间，当前统计使用该字段</td></tr>
                   <tr><td className="px-3 py-2">维修工站匹配</td><td className="px-3 py-2 font-mono text-slate-800">repair_records_sap.ZNGGZ</td><td className="px-3 py-2">维修不良工站</td></tr>
                   <tr><td className="px-3 py-2">详情展示</td><td className="px-3 py-2 font-mono text-slate-800">repair_records_sap.ZDATE_WX</td><td className="px-3 py-2">实际维修日期，不参与本统计日期筛选</td></tr>

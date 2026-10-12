@@ -532,7 +532,7 @@ async def test_station_repairs_filter_by_repair_table_gstrs_not_repair_date(monk
 
 
 @pytest.mark.asyncio
-async def test_station_rates_counts_each_matching_repair_record(monkeypatch):
+async def test_station_rates_deduplicates_matching_repair_sns(monkeypatch):
     gateway = rty_gateway.data_gateway
     monkeypatch.setattr(
         gateway,
@@ -573,7 +573,7 @@ async def test_station_rates_counts_each_matching_repair_record(monkeypatch):
 
     assert len(rows) == 1
     assert rows[0].inputCount == 2
-    assert rows[0].defectCount == 3
+    assert rows[0].defectCount == 2
     assert rows[0].passRate == 0
 
 
@@ -618,7 +618,7 @@ async def test_station_rates_uses_repair_ng_station_without_same_sn_pass_row(mon
 
     by_station = {row.stationCode: row for row in rows}
     assert by_station["OP215"].inputCount == 1
-    assert by_station["OP215"].defectCount == 2
+    assert by_station["OP215"].defectCount == 1
     assert by_station["OP215"].passRate == 0
 
 

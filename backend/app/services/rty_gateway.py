@@ -805,7 +805,7 @@ async def station_rates(
             *(faults.get(normalize_order(order), set()) for order in group["orders"])
         )
         summary_counts[dimension] = (round(group["input"]), len(defect_sns))
-    defect_by_station: dict[tuple[str, str], int] = defaultdict(int)
+    defect_by_station: dict[tuple[str, str], set[str]] = defaultdict(set)
     for row in repairs:
         repair_station = normalize_station_code(str(row.get("ZNGGZ") or ""))
         repair_sn = str(row.get("PCODE") or "").strip()
@@ -818,19 +818,20 @@ async def station_rates(
             if (dimension_value, repair_station) in by_station:
                 # The repair's NG station is authoritative. Do not require
                 # the same SN to have a pass row at that station.
-                defect_by_station[(dimension_value, repair_station)] += 1
+                defect_by_station[(dimension_value, repair_station)].add(repair_sn)
     return [
         StationPassRate(
             dimensionValue=dimension_value,
             stationCode=station,
             stationName=value["name"],
             inputCount=len(value["sns"]),
-            defectCount=defect_by_station.get((dimension_value, station), 0),
+            defectCount=len(defect_by_station.get((dimension_value, station), set())),
             passRate=round(
                 (
                     max(
                         0,
-                        len(value["sns"]) - defect_by_station.get((dimension_value, station), 0),
+                        len(value["sns"])
+                        - len(defect_by_station.get((dimension_value, station), set())),
                     )
                     / len(value["sns"])
                 )
