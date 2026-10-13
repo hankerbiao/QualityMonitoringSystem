@@ -45,7 +45,9 @@ MAX_SN_FILTERS = 1000
 # that cap, otherwise composite RTY silently loses bindings.
 MAX_BINDING_FILTERS = 32
 RTY_CYCLE_CACHE_TTL_SECONDS = 60.0
+RTY_LIST_CACHE_TTL_SECONDS = 15.0
 _RTY_CYCLE_CACHE = AsyncTTLCache()
+_RTY_LIST_CACHE = AsyncTTLCache()
 
 
 def _raw(item: dict[str, Any]) -> dict[str, Any]:
@@ -459,6 +461,22 @@ async def _fault_sns_by_composite_groups(
 async def rty_list(
     filters: dict[str, Any], page: int, limit: int, targets: dict[str, float]
 ) -> dict[str, Any]:
+    key = (
+        tuple(sorted((name, str(value)) for name, value in filters.items())),
+        page,
+        limit,
+        tuple(sorted(targets.items())),
+    )
+    return await _RTY_LIST_CACHE.get_or_set(
+        key,
+        lambda: _build_rty_list(filters, page, limit, targets),
+        ttl_seconds=RTY_LIST_CACHE_TTL_SECONDS,
+    )
+
+
+async def _build_rty_list(
+    filters: dict[str, Any], page: int, limit: int, targets: dict[str, float]
+) -> dict[str, Any]:
     orders = await _orders(filters)
     group_by = (
         "aufnr"
@@ -668,6 +686,7 @@ def _matches_station_filters(
     group_by: str,
     order_scope: str = "normal",
     dimension_value: str | None = None,
+    scope_orders: set[str] | None = None,
 ) -> bool:
     if serial_number and str(raw.get("PCODE") or "").strip() != serial_number.strip():
         return False
@@ -675,7 +694,11 @@ def _matches_station_filters(
         return False
     if base and str(raw.get("LGORT") or "").strip() != base.strip():
         return False
-    if (str(raw.get("IF_L6") or "") == "X") != (order_scope == "l6"):
+    if scope_orders is not None:
+        order = normalize_order(raw.get("AUFNR"))
+        if not order or order not in scope_orders:
+            return False
+    elif (str(raw.get("IF_L6") or "") == "X") != (order_scope == "l6"):
         return False
     return not dimension_value or _station_dimension_value(raw, group_by) == dimension_value
 
@@ -747,6 +770,12 @@ async def station_rates(
         group["input"] += _num(data.get("WMENG"))
         group["orders"].add(row["aufnr"])
 
+    scope_orders = (
+        {normalize_order(row["aufnr"]) for row in orders if normalize_order(row["aufnr"])}
+        if order_scope == "l6"
+        else None
+    )
+
     by_station: dict[tuple[str, str], dict[str, Any]] = {}
     sn_dimensions: dict[str, set[str]] = defaultdict(set)
     for item in records:
@@ -770,6 +799,7 @@ async def station_rates(
                 base=base,
                 group_by=group_by,
                 order_scope=order_scope,
+                scope_orders=scope_orders,
             )
         ):
             dimension_value = _station_dimension_value(raw, group_by)
@@ -869,6 +899,21 @@ async def station_details(
         base=base or "",
     )
     records = _station_rows_in_planned_range(records, start, end)
+    scope_orders = None
+    if order_scope == "l6":
+        orders = await _orders(
+            {
+                "dateFrom": f"{start[:4]}-{start[4:6]}-{start[6:]}",
+                "dateTo": f"{end[:4]}-{end[4:6]}-{end[6:]}",
+                "serialNumber": serial_number or "",
+                "productModel": product_model or "",
+                "base": base or "",
+                "orderScope": order_scope,
+            }
+        )
+        scope_orders = {
+            normalize_order(row["aufnr"]) for row in orders if normalize_order(row["aufnr"])
+        }
     unique: dict[str, dict[str, Any]] = {}
     scope_records: dict[str, dict[str, Any]] = {}
     for item in records:
@@ -887,6 +932,7 @@ async def station_details(
                 group_by=group_by,
                 order_scope=order_scope,
                 dimension_value=dimension_value,
+                scope_orders=scope_orders,
             )
         ):
             scope_records.setdefault(sn, item)

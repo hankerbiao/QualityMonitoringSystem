@@ -39,12 +39,15 @@ function buildQuery(filters: LRRFilters, extra?: Record<string, unknown>): strin
 
 export const lrrApi = {
   /** 获取 LRR 列表 + 多维统计聚合 */
-  async getLRRData(page = 1, pageSize = 50, filters: LRRFilters = {}): Promise<LRRListResponse> {
+  async getLRRData(
+    page = 1,
+    pageSize = 50,
+    filters: LRRFilters = {},
+    signal?: AbortSignal,
+  ): Promise<LRRListResponse> {
     const qs = buildQuery(filters, { page, limit: pageSize });
     const url = `/api/lrr/list${qs}`;
-    return requestOnce(url, async () => {
-      return requestJson<LRRListResponse>(url);
-    });
+    return requestJson<LRRListResponse>(url, { signal });
   },
 
   /** 获取筛选条件下的全部物料月度行 */

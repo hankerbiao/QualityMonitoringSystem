@@ -2,14 +2,16 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
+from contextlib import suppress
 from dataclasses import replace
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from time import perf_counter
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from app.auth_permissions import dashboard_dependency
 from app.core.logger import audit_log, log_info
@@ -443,8 +445,12 @@ async def _load(query: LRRListQuery) -> LRRListResponse:
         faults = await lrr_gateway.load_faults(
             production_orders={str(row.get("AUFNR_1") or "") for row in bom},
             sales_orders={str(row.get("VBELN_EX") or "") for row in bom},
-            date_from=query.ng_date_from,
-            date_to=query.ng_date_to,
+            # LRR only links repairs from the BOM's planned month. When the
+            # user has not specified a narrower NG range, this bounds the
+            # source lookup to the selected planned period.
+            date_from=query.ng_date_from or query.planned_date_from,
+            date_to=query.ng_date_to or query.planned_date_to,
+            include_details=False,
         )
         rows = aggregate_lrr(bom, faults, include_details=False)[0]
         response = _full_response(rows, query)
@@ -480,6 +486,40 @@ async def warm_default_lrr_list_cache() -> None:
         log_info("LRR 默认缓存预热跳过（网关超时或异常）")
 
 
+async def _wait_for_request_disconnect(request: Request) -> None:
+    while not await request.is_disconnected():
+        await asyncio.sleep(0.2)
+
+
+async def _load_lrr_list_for_request(
+    request: Request, query: LRRListQuery
+) -> tuple[LRRListResponse | None, str | None]:
+    load_task = asyncio.create_task(
+        lrr_list_cache.get_or_load(query, lambda: _load(query))
+    )
+    if getattr(request, "_receive", None) is None:
+        response, state = await load_task
+        return response, state
+
+    disconnect_task = asyncio.create_task(_wait_for_request_disconnect(request))
+    try:
+        done, _ = await asyncio.wait(
+            {load_task, disconnect_task},
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if load_task in done:
+            response, state = await load_task
+            return response, state
+        load_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await load_task
+        return None, None
+    finally:
+        disconnect_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await disconnect_task
+
+
 @router.get("/list", response_model=LRRListResponse)
 @audit_log("QUERY", "lrr_list")
 async def get_lrr_list(
@@ -497,7 +537,6 @@ async def get_lrr_list(
     sortBy: str = "month",
     sortDir: str = "asc",
 ):
-    del request
     has_scope_filter = _has_lrr_scope_filter(materialNumber, productModel, base, customerId)
     _validate_lrr_date_range(
         plannedDateFrom,
@@ -526,7 +565,9 @@ async def get_lrr_list(
         sort_dir=sortDir,
     )
     cached_query = _canonical_lrr_cache_query(query)
-    response = (await lrr_list_cache.get_or_load(cached_query, lambda: _load(cached_query)))[0]
+    response, _ = await _load_lrr_list_for_request(request, cached_query)
+    if response is None:
+        return Response(status_code=499)
     return _paginate_response(response, query)
 
 

@@ -292,6 +292,27 @@ async def test_composite_faults_use_padded_binding_orders_and_map_child_sn_to_he
 
 
 @pytest.mark.asyncio
+async def test_rty_list_coalesces_identical_requests(monkeypatch):
+    calls = 0
+
+    async def orders(**_filters):
+        nonlocal calls
+        calls += 1
+        return []
+
+    monkeypatch.setattr(rty_gateway.data_gateway, "all_orders", orders)
+    from app.services.async_ttl_cache import AsyncTTLCache
+
+    monkeypatch.setattr(rty_gateway, "_RTY_LIST_CACHE", AsyncTTLCache())
+    filters = {"orderScope": "normal", "dateFrom": "2026-01-01", "dateTo": "2026-01-31"}
+
+    await rty_gateway.rty_list(filters, 1, 50, {})
+    await rty_gateway.rty_list(filters, 1, 50, {})
+
+    assert calls == 1
+
+
+@pytest.mark.asyncio
 async def test_all_pages_handles_null_items(monkeypatch):
     gateway = rty_gateway.data_gateway
     monkeypatch.setattr(
@@ -464,6 +485,52 @@ async def test_station_rates_filter_input_by_gstrs_not_actual_pass_time(monkeypa
     ]
     assert station_rows.await_args.kwargs["timeField"] == "planned"
     assert station_rows.await_args.kwargs["productModel"] == "M-1"
+
+
+@pytest.mark.asyncio
+async def test_station_rates_uses_scoped_orders_when_station_rows_omit_if_l6(monkeypatch):
+    gateway = rty_gateway.data_gateway
+    monkeypatch.setattr(
+        gateway,
+        "all_orders",
+        AsyncMock(
+            return_value=[
+                {
+                    "aufnr": "L6-1",
+                    "plannedStartDate": "2026-05-15",
+                    "productionModel": "M-1",
+                    "orderQuantity": 10,
+                    "raw": {"data": {"AUFNR": "L6-1", "MAKTX_TH": "M-1", "IF_L6": "X"}},
+                },
+                {
+                    "aufnr": "NORMAL-1",
+                    "plannedStartDate": "2026-05-15",
+                    "productionModel": "M-1",
+                    "orderQuantity": 20,
+                    "raw": {"data": {"AUFNR": "NORMAL-1", "MAKTX_TH": "M-1", "IF_L6": ""}},
+                },
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        gateway,
+        "all_station_rows",
+        AsyncMock(
+            return_value=[
+                {"PCODE": "SN-L6", "AUFNR": "L6-1", "SPEC": "Line-OP205:装配", "MAKTX_TH": "M-1", "GSTRS": "20260515"},
+                {"PCODE": "SN-NORMAL", "AUFNR": "NORMAL-1", "SPEC": "Line-OP205:装配", "MAKTX_TH": "M-1", "GSTRS": "20260515"},
+            ]
+        ),
+    )
+    monkeypatch.setattr(rty_gateway, "_faults_for_sns", AsyncMock(return_value=[]))
+    monkeypatch.setattr(rty_gateway, "_fault_sns_by_orders", AsyncMock(return_value={}))
+    monkeypatch.setattr(rty_gateway, "_fault_sns_by_composite_groups", AsyncMock(return_value={}))
+
+    rows = await rty_gateway.station_rates(
+        "2026-05-01", "2026-05-31", product_model="M-1", group_by="productModel", order_scope="l6"
+    )
+
+    assert [(row.dimensionValue, row.inputCount) for row in rows] == [("M-1", 1)]
 
 
 @pytest.mark.asyncio

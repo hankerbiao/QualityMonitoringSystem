@@ -184,21 +184,44 @@ export default function LRRPage() {
   const [page, setPage] = useState(1);
   const sequence = useRef(0);
   const detailRequest = useRef(0);
+  const queryController = useRef<AbortController | null>(null);
+
+  const cancelQuery = useCallback(() => {
+    sequence.current += 1;
+    queryController.current?.abort();
+    queryController.current = null;
+    setLoading(false);
+  }, []);
+
+  useEffect(() => {
+    const abortOnPageHide = () => queryController.current?.abort();
+    window.addEventListener('pagehide', abortOnPageHide);
+    return () => {
+      window.removeEventListener('pagehide', abortOnPageHide);
+      queryController.current?.abort();
+    };
+  }, []);
 
   const load = useCallback(async (targetPage: number, nextFilters: LRRFilters) => {
     const current = ++sequence.current;
+    queryController.current?.abort();
+    const controller = new AbortController();
+    queryController.current = controller;
     setLoading(true);
     setError(null);
     try {
-      const result = await lrrApi.getLRRData(targetPage, PAGE_SIZE, nextFilters);
+      const result = await lrrApi.getLRRData(targetPage, PAGE_SIZE, nextFilters, controller.signal);
       if (current === sequence.current) {
         setResponse(result);
         setPage(result.page);
       }
     } catch (err) {
-      console.error('Failed to fetch LRR data', err);
-      if (current === sequence.current) setError(normalizeApiError(err));
+      if (!controller.signal.aborted) {
+        console.error('Failed to fetch LRR data', err);
+        if (current === sequence.current) setError(normalizeApiError(err));
+      }
     } finally {
+      if (queryController.current === controller) queryController.current = null;
       if (current === sequence.current) setLoading(false);
     }
   }, []);
@@ -210,6 +233,8 @@ export default function LRRPage() {
     setMaterialExportError(null);
     if (!hasSearchCriteria(next)) {
       sequence.current += 1;
+      queryController.current?.abort();
+      queryController.current = null;
       setResponse(null);
       setSearched(false);
       setLoading(false);
@@ -221,6 +246,8 @@ export default function LRRPage() {
 
   const reset = useCallback(() => {
     sequence.current += 1;
+    queryController.current?.abort();
+    queryController.current = null;
     setFilters(EMPTY_FILTERS);
     setResponse(null);
     setSearched(false);
@@ -543,6 +570,9 @@ export default function LRRPage() {
           <div className="pointer-events-auto inline-flex items-center gap-2 rounded-md border border-cyan-200 bg-white px-4 py-2.5 text-sm font-medium text-cyan-800 shadow-lg shadow-slate-900/10">
             <LoadingSpinner size="sm" className="border-cyan-600 motion-reduce:animate-none" />
             <span>数据加载中。目前正在加载数据...</span>
+            <button type="button" onClick={cancelQuery} className="ml-1 inline-flex size-7 items-center justify-center rounded-sm text-slate-500 hover:bg-slate-100 hover:text-slate-800" title="取消查询" aria-label="取消查询">
+              <X className="size-4" />
+            </button>
           </div>
         </div>
       )}

@@ -13,6 +13,7 @@ import copy
 import math
 import time
 from contextlib import suppress
+from datetime import date, timedelta
 from typing import Any
 
 import httpx
@@ -620,13 +621,50 @@ class DataGatewayClient:
         # denominator without that field, so transparently use the complete
         # view until the stream deployment is upgraded. Keep the date meaning
         # explicit because the paginated view has more than one date column.
-        if "GSTRS" not in fields or len(rows) == BOM_STREAM_MAX_ROWS:
+        if "GSTRS" not in fields:
             return await self.all_pages(
                 "GET",
                 "/api/views/ZSGV_ZSD124",
                 filters={**filters, "timeField": "planned"},
                 max_rows=max_rows,
             )
+        if len(rows) == BOM_STREAM_MAX_ROWS:
+            try:
+                start = date.fromisoformat(filters.get("dateFrom", ""))
+                end = date.fromisoformat(filters.get("dateTo", ""))
+            except ValueError:
+                start = end = None
+            if start and end and start < end:
+                # The stream truncates silently at 10,000 rows. Split a broad
+                # range into indexed daily streams instead of the slow view.
+                days = [start + timedelta(days=index) for index in range((end - start).days + 1)]
+                semaphore = asyncio.Semaphore(16)
+
+                async def read_day(day: date) -> list[dict[str, Any]]:
+                    async with semaphore:
+                        return await self.all_bom_rows(
+                            max_rows=max_rows,
+                            **{
+                                **filters,
+                                "dateFrom": day.isoformat(),
+                                "dateTo": day.isoformat(),
+                            },
+                        )
+
+                batches = await asyncio.gather(*(read_day(day) for day in days))
+                rows = [row for batch in batches for row in batch]
+                if len(rows) > max_rows:
+                    raise DataGatewayError(
+                        "BOM 查询结果超过本系统单次处理上限，请缩小日期或增加筛选条件",
+                        code="QUERY_TOO_LARGE",
+                    )
+            else:
+                return await self.all_pages(
+                    "GET",
+                    "/api/views/ZSGV_ZSD124",
+                    filters={**filters, "timeField": "planned"},
+                    max_rows=max_rows,
+                )
         if len(rows) > max_rows:
             raise DataGatewayError(
                 "BOM 查询结果超过本系统单次处理上限，请缩小日期或增加筛选条件",

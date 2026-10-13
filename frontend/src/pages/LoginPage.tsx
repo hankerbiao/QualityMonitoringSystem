@@ -13,6 +13,7 @@ import {
   UserRound,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import appPackage from '../../package.json';
 
 const qualityModules = [
   { icon: Gauge, code: 'RTY', label: '整机直通率', status: '在线' },
@@ -242,7 +243,7 @@ export default function LoginPage() {
               <span className="h-2 w-2 rounded-full bg-[#3bb273]" />
               服务运行正常
             </span>
-            <span>QualiBoard v1.0</span>
+            <span>QualiBoard v{appPackage.version}</span>
           </footer>
         </div>
       </section>

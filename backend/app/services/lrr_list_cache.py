@@ -20,7 +20,9 @@ from app.models.documents import Collections
 from app.schemas.lrr import LRRListResponse
 
 CACHE_TTL = timedelta(minutes=15)
-LEASE_TTL = timedelta(minutes=5)
+# A crashed or hot-reloaded backend cannot release its Mongo lease. Keep this
+# below the UI timeout; active loads renew it every five seconds.
+LEASE_TTL = timedelta(seconds=15)
 LEASE_POLL_SECONDS = 0.1
 
 
@@ -70,6 +72,7 @@ class LRRListCache:
         self._ttl = ttl
         self._lease_ttl = lease_ttl
         self._in_flight: dict[str, asyncio.Task[LRRListResponse]] = {}
+        self._waiters: dict[str, int] = {}
         self._lock = asyncio.Lock()
 
     async def get_or_load(
@@ -91,8 +94,32 @@ class LRRListCache:
             if task is None:
                 task = asyncio.create_task(self._load_and_store(key, loader))
                 self._in_flight[key] = task
+            self._waiters[key] = self._waiters.get(key, 0) + 1
 
-        return await asyncio.shield(task), state
+        try:
+            response = await asyncio.shield(task)
+        except asyncio.CancelledError:
+            cancel_loader = await self._release_waiter(key, task)
+            if cancel_loader:
+                task.cancel()
+                with suppress(asyncio.CancelledError, Exception):
+                    await task
+            raise
+        except BaseException:
+            await self._release_waiter(key, task)
+            raise
+        else:
+            await self._release_waiter(key, task)
+            return response, state
+
+    async def _release_waiter(self, key: str, task: asyncio.Task[LRRListResponse]) -> bool:
+        async with self._lock:
+            remaining = self._waiters.get(key, 1) - 1
+            if remaining > 0:
+                self._waiters[key] = remaining
+                return False
+            self._waiters.pop(key, None)
+            return self._in_flight.get(key) is task and not task.done()
 
     async def _get_cached(self, key: str) -> LRRListResponse | None:
         document = await self._database()[Collections.LRR_LIST_CACHE].find_one({"_id": key})

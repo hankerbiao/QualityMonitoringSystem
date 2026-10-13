@@ -22,6 +22,7 @@ import {
 import type { HomeModuleDefinition } from '../config/homeModules';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
+import appPackage from '../../package.json';
 
 type ModuleFilter = 'all' | 'quality' | 'tools' | 'management';
 
@@ -304,6 +305,7 @@ export default function Home() {
 
       <footer className="mx-auto flex max-w-7xl flex-col gap-2 border-t border-slate-200 px-4 py-5 text-xs text-slate-400 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
         <span>5000公司信息系统开发部</span>
+        <span>版本 v{appPackage.version}</span>
         <span>有问题请联系 @libiao1</span>
       </footer>
 

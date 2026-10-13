@@ -223,6 +223,29 @@ async def test_load_bom_filters_by_planned_start_date(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_load_bom_splits_short_material_ranges_by_day(monkeypatch):
+    calls: list[dict[str, str]] = []
+
+    async def all_bom_rows(**filters: str):
+        calls.append(filters)
+        return []
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
+
+    await lrr_gateway.load_bom(
+        material_number="03002413",
+        planned_date_from="2026-09-01",
+        planned_date_to="2026-09-03",
+    )
+
+    assert [(item["dateFrom"], item["dateTo"]) for item in calls] == [
+        ("2026-09-01", "2026-09-01"),
+        ("2026-09-02", "2026-09-02"),
+        ("2026-09-03", "2026-09-03"),
+    ]
+
+
+@pytest.mark.asyncio
 async def test_load_bom_expands_numeric_display_pn_to_sap_material_number(monkeypatch):
     captured: dict[str, str] = {}
 
@@ -487,6 +510,30 @@ async def test_load_faults_enriches_missing_display_fields_from_full_fault_rows(
 
     assert rows[0]["ZNGWD"] == "NG type"
     assert rows[0]["ZWXWD"] == "Repair description"
+
+
+@pytest.mark.asyncio
+async def test_load_faults_skips_display_enrichment_when_not_requested(monkeypatch):
+    async def fault_lookup(**_filters: str):
+        return [{"productionOrder": "1", "serialNumber": "SN-1"}]
+
+    async def fault_rows_by_sns(_sns: list[str], **_filters: str):
+        return [{"_source_key": "source-1", "AUFNR": "1", "PCODE": "SN-1"}]
+
+    async def fault_rows_by_host_barcodes(*_args: object, **_kwargs: object):
+        raise AssertionError("list aggregation must not fetch display-only fault fields")
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "fault_lookup", fault_lookup)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "fault_rows_by_sns", fault_rows_by_sns)
+    monkeypatch.setattr(
+        lrr_gateway.data_gateway,
+        "fault_rows_by_host_barcodes",
+        fault_rows_by_host_barcodes,
+    )
+
+    rows = await lrr_gateway.load_faults(production_orders={"1"}, include_details=False)
+
+    assert len(rows) == 1
 
 
 @pytest.mark.asyncio

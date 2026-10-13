@@ -22,6 +22,7 @@ from app.services.data_gateway_client import DataGatewayError, data_gateway
 from app.services.scs_gateway import scs_gateway
 
 DOA_CACHE_TTL_SECONDS = 60.0
+_DOA_ORDERS_CACHE = AsyncTTLCache()
 _DOA_REPAIRS_CACHE = AsyncTTLCache()
 _DOA_DASHBOARD_CACHE = AsyncTTLCache()
 _DOA_RAW_CACHE = AsyncTTLCache()
@@ -164,8 +165,17 @@ async def _gateway_orders_for_doa(filters: DoaFilters) -> list[dict[str, Any]]:
     ]
 
 
+async def _doa_gateway_orders(filters: DoaFilters) -> list[dict[str, Any]]:
+    key = filters.model_dump_json()
+    return await _DOA_ORDERS_CACHE.get_or_set(
+        key,
+        lambda: _gateway_orders_for_doa(filters),
+        ttl_seconds=DOA_CACHE_TTL_SECONDS,
+    )
+
+
 async def _load_doa_gateway_repairs(filters: DoaFilters) -> list[dict[str, Any]]:
-    orders = await _gateway_orders_for_doa(filters)
+    orders = await _doa_gateway_orders(filters)
     by_sales = _sales_order_scopes(orders)
     scs, changes = await asyncio.gather(
         scs_gateway.all(
@@ -223,7 +233,7 @@ async def build_doa_dashboard(filters: DoaFilters) -> DoaDashboardResponse:
 
 async def _build_doa_dashboard(filters: DoaFilters) -> DoaDashboardResponse:
     orders, repairs, eligible_rows = await asyncio.gather(
-        _gateway_orders_for_doa(filters),
+        _doa_gateway_orders(filters),
         _doa_gateway_repairs(filters),
         scs_gateway.all(
             "SCS_DOA",
@@ -243,21 +253,24 @@ async def _build_doa_dashboard(filters: DoaFilters) -> DoaDashboardResponse:
         text = str(value or "")
         return text[:4] if granularity == "year" else text if granularity == "day" else text[:7]
 
+    dimension_totals: dict[str, dict[str, list[float]]] = {
+        "customer": {},
+        "model": {},
+    }
+    for field, totals in dimension_totals.items():
+        for item in orders:
+            key = str(item.get(field) or "未填写")
+            values = totals.setdefault(key, [0.0, 0.0, 0.0])
+            values[0] += item["shipped_count"]
+        for item in repairs:
+            key = str(item.get(field) or "未填写")
+            values = totals.setdefault(key, [0.0, 0.0, 0.0])
+            values[1] += item["repair_count"]
+            values[2] += _replacement_defect_count(item)
+
     def dimensions(field: str) -> list[DoaDimensionItem]:
-        keys = sorted({str(item.get(field) or "未填写") for item in orders + repairs})
         result = []
-        for key in keys:
-            sent = sum(
-                item["shipped_count"] for item in orders if str(item.get(field) or "未填写") == key
-            )
-            fault = sum(
-                item["repair_count"] for item in repairs if str(item.get(field) or "未填写") == key
-            )
-            replacement = sum(
-                _replacement_defect_count(item)
-                for item in repairs
-                if str(item.get(field) or "未填写") == key
-            )
+        for key, (sent, fault, replacement) in sorted(dimension_totals[field].items()):
             result.append(
                 DoaDimensionItem(
                     key=key,
@@ -270,26 +283,29 @@ async def _build_doa_dashboard(filters: DoaFilters) -> DoaDashboardResponse:
             )
         return result
 
-    trend_keys = sorted(
-        {period(item.get("shipped_date")) for item in orders}
-        | {period(item.get("accepted_at")) for item in repairs} - {""}
-    )
+    trend_totals: dict[str, list[Any]] = {}
+    for item in orders:
+        key = period(item.get("shipped_date"))
+        if key:
+            totals = trend_totals.setdefault(key, [0.0, 0.0, 0.0, set()])
+            totals[0] += item["shipped_count"]
+    for item in repairs:
+        key = period(item.get("accepted_at"))
+        if key:
+            totals = trend_totals.setdefault(key, [0.0, 0.0, 0.0, set()])
+            totals[1] += item["repair_count"]
+            totals[2] += _replacement_defect_count(item)
+            if item.get("material_serial"):
+                totals[3].add(item["material_serial"])
+
     trend = []
-    for key in trend_keys:
-        sent = sum(
-            item["shipped_count"] for item in orders if period(item.get("shipped_date")) == key
-        )
-        faults = [item for item in repairs if period(item.get("accepted_at")) == key]
-        replacement = sum(_replacement_defect_count(item) for item in faults)
-        faults_count = sum(item["repair_count"] for item in faults)
+    for key, (sent, faults_count, replacement, serials) in sorted(trend_totals.items()):
         trend.append(
             DoaTrendItem(
                 period=key,
                 shippedCount=sent,
                 repairCount=faults_count,
-                repairServerCount=len(
-                    {item.get("material_serial") for item in faults if item.get("material_serial")}
-                ),
+                repairServerCount=len(serials),
                 repairRate=_rate(faults_count, sent),
                 replacementCount=replacement,
                 replacementRate=_rate(replacement, sent),

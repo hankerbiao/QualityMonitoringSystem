@@ -145,6 +145,8 @@ export default function StationPassRatePage() {
   const [loading, setLoading] = useState(false);
   const [hasSearched, setHasSearched] = useState(false);
   const [error, setError] = useState('');
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
   const [appliedQuery, setAppliedQuery] = useState<StationPassQuery | null>(null);
   const [dataUpdatedAt, setDataUpdatedAt] = useState<Date | null>(null);
   const [queryDurationMs, setQueryDurationMs] = useState<number | null>(null);
@@ -401,20 +403,58 @@ export default function StationPassRatePage() {
     }
   };
 
-  const exportRows = () => {
-    const data = matrix.rows.map((row) => ({
-      [dimensionLabels[groupBy]]: row.dimensionValue,
-      Total: formatRate(row.total.inputCount, row.total.defectCount),
-      工站直通率: (() => {
-        const rate = combinedStationPassRate(row.stationRows, selectedStations);
-        return rate === null ? '-' : `${rate.toFixed(2)}%`;
-      })(),
-      ...Object.fromEntries(matrix.stations.map((station) => [station, row.stationRows.has(station) ? `${row.stationRows.get(station)!.passRate.toFixed(2)}%` : '-'])),
-    }));
-    const sheet = XLSX.utils.json_to_sheet(data);
-    const book = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(book, sheet, '工位直通率透视表');
-    XLSX.writeFile(book, `工位直通率_${groupBy}_${dateFrom}_${dateTo}.xlsx`);
+  const exportRows = async () => {
+    if (!appliedQuery || exporting) return;
+    setExporting(true);
+    setExportError('');
+    try {
+      const data = matrix.rows.map((row) => ({
+        [dimensionLabels[appliedQuery.groupBy]]: row.dimensionValue,
+        Total: formatRate(row.total.inputCount, row.total.defectCount),
+        工站直通率: (() => {
+          const rate = combinedStationPassRate(row.stationRows, selectedStations);
+          return rate === null ? '-' : `${rate.toFixed(2)}%`;
+        })(),
+        ...Object.fromEntries(matrix.stations.map((station) => [station, row.stationRows.has(station) ? `${row.stationRows.get(station)!.passRate.toFixed(2)}%` : '-'])),
+      }));
+      const defectPairs = matrix.rows.flatMap((row) => Array.from(row.stationRows.values())
+        .filter((rate) => rate.defectCount > 0)
+        .map((rate) => ({ dimensionValue: row.dimensionValue, rate })));
+      const defectBatches: { dimensionValue: string; rate: StationRateRow; details: StationPassDetail[] }[] = [];
+      for (let index = 0; index < defectPairs.length; index += 8) {
+        const batch = await Promise.all(defectPairs.slice(index, index + 8).map(async ({ dimensionValue, rate }) => ({
+          dimensionValue,
+          rate,
+          details: await rtyApi.getStationPassDetails(
+            rate.stationCode,
+            { ...appliedQuery, dimensionValue },
+            'defect',
+          ),
+        })));
+        defectBatches.push(...batch);
+      }
+      const defectData = defectBatches.flatMap(({ dimensionValue, rate, details }) => details.map((item) => ({
+        [dimensionLabels[appliedQuery.groupBy]]: dimensionValue,
+        工站编码: rate.stationCode,
+        工站名称: rate.stationName || '',
+        机器SN: item.sn,
+        过站日期: item.passDate || '',
+        故障代码: item.defectCode || '',
+        故障描述: item.description || '',
+        维修人: item.repairPerson || '',
+        维修时间: item.repairTime || '',
+      })));
+
+      const book = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(data), '工位直通率透视表');
+      XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(defectData), '汇总故障明细');
+      XLSX.writeFile(book, `工位直通率_${appliedQuery.groupBy}_${appliedQuery.dateFrom}_${appliedQuery.dateTo}.xlsx`);
+    } catch (err) {
+      console.error('Failed to export station pass rates', err);
+      setExportError(err instanceof Error && err.message ? err.message : '导出失败，请重试');
+    } finally {
+      setExporting(false);
+    }
   };
 
   const updateField = <K extends keyof StationQueryState>(key: K, setter: (value: StationQueryState[K]) => void, value: StationQueryState[K]) => {
@@ -500,12 +540,13 @@ export default function StationPassRatePage() {
           </div>
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             <DashboardSwitcher />
-            <button type="button" onClick={exportRows} disabled={loading || !hasSearched || matrix.rows.length === 0} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-medium text-slate-700 transition-colors hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-45 sm:px-3" title="导出当前结果" aria-label="导出当前结果"><Download className="size-4" /><span className="hidden sm:inline">导出</span></button>
+            <button type="button" onClick={() => void exportRows()} disabled={loading || exporting || !hasSearched || matrix.rows.length === 0} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-medium text-slate-700 transition-colors hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-45 sm:px-3" title="导出当前结果及汇总故障明细" aria-label="导出当前结果及汇总故障明细"><Download className="size-4" /><span className="hidden sm:inline">{exporting ? '导出中' : '导出'}</span></button>
           </div>
         </div>
       </header>
 
       <main className="mx-auto flex w-full max-w-[1600px] flex-col gap-3 px-4 py-4 sm:px-6 lg:px-8">
+        {exportError && <p role="alert" className="text-sm text-red-600">{exportError}</p>}
         <section className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 items-center gap-2"><div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-cyan-50 text-cyan-700"><SlidersHorizontal className="size-4" /></div><h2 className="text-sm font-semibold text-slate-800">{dimensionLabel}工位直通率</h2></div>

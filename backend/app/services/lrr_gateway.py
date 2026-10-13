@@ -7,6 +7,7 @@ quantities, fault matching, grouping and rates remain in ``api.lrr``.
 from __future__ import annotations
 
 import asyncio
+from datetime import date, timedelta
 from time import perf_counter
 from typing import Any
 
@@ -25,6 +26,7 @@ from app.services.rty_shared import order_variants
 MAX_BATCH_ORDER_FILTERS = 200
 MAX_BATCH_SN_FILTERS = 1_000
 MAX_BATCH_FULL_FAULT_FILTERS = 100
+MATERIAL_DAILY_SPLIT_MAX_DAYS = 62
 
 
 def _norm_material_number(value: Any) -> str:
@@ -164,18 +166,46 @@ async def load_bom(
         "materialCode": _norm_material_number(material_number),
     }
     raw_rows: list[dict[str, Any]] = []
-    # Keep each logical filter as one request so the gateway can stream the
-    # indexed range sequentially; splitting a broad range multiplies Mongo
-    # cursor setup and response headers without reducing the raw row count.
+    # A material-specific range is selective but the gateway can still scan
+    # the whole date interval before applying the material index. Daily
+    # requests keep each source scan narrow and run concurrently. Restrict
+    # this optimization to short PN-scoped ranges so broad model queries do
+    # not turn into hundreds of gateway requests.
     terms = search_terms or [""]
-    chunks = [(date_start, date_end)]
-    requests = [
-        data_gateway.all_bom_rows(
-            **{**base_filters, "dateFrom": chunk_start, "dateTo": chunk_end, "keyword": term},
-        )
-        for term in terms
-        for chunk_start, chunk_end in chunks
-    ]
+    daily_dates: list[date] = []
+    if material_number and date_start and date_end:
+        try:
+            start = date.fromisoformat(date_start)
+            end = date.fromisoformat(date_end)
+        except ValueError:
+            start = end = None
+        if start and end and start < end:
+            span_days = (end - start).days + 1
+            if span_days <= MATERIAL_DAILY_SPLIT_MAX_DAYS:
+                daily_dates = [start + timedelta(days=index) for index in range(span_days)]
+
+    if daily_dates:
+        semaphore = asyncio.Semaphore(16)
+
+        async def read_day(day: date, term: str) -> list[dict[str, Any]]:
+            async with semaphore:
+                return await data_gateway.all_bom_rows(
+                    **{
+                        **base_filters,
+                        "dateFrom": day.isoformat(),
+                        "dateTo": day.isoformat(),
+                        "keyword": term,
+                    }
+                )
+
+        requests = [read_day(day, term) for term in terms for day in daily_dates]
+    else:
+        requests = [
+            data_gateway.all_bom_rows(
+                **{**base_filters, "dateFrom": date_start, "dateTo": date_end, "keyword": term},
+            )
+            for term in terms
+        ]
     bom_stream_started_at = perf_counter()
     batches = await asyncio.gather(*requests)
     bom_stream_ms = (perf_counter() - bom_stream_started_at) * 1000
@@ -373,6 +403,7 @@ async def load_faults(
     date_from: str | None = None,
     date_to: str | None = None,
     month: str | None = None,
+    include_details: bool = True,
 ) -> list[dict[str, Any]]:
     sales_orders = sales_orders or set()
     if not production_orders and not sales_orders:
@@ -442,12 +473,16 @@ async def load_faults(
         )
     )
     details = [normalize_fault(item) for batch in detail_batches for item in batch]
-    missing_full_rows = sorted(
-        {
-            str(row.get("PCODE") or "").strip()
-            for row in details
-            if _fault_source_key(row) and (not row.get("ZNGWD") or not row.get("ZWXWD"))
-        }
+    missing_full_rows = (
+        sorted(
+            {
+                str(row.get("PCODE") or "").strip()
+                for row in details
+                if _fault_source_key(row) and (not row.get("ZNGWD") or not row.get("ZWXWD"))
+            }
+        )
+        if include_details
+        else []
     )
     if missing_full_rows:
         full_detail_batches = await asyncio.gather(

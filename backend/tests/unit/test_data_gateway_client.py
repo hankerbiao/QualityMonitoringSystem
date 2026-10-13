@@ -294,6 +294,42 @@ async def test_bom_stream_falls_back_when_gateway_stream_hits_its_row_cap():
 
 
 @pytest.mark.asyncio
+async def test_bom_stream_splits_a_capped_date_range_without_paging():
+    client = DataGatewayClient("http://gateway.test", timeout=2)
+    calls: list[str] = []
+
+    async def all_pages(*_args: object, **_kwargs: object):
+        calls.append("paged")
+        return []
+
+    client.all_pages = all_pages  # type: ignore[method-assign]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        params = dict(request.url.params)
+        if params["dateFrom"] != params["dateTo"]:
+            rows = [{"id": f"bom-{index}", "GSTRS": "2026-01-01"} for index in range(10_000)]
+        elif params["dateFrom"] == "2026-01-01":
+            rows = [{"id": "bom-1", "GSTRS": "2026-01-01"}]
+        else:
+            rows = [{"id": "bom-2", "GSTRS": "2026-01-02"}]
+        return httpx.Response(
+            200,
+            text="id\tGSTRS\n" + "\n".join(f"{row['id']}\t{row['GSTRS']}" for row in rows),
+        )
+
+    client._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url=client.base_url
+    )
+    try:
+        result = await client.all_bom_rows(dateFrom="2026-01-01", dateTo="2026-01-02")
+    finally:
+        await client.close()
+
+    assert len(result) == 2
+    assert calls == []
+
+
+@pytest.mark.asyncio
 async def test_station_rows_reuses_short_lived_cache():
     calls = 0
 

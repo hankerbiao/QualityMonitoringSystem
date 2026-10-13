@@ -41,4 +41,13 @@ describe('lrrApi full material list', () => {
       '/api/lrr/list?plannedDateFrom=2026-09-01&plannedDateTo=2026-09-30&customerId=A01&customerId=B01&page=2&limit=500',
     ]);
   });
+
+  it('passes an abort signal to the list request', async () => {
+    vi.mocked(requestJson).mockResolvedValueOnce({ items: [], total: 0, page: 1, limit: 50 });
+    const controller = new AbortController();
+
+    await lrrApi.getLRRData(1, 50, { plannedDateFrom: '2026-01-01' }, controller.signal);
+
+    expect(vi.mocked(requestJson).mock.calls[0][1]).toEqual({ signal: controller.signal });
+  });
 });

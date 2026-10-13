@@ -84,6 +84,36 @@ async def test_lrr_list_cache_coalesces_concurrent_misses(db_clean):
 
 
 @pytest.mark.asyncio
+async def test_lrr_list_cache_cancels_loader_only_after_last_waiter_leaves(db_clean):
+    cache = LRRListCache(database=lambda: db_clean)
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def loader() -> LRRListResponse:
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+
+    first = asyncio.create_task(cache.get_or_load(LRRListQuery(), loader))
+    await started.wait()
+    second = asyncio.create_task(cache.get_or_load(LRRListQuery(), loader))
+    while cache._waiters.get(LRRListQuery().fingerprint) != 2:
+        await asyncio.sleep(0)
+
+    first.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await first
+    assert not cancelled.is_set()
+
+    second.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await second
+    assert cancelled.is_set()
+
+
+@pytest.mark.asyncio
 async def test_lrr_list_cache_coalesces_misses_across_cache_instances(db_clean):
     first_cache = LRRListCache(database=lambda: db_clean)
     second_cache = LRRListCache(database=lambda: db_clean)
@@ -190,10 +220,42 @@ async def test_lrr_list_pages_reuse_one_canonical_load(monkeypatch):
     monkeypatch.setattr(lrr_api, "lrr_list_cache", Cache())
     monkeypatch.setattr(lrr_api, "_load", load)
 
-    request = Request({"type": "http", "headers": [], "client": ("test", 1)})
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    request = Request(
+        {"type": "http", "headers": [], "client": ("test", 1)},
+        receive=receive,
+    )
     first = await lrr_api.get_lrr_list(request=request, page=1, limit=2)
     second = await lrr_api.get_lrr_list(request=request, page=2, limit=2)
 
     assert [item.id for item in first.items] == ["1", "2"]
     assert [item.id for item in second.items] == ["3"]
     assert calls == 1
+
+
+@pytest.mark.asyncio
+async def test_lrr_request_disconnect_cancels_its_cache_waiter(monkeypatch):
+    cancelled = asyncio.Event()
+
+    class Cache:
+        async def get_or_load(self, _query, _loader):
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.set()
+
+    async def receive():
+        return {"type": "http.disconnect"}
+
+    monkeypatch.setattr(lrr_api, "lrr_list_cache", Cache())
+    request = Request(
+        {"type": "http", "headers": [], "client": ("test", 1)},
+        receive=receive,
+    )
+
+    response, state = await lrr_api._load_lrr_list_for_request(request, LRRListQuery())
+
+    assert (response, state) == (None, None)
+    assert cancelled.is_set()

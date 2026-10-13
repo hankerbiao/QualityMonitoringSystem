@@ -225,12 +225,16 @@ async def _build_mfr_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
                 fleet_by_period_model[key] = fleet_by_period_model.get(key, 0) + order["quantity"]
 
     faults_by_model: dict[str, int] = {}
+    faults_by_period: dict[str, int] = {}
     for (_period, model), fault_events in faults_by_period_model.items():
+        faults_by_period[_period] = faults_by_period.get(_period, 0) + fault_events
         if not filters.model or model == filters.model:
             faults_by_model[model] = faults_by_model.get(model, 0) + fault_events
 
     fleet_by_model: dict[str, float] = {}
+    fleet_by_period: dict[str, float] = {}
     for (_period, model), value in fleet_by_period_model.items():
+        fleet_by_period[_period] = fleet_by_period.get(_period, 0) + value
         if not filters.model or model == filters.model:
             fleet_by_model[model] = fleet_by_model.get(model, 0) + value
 
@@ -247,15 +251,15 @@ async def _build_mfr_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
 
     trend: list[MFRTrendItem] = []
     for period in periods:
-        faults = sum(
-            fault_events
-            for (item_period, model), fault_events in faults_by_period_model.items()
-            if item_period == period and (not filters.model or model == filters.model)
+        faults = (
+            faults_by_period_model.get((period, filters.model), 0)
+            if filters.model
+            else faults_by_period.get(period, 0)
         )
-        fleet = sum(
-            value
-            for (item_period, model), value in fleet_by_period_model.items()
-            if item_period == period and (not filters.model or model == filters.model)
+        fleet = (
+            fleet_by_period_model.get((period, filters.model), 0)
+            if filters.model
+            else fleet_by_period.get(period, 0)
         )
         trend.append(
             MFRTrendItem(

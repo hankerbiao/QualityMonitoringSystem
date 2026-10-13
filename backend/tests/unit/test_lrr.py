@@ -1,6 +1,7 @@
 import pytest
 from fastapi import HTTPException
 
+from app.api import lrr as lrr_api
 from app.api.lrr import (
     _has_filter_criteria,
     _requires_full_fault_sort,
@@ -93,6 +94,42 @@ def test_lrr_usage_response_does_not_load_faults():
     assert response.summary.scope == "usage"
     assert response.summary.materialCount == 1
     assert response.summary.totalFaults is None
+
+
+@pytest.mark.asyncio
+async def test_lrr_uses_planned_range_for_fault_lookup_without_ng_range(monkeypatch):
+    captured: dict[str, object] = {}
+
+    async def load_bom(**_kwargs):
+        return [
+            {
+                "AUFNR_1": "000000000001",
+                "VBELN_EX": "0000000001",
+                "MATNR": "PN-1",
+                "MAKTX": "CPU",
+                "GSTRS": "2026-01-15",
+                "MENGE_A": 1,
+            }
+        ]
+
+    async def load_faults(**kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(lrr_api.lrr_gateway, "load_bom", load_bom)
+    monkeypatch.setattr(lrr_api.lrr_gateway, "load_faults", load_faults)
+
+    await lrr_api._load(
+        LRRListQuery(
+            planned_date_from="2026-01-01",
+            planned_date_to="2026-10-13",
+            product_model="6210 C21",
+        )
+    )
+
+    assert captured["date_from"] == "2026-01-01"
+    assert captured["date_to"] == "2026-10-13"
+    assert captured["include_details"] is False
 
 
 def test_lrr_fault_sort_requires_full_fault_loading():
