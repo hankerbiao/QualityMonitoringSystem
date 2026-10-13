@@ -130,7 +130,7 @@ export default function RTYPage() {
     }
   };
 
-  const handleExport = (selectedColumns: Record<string, boolean>) => {
+  const handleExport = async (selectedColumns: Record<string, boolean>) => {
     const selectedKeys = Object.entries(selectedColumns).filter(([, v]) => v).map(([k]) => k);
     const exportData = sortedData.map(row => {
       const item: Record<string, unknown> = {};
@@ -148,6 +148,28 @@ export default function RTYPage() {
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, 'RTY数据');
+    const serialNumbers = Array.from(new Set(sortedData.flatMap((row) => row.serialNumbers || []).filter(Boolean)));
+    if (serialNumbers.length > 0) {
+      const defectRows = await Promise.all(
+        Array.from({ length: Math.ceil(serialNumbers.length / 200) }, (_, index) =>
+          rtyApi.getDefectDetails(serialNumbers.slice(index * 200, (index + 1) * 200))),
+      );
+      const defectData = defectRows.flat().map((item) => ({
+        机器SN: item.sn,
+        销售订单: item.sale_no,
+        生产订单: item.mfg_order,
+        客户: item.customer,
+        产品机型: item.product_family,
+        故障类型: item.defectCode,
+        故障描述: item.description,
+        二次故障现象: item.fault_2nd_appear,
+        三次故障现象: item.fault_3rd_appear,
+        维修人: item.repairPerson,
+        维修时间: item.repairTime,
+        维修有效性: item.repair_effectiveness,
+      }));
+      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(defectData), '故障明细');
+    }
     XLSX.writeFile(wb, `RTY数据导出_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 

@@ -132,6 +132,33 @@ async def test_lrr_uses_planned_range_for_fault_lookup_without_ng_range(monkeypa
     assert captured["include_details"] is False
 
 
+@pytest.mark.asyncio
+async def test_lrr_fault_details_uses_planned_range_without_ng_range(monkeypatch):
+    captured: dict[str, object] = {}
+
+    async def load_bom(**_kwargs):
+        return [{"AUFNR_1": "1", "VBELN_EX": "", "GSTRS": "2026-09-15"}]
+
+    async def load_faults(**kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(lrr_api.lrr_gateway, "load_bom", load_bom)
+    monkeypatch.setattr(lrr_api.lrr_gateway, "load_faults", load_faults)
+
+    await lrr_api.get_lrr_fault_details(
+        None,
+        plannedDateFrom="2026-09-01",
+        plannedDateTo="2026-09-30",
+        materialNumber="B5000051",
+        month="2026-09",
+        limit=50000,
+    )
+
+    assert captured["date_from"] == "2026-09-01"
+    assert captured["date_to"] == "2026-09-30"
+
+
 def test_lrr_fault_sort_requires_full_fault_loading():
     assert not _requires_full_fault_sort(LRRListQuery(sort_by="month"))
     assert not _requires_full_fault_sort(LRRListQuery(sort_by="issuedQuantity"))
@@ -241,6 +268,7 @@ def test_lrr_groups_usage_by_material_and_month_and_matches_fault_description():
                 "AUFNR": "1",
                 "ZJXMC": "CPU A",
                 "PCODE": "SN-1",
+                "GSTRS": "20260125",
                 "ZDATE_WX": "20260125",
             },
             {"_id": "f2", "AUFNR": "1", "ZJXMC": "UNKNOWN", "PCODE": "SN-2"},
@@ -275,6 +303,7 @@ def test_lrr_matches_repair_material_to_zero_padded_bom_material():
                 "AUFNR": "1",
                 "RECORD01REPAIRM": "57000766",
                 "PCODE": "6102114804622475",
+                "GSTRS": "20260912",
                 "ZDATE_WX": "20260912",
                 "ZWXWD": "故障维修",
             }
@@ -306,6 +335,7 @@ def test_lrr_does_not_match_known_production_order_through_shared_sales_order():
                 "AUFNR": "2",
                 "VBELN": "9",
                 "MATNR": "PN-1",
+                "GSTRS": "20260805",
                 "ZDATE_WX": "20260805",
             }
         ],
@@ -315,7 +345,7 @@ def test_lrr_does_not_match_known_production_order_through_shared_sales_order():
     assert details == []
 
 
-def test_lrr_does_not_count_fault_when_repair_month_differs_from_planned_month():
+def test_lrr_counts_fault_by_planned_production_month_not_actual_repair_month():
     rows, details = aggregate_lrr(
         [
             {
@@ -331,6 +361,7 @@ def test_lrr_does_not_count_fault_when_repair_month_differs_from_planned_month()
                 "_id": "fault-repaired-in-august",
                 "AUFNR": "1",
                 "MATNR": "PN-1",
+                "GSTRS": "20260729",
                 "ZDATE_WX": "20260802",
                 "PCODE": "SN-1",
             }
@@ -338,8 +369,8 @@ def test_lrr_does_not_count_fault_when_repair_month_differs_from_planned_month()
     )
 
     assert rows[0].month == "2026-07"
-    assert rows[0].faultCount == 0
-    assert details == []
+    assert rows[0].faultCount == 1
+    assert details[0].ngTime == "20260802"
 
 
 def test_lrr_supports_compacted_fault_counts():
@@ -359,6 +390,7 @@ def test_lrr_supports_compacted_fault_counts():
                 "_id": "f1",
                 "AUFNR": "1",
                 "ZJXMC": "CPU A",
+                "GSTRS": "20260125",
                 "ZDATE_WX": "20260125",
                 "_fault_count": 3,
             }
@@ -390,6 +422,7 @@ def test_lrr_detail_does_not_treat_station_as_fault_code():
                 "PCODE": "SN-1",
                 "ZNGGZ": "OP205",
                 "ZWXWD": "Power-on failure",
+                "GSTRS": "20260202",
                 "ZDATE_WX": "20260202",
                 "ZTIME": "113419",
             }
@@ -419,6 +452,7 @@ def test_lrr_does_not_assign_repairs_when_bom_material_description_is_missing():
                 "AUFNR": "1",
                 "ZJXMC": "A source-provided component name",
                 "PCODE": "SN-1",
+                "GSTRS": "20260502",
                 "ZDATE_WX": "20260502",
             }
         ],
@@ -453,6 +487,7 @@ def test_lrr_prefers_exact_fault_material_number_when_description_is_missing():
                 "_id": "f1",
                 "AUFNR": "1",
                 "MATNR": "PN-1",
+                "GSTRS": "20260202",
                 "ZDATE_WX": "20260202",
                 "PCODE": "SN-1",
             }
@@ -480,6 +515,7 @@ def test_lrr_uses_record01repairm_when_fault_matnr_is_missing():
                 "_id": "f1",
                 "AUFNR": "1",
                 "RECORD01REPAIRM": "PN-1",
+                "GSTRS": "20260202",
                 "ZDATE_WX": "20260202",
                 "PCODE": "SN-1",
             }
@@ -510,7 +546,7 @@ def test_lrr_skips_ambiguous_description_matches_instead_of_counting_every_pn():
                 "MENGE_A": 1,
             },
         ],
-        [{"_id": "f1", "AUFNR": "1", "ZJXMC": "CPU A", "ZDATE_WX": "20260202"}],
+        [{"_id": "f1", "AUFNR": "1", "ZJXMC": "CPU A", "GSTRS": "20260202", "ZDATE_WX": "20260202"}],
     )
 
     assert [row.faultCount for row in rows] == [0, 0]
@@ -537,7 +573,7 @@ def test_lrr_counts_a_precisely_identified_pn_even_when_descriptions_are_shared(
                 "MENGE_A": 1,
             },
         ],
-        [{"_id": "f1", "AUFNR": "1", "MATNR": "PN-2", "ZDATE_WX": "20260202"}],
+        [{"_id": "f1", "AUFNR": "1", "MATNR": "PN-2", "GSTRS": "20260202", "ZDATE_WX": "20260202"}],
     )
 
     by_material = {row.materialNumber: row for row in rows}
@@ -546,8 +582,8 @@ def test_lrr_counts_a_precisely_identified_pn_even_when_descriptions_are_shared(
     assert details[0].materialNumber == "PN-2"
 
 
-def test_lrr_deduplicates_mirrored_records_but_keeps_separate_repairs_for_one_sn():
-    rows, _ = aggregate_lrr(
+def test_lrr_counts_every_matching_fault_record_including_mirrored_records():
+    rows, details = aggregate_lrr(
         [
             {
                 "AUFNR_1": "1",
@@ -559,13 +595,14 @@ def test_lrr_deduplicates_mirrored_records_but_keeps_separate_repairs_for_one_sn
             }
         ],
         [
-            {"_id": "f1", "AUFNR": "1", "ZJXMC": "CPU A", "PCODE": "SN-1", "ZDATE_WX": "20260202"},
-            {"_id": "f1", "AUFNR": "1", "ZJXMC": "CPU A", "PCODE": "SN-1", "ZDATE_WX": "20260202"},
-            {"_id": "f2", "AUFNR": "1", "ZJXMC": "CPU A", "PCODE": "SN-1", "ZDATE_WX": "20260203"},
+            {"_id": "f1", "AUFNR": "1", "ZJXMC": "CPU A", "PCODE": "SN-1", "GSTRS": "20260202", "ZDATE_WX": "20260202"},
+            {"_id": "f1", "AUFNR": "1", "ZJXMC": "CPU A", "PCODE": "SN-1", "GSTRS": "20260202", "ZDATE_WX": "20260202"},
+            {"_id": "f2", "AUFNR": "1", "ZJXMC": "CPU A", "PCODE": "SN-1", "GSTRS": "20260203", "ZDATE_WX": "20260203"},
         ],
     )
 
-    assert rows[0].faultCount == 2
+    assert rows[0].faultCount == 3
+    assert len(details) == 3
 
 
 def test_lrr_uses_gstrs_month_for_denominator_not_bom_posting_month():
@@ -601,6 +638,7 @@ def test_lrr_uses_gstrs_month_for_denominator_not_bom_posting_month():
                 "_id": "f1",
                 "AUFNR": "1",
                 "MATNR": "PN-1",
+                "GSTRS": "20260125",
                 "ZDATE_WX": "20260125",
             }
         ],

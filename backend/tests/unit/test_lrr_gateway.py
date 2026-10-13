@@ -28,6 +28,7 @@ def test_lrr_normalizers_ignore_non_sap_alias_fields():
     assert fault["AUFNR"] == ""
     assert fault["PCODE"] == ""
     assert fault["ZNGWD"] == ""
+    assert fault["GSTRS"] == ""
 
 
 def test_lrr_fault_material_falls_back_to_record01repairm_when_matnr_is_empty():
@@ -460,7 +461,7 @@ async def test_load_faults_resolves_lookup_links_to_full_fault_details(monkeypat
 
     rows = await lrr_gateway.load_faults(production_orders={"1"})
 
-    assert len(rows) == 1
+    assert len(rows) == 2
     assert rows[0]["ZNGGZ"] == "OP205"
     assert rows[0]["ZWXWD"] == "Power-on failure"
     assert rows[0]["ZDATE_WX"] == "20260202"

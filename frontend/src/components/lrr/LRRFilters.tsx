@@ -188,7 +188,7 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
           </div>
         </div>
 
-        {/* NG 时间筛选暂时隐藏，保留字段兼容后续恢复。 */}
+        {/* 故障时间跟随维修记录计划生产时间 GSTRS，和物料计划开始时间使用同一周期。 */}
         <div className="flex min-w-0 flex-col gap-2 lg:col-span-6">
           <span className="text-xs font-semibold text-slate-600">计划开始时间（GSTRS）</span>
           <div className="overflow-hidden rounded-md border border-slate-300 bg-white focus-within:border-cyan-500 focus-within:ring-2 focus-within:ring-cyan-100">

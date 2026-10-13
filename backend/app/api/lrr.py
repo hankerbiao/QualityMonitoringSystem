@@ -164,9 +164,7 @@ def aggregate_lrr(
     active = {key: value for key, value in groups.items() if value["quantity"] > 0}
     counts: dict[str, int] = defaultdict(int)
     details: list[LRRFaultDetail] = []
-    linked: set[tuple[str, str]] = set()
     for fault in fault_rows:
-        fault_id = str(fault.get("_id") or id(fault))
         order = normalize_production_order(fault.get("AUFNR"))
         sales = normalize_sales_order(fault.get("VBELN"))
         # Normalized gateway rows expose the fallback material as MATNR, but
@@ -174,7 +172,10 @@ def aggregate_lrr(
         fault_material = (
             str(fault.get("MATNR") or "").strip() or str(fault.get("RECORD01REPAIRM") or "").strip()
         )
-        fault_month = compact_date(fault.get("ZDATE_WX"))[:6]
+        # LRR numerator uses the repair record's planned production date,
+        # matching the BOM denominator's GSTRS month. ZDATE_WX is actual
+        # repair time and is intentionally not used for period attribution.
+        fault_month = compact_date(fault.get("GSTRS"))[:6]
         # Production order is the precise ownership key. A sales order can
         # contain several production orders, so using it as an OR fallback
         # when AUFNR is present can attach a fault from another order.
@@ -207,9 +208,6 @@ def aggregate_lrr(
         if len(candidates) != 1:
             continue
         key, group = candidates[0]
-        if (fault_id, key) in linked:
-            continue
-        linked.add((fault_id, key))
         counts[key] += int(fault.get("_fault_count", 1))
         if include_details:
             details.append(
@@ -619,8 +617,11 @@ async def get_lrr_fault_details(
     faults = await lrr_gateway.load_faults(
         production_orders={str(row.get("AUFNR_1") or "") for row in bom},
         sales_orders={str(row.get("VBELN_EX") or "") for row in bom},
-        date_from=ngDateFrom,
-        date_to=ngDateTo,
+        # Keep detail/export records on the same planned-production period as
+        # the list aggregation. An explicit NG range remains an override for
+        # compatibility with the API contract.
+        date_from=ngDateFrom or plannedDateFrom,
+        date_to=ngDateTo or plannedDateTo,
     )
     details = aggregate_lrr(bom, faults)[1]
     return LRRFaultDetailsResponse(

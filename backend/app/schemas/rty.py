@@ -2,7 +2,7 @@
 RTY (整机综合直通率) 相关 Pydantic 模型
 """
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -92,6 +92,7 @@ class StationPassDetail(BaseModel):
     defectCode: str = ""
     description: str = ""
     repairPerson: str = ""
+    raw: dict[str, Any] = Field(default_factory=dict, description="匹配到的原始维修记录字段")
 
 
 # ============== 故障明细模型 ==============

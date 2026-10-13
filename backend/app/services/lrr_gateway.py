@@ -74,6 +74,7 @@ def normalize_fault(item: dict[str, Any]) -> dict[str, Any]:
         "ZWXWD": data.get("ZWXWD", ""),
         "ZDATE_WX": data.get("ZDATE_WX", ""),
         "ZTIME": data.get("ZTIME", ""),
+        "GSTRS": data.get("GSTRS", data.get("plannedStartDate", "")),
         "ZJXMC": data.get("ZJXMC", ""),
         "MATNR": material_number,
     }
@@ -104,33 +105,6 @@ def _merge_full_fault_rows(
 ) -> list[dict[str, Any]]:
     full_by_key = {key: row for row in full_rows if (key := _fault_source_key(row))}
     return [full_by_key.get(_fault_source_key(row), row) for row in rows]
-
-
-def _deduplicate_faults(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """Discard mirrored repair records from padded and unpadded SAP orders."""
-    seen: set[tuple[str, ...]] = set()
-    result = []
-    for row in rows:
-        key = tuple(
-            str(row.get(field) or "").strip().lstrip("0") or "0"
-            if field in {"AUFNR", "VBELN"}
-            else str(row.get(field) or "").strip()
-            for field in (
-                "PCODE",
-                "AUFNR",
-                "VBELN",
-                "ZDATE_WX",
-                "ZTIME",
-                "ZNGWD",
-                "ZNGGZ",
-                "ZWXWD",
-                "ZUSER",
-            )
-        )
-        if key not in seen:
-            seen.add(key)
-            result.append(row)
-    return result
 
 
 async def load_bom(
@@ -419,13 +393,19 @@ async def load_faults(
     async def fetch_by_production_order(chunk: list[str]) -> list[dict[str, Any]]:
         async with semaphore:
             return await data_gateway.fault_lookup(
-                production_orders=chunk, date_from=date_start, date_to=date_end
+                production_orders=chunk,
+                date_from=date_start,
+                date_to=date_end,
+                time_field="planned",
             )
 
     async def fetch_by_sales_order(chunk: list[str]) -> list[dict[str, Any]]:
         async with semaphore:
             return await data_gateway.fault_lookup(
-                sales_orders=chunk, date_from=date_start, date_to=date_end
+                sales_orders=chunk,
+                date_from=date_start,
+                date_to=date_end,
+                time_field="planned",
             )
 
     lookup_requests = []
@@ -458,12 +438,15 @@ async def load_faults(
     links = [normalize_fault_lookup(item) for batch in batches for item in batch]
     sns = sorted({str(row.get("PCODE") or "").strip() for row in links if row.get("PCODE")})
     if not sns:
-        return _deduplicate_faults(links)
+        return links
 
     async def fetch_details(chunk: list[str]) -> list[dict[str, Any]]:
         async with semaphore:
             return await data_gateway.fault_rows_by_sns(
-                chunk, date_from=date_start, date_to=date_end
+                chunk,
+                date_from=date_start,
+                date_to=date_end,
+                time_field="planned",
             )
 
     detail_batches = await asyncio.gather(
@@ -491,6 +474,7 @@ async def load_faults(
                     missing_full_rows[index : index + MAX_BATCH_FULL_FAULT_FILTERS],
                     date_from=date_start,
                     date_to=date_end,
+                    time_field="planned",
                 )
                 for index in range(0, len(missing_full_rows), MAX_BATCH_FULL_FAULT_FILTERS)
             )
@@ -500,9 +484,9 @@ async def load_faults(
     resolved_sns = {str(row.get("PCODE") or "").strip() for row in details}
     # Keep lookup-only rows when the detailed source has no matching SN,
     # so a transiently incomplete detail index does not undercount LRR.
-    return _deduplicate_faults(
-        details + [row for row in links if str(row.get("PCODE") or "").strip() not in resolved_sns]
-    )
+    return details + [
+        row for row in links if str(row.get("PCODE") or "").strip() not in resolved_sns
+    ]
 
 
 async def options() -> dict[str, list[str]]:

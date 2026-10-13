@@ -425,16 +425,20 @@ class DataGatewayClient:
         sales_orders: list[str] | None = None,
         date_from: str = "",
         date_to: str = "",
+        time_field: str = "",
     ) -> list[dict[str, Any]]:
+        body: dict[str, Any] = {
+            "productionOrders": production_orders or [],
+            "salesOrders": sales_orders or [],
+            "dateFrom": date_from,
+            "dateTo": date_to,
+        }
+        if time_field:
+            body["timeField"] = time_field
         payload = await self.request_json(
             "POST",
             "/api/faults/lookup",
-            json={
-                "productionOrders": production_orders or [],
-                "salesOrders": sales_orders or [],
-                "dateFrom": date_from,
-                "dateTo": date_to,
-            },
+            json=body,
         )
         if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
             raise DataGatewayError(
@@ -522,20 +526,24 @@ class DataGatewayClient:
         *,
         date_from: str = "",
         date_to: str = "",
+        time_field: str = "",
         max_rows: int = 250_000,
     ) -> list[dict[str, Any]]:
         """Read full fault documents for a bounded set of host barcodes."""
         values = list(dict.fromkeys(value.strip() for value in host_barcodes if value.strip()))
         if not values:
             return []
+        filters = {
+            "hostBarcode": ",".join(values),
+            "dateFrom": date_from,
+            "dateTo": date_to,
+        }
+        if time_field:
+            filters["timeField"] = time_field
         return await self.all_pages(
             "GET",
             "/api/faults",
-            filters={
-                "hostBarcode": ",".join(values),
-                "dateFrom": date_from,
-                "dateTo": date_to,
-            },
+            filters=filters,
             max_rows=max_rows,
         )
 

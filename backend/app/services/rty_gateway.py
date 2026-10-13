@@ -968,6 +968,7 @@ async def station_details(
                 repairPerson=str(repairs_by_sn[sn].get("ZUSER") or "")
                 if sn in repairs_by_sn
                 else "",
+                raw=repairs_by_sn.get(sn, {}),
             )
             for sn, item in sorted(unique.items())
         ]
@@ -994,6 +995,7 @@ async def station_details(
                 defectCode=str(row.get("ZNGWD") or ""),
                 description=str(row.get("ZWXWD") or ""),
                 repairPerson=str(row.get("ZUSER") or ""),
+                raw=row,
             )
         )
     return result

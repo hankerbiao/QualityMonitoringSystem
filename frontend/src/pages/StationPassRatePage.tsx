@@ -70,6 +70,16 @@ function formatDuration(milliseconds: number) {
   return `${minutes} 分 ${seconds} 秒`;
 }
 
+function exportCell(value: unknown): string | number | boolean {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return value as string | number | boolean;
+}
+
+function rawFaultFields(raw: Record<string, unknown> | undefined): Record<string, string | number | boolean> {
+  return Object.fromEntries(Object.entries(raw || {}).map(([key, value]) => [`原始_${key}`, exportCell(value)]));
+}
+
 function rateTone(rate: number) {
   if (rate >= 98) return 'bg-emerald-50 text-emerald-800 hover:bg-emerald-100 focus-visible:ring-emerald-500';
   if (rate >= 95) return 'bg-amber-50 text-amber-800 hover:bg-amber-100 focus-visible:ring-amber-500';
@@ -390,6 +400,7 @@ export default function StationPassRatePage() {
           维修人: item.repairPerson || '-',
           维修时间: item.repairTime || '-',
         } : {}),
+        ...rawFaultFields(item.raw),
       }));
       const sheet = XLSX.utils.json_to_sheet(data);
       const book = XLSX.utils.book_new();
@@ -443,6 +454,7 @@ export default function StationPassRatePage() {
         故障描述: item.description || '',
         维修人: item.repairPerson || '',
         维修时间: item.repairTime || '',
+        ...rawFaultFields(item.raw),
       })));
 
       const book = XLSX.utils.book_new();

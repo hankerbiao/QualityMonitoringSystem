@@ -66,6 +66,7 @@ export interface StationPassDetail {
   defectCode: string;
   description: string;
   repairPerson: string;
+  raw?: Record<string, unknown>;
 }
 
 export interface DefectDetail {

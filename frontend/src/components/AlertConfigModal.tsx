@@ -1,5 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
-import { X, Bell, CalendarDays, Check, ChevronDown, Loader2, FileText, Search, RefreshCw } from 'lucide-react';
+import { X, Bell, CalendarDays, Check, ChevronDown, Loader2, FileText, Search, RefreshCw, Download } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import {
   ComposedChart,
   Line,
@@ -338,6 +339,7 @@ export default function AlertConfigModal({
     l6: [],
   });
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
   const [cycleCacheInfo, setCycleCacheInfo] = useState<{ cachedAt: number | null; fromCache: boolean }>({
     cachedAt: null,
     fromCache: false,
@@ -423,6 +425,62 @@ export default function AlertConfigModal({
     () => buildCycleVisualData(filteredData, modelTargets),
     [filteredData, modelTargets],
   );
+
+  const exportCycleData = async () => {
+    if (exporting) return;
+    setExporting(true);
+    try {
+      const exportRows = filteredData.filter((item) => selectedModels === null || selectedModels.has(item.productModel));
+      const summaryMap = new Map<string, { month: string; model: string; inputCount: number; defectCount: number; targetRate: number }>();
+      exportRows.forEach((item) => {
+        const month = item.time.substring(0, 7);
+        const key = `${month}\u0000${item.productModel}`;
+        const current = summaryMap.get(key) || { month, model: item.productModel, inputCount: 0, defectCount: 0, targetRate: modelTargets[item.productModel] ?? item.targetRate };
+        current.inputCount += item.inputCount;
+        current.defectCount += item.defectCount;
+        summaryMap.set(key, current);
+      });
+      const summaryData = Array.from(summaryMap.values()).sort((left, right) => `${left.month}${left.model}`.localeCompare(`${right.month}${right.model}`)).map((item) => {
+        const rtyRate = item.inputCount ? ((item.inputCount - item.defectCount) / item.inputCount) * 100 : 0;
+        return {
+          月份: item.month,
+          机型: item.model,
+          产量: item.inputCount,
+          故障数: item.defectCount,
+          直通率: `${rtyRate.toFixed(3)}%`,
+          目标直通率: `${item.targetRate.toFixed(3)}%`,
+          状态: rtyRate >= item.targetRate ? '达成' : '未达标',
+        };
+      });
+      const serialNumbers = Array.from(new Set(exportRows.flatMap((item) => item.serialNumbers || []).filter(Boolean)));
+      const defectBatches = await Promise.all(
+        Array.from({ length: Math.ceil(serialNumbers.length / 200) }, (_, index) =>
+          rtyApi.getDefectDetails(serialNumbers.slice(index * 200, (index + 1) * 200))),
+      );
+      const defectData = defectBatches.flat().map((item) => ({
+        机器SN: item.sn,
+        销售订单: item.sale_no,
+        生产订单: item.mfg_order,
+        客户: item.customer,
+        产品机型: item.product_family,
+        故障类型: item.defectCode,
+        故障描述: item.description,
+        二次故障现象: item.fault_2nd_appear,
+        三次故障现象: item.fault_3rd_appear,
+        维修人: item.repairPerson,
+        维修时间: item.repairTime,
+        维修有效性: item.repair_effectiveness,
+      }));
+      const book = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(summaryData), '趋势汇总');
+      XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(defectData), '故障明细');
+      XLSX.writeFile(book, `月度生产量及直通率趋势_${customStart}_${customEnd}.xlsx`);
+    } catch (error) {
+      console.error('Failed to export cycle statistics', error);
+    } finally {
+      setExporting(false);
+    }
+  };
 
   // 根据筛选状态获取实际显示的机型列表
   const displayModels = useMemo(() => {
@@ -646,6 +704,16 @@ export default function AlertConfigModal({
                 </label>
               </div>
               <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => void exportCycleData()}
+                  disabled={loading || exporting || filteredData.length === 0}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+                  title="导出趋势汇总和故障明细"
+                >
+                  <Download className="size-3.5" />
+                  {exporting ? '导出中...' : '导出'}
+                </button>
                 <div className="flex items-center gap-2 text-xs text-slate-400" title={cacheTimeLabel ? `周期统计${cycleCacheInfo.fromCache ? '缓存' : '数据'}时间：${cacheTimeLabel}` : '周期统计数据尚未加载'}>
                   <span>{cacheTimeLabel ? `${cycleCacheInfo.fromCache ? '缓存于' : '更新于'} ${cacheTimeLabel}` : '数据尚未加载'}</span>
                   <button

@@ -75,7 +75,10 @@ async def test_fault_lookup_uses_post_body():
     )
     try:
         result = await client.fault_lookup(
-            production_orders=["1", "000000000001"], date_from="2026-01-01", date_to="2026-12-31"
+            production_orders=["1", "000000000001"],
+            date_from="2026-01-01",
+            date_to="2026-12-31",
+            time_field="planned",
         )
     finally:
         await client.close()
@@ -83,6 +86,7 @@ async def test_fault_lookup_uses_post_body():
     assert result[0]["serialNumber"] == "SN1"
     assert captured["method"] == "POST"
     assert captured["path"] == "/api/faults/lookup"
+    assert '"timeField":"planned"' in captured["body"].decode()
 
 
 @pytest.mark.asyncio

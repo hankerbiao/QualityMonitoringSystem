@@ -138,7 +138,7 @@ function QueryGuide() {
     ['综合 LRR', '故障总数 / 使用总数'],
   ];
   const boards = [
-    ['月度趋势', '柱子是使用总数，折线是 LRR。按查询结果的全部月份汇总，不按表格当前页截断。'],
+    ['月度趋势', '柱子是使用总数，折线是 LRR。故障按维修记录计划生产时间 GSTRS 归属月份。按查询结果的全部月份汇总，不按表格当前页截断。'],
     ['故障物料', '同一物料各月故障数加总后，从高到低排列。点一行查看当前范围内的故障 SN。'],
     ['物料明细', '一行对应一个月份的一个 PN。故障率低于 2% 为绿，2% 至 5% 为黄，达到 5% 为红。'],
   ];
@@ -179,8 +179,6 @@ export default function LRRPage() {
   const [error, setError] = useState<ApiRequestError | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<ApiRequestError | null>(null);
-  const [exportingMaterials, setExportingMaterials] = useState(false);
-  const [materialExportError, setMaterialExportError] = useState<ApiRequestError | null>(null);
   const [page, setPage] = useState(1);
   const sequence = useRef(0);
   const detailRequest = useRef(0);
@@ -230,7 +228,6 @@ export default function LRRPage() {
     setFilters(next);
     setPage(1);
     setError(null);
-    setMaterialExportError(null);
     if (!hasSearchCriteria(next)) {
       sequence.current += 1;
       queryController.current?.abort();
@@ -253,7 +250,6 @@ export default function LRRPage() {
     setSearched(false);
     setError(null);
     setExportError(null);
-    setMaterialExportError(null);
     setLoading(false);
     setPage(1);
   }, []);
@@ -295,8 +291,11 @@ export default function LRRPage() {
     setExporting(true);
     setExportError(null);
     try {
-      const result = await lrrApi.getFaultDetails(filters);
-      const rows = result.items.map((item) => ({
+      const [faultResult, materialItems] = await Promise.all([
+        lrrApi.getFaultDetails(filters),
+        lrrApi.getAllLRRData(filters),
+      ]);
+      const faultRows = faultResult.items.map((item) => ({
         月份: item.month,
         物料PN: displayMaterialNumber(item.materialNumber),
         完整物料PN: item.materialNumber,
@@ -306,24 +305,7 @@ export default function LRRPage() {
         故障描述: item.faultDesc,
         NG时间: item.ngTime,
       }));
-      const sheet = XLSX.utils.json_to_sheet(rows);
-      const book = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(book, sheet, 'LRR故障明细');
-      XLSX.writeFile(book, `LRR故障明细_${new Date().toISOString().slice(0, 10)}.xlsx`);
-    } catch (err) {
-      console.error('LRR export failed', err);
-      setExportError(normalizeApiError(err));
-    } finally {
-      setExporting(false);
-    }
-  };
-
-  const handleMaterialExport = async () => {
-    setExportingMaterials(true);
-    setMaterialExportError(null);
-    try {
-      const items = await lrrApi.getAllLRRData(filters);
-      const rows = items.map((item) => ({
+      const summaryRows = materialItems.map((item) => ({
         月份: item.month,
         物料PN: displayMaterialNumber(item.materialNumber),
         完整物料PN: item.materialNumber,
@@ -332,15 +314,15 @@ export default function LRRPage() {
         故障总数: item.faultCount ?? '',
         故障率: item.lrrRate == null ? '' : `${item.lrrRate}%`,
       }));
-      const sheet = XLSX.utils.json_to_sheet(rows);
       const book = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(book, sheet, '物料PN明细');
-      XLSX.writeFile(book, `LRR物料PN明细_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(faultRows), 'LRR故障明细');
+      XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(summaryRows), '汇总数据');
+      XLSX.writeFile(book, `LRR数据_${new Date().toISOString().slice(0, 10)}.xlsx`);
     } catch (err) {
-      console.error('LRR material export failed', err);
-      setMaterialExportError(normalizeApiError(err));
+      console.error('LRR export failed', err);
+      setExportError(normalizeApiError(err));
     } finally {
-      setExportingMaterials(false);
+      setExporting(false);
     }
   };
 
@@ -499,12 +481,8 @@ export default function LRRPage() {
                 <h2 className="text-sm font-semibold">物料 PN 明细</h2>
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-slate-500">{loading ? '正在更新' : `共 ${formatCount(response?.total ?? 0)} 条`}</span>
-                  <button type="button" onClick={() => void handleMaterialExport()} disabled={loading || exportingMaterials || !response} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-45" title="导出当前筛选条件下的全部物料 PN 明细" aria-label="导出全部物料 PN 明细">
-                    <Download className="size-3.5" />{exportingMaterials ? '导出中' : '导出全部'}
-                  </button>
                 </div>
               </div>
-              {materialExportError && <ErrorBanner error={materialExportError} onRetry={() => void handleMaterialExport()} />}
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[900px] border-separate border-spacing-0 text-left text-sm">
                   <thead className="text-xs font-semibold text-slate-600">

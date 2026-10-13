@@ -6,6 +6,7 @@ import {
   ChevronLeft,
   ChevronRight,
   Clock3,
+  Download,
   ExternalLink,
   Loader2,
   Search,
@@ -156,6 +157,7 @@ export default function ProcessRecordsPage() {
   const [data, setData] = useState<ProcessRecordRealtimeData | null>(null);
   const [detail, setDetail] = useState<ProcessRecordItem | null>(null);
   const [preview, setPreview] = useState<{ source: 'system1' | 'system2'; path: string } | null>(null);
+  const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
 
   const fetchRecords = useCallback(async () => {
     setLoading(true);
@@ -233,6 +235,33 @@ export default function ProcessRecordsPage() {
     setStation('');
     setPage(1);
     if (!hadAppliedFilters) setRefreshToken((value) => value + 1);
+  };
+
+  const downloadRowPhotos = async (row: ProcessRecordItem) => {
+    if (!row.photos.length || downloadingKey) return;
+    setDownloadingKey(row.key);
+    try {
+      for (let index = 0; index < row.photos.length; index += 1) {
+        const photo = row.photos[index];
+        const response = await apiFetch(processRecordsApi.imageUrl(row.source, photo.path));
+        if (!response.ok) throw new Error(`图片请求失败 (${response.status})`);
+        const blob = await response.blob();
+        const objectUrl = URL.createObjectURL(blob);
+        const anchor = document.createElement('a');
+        anchor.href = objectUrl;
+        const extension = blob.type.split('/')[1]?.replace('jpeg', 'jpg') || 'jpg';
+        anchor.download = `${row.recordId || row.sn || 'record'}_${index + 1}.${extension}`;
+        document.body.appendChild(anchor);
+        anchor.click();
+        anchor.remove();
+        URL.revokeObjectURL(objectUrl);
+      }
+    } catch (downloadError) {
+      console.error('Failed to download process record photos', downloadError);
+      setError('图片下载失败，请重试');
+    } finally {
+      setDownloadingKey(null);
+    }
   };
 
   const availableBases = filterOptions.bases.filter(
@@ -408,6 +437,16 @@ export default function ProcessRecordsPage() {
                             </button>
                           ))}
                           <span className="text-slate-400">{row.photos.length} 张</span>
+                          <button
+                            type="button"
+                            title="下载此行全部图片"
+                            aria-label="下载此行全部图片"
+                            disabled={downloadingKey !== null}
+                            onClick={(event) => { event.stopPropagation(); void downloadRowPhotos(row); }}
+                            className="inline-flex size-7 items-center justify-center rounded-sm border border-slate-200 bg-white text-slate-500 hover:bg-cyan-50 hover:text-cyan-700 disabled:cursor-wait disabled:opacity-50"
+                          >
+                            <Download className={`w-3.5 h-3.5 ${downloadingKey === row.key ? 'animate-pulse' : ''}`} />
+                          </button>
                         </div>
                       ) : <span className="text-slate-300">无</span>}
                     </td>

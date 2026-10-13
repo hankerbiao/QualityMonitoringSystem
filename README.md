@@ -234,7 +234,7 @@ QualityMonitoringSystem/
 | `sales_orders_sap`（网关） | SAP 双来源销售订单（SG/KK 同步） | `aufnr`, `gstrs_date`, `quantity`, `data.CPXH`, `data.LGORT` |
 | `order_bom_postings_sap`（网关） | SAP 订单 BOM 发料与过账明细 | `AUFNR_1`, `VBELN_EX`, `MATNR`, `MENGE`, `BUDAT_MKPF` |
 | `serial_bindings_sap`（网关） | SAP 整机与部件序列号绑定关系 | `ZCODE_HEAD`, `ZCODE_ITEM`, `AUFNR_HEAD`, `AUFNR_ITEM` |
-| `repair_records_sap`（网关） | SAP/MES 维修与故障处理记录 | `PCODE`, `AUFNR`, `ZJXMC`, `ZNGWD`, `ZWXWD`, `ZDATE_WX` |
+| `repair_records_sap`（网关） | SAP/MES 维修与故障处理记录 | `PCODE`, `AUFNR`, `ZJXMC`, `ZNGWD`, `ZWXWD`, `GSTRS`, `ZDATE_WX` |
 | `station_records_sap`（网关） | SAP/MES 工位过站记录 | `PCODE`, `AUFNR`, `SPEC`, `OPERATION`, `ACTUAL_START_TIME` |
 | `scs_doa_results` | SCS DOA 原始记录及补采结果 | `is_5000`, `scs_enrichment.accepted_date`, `scs_enrichment.sales_order` |
 | `users` | 用户资料 | `itcode`, `profile` |
