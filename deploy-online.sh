@@ -96,13 +96,16 @@ docker compose -f docker/compose.yaml config --quiet
 printf '[deploy] Building and starting Docker services\n'
 docker compose -f docker/compose.yaml up -d --build
 
+backend_container="$(docker compose -f docker/compose.yaml ps -q backend)"
+frontend_container="$(docker compose -f docker/compose.yaml ps -q frontend)"
+[[ -n "$backend_container" && -n "$frontend_container" ]] \
+  || { printf '[deploy] ERROR: expected service containers were not created\n' >&2; exit 1; }
+
 healthy=false
 for attempt in $(seq 1 60); do
-  if docker compose -f docker/compose.yaml exec -T backend \
-    python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)" \
-    >/dev/null 2>&1 \
-    && docker compose -f docker/compose.yaml exec -T frontend \
-    wget -qO- http://127.0.0.1/nginx-health >/dev/null 2>&1; then
+  backend_status="$(docker inspect --format '{{.State.Health.Status}}' "$backend_container" 2>/dev/null || true)"
+  frontend_status="$(docker inspect --format '{{.State.Health.Status}}' "$frontend_container" 2>/dev/null || true)"
+  if [[ "$backend_status" == healthy && "$frontend_status" == healthy ]]; then
     healthy=true
     break
   fi
