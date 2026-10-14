@@ -259,8 +259,10 @@ async def get_defect_details(sns: str = Query(..., description="机器序列号�
     values = _split_values(sns)
     if not values:
         return Response(success=True, data=[], message="无 SN 参数")
-    rows = await rty_gateway._faults(
-        {"sns": ",".join(values), "dateFrom": YEAR_START, "dateTo": YEAR_END}
+    rows = await rty_gateway._faults_for_sns(
+        set(values),
+        date_from=YEAR_START,
+        date_to=YEAR_END,
     )
     data = [rty_gateway.to_detail(row) for row in rty_gateway._dedup_faults(rows)]
     return Response(success=True, data=data, message=f"查询到 {len(data)} 条维修故障记录")
