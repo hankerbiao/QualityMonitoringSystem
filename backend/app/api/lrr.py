@@ -167,11 +167,13 @@ def aggregate_lrr(
     for fault in fault_rows:
         order = normalize_production_order(fault.get("AUFNR"))
         sales = normalize_sales_order(fault.get("VBELN"))
-        # Normalized gateway rows expose the fallback material as MATNR, but
-        # retain this direct fallback for older/raw repair rows.
-        fault_material = (
-            str(fault.get("MATNR") or "").strip() or str(fault.get("RECORD01REPAIRM") or "").strip()
-        )
+        # Both material fields identify affected PNs. A set also prevents the
+        # same PN in padded/unpadded form from counting twice for one repair.
+        fault_materials = {
+            normalize_material_number(value)
+            for field in ("MATNR", "RECORD01REPAIRM")
+            if (value := str(fault.get(field) or "").strip())
+        }
         # LRR numerator uses the repair record's planned production date,
         # matching the BOM denominator's GSTRS month. ZDATE_WX is actual
         # repair time and is intentionally not used for period attribution.
@@ -186,12 +188,11 @@ def aggregate_lrr(
             and fault_month == group["month"].replace("-", "")
         )
         candidates = list(link_candidates)
-        if fault_material:
-            normalized_fault_material = normalize_material_number(fault_material)
+        if fault_materials:
             candidates = [
                 (key, group)
                 for key, group in candidates
-                if normalize_material_number(group["material"]) == normalized_fault_material
+                if normalize_material_number(group["material"]) in fault_materials
             ]
         else:
             fault_description = _normalized_description(fault.get("ZJXMC"))
@@ -205,29 +206,29 @@ def aggregate_lrr(
         # A repair without an exact material number is counted only when its
         # order, month and description resolve to one PN. This prevents a
         # shared description from inflating every matching material's LRR.
-        if len(candidates) != 1:
+        if not fault_materials and len(candidates) != 1:
             continue
-        key, group = candidates[0]
-        counts[key] += int(fault.get("_fault_count", 1))
-        if include_details:
-            details.append(
-                LRRFaultDetail(
-                    month=group["month"],
-                    materialNumber=group["material"],
-                    materialDescription=group["description"],
-                    sn=str(fault.get("PCODE") or ""),
-                    faultType=str(fault.get("ZNGWD") or ""),
-                    faultDesc=str(fault.get("ZWXWD") or ""),
-                    ngTime=" ".join(
-                        value
-                        for value in (
-                            str(fault.get("ZDATE_WX") or "").strip(),
-                            str(fault.get("ZTIME") or "").strip(),
-                        )
-                        if value
+        for key, group in candidates:
+            counts[key] += int(fault.get("_fault_count", 1))
+            if include_details:
+                details.append(
+                    LRRFaultDetail(
+                        month=group["month"],
+                        materialNumber=group["material"],
+                        materialDescription=group["description"],
+                        sn=str(fault.get("PCODE") or ""),
+                        faultType=str(fault.get("ZNGWD") or ""),
+                        faultDesc=str(fault.get("ZWXWD") or ""),
+                        ngTime=" ".join(
+                            value
+                            for value in (
+                                str(fault.get("ZDATE_WX") or "").strip(),
+                                str(fault.get("ZTIME") or "").strip(),
+                            )
+                            if value
+                        ),
                     ),
                 )
-            )
 
     rows = [
         LRRData(

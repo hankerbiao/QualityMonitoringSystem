@@ -526,6 +526,47 @@ def test_lrr_uses_record01repairm_when_fault_matnr_is_missing():
     assert details[0].materialNumber == "PN-1"
 
 
+@pytest.mark.parametrize("include_details", [False, True])
+@pytest.mark.parametrize(
+    ("primary", "secondary", "expected_counts"),
+    [
+        ("B5000051", "57000766", [1, 1]),
+        ("UNLISTED-PN", "57000766", [0, 1]),
+        ("000000000057000766", "57000766", [0, 1]),
+        ("B5000051", "UNLISTED-PN", [1, 0]),
+    ],
+)
+def test_lrr_counts_each_populated_repair_material_once_per_pn(
+    primary, secondary, expected_counts, include_details
+):
+    rows, details = aggregate_lrr(
+        [
+            {
+                "AUFNR_1": "1",
+                "MATNR": material,
+                "GSTRS": "20260905",
+                "MENGE_A": 100,
+            }
+            for material in ("B5000051", "000000000057000766")
+        ],
+        [
+            {
+                "_id": "repair-1",
+                "AUFNR": "1",
+                "MATNR": primary,
+                "RECORD01REPAIRM": secondary,
+                "GSTRS": "20260912",
+                "PCODE": "SN-1",
+            }
+        ],
+        include_details=include_details,
+    )
+
+    assert [row.faultCount for row in rows] == expected_counts
+    assert len(details) == (sum(expected_counts) if include_details else 0)
+    assert len({item.materialNumber for item in details}) == len(details)
+
+
 def test_lrr_skips_ambiguous_description_matches_instead_of_counting_every_pn():
     rows, details = aggregate_lrr(
         [
