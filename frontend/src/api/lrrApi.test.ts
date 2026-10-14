@@ -1,11 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { lrrApi } from './lrrApi';
+import { clearLrrApiCache, lrrApi } from './lrrApi';
 import { requestJson } from './authApi';
 
 vi.mock('./authApi', () => ({ requestJson: vi.fn() }));
 
 describe('lrrApi full material list', () => {
   afterEach(() => {
+    clearLrrApiCache();
     vi.mocked(requestJson).mockReset();
   });
 
@@ -49,5 +50,15 @@ describe('lrrApi full material list', () => {
     await lrrApi.getLRRData(1, 50, { plannedDateFrom: '2026-01-01' }, controller.signal);
 
     expect(vi.mocked(requestJson).mock.calls[0][1]).toEqual({ signal: controller.signal });
+  });
+
+  it('reuses completed fault details requests during the page session', async () => {
+    vi.mocked(requestJson).mockResolvedValue({ items: [], total: 0, truncated: false });
+    const filters = { plannedDateFrom: '2026-09-01', plannedDateTo: '2026-09-30' };
+
+    await lrrApi.getFaultDetails(filters);
+    await lrrApi.getFaultDetails(filters);
+
+    expect(vi.mocked(requestJson)).toHaveBeenCalledTimes(1);
   });
 });

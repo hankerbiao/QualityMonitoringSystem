@@ -3,7 +3,7 @@ import { ArrowLeft, BarChart3, BellRing, ChevronLeft, ChevronRight, Download, Ro
 import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
-import { lrrApi } from '../api/lrrApi';
+import { clearLrrApiCache, lrrApi } from '../api/lrrApi';
 import LRRFiltersPanel from '../components/lrr/LRRFilters';
 import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
 import { LoadingSpinner } from '../components/ui';
@@ -25,6 +25,23 @@ const FILTER_KEYS: Array<keyof LRRFilters> = [
   'month',
 ];
 const hasSearchCriteria = (candidate: LRRFilters) => FILTER_KEYS.some((key) => Boolean(candidate[key]));
+const filtersKey = (candidate: LRRFilters) => JSON.stringify({
+  ...candidate,
+  customerIds: [...(candidate.customerIds ?? [])].sort(),
+});
+
+function plannedMonthBounds(month: string): { from: string; to: string } | null {
+  const match = /^(\d{4})-(\d{2})$/.exec(month);
+  if (!match) return null;
+  const year = Number(match[1]);
+  const monthNumber = Number(match[2]);
+  if (monthNumber < 1 || monthNumber > 12) return null;
+  const lastDay = new Date(Date.UTC(year, monthNumber, 0)).getUTCDate();
+  return {
+    from: `${match[1]}-${match[2]}-01`,
+    to: `${match[1]}-${match[2]}-${String(lastDay).padStart(2, '0')}`,
+  };
+}
 const rateClass = (rate: number | null) => rate === null ? 'bg-slate-50 text-slate-400' : rate < 2 ? 'bg-emerald-50 text-emerald-800' : rate < 5 ? 'bg-amber-50 text-amber-800' : 'bg-red-50 text-red-800';
 const rateText = (rate: number | null | undefined) => rate == null ? 'text-slate-400' : rate < 2 ? 'text-emerald-700' : rate < 5 ? 'text-amber-700' : 'text-red-700';
 
@@ -179,6 +196,7 @@ export default function LRRPage() {
   const [error, setError] = useState<ApiRequestError | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState<ApiRequestError | null>(null);
+  const [loadedQueryKey, setLoadedQueryKey] = useState<string | null>(null);
   const [page, setPage] = useState(1);
   const sequence = useRef(0);
   const detailRequest = useRef(0);
@@ -212,6 +230,7 @@ export default function LRRPage() {
       if (current === sequence.current) {
         setResponse(result);
         setPage(result.page);
+        setLoadedQueryKey(filtersKey(nextFilters));
       }
     } catch (err) {
       if (!controller.signal.aborted) {
@@ -225,9 +244,11 @@ export default function LRRPage() {
   }, []);
 
   const applyFilters = useCallback((next: LRRFilters) => {
+    clearLrrApiCache();
     setFilters(next);
     setPage(1);
     setError(null);
+    setLoadedQueryKey(null);
     if (!hasSearchCriteria(next)) {
       sequence.current += 1;
       queryController.current?.abort();
@@ -242,6 +263,7 @@ export default function LRRPage() {
   }, [load]);
 
   const reset = useCallback(() => {
+    clearLrrApiCache();
     sequence.current += 1;
     queryController.current?.abort();
     queryController.current = null;
@@ -250,6 +272,7 @@ export default function LRRPage() {
     setSearched(false);
     setError(null);
     setExportError(null);
+    setLoadedQueryKey(null);
     setLoading(false);
     setPage(1);
   }, []);
@@ -279,7 +302,16 @@ export default function LRRPage() {
   const openRowDetails = (row: LRRData) => {
     if (detailLoading) return;
     setDetailLoadingRow(row.id);
-    void openDetails({ ...filters, materialNumber: row.materialNumber, month: row.month }, `${displayMaterialNumber(row.materialNumber)} ${row.month} 故障明细`).finally(() => setDetailLoadingRow(null));
+    const monthBounds = plannedMonthBounds(row.month);
+    const isExactMonthRange = monthBounds
+      && filters.plannedDateFrom === monthBounds.from
+      && filters.plannedDateTo === monthBounds.to;
+    const detailFilters = {
+      ...filters,
+      materialNumber: row.materialNumber,
+      ...(isExactMonthRange ? {} : { month: row.month }),
+    };
+    void openDetails(detailFilters, `${displayMaterialNumber(row.materialNumber)} ${row.month} 故障明细`).finally(() => setDetailLoadingRow(null));
   };
 
   const openMaterialDetails = (item: LRRMaterialRank) => {
@@ -291,9 +323,12 @@ export default function LRRPage() {
     setExporting(true);
     setExportError(null);
     try {
+      const reuseLoadedList = response
+        && loadedQueryKey === filtersKey(filters)
+        && response.items.length >= response.total;
       const [faultResult, materialItems] = await Promise.all([
         lrrApi.getFaultDetails(filters),
-        lrrApi.getAllLRRData(filters),
+        reuseLoadedList ? Promise.resolve(response.items.slice(0, response.total)) : lrrApi.getAllLRRData(filters),
       ]);
       const faultRows = faultResult.items.map((item) => ({
         月份: item.month,
