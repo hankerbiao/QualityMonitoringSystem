@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal
 
-from fastapi import APIRouter, Depends, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 
 from app.auth_permissions import dashboard_dependency
 from app.core.logger import audit_log
@@ -18,7 +18,7 @@ from app.schemas.rty import (
     StationPassRate,
 )
 from app.services import rty_gateway
-from app.services.rty_shared import YEAR_END, YEAR_START
+from app.services.rty_shared import YEAR_END, YEAR_START, validate_date
 
 router = APIRouter()
 
@@ -73,8 +73,24 @@ async def _targets() -> dict[str, float]:
     response_model=Response[list[RTYData]],
     dependencies=[Depends(dashboard_dependency("rty"))],
 )
-async def get_rty_cycle_data(orderScope: OrderScopeQuery = "normal", customer: str | None = None):
-    rows = await rty_gateway.cycle_data(orderScope, customer, await _targets())
+async def get_rty_cycle_data(
+    orderScope: OrderScopeQuery = "normal",
+    customer: str | None = None,
+    dateFrom: str | None = None,
+    dateTo: str | None = None,
+):
+    date_from = validate_date(dateFrom) if dateFrom else YEAR_START
+    date_to = validate_date(dateTo) if dateTo else YEAR_END
+    if date_from > date_to:
+        raise HTTPException(status_code=422, detail="开始日期不能晚于结束日期")
+
+    rows = await rty_gateway.cycle_data(
+        orderScope,
+        customer,
+        await _targets(),
+        date_from=date_from,
+        date_to=date_to,
+    )
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 条周期统计数据")
 
 

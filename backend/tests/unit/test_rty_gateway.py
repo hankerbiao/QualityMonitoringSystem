@@ -43,6 +43,76 @@ async def test_orders_pushes_gstrs_dates_to_gateway_and_filters_locally(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_cycle_data_filters_orders_to_exact_days_before_monthly_aggregation(monkeypatch):
+    queries: list[dict[str, object]] = []
+
+    async def all_orders(**filters):
+        queries.append(filters)
+        return [
+            {
+                "aufnr": order,
+                "productionModel": "M-1",
+                "inventoryLocation": "B-1",
+                "plannedStartDate": start_date,
+                "orderQuantity": quantity,
+                "raw": {
+                    "data": {
+                        "AUFNR": order,
+                        "MAKTX_TH": "M-1",
+                        "LGORT": "B-1",
+                        "GSTRS": start_date,
+                        "WMENG": quantity,
+                        "IF_L6": "",
+                    }
+                },
+            }
+            for order, start_date, quantity in [
+                ("before", "2026-04-13", 100),
+                ("start", "2026-04-14", 5),
+                ("end", "2026-04-20", 7),
+                ("after", "2026-04-21", 100),
+            ]
+        ]
+
+    faults_for_orders = AsyncMock(return_value=[])
+    monkeypatch.setattr(rty_gateway.data_gateway, "all_orders", all_orders)
+    monkeypatch.setattr(rty_gateway, "_faults_for_orders", faults_for_orders)
+    monkeypatch.setattr(
+        rty_gateway,
+        "_fault_sns_by_composite_groups",
+        AsyncMock(return_value={}),
+    )
+
+    rows = await rty_gateway.cycle_data(
+        "normal",
+        None,
+        {"M-1": 95},
+        date_from="2026-04-14",
+        date_to="2026-04-20",
+    )
+    last_day_rows = await rty_gateway.cycle_data(
+        "normal",
+        None,
+        {"M-1": 95},
+        date_from="2026-04-20",
+        date_to="2026-04-20",
+    )
+
+    assert queries[0]["dateFrom"] == "2026-04-14"
+    assert queries[0]["dateTo"] == "2026-04-20"
+    assert queries[1]["dateFrom"] == "2026-04-20"
+    assert queries[1]["dateTo"] == "2026-04-20"
+    assert len(queries) == 2
+    assert len(rows) == 1
+    assert rows[0].time == "2026-04"
+    assert rows[0].inputCount == 12
+    assert len(last_day_rows) == 1
+    assert last_day_rows[0].inputCount == 7
+    assert faults_for_orders.await_args_list[0].args == ({"start", "end"},)
+    assert faults_for_orders.await_args_list[1].args == ({"end"},)
+
+
+@pytest.mark.asyncio
 async def test_excluded_orders_keeps_l6_scope_separate_and_lists_all_exclusion_reasons(monkeypatch):
     monkeypatch.setattr(
         rty_gateway.data_gateway,

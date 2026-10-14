@@ -1,6 +1,7 @@
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException
 
 from app.api import rty
 from app.services import rty_gateway
@@ -34,3 +35,38 @@ async def test_defect_details_uses_gateway_sn_lookup(monkeypatch):
     assert len(response.data) == 1
     assert response.data[0].sn == "SN-1"
     assert response.data[0].defectCode == "F-01"
+
+
+@pytest.mark.asyncio
+async def test_cycle_data_passes_validated_daily_range_to_gateway(monkeypatch):
+    cycle_data = AsyncMock(return_value=[])
+    monkeypatch.setattr(rty_gateway, "cycle_data", cycle_data)
+    monkeypatch.setattr(rty, "_targets", AsyncMock(return_value={"M-1": 95}))
+
+    response = await rty.get_rty_cycle_data(
+        "normal",
+        "customer-1",
+        "2026-04-14",
+        "2026-04-20",
+    )
+
+    cycle_data.assert_awaited_once_with(
+        "normal",
+        "customer-1",
+        {"M-1": 95},
+        date_from="2026-04-14",
+        date_to="2026-04-20",
+    )
+    assert response.success
+
+
+@pytest.mark.asyncio
+async def test_cycle_data_rejects_reversed_daily_range():
+    with pytest.raises(HTTPException) as error:
+        await rty.get_rty_cycle_data(
+            "normal",
+            None,
+            "2026-04-20",
+            "2026-04-14",
+        )
+    assert error.value.detail == "开始日期不能晚于结束日期"

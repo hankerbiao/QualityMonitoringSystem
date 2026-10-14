@@ -121,9 +121,11 @@ export const rtyApi = {
   async getCycleData(
     orderScope: RTYFilterParams['orderScope'] = 'normal',
     customer?: string,
-    options: { forceRefresh?: boolean } = {},
+    options: { dateFrom?: string; dateTo?: string; forceRefresh?: boolean } = {},
   ): Promise<CycleDataResult> {
-    const key = `cycle-data:${orderScope}:${customer || ''}`;
+    const dateFrom = options.dateFrom || '';
+    const dateTo = options.dateTo || '';
+    const key = `cycle-data:${orderScope}:${customer || ''}:${dateFrom}:${dateTo}`;
     if (options.forceRefresh) {
       rtyCycleCache.delete(key);
       removeStoredCycleData(key);
@@ -147,6 +149,8 @@ export const rtyApi = {
     const promise = (async () => {
       const qs = new URLSearchParams({ orderScope });
       if (customer) qs.set('customer', customer);
+      if (dateFrom) qs.set('dateFrom', dateFrom);
+      if (dateTo) qs.set('dateTo', dateTo);
       return requestData<RTYData[]>(`/api/rty/cycle-data?${qs.toString()}`);
     })();
     const entry = { expiresAt: Date.now() + RTY_OPTIONS_CACHE_TTL_MS, promise, cachedAt: Date.now() };

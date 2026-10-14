@@ -152,39 +152,64 @@ function CycleMultiSelect({
   );
 }
 
-function formatMonth(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
+type CycleTimePreset = '30d' | '90d' | '6m' | 'ytd' | 'custom';
+type CycleDateRange = { start: string; end: string };
+
+function formatDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
-function getPresetRange(months: number): { start: string; end: string } {
+function getPresetRange(preset: Exclude<CycleTimePreset, 'custom'>): CycleDateRange {
   const end = new Date();
   const start = new Date(end);
-  start.setMonth(start.getMonth() - months);
-  return { start: formatMonth(start), end: formatMonth(end) };
+  if (preset === '30d' || preset === '90d') {
+    start.setDate(start.getDate() - (preset === '30d' ? 29 : 89));
+  } else if (preset === '6m') {
+    const day = start.getDate();
+    start.setDate(1);
+    start.setMonth(start.getMonth() - 6);
+    start.setDate(Math.min(day, new Date(start.getFullYear(), start.getMonth() + 1, 0).getDate()));
+  } else {
+    start.setMonth(0, 1);
+  }
+  return { start: formatDate(start), end: formatDate(end) };
 }
 
 function CycleTimeRangePicker({
   value,
-  start,
-  end,
+  draftStart,
+  draftEnd,
+  appliedStart,
+  appliedEnd,
   onPresetChange,
   onCustomRangeChange,
+  onCustomRangeApply,
 }: {
-  value: '6' | '12' | 'custom';
-  start: string;
-  end: string;
-  onPresetChange: (months: '6' | '12') => void;
+  value: CycleTimePreset;
+  draftStart: string;
+  draftEnd: string;
+  appliedStart: string;
+  appliedEnd: string;
+  onPresetChange: (preset: Exclude<CycleTimePreset, 'custom'>) => void;
   onCustomRangeChange: (range: { start: string; end: string }) => void;
+  onCustomRangeApply: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const presets = [
-    { value: '6' as const, label: '近半年', detail: '最近 6 个月' },
-    { value: '12' as const, label: '近一年', detail: '最近 12 个月' },
+    { value: '30d' as const, label: '近30天', detail: '含今天，共30天' },
+    { value: '90d' as const, label: '近90天', detail: '含今天，共90天' },
+    { value: '6m' as const, label: '近6个月', detail: '滚动日期范围' },
+    { value: 'ytd' as const, label: '本年度', detail: '从1月1日至今' },
   ];
   const selectedLabel = value === 'custom'
-    ? '自定义范围'
+    ? '自定义日期'
     : presets.find((preset) => preset.value === value)?.label || '选择时间范围';
+  const validCustomRange = Boolean(draftStart && draftEnd && draftStart <= draftEnd);
+  const hasInvalidOrder = Boolean(draftStart && draftEnd && draftStart > draftEnd);
 
   useEffect(() => {
     const closeOnOutsideClick = (event: MouseEvent) => {
@@ -219,16 +244,16 @@ function CycleTimeRangePicker({
         </span>
         <span className="min-w-0 flex-1">
           <span className="block text-xs font-medium text-slate-800">{selectedLabel}</span>
-          <span className="block truncate font-mono text-[10px] text-slate-500">{start || '起始月份'} 至 {end || '结束月份'}</span>
+          <span className="block truncate font-mono text-[10px] text-slate-500">{appliedStart} 至 {appliedEnd}</span>
         </span>
         <ChevronDown className={`size-4 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
       </button>
 
       {open && (
-        <div role="dialog" aria-label="选择统计周期" className="absolute right-0 top-full z-40 mt-1.5 w-[min(292px,calc(100vw-2rem))] overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg shadow-slate-900/10">
+        <div role="dialog" aria-label="选择统计日期" className="absolute right-0 top-full z-40 mt-1.5 w-[min(340px,calc(100vw-2rem))] overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg shadow-slate-900/10">
           <div className="border-b border-slate-100 bg-slate-50 px-3 py-2.5">
-            <p className="text-xs font-semibold text-slate-700">统计周期</p>
-            <p className="mt-0.5 text-[11px] text-slate-500">按销售订单计划开始月份统计</p>
+            <p className="text-xs font-semibold text-slate-700">统计日期</p>
+            <p className="mt-0.5 text-[11px] text-slate-500">按订单计划开始日期筛选，图表仍按月汇总</p>
           </div>
           <div className="grid grid-cols-2 gap-2 p-3">
             {presets.map((preset) => {
@@ -252,29 +277,49 @@ function CycleTimeRangePicker({
               );
             })}
           </div>
-          <div className={`border-t px-3 py-3 ${value === 'custom' ? 'border-blue-100 bg-blue-50/40' : 'border-slate-100 bg-white'}`}>
+          <div className="border-t border-slate-100 bg-white px-3 py-3">
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-xs font-semibold text-slate-700">自定义月份</span>
+              <span className="text-xs font-semibold text-slate-700">自定义日期</span>
               {value === 'custom' && <span className="text-[10px] font-medium text-blue-700">当前使用</span>}
             </div>
-            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
-              <input
-                type="month"
-                aria-label="起始月份"
-                value={start}
-                max={end || undefined}
-                onChange={(event) => onCustomRangeChange({ start: event.target.value, end })}
-                className="h-8 min-w-0 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-500/15"
-              />
-              <span className="text-xs text-slate-400">至</span>
-              <input
-                type="month"
-                aria-label="结束月份"
-                value={end}
-                min={start || undefined}
-                onChange={(event) => onCustomRangeChange({ start, end: event.target.value })}
-                className="h-8 min-w-0 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-500/15"
-              />
+            <div className="grid grid-cols-2 gap-2">
+              <label className="min-w-0 text-[10px] font-medium text-slate-500">
+                开始日期
+                <input
+                  type="date"
+                  aria-label="开始日期"
+                  value={draftStart}
+                  onChange={(event) => onCustomRangeChange({ start: event.target.value, end: draftEnd })}
+                  className="mt-1 h-9 w-full min-w-0 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-500/15"
+                />
+              </label>
+              <label className="min-w-0 text-[10px] font-medium text-slate-500">
+                结束日期
+                <input
+                  type="date"
+                  aria-label="结束日期"
+                  value={draftEnd}
+                  onChange={(event) => onCustomRangeChange({ start: draftStart, end: event.target.value })}
+                  className="mt-1 h-9 w-full min-w-0 rounded-md border border-slate-200 bg-white px-2 text-xs text-slate-700 outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-500/15"
+                />
+              </label>
+            </div>
+            <div className="mt-2 flex min-h-8 items-center justify-between gap-2">
+              <p className={`text-[10px] ${hasInvalidOrder ? 'text-rose-600' : 'text-slate-400'}`} aria-live="polite">
+                {hasInvalidOrder ? '开始日期不能晚于结束日期' : '包含开始日和结束日'}
+              </p>
+              <button
+                type="button"
+                disabled={!validCustomRange}
+                onClick={() => {
+                  onCustomRangeApply();
+                  setOpen(false);
+                }}
+                className="inline-flex h-8 shrink-0 items-center gap-1 rounded-md bg-blue-600 px-3 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Check className="size-3.5" aria-hidden="true" />
+                应用日期
+              </button>
             </div>
           </div>
         </div>
@@ -285,26 +330,11 @@ function CycleTimeRangePicker({
 
 function filterCycleData(
   data: RTYData[],
-  timeFilter: '6' | '12' | 'custom',
-  customStart: string,
-  customEnd: string,
   selectedBases: Set<string> | null,
 ): RTYData[] {
-  let result = data;
-  if (timeFilter !== 'custom') {
-    const startDate = new Date();
-    startDate.setMonth(startDate.getMonth() - Number(timeFilter));
-    result = result.filter(item => new Date(item.time) >= startDate);
-  } else if (customStart && customEnd) {
-    result = result.filter(item => {
-      const month = item.time.substring(0, 7);
-      return month >= customStart && month <= customEnd;
-    });
-  }
-
   return selectedBases && selectedBases.size > 0
-    ? result.filter(item => selectedBases.has(item.base))
-    : result;
+    ? data.filter(item => selectedBases.has(item.base))
+    : data;
 }
 
 export default function AlertConfigModal({
@@ -316,8 +346,7 @@ export default function AlertConfigModal({
 }: AlertConfigModalProps) {
   const { settings, updateSettings } = useSettings();
 
-  // 时间范围快捷键：6 = 近半年, 12 = 近一年, custom = 自定义
-  const [timeFilter, setTimeFilter] = useState<'6' | '12' | 'custom'>('6');
+  const [timeFilter, setTimeFilter] = useState<CycleTimePreset>('6m');
   
   // 机型筛选状态
   const [selectedModels, setSelectedModels] = useState<Set<string> | null>(null);
@@ -329,8 +358,8 @@ export default function AlertConfigModal({
   // 视图模式：chart = 双图表，heatmap = 热力图
   const [viewMode, setViewMode] = useState<'chart' | 'heatmap'>('heatmap');
   const [showScopeSummaries, setShowScopeSummaries] = useState(true);
-  const [customStart, setCustomStart] = useState(() => getPresetRange(6).start);
-  const [customEnd, setCustomEnd] = useState(() => getPresetRange(6).end);
+  const [appliedRange, setAppliedRange] = useState<CycleDateRange>(() => getPresetRange('6m'));
+  const [draftRange, setDraftRange] = useState<CycleDateRange>(() => getPresetRange('6m'));
   
   // 独立数据拉取（不受主表单影响）
   const [allRawData, setAllRawData] = useState<RTYData[]>([]);
@@ -338,6 +367,7 @@ export default function AlertConfigModal({
     normal: [],
     l6: [],
   });
+  const latestFetchId = useRef(0);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [cycleCacheInfo, setCycleCacheInfo] = useState<{ cachedAt: number | null; fromCache: boolean }>({
@@ -346,13 +376,20 @@ export default function AlertConfigModal({
   });
 
   const fetchAllData = useCallback(async (forceRefresh = false) => {
+    const fetchId = ++latestFetchId.current;
     setLoading(true);
     try {
       const customer = selectedCustomer || undefined;
       const scopes: RTYFilterParams['orderScope'][] = Array.from(new Set([orderScope, 'normal', 'l6']));
       const results = await Promise.all(
-        scopes.map(scope => rtyApi.getCycleData(scope, customer, { forceRefresh })),
+        scopes.map(scope => rtyApi.getCycleData(scope, customer, {
+          dateFrom: appliedRange.start,
+          dateTo: appliedRange.end,
+          forceRefresh,
+        })),
       );
+      if (fetchId !== latestFetchId.current) return;
+
       const dataByScope = new Map(scopes.map((scope, index) => [scope, results[index]]));
       setAllRawData(dataByScope.get(orderScope)?.data || []);
       setScopeRawData({
@@ -364,11 +401,13 @@ export default function AlertConfigModal({
         fromCache: results.length > 0 && results.every(result => result.cached),
       });
     } catch (error) {
-      console.error('Failed to fetch cycle stats data', error);
+      if (fetchId === latestFetchId.current) {
+        console.error('Failed to fetch cycle stats data', error);
+      }
     } finally {
-      setLoading(false);
+      if (fetchId === latestFetchId.current) setLoading(false);
     }
-  }, [orderScope, selectedCustomer]);
+  }, [orderScope, selectedCustomer, appliedRange.start, appliedRange.end]);
 
   useEffect(() => {
     fetchAllData();
@@ -396,16 +435,21 @@ export default function AlertConfigModal({
     loadCustomers();
   }, [orderScope]);
 
-  const handlePresetRange = (months: '6' | '12') => {
-    const range = getPresetRange(Number(months));
-    setTimeFilter(months);
-    setCustomStart(range.start);
-    setCustomEnd(range.end);
+  const handlePresetRange = (preset: Exclude<CycleTimePreset, 'custom'>) => {
+    const range = getPresetRange(preset);
+    setTimeFilter(preset);
+    setDraftRange(range);
+    setAppliedRange(range);
+  };
+
+  const applyCustomRange = () => {
+    setTimeFilter('custom');
+    setAppliedRange(draftRange);
   };
   
   const filteredData = useMemo(() => {
-    return filterCycleData(allRawData, timeFilter, customStart, customEnd, selectedBases);
-  }, [allRawData, timeFilter, customStart, customEnd, selectedBases]);
+    return filterCycleData(allRawData, selectedBases);
+  }, [allRawData, selectedBases]);
 
   const modelOptions = useMemo<CycleFilterOption[]>(
     () => Array.from(new Set(allRawData.map((item) => item.productModel).filter(Boolean)))
@@ -474,7 +518,7 @@ export default function AlertConfigModal({
       const book = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(summaryData), '趋势汇总');
       XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(defectData), '故障明细');
-      XLSX.writeFile(book, `月度生产量及直通率趋势_${customStart}_${customEnd}.xlsx`);
+      XLSX.writeFile(book, `月度生产量及直通率趋势_${appliedRange.start}_${appliedRange.end}.xlsx`);
     } catch (error) {
       console.error('Failed to export cycle statistics', error);
     } finally {
@@ -496,7 +540,7 @@ export default function AlertConfigModal({
       let totalInput = 0;
       let totalDefect = 0;
 
-      filterCycleData(scopeRawData[scope], timeFilter, customStart, customEnd, selectedBases).forEach(item => {
+      filterCycleData(scopeRawData[scope], selectedBases).forEach(item => {
         const month = item.time.substring(0, 7);
         const current = months[month] || { inputCount: 0, defectCount: 0, rtyRate: 0 };
         current.inputCount += item.inputCount;
@@ -517,7 +561,7 @@ export default function AlertConfigModal({
         totalDefect,
       };
     })
-  ), [scopeRawData, timeFilter, customStart, customEnd, selectedBases]);
+  ), [scopeRawData, selectedBases]);
 
   const heatmapMonths = useMemo(
     () => Array.from(new Set([
@@ -768,14 +812,13 @@ export default function AlertConfigModal({
                 
                 <CycleTimeRangePicker
                   value={timeFilter}
-                  start={customStart}
-                  end={customEnd}
+                  draftStart={draftRange.start}
+                  draftEnd={draftRange.end}
+                  appliedStart={appliedRange.start}
+                  appliedEnd={appliedRange.end}
                   onPresetChange={handlePresetRange}
-                  onCustomRangeChange={({ start, end }) => {
-                    setCustomStart(start);
-                    setCustomEnd(end);
-                    setTimeFilter('custom');
-                  }}
+                  onCustomRangeChange={setDraftRange}
+                  onCustomRangeApply={applyCustomRange}
                 />
               </div>
             </div>

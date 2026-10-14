@@ -580,25 +580,40 @@ async def _build_rty_list(
 
 
 async def cycle_data(
-    order_scope: str, customer: str | None, targets: dict[str, float]
+    order_scope: str,
+    customer: str | None,
+    targets: dict[str, float],
+    *,
+    date_from: str = YEAR_START,
+    date_to: str = YEAR_END,
 ) -> list[RTYData]:
-    key = (order_scope, customer or "", tuple(sorted(targets.items())))
+    key = (
+        order_scope,
+        customer or "",
+        date_from,
+        date_to,
+        tuple(sorted(targets.items())),
+    )
     return await _RTY_CYCLE_CACHE.get_or_set(
         key,
-        lambda: _build_cycle_data(order_scope, customer, targets),
+        lambda: _build_cycle_data(order_scope, customer, targets, date_from, date_to),
         ttl_seconds=RTY_CYCLE_CACHE_TTL_SECONDS,
     )
 
 
 async def _build_cycle_data(
-    order_scope: str, customer: str | None, targets: dict[str, float]
+    order_scope: str,
+    customer: str | None,
+    targets: dict[str, float],
+    date_from: str,
+    date_to: str,
 ) -> list[RTYData]:
     orders = await _orders(
         {
             "orderScope": order_scope,
             "customer": customer or "",
-            "dateFrom": YEAR_START,
-            "dateTo": YEAR_END,
+            "dateFrom": date_from,
+            "dateTo": date_to,
         }
     )
     groups: dict[tuple[str, str, str], dict[str, Any]] = {}
