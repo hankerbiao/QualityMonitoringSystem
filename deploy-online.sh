@@ -57,17 +57,35 @@ export no_proxy="${no_proxy:-localhost,127.0.0.1,10.17.0.0/16}"
 export NO_PROXY="$no_proxy"
 export BUILD_HTTP_PROXY="$http_proxy"
 export BUILD_HTTPS_PROXY="$https_proxy"
-export BUILD_NO_PROXY="$no_proxy"
 export GIT_TERMINAL_PROMPT=0
 
 cd "$APP_DIR"
 [[ -d .git ]] || { printf '[deploy] ERROR: not a Git checkout: %s\n' "$APP_DIR" >&2; exit 1; }
 [[ -f docker/compose.yaml ]] || { printf '[deploy] ERROR: Docker Compose file not found\n' >&2; exit 1; }
 [[ -f docker/.env ]] || { printf '[deploy] ERROR: docker/.env is missing; configure production settings first\n' >&2; exit 1; }
-[[ -z "$(git status --porcelain --untracked-files=all)" ]] \
-  || { printf '[deploy] ERROR: remote worktree has local changes; refusing to pull\n' >&2; exit 1; }
 command -v docker >/dev/null 2>&1 || { printf '[deploy] ERROR: docker is not installed\n' >&2; exit 1; }
 docker compose version >/dev/null
+
+git fetch origin
+upstream_ref="$(git rev-parse --symbolic-full-name '@{upstream}')"
+incoming_paths="$(git diff --name-only HEAD "$upstream_ref")"
+while IFS= read -r status_line; do
+  [[ -n "$status_line" ]] || continue
+  path="${status_line:3}"
+  case "$path" in
+    docker/.env|docker/compose.yaml)
+      if grep -Fxq "$path" <<< "$incoming_paths"; then
+        printf '[deploy] ERROR: remote configuration conflicts with incoming change: %s\n' "$path" >&2
+        exit 1
+      fi
+      printf '[deploy] Preserving remote configuration: %s\n' "$path"
+      ;;
+    *)
+      printf '[deploy] ERROR: unexpected remote worktree change: %s\n' "$path" >&2
+      exit 1
+      ;;
+  esac
+done < <(git status --porcelain=v1 --untracked-files=all)
 
 printf '[deploy] Pulling latest commit through the configured proxy\n'
 git pull --ff-only
