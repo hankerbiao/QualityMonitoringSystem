@@ -16,6 +16,7 @@ from app.schemas.rty import (
     RTYTemplateExport,
     SalesOrderSummary,
     StationPassDetail,
+    StationPassExport,
     StationPassRate,
 )
 from app.services import rty_export, rty_gateway
@@ -155,6 +156,37 @@ async def get_station_pass_details(
         customer=customer,
     )
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 条明细")
+
+
+@router.get(
+    "/station-pass-export",
+    response_model=Response[StationPassExport],
+    dependencies=[Depends(dashboard_dependency("station-pass-rate"))],
+)
+@audit_log("QUERY", "station_pass_export")
+async def get_station_pass_export(
+    request: Request,
+    dateFrom: str | None = None,
+    dateTo: str | None = None,
+    serialNumber: str | None = None,
+    productModel: str | None = None,
+    customer: str | None = None,
+    base: str | None = None,
+    orderScope: OrderScopeQuery = "normal",
+):
+    del request
+    data = await rty_export.build_station_export(
+        _order_filters(
+            serial_number=serialNumber,
+            base=base,
+            product_model=productModel,
+            customer=customer,
+            date_from=dateFrom,
+            date_to=dateTo,
+            order_scope=orderScope,
+        )
+    )
+    return Response(success=True, data=data)
 
 
 @router.get(

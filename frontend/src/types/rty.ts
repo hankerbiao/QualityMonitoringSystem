@@ -39,6 +39,11 @@ export interface ExcludedOrder {
   exclusionReasons: string[];
 }
 
+export interface StationPassExport {
+  orders: Record<string, unknown>[];
+  faults: Record<string, unknown>[];
+}
+
 export interface StationPassRate {
   dimensionValue: string;
   stationCode: string;

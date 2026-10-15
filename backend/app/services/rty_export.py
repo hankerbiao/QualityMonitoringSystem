@@ -9,7 +9,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
-from app.schemas.rty import RTYTemplateExport
+from app.schemas.rty import RTYTemplateExport, StationPassExport
 from app.services import rty_gateway
 from app.services.data_gateway_client import data_gateway
 from app.services.lrr_normalization import compact_date
@@ -283,3 +283,9 @@ async def build_template_export(filters: dict[str, str]) -> RTYTemplateExport:
         faults=faults,
         topProblems=top_problems,
     )
+
+
+async def build_station_export(filters: dict[str, str]) -> StationPassExport:
+    """Use the same selected orders and raw faults as RTY template exports."""
+    data = await build_template_export(filters)
+    return StationPassExport(orders=data.orders, faults=data.faults)

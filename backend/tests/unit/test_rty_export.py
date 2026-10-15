@@ -152,6 +152,38 @@ async def test_export_joins_order_faults_without_repair_date_filters(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_station_export_returns_only_raw_order_and_fault_columns(monkeypatch):
+    source(
+        monkeypatch, [order("000000000001", POSNR=None, WMENG=0, IF_L6="X")],
+        [
+            fault("first", PCODE="00001", U_FIX=None, ZUSER="not-a-substitute", ZDATE_WX=""),
+            fault("second", PCODE="00001", ZWXDT="2027-01-01"),
+        ],
+    )
+
+    result = await rty_export.build_station_export({**FILTERS, "orderScope": "l6"})
+
+    assert set(result.model_dump()) == {"orders", "faults"}
+    assert tuple(result.orders[0]) == rty_export.ORDER_FIELDS
+    assert tuple(result.faults[0]) == rty_export.FAULT_FIELDS
+    assert result.orders[0]["AUFNR"] == "000000000001"
+    assert result.orders[0]["WMENG"] == 0
+    assert result.orders[0]["POSNR"] is None
+    assert len(result.faults) == 2
+    assert result.faults[0]["U_FIX"] is None
+    assert result.faults[0]["ZWXDT"] is None
+    assert result.faults[1]["ZWXDT"] == "2027-01-01"
+
+
+@pytest.mark.asyncio
+async def test_station_export_returns_empty_sources_when_no_orders_match(monkeypatch):
+    loader = source(monkeypatch, [])
+    result = await rty_export.build_station_export(FILTERS)
+    assert result.model_dump() == {"orders": [], "faults": []}
+    assert loader.await_count == 1
+
+
+@pytest.mark.asyncio
 async def test_composite_children_count_against_the_bound_head_and_keep_original_repair_sn(
     monkeypatch,
 ):

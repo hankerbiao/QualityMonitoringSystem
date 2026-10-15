@@ -1,6 +1,6 @@
 import { DefectDetail, RTYData, RTYFilterParams, SalesOrderSummary, PaginatedRTYResponse, PaginatedExcludedOrdersResponse, StationPassDetail, StationPassQuery, StationPassRate } from '../types';
 import { requestData, requestJson } from './authApi';
-import type { RTYTemplateExport } from '../types/rty';
+import type { RTYTemplateExport, StationPassExport } from '../types/rty';
 
 const RTY_LIST_CACHE_TTL_MS = 2_000;
 const rtyListCache = new Map<string, { expiresAt: number; promise: Promise<PaginatedRTYResponse> }>();
@@ -116,6 +116,10 @@ export const rtyApi = {
     // Keep request coalescing in the browser out of this result path so a
     // repeated query does not reuse a multi-hour option cache entry.
     return requestData<StationPassRate[]>(`/api/rty/station-pass-rates${suffix ? `?${suffix}` : ''}`);
+  },
+
+  async getStationPassExport(params: StationPassQuery): Promise<StationPassExport> {
+    return requestData<StationPassExport>(`/api/rty/station-pass-export?${buildStationPassQuery(params)}`);
   },
 
   async getStationPassDetails(stationCode: string, params: StationPassQuery, detailType: 'input' | 'defect' = 'input'): Promise<StationPassDetail[]> {

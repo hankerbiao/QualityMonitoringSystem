@@ -1,10 +1,11 @@
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
-from fastapi import HTTPException
+from fastapi import FastAPI, HTTPException
 
-from app.api import rty
-from app.schemas.rty import RTYTemplateExport
+from app.api import auth, rty
+from app.schemas.rty import RTYTemplateExport, StationPassExport
 from app.services import rty_gateway
 
 
@@ -116,3 +117,38 @@ async def test_template_export_forwards_complete_filters_and_is_protected(monkey
     })
     route = next(route for route in rty.router.routes if route.path == "/export")
     assert route.dependencies
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("permissions", "status"),
+    [(["station-pass-rate"], 200), (["rty"], 403), ([], 403)],
+)
+async def test_station_export_uses_station_permission_and_applied_filters(
+    monkeypatch, permissions, status,
+):
+    export = AsyncMock(return_value=StationPassExport(orders=[{"AUFNR": "00001"}]))
+    monkeypatch.setattr(rty.rty_export, "build_station_export", export)
+    app = FastAPI()
+    app.include_router(rty.router, prefix="/api/rty")
+    app.dependency_overrides[auth.get_current_user] = lambda: {
+        "role": "user", "dashboardPermissions": permissions,
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test",
+    ) as client:
+        response = await client.get("/api/rty/station-pass-export", params={
+            "dateFrom": "2026-10-05", "dateTo": "2026-10-11", "orderScope": "l6",
+            "serialNumber": "SN", "productModel": "M", "customer": "C", "base": "B",
+        })
+    assert response.status_code == status
+    if status == 200:
+        assert response.json()["data"] == {"orders": [{"AUFNR": "00001"}], "faults": []}
+        export.assert_awaited_once_with({
+            "salesOrder": "", "productionOrder": "", "serialNumber": "SN",
+            "productModel": "M", "customer": "C", "base": "B",
+            "dateFrom": "2026-10-05", "dateTo": "2026-10-11", "orderScope": "l6",
+            "calculationMethod": "",
+        })
+    else:
+        export.assert_not_awaited()

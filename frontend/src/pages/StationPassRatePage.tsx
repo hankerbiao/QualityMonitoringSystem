@@ -19,6 +19,7 @@ import type { StationGroupBy, StationPassDetail, StationPassQuery, StationPassRa
 import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
 import { MonthQuickPicker } from '../components/shared/MonthQuickPicker';
 import { StationPassFindings, StationQueryLaunch } from '../components/station/StationPassWorkspace';
+import { buildStationPassWorkbook } from '../components/station/exportData';
 import { combinedStationPassRate, rowMatchesBand, summarizeStationRates, type StationRateRow } from '../utils/stationPassRate';
 import { useSettings } from '../context/SettingsContext';
 
@@ -443,37 +444,8 @@ export default function StationPassRatePage() {
         })(),
         ...Object.fromEntries(matrix.stations.map((station) => [station, row.stationRows.has(station) ? `${row.stationRows.get(station)!.passRate.toFixed(2)}%` : '-'])),
       }));
-      const defectPairs = matrix.rows.flatMap((row) => Array.from(row.stationRows.values())
-        .filter((rate) => rate.defectCount > 0)
-        .map((rate) => ({ dimensionValue: row.dimensionValue, rate })));
-      const defectBatches: { dimensionValue: string; rate: StationRateRow; details: StationPassDetail[] }[] = [];
-      for (let index = 0; index < defectPairs.length; index += 8) {
-        const batch = await Promise.all(defectPairs.slice(index, index + 8).map(async ({ dimensionValue, rate }) => ({
-          dimensionValue,
-          rate,
-          details: await rtyApi.getStationPassDetails(
-            rate.stationCode,
-            { ...appliedQuery, dimensionValue },
-            'defect',
-          ),
-        })));
-        defectBatches.push(...batch);
-      }
-      const defectData = defectBatches.flatMap(({ dimensionValue, rate, details }) => details.map((item) => ({
-        [dimensionLabels[appliedQuery.groupBy]]: dimensionValue,
-        工站编码: rate.stationCode,
-        工站名称: rate.stationName || '',
-        机器SN: item.sn,
-        过站日期: item.passDate || '',
-        故障代码: item.defectCode || '',
-        故障描述: item.description || '',
-        维修人: item.repairPerson || '',
-        ...rawFaultFields(item.raw),
-      })));
-
-      const book = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(data), '工位直通率透视表');
-      XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(defectData), '汇总故障明细');
+      const source = await rtyApi.getStationPassExport(appliedQuery);
+      const book = buildStationPassWorkbook(XLSX.utils.json_to_sheet(data), source);
       XLSX.writeFile(book, `工位直通率_${appliedQuery.groupBy}_${appliedQuery.dateFrom}_${appliedQuery.dateTo}.xlsx`);
     } catch (err) {
       console.error('Failed to export station pass rates', err);
@@ -567,7 +539,7 @@ export default function StationPassRatePage() {
           </div>
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             <DashboardSwitcher />
-            <button type="button" onClick={() => void exportRows()} disabled={loading || exporting || !hasSearched || matrix.rows.length === 0} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-medium text-slate-700 transition-colors hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-45 sm:px-3" title="导出当前结果及汇总故障明细" aria-label="导出当前结果及汇总故障明细"><Download className="size-4" /><span className="hidden sm:inline">{exporting ? '导出中' : '导出'}</span></button>
+            <button type="button" onClick={() => void exportRows()} disabled={loading || exporting || !hasSearched || matrix.rows.length === 0} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-medium text-slate-700 transition-colors hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-45 sm:px-3" title="导出透视表、销售订单及维修故障明记录" aria-label="导出透视表、销售订单及维修故障明记录"><Download className="size-4" /><span className="hidden sm:inline">{exporting ? '导出中' : '导出'}</span></button>
           </div>
         </div>
       </header>

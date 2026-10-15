@@ -76,6 +76,13 @@ class RTYTemplateExport(BaseModel):
     topProblems: list[dict[str, Any]] = Field(default_factory=list)
 
 
+class StationPassExport(BaseModel):
+    """Raw order and fault rows for the station workbook's source sheets."""
+
+    orders: list[dict[str, Any]] = Field(default_factory=list)
+    faults: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class StationPassRate(BaseModel):
     """工位过站直通率，汇总值与 RTY 保持同一订单口径。"""
 

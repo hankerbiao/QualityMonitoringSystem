@@ -75,6 +75,23 @@ describe('rtyApi list cache', () => {
     expect(requestData).toHaveBeenCalledTimes(2);
   });
 
+  it('exports raw station sources using all applied filters without caching', async () => {
+    vi.mocked(requestData).mockResolvedValue({ orders: [], faults: [] });
+    const query = {
+      dateFrom: '2026-10-05', dateTo: '2026-10-11',
+      groupBy: 'productionOrder' as const, orderScope: 'l6' as const,
+      customer: 'C', productModel: 'M', serialNumber: 'SN', base: 'B',
+    };
+
+    await rtyApi.getStationPassExport(query);
+    await rtyApi.getStationPassExport(query);
+
+    const url = new URL(vi.mocked(requestData).mock.calls[0][0], 'http://localhost');
+    expect(url.pathname).toBe('/api/rty/station-pass-export');
+    expect(Object.fromEntries(url.searchParams)).toEqual(query);
+    expect(requestData).toHaveBeenCalledTimes(2);
+  });
+
   it('passes all applied filters to the uncached template export endpoint', async () => {
     const payload = { summary: [], orders: [], faults: [], topProblems: [] };
     vi.mocked(requestData).mockResolvedValue(payload);
