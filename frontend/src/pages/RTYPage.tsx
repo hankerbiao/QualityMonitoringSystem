@@ -47,6 +47,7 @@ export default function RTYPage() {
   }, [searchParams]);
 
   const [filters, setFilters] = useState<RTYFilterParams>(initialFilters);
+  const [cycleExportContainer, setCycleExportContainer] = useState<HTMLDivElement | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [exporting, setExporting] = useState(false);
@@ -169,18 +170,21 @@ export default function RTYPage() {
   return (
     <div className="h-screen bg-slate-50 flex flex-col overflow-hidden">
       {/* 顶部导航 */}
-      <header className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between sticky top-0 z-10">
-        <div className="flex items-center gap-3">
+      <header className="bg-white border-b border-slate-200 px-4 py-3 flex items-center justify-between gap-3 sticky top-0 z-10">
+        <div className="flex min-w-0 items-center gap-3">
           <button 
             onClick={() => navigate('/')}
-            className="p-1.5 hover:bg-slate-100 rounded-sm transition-colors text-slate-500"
+            className="shrink-0 p-1.5 hover:bg-slate-100 rounded-sm transition-colors text-slate-500"
           >
             <ArrowLeft className="w-4 h-4" />
           </button>
-          <h1 className="text-lg font-semibold text-slate-800">QualiBoard 品质看板 — RTY 整机综合直通率</h1>
-          <span className="rounded-sm border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700">2026 · 销售订单 WMENG 入库数量</span>
+          <h1 className="truncate text-base font-semibold text-slate-800 sm:text-lg"><span className="hidden lg:inline">QualiBoard 品质看板 — </span>RTY 整机综合直通率</h1>
+          <span className="hidden shrink-0 rounded-sm border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700 xl:inline-flex">2026 · 销售订单 WMENG 入库数量</span>
         </div>
-        <DashboardSwitcher />
+        <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
+          <DashboardSwitcher />
+          <div ref={setCycleExportContainer} className="flex shrink-0 items-center" />
+        </div>
       </header>
 
       <main className="flex-1 flex flex-col p-4 max-w-[1800px] mx-auto w-full overflow-auto">
@@ -221,6 +225,7 @@ export default function RTYPage() {
           modelTargets={modelTargets}
           onDetailOpen={openDetails}
           orderScope={filters.orderScope}
+          exportContainer={cycleExportContainer}
         />
 
         {detailOpen && (

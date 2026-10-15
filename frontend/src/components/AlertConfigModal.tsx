@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { createPortal } from 'react-dom';
 import { X, Bell, CalendarDays, Check, ChevronDown, Loader2, FileText, Search, RefreshCw, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
@@ -25,6 +26,7 @@ interface AlertConfigModalProps {
   embedded?: boolean;
   onDetailOpen?: () => void;
   orderScope?: RTYFilterParams['orderScope'];
+  exportContainer?: HTMLElement | null;
 }
 
 type ScopeSummaryCell = {
@@ -344,6 +346,7 @@ export default function AlertConfigModal({
   embedded = false,
   onDetailOpen,
   orderScope = 'normal',
+  exportContainer,
 }: AlertConfigModalProps) {
   const { settings, updateSettings } = useSettings();
 
@@ -635,8 +638,23 @@ export default function AlertConfigModal({
     };
   }, [filteredData]);
 
+  const exportButton = (
+    <button
+      type="button"
+      onClick={() => void exportCycleData()}
+      disabled={loading || exporting || loadedQueryKey !== queryKey || filteredData.length === 0}
+      className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-medium text-slate-700 transition-colors hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-45 sm:px-3"
+      title="导出趋势汇总、销售订单及维修故障明记录"
+      aria-label={exporting ? '导出中...' : '导出'}
+    >
+      <Download className="size-4" />
+      <span className="hidden sm:inline">{exporting ? '导出中...' : '导出'}</span>
+    </button>
+  );
+
   return (
     <div className={embedded ? 'h-full' : 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/50 backdrop-blur-sm'}>
+      {exportContainer && createPortal(exportButton, exportContainer)}
       <div 
         className={`bg-white rounded-md border border-slate-200 w-full overflow-hidden flex flex-col relative ${embedded ? 'h-full' : 'max-w-6xl shadow-xl'}`}
         onClick={(e) => e.stopPropagation()}
@@ -648,6 +666,7 @@ export default function AlertConfigModal({
             <h3 className="text-base font-semibold text-slate-800">周期统计</h3>
           </div>
           <div className="flex items-center gap-4">
+            {!exportContainer && exportButton}
             {embedded && onDetailOpen && (
               <button
                 onClick={onDetailOpen}
@@ -743,16 +762,6 @@ export default function AlertConfigModal({
                 </label>
               </div>
               <div className="flex flex-wrap items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => void exportCycleData()}
-                  disabled={loading || exporting || loadedQueryKey !== queryKey || filteredData.length === 0}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  title="导出趋势汇总、销售订单及维修故障明记录"
-                >
-                  <Download className="size-3.5" />
-                  {exporting ? '导出中...' : '导出'}
-                </button>
                 <div className="flex items-center gap-2 text-xs text-slate-400" title={cacheTimeLabel ? `周期统计${cycleCacheInfo.fromCache ? '缓存' : '数据'}时间：${cacheTimeLabel}` : '周期统计数据尚未加载'}>
                   <span>{cacheTimeLabel ? `${cycleCacheInfo.fromCache ? '缓存于' : '更新于'} ${cacheTimeLabel}` : '数据尚未加载'}</span>
                   <button
