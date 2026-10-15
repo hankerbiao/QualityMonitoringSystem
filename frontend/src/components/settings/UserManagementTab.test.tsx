@@ -107,6 +107,67 @@ describe('user administrator roles', () => {
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
   });
 
+  it('saves an administrator role selected in the user editor', async () => {
+    vi.mocked(adminUsersApi.list)
+      .mockResolvedValueOnce([admin, alice])
+      .mockResolvedValueOnce([admin, promotedAlice]);
+    vi.mocked(adminUsersApi.update).mockResolvedValue(promotedAlice);
+    render(<UserManagementTab />);
+    const row = await screen.findByRole('row', { name: /Alice/ });
+    fireEvent.click(within(row).getByRole('button', { name: '编辑用户' }));
+    const dialog = screen.getByRole('dialog', { name: '编辑用户' });
+    fireEvent.change(within(dialog).getByLabelText('角色'), { target: { value: 'admin' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '保存' }));
+    await screen.findByRole('row', { name: /Alice.*管理员/ });
+    expect(adminUsersApi.update).toHaveBeenCalledWith('alice', {
+      displayName: 'Alice', role: 'admin',
+    });
+    expect(window.confirm).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('keeps the editor open without saving when role confirmation is cancelled', async () => {
+    vi.mocked(window.confirm).mockReturnValue(false);
+    render(<UserManagementTab />);
+    const row = await screen.findByRole('row', { name: /Alice/ });
+    fireEvent.click(within(row).getByRole('button', { name: '编辑用户' }));
+    const dialog = screen.getByRole('dialog', { name: '编辑用户' });
+    fireEvent.change(within(dialog).getByLabelText('角色'), { target: { value: 'admin' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '保存' }));
+    expect(adminUsersApi.update).not.toHaveBeenCalled();
+    expect(screen.getByRole('dialog')).toBeTruthy();
+    expect(within(row).getByRole('cell', { name: '普通用户' })).toBeTruthy();
+  });
+
+  it('does not overwrite stored dashboard permissions when demoting in the editor', async () => {
+    vi.mocked(adminUsersApi.list)
+      .mockResolvedValueOnce([admin, promotedAlice])
+      .mockResolvedValueOnce([admin, alice]);
+    vi.mocked(adminUsersApi.update).mockResolvedValue(alice);
+    render(<UserManagementTab />);
+    const row = await screen.findByRole('row', { name: /Alice/ });
+    fireEvent.click(within(row).getByRole('button', { name: '编辑用户' }));
+    const dialog = screen.getByRole('dialog', { name: '编辑用户' });
+    fireEvent.change(within(dialog).getByLabelText('角色'), { target: { value: 'user' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '保存' }));
+    await screen.findByRole('row', { name: /Alice.*普通用户/ });
+    expect(adminUsersApi.update).toHaveBeenCalledWith('alice', {
+      displayName: 'Alice', role: 'user',
+    });
+  });
+
+  it('disables role changes when editing the current administrator', async () => {
+    vi.mocked(useAuth).mockReturnValue({
+      user: { itcode: 'alice', role: 'admin' },
+      isAuthenticated: true, isAuthLoaded: true, login: vi.fn(), logout: vi.fn(),
+    });
+    vi.mocked(adminUsersApi.list).mockResolvedValue([admin, promotedAlice]);
+    render(<UserManagementTab />);
+    const row = await screen.findByRole('row', { name: /Alice/ });
+    fireEvent.click(within(row).getByRole('button', { name: '编辑用户' }));
+    expect((screen.getByLabelText('角色') as HTMLSelectElement).disabled).toBe(true);
+  });
+
   it('disables duplicate operations while a role change is pending', async () => {
     let resolve!: (value: ManagedUser) => void;
     vi.mocked(adminUsersApi.update).mockReturnValue(new Promise(done => { resolve = done; }));

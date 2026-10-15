@@ -1,6 +1,6 @@
 import { API_BASE_URL } from '../constants';
 import { requestData } from './authApi';
-import type { SettingsResponse, ProcessRecordConfig, ProcessRecordConnectionTest, SettingsUpdate } from '../types';
+import type { AccessibleSettingsResponse, ProcessRecordConfig, ProcessRecordConnectionTest, SettingsUpdate } from '../types';
 import type { HomeModuleStatus } from '../config/homeModules';
 
 export interface WeeklyQualifiedModels {
@@ -17,12 +17,12 @@ export interface WeeklyQualifiedModels {
 }
 
 export const settingsApi = {
-  async getAll(): Promise<SettingsResponse> {
-    return requestData<SettingsResponse>(`${API_BASE_URL}/settings`);
+  async getAll(): Promise<AccessibleSettingsResponse> {
+    return requestData<AccessibleSettingsResponse>(`${API_BASE_URL}/settings`);
   },
 
-  async updateAll(data: SettingsUpdate): Promise<SettingsResponse> {
-    return requestData<SettingsResponse>(`${API_BASE_URL}/settings`, {
+  async updateAll(data: SettingsUpdate): Promise<AccessibleSettingsResponse> {
+    return requestData<AccessibleSettingsResponse>(`${API_BASE_URL}/settings`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(data),

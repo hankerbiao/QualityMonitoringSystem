@@ -131,25 +131,28 @@ class DataGatewayClient:
         async with self._orders_cache_lock:
             cached = cache.get(cache_key)
             if self.cache_ttl > 0 and cached and cached[0] > now:
-                return copy.deepcopy(cached[1][:max_rows])
-            if cached:
-                cache.pop(cache_key, None)
-            task = self._list_inflight.get(cache_key)
-            if task is None:
-                task = asyncio.create_task(loader())
-                self._list_inflight[cache_key] = task
-        try:
-            items = await task
-        finally:
-            async with self._orders_cache_lock:
-                if self._list_inflight.get(cache_key) is task:
-                    self._list_inflight.pop(cache_key, None)
+                items = cached[1]
+                task = None
+            else:
+                if cached:
+                    cache.pop(cache_key, None)
+                task = self._list_inflight.get(cache_key)
+                if task is None:
+                    task = asyncio.create_task(loader())
+                    self._list_inflight[cache_key] = task
+        if task is not None:
+            try:
+                items = await task
+            finally:
+                async with self._orders_cache_lock:
+                    if self._list_inflight.get(cache_key) is task:
+                        self._list_inflight.pop(cache_key, None)
         if len(items) > max_rows:
             raise DataGatewayError(
                 f"数据网关结果共 {len(items)} 条，超过本系统单次处理上限 {max_rows} 条；请缩小日期或筛选范围",
                 code="QUERY_TOO_LARGE",
             )
-        if self.cache_ttl > 0:
+        if task is not None and self.cache_ttl > 0:
             async with self._orders_cache_lock:
                 cache[cache_key] = (time.monotonic() + self.cache_ttl, items)
         return copy.deepcopy(items)
@@ -302,64 +305,67 @@ class DataGatewayClient:
         max_rows: int = 250_000,
     ) -> list[dict[str, Any]]:
         """Read a bounded complete result set from a gateway list endpoint."""
-        request_filters = {"pageSize": 100, **(filters or {})}
 
         async def fetch_page(page: int) -> tuple[list[dict[str, Any]], int]:
             payload = await self.request_json(
                 method,
                 path,
-                params={"page": page, **request_filters},
+                params={**(filters or {}), "page": page, "pageSize": 100},
             )
             if not isinstance(payload, dict):
                 raise DataGatewayError(
                     "生产数据源返回了无效列表数据，请联系管理员",
                     code="DATA_GATEWAY_BAD_RESPONSE",
                 )
-            items = payload.get("items") or []
-            if not isinstance(items, list):
+            total = payload.get("total")
+            items = payload.get("items")
+            if items is None and total == 0 and "items" in payload:
+                items = []
+            if (
+                type(total) is not int
+                or total < 0
+                or not isinstance(items, list)
+                or any(not isinstance(item, dict) for item in items)
+            ):
                 raise DataGatewayError(
                     "生产数据源返回了无效列表数据，请联系管理员",
                     code="DATA_GATEWAY_BAD_RESPONSE",
                 )
-            raw_total = payload.get("total")
-            try:
-                total = int(raw_total) if raw_total is not None else len(items)
-            except (TypeError, ValueError) as exc:
-                raise DataGatewayError(
-                    "生产数据源返回了无效列表数据，请联系管理员",
-                    code="DATA_GATEWAY_BAD_RESPONSE",
-                ) from exc
             if total > max_rows:
                 raise DataGatewayError(
                     f"当前查询结果约 {total} 条，超过本系统单次处理上限 {max_rows} 条；请缩小日期或增加筛选条件",
                     code="QUERY_TOO_LARGE",
                 )
-            return [item for item in items if isinstance(item, dict)], total
+            if len(items) != min(100, max(0, total - (page - 1) * 100)):
+                raise DataGatewayError(
+                    "生产数据源分页结果不完整，请稍后重试",
+                    code="DATA_GATEWAY_BAD_RESPONSE",
+                    retryable=True,
+                )
+            return items, total
 
         first_page, total = await fetch_page(1)
-        if not first_page or total <= len(first_page):
-            return first_page[:max_rows]
-        page_count = min(math.ceil(total / 100), math.ceil(max_rows / 100))
+        page_count = math.ceil(total / 100)
         semaphore = asyncio.Semaphore(8)
 
-        async def fetch_bounded(page: int) -> tuple[int, list[dict[str, Any]]]:
+        async def fetch_bounded(page: int) -> list[dict[str, Any]]:
             async with semaphore:
-                items, _ = await fetch_page(page)
-            return page, items
+                items, page_total = await fetch_page(page)
+            if page_total != total:
+                raise DataGatewayError(
+                    "生产数据源分页期间记录总数发生变化，请重新查询",
+                    code="DATA_GATEWAY_BAD_RESPONSE",
+                    retryable=True,
+                )
+            return items
 
         page_results = await asyncio.gather(
             *(fetch_bounded(page) for page in range(2, page_count + 1))
         )
         rows = first_page
-        for _, items in sorted(page_results):
+        for items in page_results:
             rows.extend(items)
-        if len(rows) < total and len(rows) < max_rows:
-            raise DataGatewayError(
-                "生产数据源分页结果不完整，请稍后重试",
-                code="DATA_GATEWAY_BAD_RESPONSE",
-                retryable=True,
-            )
-        return rows[:max_rows]
+        return rows
 
     async def order_detail(self, order_id: str) -> dict[str, Any]:
         return await self.request_json("GET", "/api/orders/detail", params={"id": order_id})
@@ -408,15 +414,11 @@ class DataGatewayClient:
         cache_key = tuple(sorted((str(key), str(value)) for key, value in filters.items() if value))
 
         async def load() -> list[dict[str, Any]]:
-            payload = await self.request_json("GET", "/api/orders/all", params=filters)
-            if not isinstance(payload, dict) or not isinstance(payload.get("items"), list):
-                raise DataGatewayError(
-                    "生产数据源返回了无效订单数据，请联系管理员",
-                    code="DATA_GATEWAY_BAD_RESPONSE",
-                )
-            return [item for item in payload["items"] if isinstance(item, dict)]
+            return await self.all_pages("GET", "/api/orders", filters=filters, max_rows=max_rows)
 
-        return await self._cached_list(self._orders_cache, ("orders", cache_key), load, max_rows)
+        return await self._cached_list(
+            self._orders_cache, ("orders", max_rows, cache_key), load, max_rows
+        )
 
     async def fault_lookup(
         self,

@@ -57,6 +57,17 @@ describe('StationPassRatePage customer filter', () => {
     ));
   });
 
+  it('passes the overseas checkbox to the station query', async () => {
+    render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
+
+    fireEvent.click(screen.getByRole('checkbox', { name: '海外' }));
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+
+    await waitFor(() => expect(rtyApi.getStationPassRates).toHaveBeenCalledWith(
+      expect.objectContaining({ overseas: true }),
+    ));
+  });
+
   it('exports three sheets with the applied query and preserves pivot values', async () => {
     vi.mocked(rtyApi.getStationPassRates).mockResolvedValue([{
       dimensionValue: 'M', stationCode: 'OP10', stationName: '装配',

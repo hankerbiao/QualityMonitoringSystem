@@ -38,10 +38,16 @@ export interface SettingsResponse {
   stationPassRateConfig: StationPassRateConfig;
 }
 
+export type AccessibleSettingsResponse =
+  | SettingsResponse
+  | Pick<SettingsResponse, 'modelTargets' | 'emailAlert'>;
+
 export interface SettingsContextType {
   settings: SettingsResponse;
   updateSettings: (config: SettingsUpdate) => Promise<void>;
   loading: boolean;
+  error: string | null;
+  reloadSettings: () => void;
 }
 
 export interface SettingsUpdate {

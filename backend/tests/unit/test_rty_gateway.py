@@ -298,6 +298,33 @@ async def test_order_details_keep_invalid_repair_dates_and_stay_with_selected_or
     assert all(row.repairTime == "" for row in rows)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("details", [[], [{"AUFNR": "2", "PCODE": "SN1"}]])
+async def test_order_details_do_not_substitute_lookup_links(monkeypatch, details):
+    monkeypatch.setattr(
+        rty_gateway, "_faults_for_orders",
+        AsyncMock(return_value=[{"AUFNR": "1", "PCODE": "SN1"}]),
+    )
+    monkeypatch.setattr(rty_gateway, "_faults_for_sns", AsyncMock(return_value=details))
+    assert await rty_gateway.details_by_orders({"1"}) == []
+
+
+@pytest.mark.asyncio
+async def test_order_detail_source_failure_propagates(monkeypatch):
+    from app.services.data_gateway_client import DataGatewayError
+
+    monkeypatch.setattr(
+        rty_gateway, "_faults_for_orders",
+        AsyncMock(return_value=[{"AUFNR": "1", "PCODE": "SN1"}]),
+    )
+    monkeypatch.setattr(
+        rty_gateway, "_faults_for_sns",
+        AsyncMock(side_effect=DataGatewayError("detail failed")),
+    )
+    with pytest.raises(DataGatewayError, match="detail failed"):
+        await rty_gateway.details_by_orders({"1"})
+
+
 def test_fault_deduplication_does_not_depend_on_repair_date():
     base = {"AUFNR": "1", "PCODE": "SN1", "ZNGWD": "F1"}
     rows = [
@@ -1175,6 +1202,122 @@ async def test_station_rates_customer_filter_scopes_station_and_rty_counts(monke
     assert rows[0].inputCount == 1
     assert rows[0].totalInputCount == 10
     assert rows[0].totalDefectCount == 1
+
+
+@pytest.mark.asyncio
+async def test_station_rates_overseas_filter_scopes_station_rows_to_order_source(monkeypatch):
+    gateway = rty_gateway.data_gateway
+    queried_filters: dict[str, object] = {}
+
+    async def all_orders(**filters):
+        queried_filters.update(filters)
+        if filters.get("overseas") != "true":
+            return []
+        return [
+            {
+                "aufnr": "OVERSEAS-1",
+                "plannedStartDate": "2026-07-15",
+                "orderQuantity": 10,
+                "productionModel": "M-1",
+                "raw": {
+                    "data": {
+                        "AUFNR": "OVERSEAS-1",
+                        "MAKTX_TH": "M-1",
+                        "IF_L6": "",
+                        "WMENG": 10,
+                    }
+                },
+            }
+        ]
+
+    monkeypatch.setattr(gateway, "all_orders", all_orders)
+    monkeypatch.setattr(
+        gateway,
+        "all_station_rows",
+        AsyncMock(
+            return_value=[
+                {
+                    "PCODE": "SN-OVERSEAS",
+                    "AUFNR": "OVERSEAS-1",
+                    "SPEC": "Line-OP10:Assembly",
+                    "MAKTX_TH": "M-1",
+                    "GSTRS": "20260715",
+                },
+                {
+                    "PCODE": "SN-DOMESTIC",
+                    "AUFNR": "DOMESTIC-1",
+                    "SPEC": "Line-OP10:Assembly",
+                    "MAKTX_TH": "M-1",
+                    "GSTRS": "20260715",
+                },
+            ]
+        ),
+    )
+    monkeypatch.setattr(rty_gateway, "_station_repairs_for_sns", AsyncMock(return_value=[]))
+    monkeypatch.setattr(rty_gateway, "_rty_order_groups", AsyncMock(return_value={}))
+
+    rows = await rty_gateway.station_rates(
+        "2026-07-01",
+        "2026-07-31",
+        product_model="M-1",
+        group_by="productModel",
+        overseas=True,
+    )
+
+    assert queried_filters["overseas"] == "true"
+    assert [(row.dimensionValue, row.stationCode, row.inputCount) for row in rows] == [
+        ("M-1", "OP10", 1)
+    ]
+
+
+@pytest.mark.asyncio
+async def test_station_details_overseas_filter_excludes_non_overseas_orders(monkeypatch):
+    gateway = rty_gateway.data_gateway
+
+    async def all_orders(**filters):
+        assert filters["overseas"] == "true"
+        return [
+            {
+                "aufnr": "OVERSEAS-1",
+                "plannedStartDate": "2026-07-15",
+                "raw": {"data": {"AUFNR": "OVERSEAS-1", "IF_L6": ""}},
+            }
+        ]
+
+    monkeypatch.setattr(gateway, "all_orders", all_orders)
+    monkeypatch.setattr(
+        gateway,
+        "all_station_rows",
+        AsyncMock(
+            return_value=[
+                {
+                    "PCODE": "SN-OVERSEAS",
+                    "AUFNR": "OVERSEAS-1",
+                    "SPEC": "Line-OP10:Assembly",
+                    "GSTRS": "20260715",
+                },
+                {
+                    "PCODE": "SN-DOMESTIC",
+                    "AUFNR": "DOMESTIC-1",
+                    "SPEC": "Line-OP10:Assembly",
+                    "GSTRS": "20260715",
+                },
+            ]
+        ),
+    )
+    monkeypatch.setattr(rty_gateway, "_station_repairs_for_sns", AsyncMock(return_value=[]))
+
+    rows = await rty_gateway.station_details(
+        "OP10",
+        "2026-07-01",
+        "2026-07-31",
+        "input",
+        group_by="productModel",
+        dimension_value="未关联",
+        overseas=True,
+    )
+
+    assert [row.sn for row in rows] == ["SN-OVERSEAS"]
 
 
 @pytest.mark.asyncio

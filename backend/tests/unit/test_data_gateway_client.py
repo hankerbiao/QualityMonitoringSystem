@@ -124,7 +124,7 @@ async def test_all_orders_reuses_short_lived_cache():
     def handler(_request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
-        return httpx.Response(200, json={"items": [{"aufnr": "1"}]})
+        return httpx.Response(200, json={"items": [{"aufnr": "1"}], "total": 1})
 
     client = DataGatewayClient("http://gateway.test", timeout=2)
     client.cache_ttl = 10
@@ -149,13 +149,108 @@ async def test_all_orders_coalesces_concurrent_loads():
     async def request_json(*_args, **_kwargs):
         nonlocal calls
         calls += 1
-        return {"items": [{"aufnr": "1"}]}
+        return {"items": [{"aufnr": "1"}], "total": 1}
 
     client = DataGatewayClient("http://gateway.test", timeout=2)
     client.request_json = request_json  # type: ignore[method-assign]
     first, second = await asyncio.gather(client.all_orders(), client.all_orders())
     assert calls == 1
     assert first == second == [{"aufnr": "1"}]
+
+
+@pytest.mark.asyncio
+async def test_all_orders_reads_beyond_the_bulk_endpoint_cap():
+    client = DataGatewayClient("http://gateway.test")
+    client.cache_ttl = 10
+    requests = []
+
+    async def request_json(method, path, *, params):
+        requests.append((method, path, params))
+        first = (params["page"] - 1) * 100
+        return {
+            "items": [{"id": index} for index in range(first, min(first + 100, 10_001))],
+            "total": 10_001,
+        }
+
+    client.request_json = request_json
+    result = await client.all_orders(dateFrom="2026-01-01")
+    assert len(result) == 10_001
+    assert result[-1] == {"id": 10_000}
+    assert len(requests) == 101
+    assert all(path == "/api/orders" for _, path, _ in requests)
+    assert all(params["dateFrom"] == "2026-01-01" for _, _, params in requests)
+    assert await client.all_orders(dateFrom="2026-01-01") == result
+    assert len(requests) == 101
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("concurrent", [False, True])
+async def test_order_row_limits_are_enforced_for_cached_and_concurrent_reads(concurrent):
+    client = DataGatewayClient("http://gateway.test")
+    client.cache_ttl = 10
+    client.request_json = AsyncMock(return_value={"items": [{"id": 1}, {"id": 2}], "total": 2})
+    if concurrent:
+        large, small = await asyncio.gather(
+            client.all_orders(max_rows=2),
+            client.all_orders(max_rows=1),
+            return_exceptions=True,
+        )
+        assert large == [{"id": 1}, {"id": 2}]
+        assert isinstance(small, DataGatewayError)
+        assert small.code == "QUERY_TOO_LARGE"
+    else:
+        assert len(await client.all_orders(max_rows=2)) == 2
+        with pytest.raises(DataGatewayError) as error:
+            await client.all_orders(max_rows=1)
+        assert error.value.code == "QUERY_TOO_LARGE"
+
+
+@pytest.mark.asyncio
+async def test_cached_views_reject_smaller_limits_instead_of_truncating():
+    client = DataGatewayClient("http://gateway.test")
+    client.cache_ttl = 10
+    client.request_json = AsyncMock(return_value={"items": [{"id": 1}, {"id": 2}]})
+    assert len(await client.all_view("view", max_rows=2)) == 2
+    with pytest.raises(DataGatewayError) as error:
+        await client.all_view("view", max_rows=1)
+    assert error.value.code == "QUERY_TOO_LARGE"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"items": [], "total": 101},
+        {"items": [{"id": 1}], "total": 2},
+        {"items": [{"id": 1}, None], "total": 2},
+        {"items": [{"id": 1}]},
+        {"items": [], "total": -1},
+        {"items": [], "total": True},
+        {"items": [], "total": 0.5},
+        {"items": [], "total": "0"},
+        {"total": 0},
+    ],
+)
+async def test_all_pages_rejects_incomplete_or_invalid_results(payload):
+    client = DataGatewayClient("http://gateway.test")
+    client.request_json = AsyncMock(return_value=payload)
+    with pytest.raises(DataGatewayError) as error:
+        await client.all_pages("GET", "/api/orders")
+    assert error.value.code == "DATA_GATEWAY_BAD_RESPONSE"
+
+
+@pytest.mark.asyncio
+async def test_all_pages_rejects_changing_totals():
+    client = DataGatewayClient("http://gateway.test")
+    client.request_json = AsyncMock(
+        side_effect=[
+            {"items": [{"id": index} for index in range(100)], "total": 101},
+            {"items": [{"id": 100}, {"id": 101}], "total": 102},
+        ]
+    )
+    with pytest.raises(DataGatewayError) as error:
+        await client.all_pages("GET", "/api/orders")
+    assert error.value.code == "DATA_GATEWAY_BAD_RESPONSE"
 
 
 @pytest.mark.asyncio
@@ -282,9 +377,7 @@ async def test_bom_stream_falls_back_when_gateway_stream_hits_its_row_cap():
         return [{"id": "complete", "GSTRS": "2026-02-01"}]
 
     client.all_pages = all_pages  # type: ignore[method-assign]
-    stream_text = "id\tGSTRS\n" + "\n".join(
-        f"{row['id']}\t{row['GSTRS']}" for row in rows
-    ) + "\n"
+    stream_text = "id\tGSTRS\n" + "\n".join(f"{row['id']}\t{row['GSTRS']}" for row in rows) + "\n"
     client._client = httpx.AsyncClient(
         transport=httpx.MockTransport(lambda _request: httpx.Response(200, text=stream_text)),
         base_url=client.base_url,
@@ -457,9 +550,11 @@ async def test_fault_rows_by_sns_falls_back_when_gateway_omits_planned_date():
 @pytest.mark.asyncio
 async def test_fault_rows_without_date_filter_keep_rows_missing_planned_date():
     client = DataGatewayClient("http://gateway.test", timeout=2)
-    client.request_json = AsyncMock(return_value={
-        "items": [{"PCODE": "SN-1", "ZDATE_WX": ""}],
-    })
+    client.request_json = AsyncMock(
+        return_value={
+            "items": [{"PCODE": "SN-1", "ZDATE_WX": ""}],
+        }
+    )
     client.all_pages = AsyncMock()
 
     rows = await client.fault_rows_by_sns(["SN-1"], time_field="planned")
@@ -467,7 +562,11 @@ async def test_fault_rows_without_date_filter_keep_rows_missing_planned_date():
     assert rows == [{"PCODE": "SN-1", "ZDATE_WX": ""}]
     client.all_pages.assert_not_awaited()
     assert client.request_json.await_args.kwargs["json"] == {
-        "sns": ["SN-1"], "dateFrom": "", "dateTo": "", "station": "", "timeField": "planned",
+        "sns": ["SN-1"],
+        "dateFrom": "",
+        "dateTo": "",
+        "station": "",
+        "timeField": "planned",
     }
 
 

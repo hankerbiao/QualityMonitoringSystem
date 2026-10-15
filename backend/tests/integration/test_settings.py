@@ -246,3 +246,176 @@ class TestEmailAlert:
     async def test_empty_update_returns_400(self, client, db_clean):
         response = await client.put("/api/settings/email-alert", json={})
         assert response.status_code == 400
+
+
+@pytest.fixture
+async def ordinary_user_headers(client):
+    created = await client.post(
+        "/api/admin/users",
+        json={
+            "username": "settings-user",
+            "displayName": "Settings User",
+            "password": "initial-password",
+            "dashboardPermissions": [],
+        },
+    )
+    assert created.status_code == 201
+    login = await client.post(
+        "/api/auth/login",
+        json={"username": "settings-user", "password": "initial-password"},
+    )
+    return {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+
+@pytest.mark.integration
+class TestOrdinaryUserSettings:
+    async def test_reads_only_model_and_email_settings(self, client, ordinary_user_headers):
+        await client.put(
+            "/api/settings",
+            json={
+                "processRecords": {"username": "private-source", "password": "secret"},
+                "modelTargets": {"X1": 98.5},
+                "emailAlert": {"emails": "quality@company.com"},
+                "cycleStatsConfig": {"selectedModels": ["private-model"]},
+            },
+        )
+        response = await client.get("/api/settings", headers=ordinary_user_headers)
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert set(data) == {"modelTargets", "emailAlert"}
+        assert data["modelTargets"] == {"X1": 98.5}
+        assert data["emailAlert"]["emails"] == "quality@company.com"
+        assert "private-source" not in response.text
+        assert "private-model" not in response.text
+
+    async def test_saves_allowed_sections_without_changing_admin_settings(
+        self, client, db_clean, ordinary_user_headers
+    ):
+        await client.put(
+            "/api/settings",
+            json={
+                "processRecords": {"username": "private-source", "password": "secret"},
+                "dashboardStatuses": {"doa": "planned"},
+            },
+        )
+        before = await db_clean.configs.find_one({"key": "process_record_config"})
+        response = await client.put(
+            "/api/settings",
+            headers=ordinary_user_headers,
+            json={
+                "modelTargets": {"X1": 99},
+                "emailAlert": {
+                    "enabled": False,
+                    "emails": "quality@company.com",
+                    "weeklyProductionThreshold": 100,
+                },
+            },
+        )
+        assert response.status_code == 200
+        data = response.json()["data"]
+        assert set(data) == {"modelTargets", "emailAlert"}
+        assert data["modelTargets"] == {"X1": 99}
+        assert data["emailAlert"]["weeklyProductionThreshold"] == 100
+        assert data["emailAlert"]["enabled"] is False
+        assert await db_clean.configs.find_one({"key": "process_record_config"}) == before
+        admin_data = (await client.get("/api/settings")).json()["data"]
+        assert admin_data["modelTargets"] == {"X1": 99}
+        assert admin_data["dashboardStatuses"]["doa"] == "planned"
+
+    @pytest.mark.parametrize(
+        "forbidden_section",
+        [
+            {"processRecords": {"username": "changed"}},
+            {"dashboardStatuses": {"doa": "available"}},
+            {"cycleStatsConfig": {"selectedModels": ["X1"]}},
+            {"stationPassRateConfig": {"selectedStations": ["OP10"]}},
+            {"processRecords": None},
+        ],
+    )
+    async def test_rejects_admin_fields_before_writing_anything(
+        self, client, db_clean, ordinary_user_headers, forbidden_section
+    ):
+        response = await client.put(
+            "/api/settings",
+            headers=ordinary_user_headers,
+            json={"modelTargets": {"must-not-save": 99}, **forbidden_section},
+        )
+        assert response.status_code == 403
+        assert await db_clean.configs.find_one({"key": "model_targets"}) is None
+
+    @pytest.mark.parametrize(
+        ("method", "path", "payload"),
+        [
+            ("get", "/api/settings/process-records", None),
+            ("put", "/api/settings/process-records", {"username": "changed"}),
+            ("post", "/api/settings/process-records/test", {}),
+            ("get", "/api/settings/cycle-stats-config", None),
+            ("put", "/api/settings/cycle-stats-config", {"selectedModels": ["X1"]}),
+            ("post", "/api/settings/email-alert/run-weekly-check", None),
+            ("get", "/api/admin/users", None),
+        ],
+    )
+    async def test_cannot_use_other_configuration_endpoints(
+        self, client, ordinary_user_headers, method, path, payload
+    ):
+        kwargs = {"headers": ordinary_user_headers}
+        if payload is not None:
+            kwargs["json"] = payload
+        assert (await client.request(method, path, **kwargs)).status_code == 403
+
+    async def test_model_and_email_pages_support_section_endpoints(
+        self, client, ordinary_user_headers, monkeypatch
+    ):
+        from app.api import settings
+
+        response = await client.put(
+            "/api/settings/model-targets", headers=ordinary_user_headers, json={"X1": 98}
+        )
+        assert response.status_code == 200
+        assert (
+            await client.get("/api/settings/model-targets", headers=ordinary_user_headers)
+        ).json()["data"]["items"] == {"X1": 98}
+        assert (
+            await client.post(
+                "/api/settings/model-targets/X2?targetRate=99", headers=ordinary_user_headers
+            )
+        ).status_code == 200
+        assert (
+            await client.delete("/api/settings/model-targets/X2", headers=ordinary_user_headers)
+        ).status_code == 200
+        assert (
+            await client.put(
+                "/api/settings/email-alert",
+                headers=ordinary_user_headers,
+                json={"emails": "quality@company.com"},
+            )
+        ).status_code == 200
+        assert (
+            await client.get("/api/settings/email-alert", headers=ordinary_user_headers)
+        ).json()["data"]["emails"] == "quality@company.com"
+
+        async def candidates(threshold):
+            return {"threshold": threshold, "modelsChecked": 0, "details": []}
+
+        monkeypatch.setattr(settings, "get_weekly_production_candidates", candidates)
+        response = await client.get(
+            "/api/settings/email-alert/qualified-models?threshold=100",
+            headers=ordinary_user_headers,
+        )
+        assert response.status_code == 200
+        assert response.json()["data"]["threshold"] == 100
+
+    @pytest.mark.parametrize(
+        ("method", "path", "payload"),
+        [
+            ("get", "/api/settings", None),
+            ("put", "/api/settings", {"modelTargets": {"X1": 99}}),
+            ("get", "/api/settings/model-targets", None),
+            ("put", "/api/settings/email-alert", {"enabled": False}),
+            ("get", "/api/settings/email-alert/qualified-models?threshold=50", None),
+        ],
+    )
+    async def test_anonymous_users_cannot_access_settings(self, client, method, path, payload):
+        client.headers.pop("Authorization")
+        kwargs = {"json": payload} if payload is not None else {}
+        assert (await client.request(method, path, **kwargs)).status_code == 401

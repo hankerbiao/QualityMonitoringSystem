@@ -115,12 +115,17 @@ class StationPassRateConfig(BaseModel):
 # ============== 统一设置响应 ==============
 
 
-class SettingsResponse(BaseModel):
-    """统一设置响应"""
+class QualitySettingsResponse(BaseModel):
+    """所有已登录用户可管理的质量指标与邮件预警配置。"""
 
-    processRecords: ProcessRecordConfig
     modelTargets: dict[str, float] = Field(default_factory=dict)
     emailAlert: EmailAlertConfig
+
+
+class SettingsResponse(QualitySettingsResponse):
+    """管理员统一设置响应。"""
+
+    processRecords: ProcessRecordConfig
     dashboardStatuses: dict[str, DashboardStatus] = Field(
         default_factory=default_dashboard_statuses
     )

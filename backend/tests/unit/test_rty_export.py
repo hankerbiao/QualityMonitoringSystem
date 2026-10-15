@@ -61,6 +61,11 @@ def source(monkeypatch, orders, faults=(), bindings=()):
 
     loader = AsyncMock(side_effect=all_pages)
     monkeypatch.setattr(rty_export.data_gateway, "all_pages", loader)
+
+    async def all_orders(*, max_rows, **filters):
+        return await loader("GET", "/api/orders", filters=filters, max_rows=max_rows)
+
+    monkeypatch.setattr(rty_export.data_gateway, "all_orders", AsyncMock(side_effect=all_orders))
     by_id = {row["id"]: row for row in orders if row.get("id")}
     monkeypatch.setattr(
         rty_export.data_gateway,
@@ -169,7 +174,7 @@ async def test_station_export_returns_only_raw_order_and_fault_columns(monkeypat
         ],
     )
 
-    result = await rty_export.build_station_export({**FILTERS, "orderScope": "l6"})
+    result = await rty_export.build_source_export({**FILTERS, "orderScope": "l6"})
 
     assert set(result.model_dump()) == {"orders", "faults"}
     assert tuple(result.orders[0]) == rty_export.ORDER_FIELDS
@@ -186,9 +191,41 @@ async def test_station_export_returns_only_raw_order_and_fault_columns(monkeypat
 @pytest.mark.asyncio
 async def test_station_export_returns_empty_sources_when_no_orders_match(monkeypatch):
     loader = source(monkeypatch, [])
-    result = await rty_export.build_station_export(FILTERS)
+    result = await rty_export.build_source_export(FILTERS)
     assert result.model_dump() == {"orders": [], "faults": []}
     assert loader.await_count == 1
+
+
+@pytest.mark.asyncio
+async def test_source_export_matches_template_sources_without_computing_metrics(monkeypatch):
+    source(
+        monkeypatch,
+        [order(MAKTX_TH="6210 C21 BOX")],
+        [
+            fault("head", PCODE="HEAD-SN"),
+            fault("child", AUFNR="2", PCODE="CHILD-SN"),
+            fault("unbound", AUFNR="2", PCODE="OTHER-SN"),
+        ],
+        [
+            {
+                "AUFNR_HEAD": "1",
+                "AUFNR_ITEM": "2",
+                "ZCODE_HEAD": "HEAD-SN",
+                "ZCODE_ITEM": "CHILD-SN",
+            }
+        ],
+    )
+    template = await rty_export.build_template_export(FILTERS)
+
+    def unexpected_metric(*_args):
+        raise AssertionError("Source-only exports must not compute template metrics")
+
+    monkeypatch.setattr(rty_export, "_sum_quantity", unexpected_metric)
+    monkeypatch.setattr(rty_export, "_fault_rate", unexpected_metric)
+    exported = await rty_export.build_source_export(FILTERS)
+    assert exported.orders == template.orders
+    assert exported.faults == template.faults
+    assert [row["PCODE"] for row in exported.faults] == ["HEAD-SN", "CHILD-SN"]
 
 
 @pytest.mark.asyncio
@@ -305,7 +342,7 @@ async def test_export_fetches_full_order_fields_by_source_id(monkeypatch):
     detail_loader = AsyncMock(side_effect=lambda identity: details[identity])
     monkeypatch.setattr(rty_export.data_gateway, "order_detail", detail_loader)
 
-    result = await rty_export.build_station_export(FILTERS)
+    result = await rty_export.build_source_export(FILTERS)
 
     assert len(result.orders) == 2
     assert result.orders[0]["POSNR"] == "000010"
@@ -344,7 +381,7 @@ async def test_invalid_order_detail_aborts_export(monkeypatch, response):
     source(monkeypatch, [order()])
     monkeypatch.setattr(rty_export.data_gateway, "order_detail", AsyncMock(return_value=response))
     with pytest.raises(DataGatewayError, match="订单详情缺少原始数据"):
-        await rty_export.build_station_export(FILTERS)
+        await rty_export.build_source_export(FILTERS)
 
 
 @pytest.mark.asyncio
@@ -356,7 +393,7 @@ async def test_order_detail_failure_aborts_export(monkeypatch):
         AsyncMock(side_effect=DataGatewayError("detail failed")),
     )
     with pytest.raises(DataGatewayError, match="detail failed"):
-        await rty_export.build_station_export(FILTERS)
+        await rty_export.build_source_export(FILTERS)
 
 
 @pytest.mark.asyncio
@@ -372,13 +409,13 @@ async def test_cycle_export_selects_exact_models_and_bases_before_loading_detail
         [fault("F1"), fault("F2", AUFNR="2"), fault("F3", AUFNR="3")],
     )
 
-    result = await rty_export.build_template_export(
+    result = await rty_export.build_source_export(
         FILTERS, product_models=["M, A", "M B"], bases=["B", "D"]
     )
 
     assert [row["AUFNR"] for row in result.orders] == ["1", "2"]
     assert len(result.faults) == 2
-    assert {row["model"] for row in result.summary} == {"M, A", "M B"}
+    assert {row["MAKTX_TH"] for row in result.orders} == {"M, A", "M B"}
     assert {call.args[0] for call in rty_export.data_gateway.order_detail.await_args_list} == {
         "SG:1",
         "SG:2",
@@ -393,7 +430,7 @@ async def test_missing_order_source_id_aborts_export(monkeypatch):
     del item["id"]
     source(monkeypatch, [item])
     with pytest.raises(DataGatewayError, match="订单缺少数据源 ID"):
-        await rty_export.build_station_export(FILTERS)
+        await rty_export.build_source_export(FILTERS)
 
 
 @pytest.mark.asyncio

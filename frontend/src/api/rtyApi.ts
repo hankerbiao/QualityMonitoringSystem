@@ -103,6 +103,7 @@ function buildStationPassQuery(params: StationPassQuery): URLSearchParams {
   if (params.customer) qs.set('customer', params.customer);
   if (params.base) qs.set('base', params.base);
   if (params.dimensionValue) qs.set('dimensionValue', params.dimensionValue);
+  if (params.overseas) qs.set('overseas', 'true');
   return qs;
 }
 
@@ -117,14 +118,14 @@ export const rtyApi = {
     customer?: string;
     productModels?: string[];
     bases?: string[];
-  }): Promise<RTYTemplateExport> {
+  }): Promise<StationPassExport> {
     const qs = new URLSearchParams({
       dateFrom: params.dateFrom, dateTo: params.dateTo, orderScope: params.orderScope,
     });
     if (params.customer) qs.set('customer', params.customer);
     params.productModels?.forEach(model => qs.append('productModels', model));
     params.bases?.forEach(base => qs.append('bases', base));
-    return requestData<RTYTemplateExport>(`/api/rty/export?${qs}`);
+    return requestData<StationPassExport>(`/api/rty/cycle-export?${qs}`);
   },
 
   async getStationPassRates(params: StationPassQuery): Promise<StationPassRate[]> {

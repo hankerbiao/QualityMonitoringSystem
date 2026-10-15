@@ -30,7 +30,6 @@ describe('cycle query and export', () => {
     vi.mocked(rtyApi.getCustomers).mockResolvedValue([]);
     vi.mocked(rtyApi.getCycleData).mockResolvedValue(result);
     vi.mocked(rtyApi.getCycleExport).mockResolvedValue({
-      summary: [], topProblems: [],
       orders: [{ AUFNR: '000000000001', POSNR: '000010', CPXH: 'Product A', WMENG: 0 }],
       faults: [{ PCODE: 'CHILD-SN', U_FIX: 'repairer' }, { PCODE: 'CHILD-SN' }],
     });
@@ -157,7 +156,7 @@ describe('cycle query and export', () => {
     expect((button as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(button);
     expect(rtyApi.getCycleExport).toHaveBeenCalledTimes(1);
-    await act(async () => { resolve({ summary: [], orders: [], faults: [], topProblems: [] }); });
+    await act(async () => { resolve({ orders: [], faults: [] }); });
     await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalledTimes(1));
     const workbook = vi.mocked(XLSX.writeFile).mock.calls[0][0];
     expect(workbook.Sheets['销售订单']['!ref']).toBe('A1:R1');

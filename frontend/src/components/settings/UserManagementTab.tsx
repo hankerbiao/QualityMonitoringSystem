@@ -19,14 +19,21 @@ type EditorState = {
   displayName: string;
   password: string;
   role: ManagedUser['role'];
+  originalRole: ManagedUser['role'];
   dashboardPermissions: string[];
 };
 const allPermissions = PERMISSIONS.map(([key]) => key);
 const USERNAME_PATTERN = /^[A-Za-z0-9_.-]+$/;
 const newEditor = (): EditorState => ({
   mode: 'create', username: '', displayName: '', password: '',
-  role: 'user', dashboardPermissions: [...allPermissions],
+  role: 'user', originalRole: 'user', dashboardPermissions: [...allPermissions],
 });
+
+function confirmRoleChange(displayName: string, role: ManagedUser['role']) {
+  return window.confirm(role === 'admin'
+    ? `确定将“${displayName}”设为管理员吗？该用户将获得全部看板、系统配置和用户管理权限。`
+    : `确定取消“${displayName}”的管理员身份吗？该用户将恢复原有看板权限。`);
+}
 
 export default function UserManagementTab() {
   const { user: currentUser } = useAuth();
@@ -49,12 +56,15 @@ export default function UserManagementTab() {
   const saveEditor = async () => {
     const normalizedUsername = editor?.username.trim() ?? '';
     if (saving || !editor || !editor.displayName.trim() || (editor.password && editor.password.length < 8) || (editor.mode === 'create' && (!normalizedUsername || !USERNAME_PATTERN.test(normalizedUsername) || !editor.password))) return;
+    const roleChanged = editor.mode === 'edit' && editor.role !== editor.originalRole;
+    if (roleChanged && (editor.username === currentUsername || !confirmRoleChange(editor.displayName, editor.role))) return;
     setSaving(true); setError(''); setNotice('');
     try {
       if (editor.mode === 'create') await adminUsersApi.create({ username: normalizedUsername, displayName: editor.displayName.trim(), password: editor.password, dashboardPermissions: editor.dashboardPermissions });
       else await adminUsersApi.update(editor.username, {
         displayName: editor.displayName.trim(),
-        ...(editor.role === 'user' ? { dashboardPermissions: editor.dashboardPermissions } : {}),
+        ...(roleChanged ? { role: editor.role } : {}),
+        ...(editor.role === 'user' && editor.originalRole === 'user' ? { dashboardPermissions: editor.dashboardPermissions } : {}),
         ...(editor.password ? { password: editor.password } : {}),
       });
       setEditor(null); setNotice(editor.mode === 'create' ? '用户创建成功' : '用户资料已更新'); await load();
@@ -75,10 +85,7 @@ export default function UserManagementTab() {
   const toggleRole = async (user: ManagedUser) => {
     if (saving || user.isProtected || user.username === currentUsername) return;
     const role = user.role === 'admin' ? 'user' : 'admin';
-    const message = role === 'admin'
-      ? `确定将“${user.displayName}”设为管理员吗？该用户将获得全部看板、系统配置和用户管理权限。`
-      : `确定取消“${user.displayName}”的管理员身份吗？该用户将恢复原有看板权限。`;
-    if (!window.confirm(message)) return;
+    if (!confirmRoleChange(user.displayName, role)) return;
     setSaving(true); setError(''); setNotice('');
     try {
       await adminUsersApi.update(user.username, { role });
@@ -157,7 +164,7 @@ export default function UserManagementTab() {
                         <button
                           type="button" title={user.isProtected ? protectionTitle : '编辑用户'} aria-label="编辑用户"
                           disabled={saving || user.isProtected}
-                          onClick={() => setEditor({ mode: 'edit', username: user.username, displayName: user.displayName, password: '', role: user.role, dashboardPermissions: [...user.dashboardPermissions] })}
+                          onClick={() => setEditor({ mode: 'edit', username: user.username, displayName: user.displayName, password: '', role: user.role, originalRole: user.role, dashboardPermissions: [...user.dashboardPermissions] })}
                           className="rounded p-2 text-slate-500 hover:bg-slate-100 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
                         ><Pencil className="size-4" /></button>
                         <button
@@ -200,12 +207,27 @@ export default function UserManagementTab() {
               <label className="block text-sm text-slate-600">显示姓名
                 <input value={editor.displayName} disabled={saving} onChange={(event) => setEditor({ ...editor, displayName: event.target.value })} className="mt-1 h-9 w-full rounded-md border border-slate-300 px-2.5 text-slate-800" />
               </label>
+              {editor.mode === 'edit' && (
+                <label className="block text-sm text-slate-600">角色
+                  <select
+                    value={editor.role}
+                    disabled={saving || editor.username === currentUsername}
+                    onChange={(event) => setEditor({ ...editor, role: event.target.value as ManagedUser['role'] })}
+                    className="mt-1 h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-slate-800 disabled:bg-slate-50"
+                  >
+                    <option value="user">普通用户</option>
+                    <option value="admin">管理员</option>
+                  </select>
+                </label>
+              )}
               <label className="block text-sm text-slate-600">{editor.mode === 'create' ? '初始密码' : '新密码（可选）'}
                 <input type="password" value={editor.password} disabled={saving} onChange={(event) => setEditor({ ...editor, password: event.target.value })} placeholder={editor.mode === 'edit' ? '留空则不修改，至少 8 位' : '至少 8 位密码'} aria-invalid={Boolean(editor.password) && editor.password.length < 8} className={`mt-1 h-9 w-full rounded-md border px-2.5 text-slate-800 ${editor.password && editor.password.length < 8 ? 'border-red-400' : 'border-slate-300'}`} />
                 {editor.mode === 'edit' && <span className="mt-1 block text-xs text-slate-500">留空则保留当前密码</span>}
               </label>
               {editor.role === 'admin' ? (
-                <p className="text-sm text-slate-600">角色：管理员 · 全部看板</p>
+                <p className="text-sm text-slate-600">权限：全部看板、系统配置、用户管理</p>
+              ) : editor.originalRole === 'admin' ? (
+                <p className="text-sm text-slate-600">可访问看板：恢复原有配置</p>
               ) : (
                 <fieldset disabled={saving}>
                   <legend className="mb-2 text-sm text-slate-600">可访问看板</legend>

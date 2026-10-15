@@ -19,10 +19,10 @@ const datePresets: { id: StationDatePreset; label: string }[] = [
   { id: 'year', label: '今年' },
 ];
 
-const bandMeta: Record<StationRateBand, { label: string; dot: string; value: string; active: string }> = {
-  met: { label: '达标 >= 98%', dot: 'bg-emerald-500', value: 'text-emerald-700', active: '' },
-  watch: { label: '关注 95% - 98%', dot: 'bg-amber-500', value: 'text-amber-700', active: 'bg-amber-50' },
-  alert: { label: '异常 < 95%', dot: 'bg-red-500', value: 'text-red-700', active: 'bg-red-50' },
+const bandMeta: Record<StationRateBand, { dot: string; value: string; active: string }> = {
+  met: { dot: 'bg-emerald-500', value: 'text-emerald-700', active: '' },
+  watch: { dot: 'bg-amber-500', value: 'text-amber-700', active: 'bg-amber-50' },
+  alert: { dot: 'bg-red-500', value: 'text-red-700', active: 'bg-red-50' },
 };
 
 function rateClass(rate: number): string {
@@ -237,7 +237,7 @@ export function StationPassFindings({
             const pressed = band !== 'met' && focus === band;
             const content = (
               <>
-                <span className="inline-flex items-center gap-2 text-xs text-slate-600"><i className={`size-2 rounded-full ${meta.dot}`} />{meta.label}</span>
+                <span className="inline-flex items-center gap-2 text-xs text-slate-600"><i className={`size-2 rounded-full ${meta.dot}`} /></span>
                 <span className={`font-mono text-sm font-semibold ${meta.value}`}>{formatCount(summary.counts[band])}</span>
               </>
             );

@@ -10,12 +10,12 @@
 
 | 看板/功能 | 网关接口 | 质量监控后端职责 |
 | --- | --- | --- |
-| RTY 订单 | `GET /api/orders/all` | 订单范围、机型目标、输入数计算 |
+| RTY 订单 | `GET /api/orders` 完整分页 | 订单范围、机型目标、输入数计算 |
 | RTY 故障关联 | `POST /api/faults/lookup` | SN 去重、缺陷归因、RTY 计算 |
 | LRR BOM | `GET /api/views/ZSGV_ZSD124/stream`（TSV 原始字段流） | 发料汇总、订单分组、LRR 计算 |
 | LRR 维修 | `GET /api/faults` | 维修匹配、明细和分页 |
-| MFR 销售订单与 SCS | `GET /api/orders/all`、`GET /api/views/SCS_DOA/stream`、`GET /api/views/SCS_CHANGE/stream` | 在保过滤、月度分母、故障关联和趋势 |
-| DOA 销售订单与 SCS | `GET /api/orders/all`、`GET /api/views/SCS_DOA/stream` | 订单关联及 DOA 计算 |
+| MFR 销售订单与 SCS | `GET /api/orders` 完整分页、`GET /api/views/SCS_DOA/stream`、`GET /api/views/SCS_CHANGE/stream` | 在保过滤、月度分母、故障关联和趋势 |
+| DOA 销售订单与 SCS | `GET /api/orders` 完整分页、`GET /api/views/SCS_DOA/stream` | 订单关联及 DOA 计算 |
 | 工位通过率（RTY 子看板） | `GET /api/views/Z_V_ZMES_T_001/stream`、`POST /api/faults/by-sns` | 工位归一化、SN 去重、维修匹配和通过率 |
 
 关键工位影像追溯（`process-records`）仍连接 MES 影像系统：网关当前没有 MES

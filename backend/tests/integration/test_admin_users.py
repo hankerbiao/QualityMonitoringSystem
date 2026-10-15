@@ -132,9 +132,7 @@ class TestAdminUsers:
             )
         ).status_code == 403
         assert (
-            await client.post(
-                "/api/auth/refresh", json={"refresh_token": alice_refresh_token}
-            )
+            await client.post("/api/auth/refresh", json={"refresh_token": alice_refresh_token})
         ).status_code == 401
 
         deleted = await client.delete("/api/admin/users/alice", headers=headers)
@@ -174,9 +172,7 @@ class TestAdminUsers:
             )
         ).status_code == 200
 
-    async def test_dashboard_permissions_are_scoped_to_each_dashboard(
-        self, client, monkeypatch
-    ):
+    async def test_dashboard_permissions_are_scoped_to_each_dashboard(self, client, monkeypatch):
         from app.api import rty
 
         admin_headers = {"Authorization": f"Bearer {await _admin_token(client)}"}
@@ -242,7 +238,9 @@ class TestAdminUsers:
         admin_headers = {"Authorization": f"Bearer {await _admin_token(client)}"}
         await _create_user(client, admin_headers)
         alice_headers = await _user_headers(client)
-        assert (await client.get("/api/settings", headers=alice_headers)).status_code == 403
+        shared = await client.get("/api/settings", headers=alice_headers)
+        assert shared.status_code == 200
+        assert set(shared.json()["data"]) == {"modelTargets", "emailAlert"}
 
         promoted = await client.patch(
             "/api/admin/users/alice", headers=admin_headers, json={"role": "admin"}
@@ -280,8 +278,11 @@ class TestAdminUsers:
         assert demoted.json()["dashboardPermissions"] == ["rty"]
         stored = await db_clean.users.find_one({"username": "alice"})
         assert stored["role"] == stored["profile"]["role"] == "user"
-        for path in ("/api/settings", "/api/admin/users", "/api/operations/dashboard"):
+        for path in ("/api/admin/users", "/api/operations/dashboard"):
             assert (await client.get(path, headers=alice_headers)).status_code == 403
+        shared = await client.get("/api/settings", headers=alice_headers)
+        assert shared.status_code == 200
+        assert set(shared.json()["data"]) == {"modelTargets", "emailAlert"}
         assert (
             await client.patch(
                 "/api/admin/users/alice", headers=alice_headers, json={"role": "admin"}
@@ -294,9 +295,7 @@ class TestAdminUsers:
     async def test_additional_admin_can_create_and_promote_other_users(self, client):
         admin_headers = {"Authorization": f"Bearer {await _admin_token(client)}"}
         await _create_user(client, admin_headers)
-        await client.patch(
-            "/api/admin/users/alice", headers=admin_headers, json={"role": "admin"}
-        )
+        await client.patch("/api/admin/users/alice", headers=admin_headers, json={"role": "admin"})
         alice_headers = await _user_headers(client)
         await _create_user(client, alice_headers, username="bob")
         promoted = await client.patch(
@@ -336,9 +335,7 @@ class TestAdminUsers:
     ):
         admin_headers = {"Authorization": f"Bearer {await _admin_token(client)}"}
         await _create_user(client, admin_headers)
-        await client.patch(
-            "/api/admin/users/alice", headers=admin_headers, json={"role": "admin"}
-        )
+        await client.patch("/api/admin/users/alice", headers=admin_headers, json={"role": "admin"})
         alice_headers = await _user_headers(client)
         kwargs = {"headers": alice_headers}
         if payload is not None:
@@ -363,9 +360,7 @@ class TestAdminUsers:
     ):
         admin_headers = {"Authorization": f"Bearer {await _admin_token(client)}"}
         await _create_user(client, admin_headers)
-        await client.patch(
-            "/api/admin/users/alice", headers=admin_headers, json={"role": "admin"}
-        )
+        await client.patch("/api/admin/users/alice", headers=admin_headers, json={"role": "admin"})
         alice_headers = await _user_headers(client)
         kwargs = {"headers": alice_headers}
         if payload is not None:

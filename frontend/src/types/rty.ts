@@ -66,6 +66,7 @@ export interface StationPassQuery {
   base?: string;
   groupBy: StationGroupBy;
   orderScope?: 'normal' | 'l6';
+  overseas?: boolean;
   dimensionValue?: string;
 }
 

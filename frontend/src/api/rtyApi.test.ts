@@ -50,18 +50,18 @@ describe('rtyApi list cache', () => {
 
   it('includes the selected customer in station summaries and details', async () => {
     vi.mocked(requestData).mockResolvedValue([]);
-    const query = { groupBy: 'productModel' as const, customer: 'CUST-1' };
+    const query = { groupBy: 'productModel' as const, customer: 'CUST-1', overseas: true };
 
     await rtyApi.getStationPassRates(query);
     await rtyApi.getStationPassDetails('OP10', query);
 
     expect(requestData).toHaveBeenNthCalledWith(
       1,
-      '/api/rty/station-pass-rates?groupBy=productModel&orderScope=normal&customer=CUST-1',
+      '/api/rty/station-pass-rates?groupBy=productModel&orderScope=normal&customer=CUST-1&overseas=true',
     );
     expect(requestData).toHaveBeenNthCalledWith(
       2,
-      '/api/rty/station-pass-details?groupBy=productModel&orderScope=normal&customer=CUST-1&stationCode=OP10&detailType=input',
+      '/api/rty/station-pass-details?groupBy=productModel&orderScope=normal&customer=CUST-1&overseas=true&stationCode=OP10&detailType=input',
     );
   });
 
@@ -114,7 +114,7 @@ describe('rtyApi list cache', () => {
   });
 
   it('exports cycle sources with repeated exact model and base filters using RTY permissions', async () => {
-    const payload = { summary: [], orders: [], faults: [], topProblems: [] };
+    const payload = { orders: [], faults: [] };
     vi.mocked(requestData).mockResolvedValue(payload);
     const filters = {
       dateFrom: '2026-10-05', dateTo: '2026-10-11', orderScope: 'l6' as const,
@@ -125,7 +125,7 @@ describe('rtyApi list cache', () => {
     await rtyApi.getCycleExport(filters);
 
     const url = new URL(vi.mocked(requestData).mock.calls[0][0], 'http://localhost');
-    expect(url.pathname).toBe('/api/rty/export');
+    expect(url.pathname).toBe('/api/rty/cycle-export');
     expect(url.searchParams.getAll('productModels')).toEqual(filters.productModels);
     expect(url.searchParams.getAll('bases')).toEqual(filters.bases);
     expect(url.searchParams.get('dateFrom')).toBe(filters.dateFrom);

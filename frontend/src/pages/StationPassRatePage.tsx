@@ -29,6 +29,31 @@ const dimensionLabels: Record<StationGroupBy, string> = {
   productModel: '机型',
 };
 
+const STATION_DESCRIPTIONS: Record<string, string> = {
+  OP10: '装配',
+  OP150: '过程质量检验',
+  OP170: '硬盘安装与外观检验',
+  OP180: '过程质量检验',
+  OP190: '硬盘及假盘架安装',
+  OP200: '老化初检',
+  OP205: '初检前测',
+  OP210: '老化测试',
+  OP215: '综检后测',
+  OP220: '老化综检',
+  OP221: '冲洗',
+  OP222: '排液烘干充氮',
+  OP230: 'CCC安规测试',
+  OP240: '成品质量检验',
+  OP250: '维修',
+  OP300: '外箱贴标',
+  OP310: '附件装箱',
+  OP320: '包装',
+};
+
+function stationDescription(stationCode: string, fallback = ''): string {
+  return STATION_DESCRIPTIONS[stationCode] || fallback || '工序';
+}
+
 type DetailState = { rate: StationRateRow; type: 'input' | 'defect' };
 type StationQueryState = {
   dateFrom: string;
@@ -39,6 +64,7 @@ type StationQueryState = {
   base: string;
   groupBy: StationGroupBy;
   orderScope: 'normal' | 'l6';
+  overseas: boolean;
 };
 type StationRowFocus = 'all' | 'watch' | 'alert';
 
@@ -153,6 +179,7 @@ export default function StationPassRatePage() {
   const [showBaseSuggestions, setShowBaseSuggestions] = useState(false);
   const [groupBy, setGroupBy] = useState<StationGroupBy>('productModel');
   const [orderScope, setOrderScope] = useState<'normal' | 'l6'>('normal');
+  const [overseas, setOverseas] = useState(false);
   const [rows, setRows] = useState<StationPassRate[]>([]);
   const [selectedStations, setSelectedStations] = useState<string[]>([]);
   const [stationConfigOpen, setStationConfigOpen] = useState(false);
@@ -186,6 +213,7 @@ export default function StationPassRatePage() {
     base: '',
     groupBy: 'productModel',
     orderScope: 'normal',
+    overseas: false,
   });
   const detailRequestId = useRef(0);
   const detailDialogRef = useRef<HTMLDivElement>(null);
@@ -224,6 +252,7 @@ export default function StationPassRatePage() {
       base: next.base.trim() || undefined,
       groupBy: next.groupBy,
       orderScope: next.orderScope,
+      overseas: next.overseas,
     };
     const startedAt = performance.now();
     queryStartedAt.current = startedAt;
@@ -344,6 +373,8 @@ export default function StationPassRatePage() {
     setCustomer('');
     setBase('');
     setGroupBy('productModel');
+    setOrderScope('normal');
+    setOverseas(false);
     queryRef.current = {
       ...queryRef.current,
       dateFrom: initialDateRange.from,
@@ -353,6 +384,8 @@ export default function StationPassRatePage() {
       customer: '',
       base: '',
       groupBy: 'productModel',
+      orderScope: 'normal',
+      overseas: false,
     };
     invalidateResults();
   };
@@ -477,6 +510,7 @@ export default function StationPassRatePage() {
     if (overrides.base !== undefined) setBase(overrides.base);
     if (overrides.groupBy !== undefined) setGroupBy(overrides.groupBy);
     if (overrides.orderScope !== undefined) setOrderScope(overrides.orderScope);
+    if (overrides.overseas !== undefined) setOverseas(overrides.overseas);
     void load(next);
   };
 
@@ -553,9 +587,6 @@ export default function StationPassRatePage() {
               {updatedAt && <span>更新于 {updatedAt}</span>}
               {loading ? <span className="font-mono text-cyan-700">已查询 {formatDuration(loadingElapsedMs)}</span> : queryDurationMs != null && <span className="font-mono">查询耗时 {formatDuration(queryDurationMs)}</span>}
               {hasSearched && !loading && !error && <span className="font-medium text-slate-700">{rowFocus === 'all' ? matrix.rows.length.toLocaleString('zh-CN') : `${tableRows.length.toLocaleString('zh-CN')}/${matrix.rows.length.toLocaleString('zh-CN')}`} 个{dimensionLabel}</span>}
-              <span className="inline-flex items-center gap-1.5"><i className="size-2 rounded-full bg-emerald-500" />达标 &gt;= 98%</span>
-              <span className="inline-flex items-center gap-1.5"><i className="size-2 rounded-full bg-amber-500" />关注 95% - 98%</span>
-              <span className="inline-flex items-center gap-1.5"><i className="size-2 rounded-full bg-red-500" />异常 &lt; 95%</span>
             </div>
           </div>
 
@@ -574,6 +605,7 @@ export default function StationPassRatePage() {
             </div>
               <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-44">统计维度<select value={groupBy} onChange={(event) => updateField('groupBy', setGroupBy, event.target.value as StationGroupBy)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none transition-colors focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"><option value="salesOrder">销售订单号</option><option value="productionOrder">生产订单号</option><option value="productModel">机型</option></select></label>
               <div className="flex min-w-36 flex-col gap-1 text-xs font-medium text-slate-600"><span>订单范围</span><div className="inline-flex h-9 overflow-hidden rounded-md border border-slate-300 bg-white"><button type="button" onClick={() => updateField('orderScope', setOrderScope, 'normal')} className={`px-3 text-xs ${orderScope === 'normal' ? 'bg-cyan-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>普通订单</button><button type="button" onClick={() => updateField('orderScope', setOrderScope, 'l6')} className={`border-l border-slate-300 px-3 text-xs ${orderScope === 'l6' ? 'bg-cyan-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>L6 订单</button></div></div>
+              <label className="inline-flex h-9 min-w-24 items-center gap-2 self-end rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700"><input type="checkbox" checked={overseas} onChange={(event) => updateField('overseas', setOverseas, event.target.checked)} className="size-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />海外</label>
             <label className="flex min-w-40 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-52">客户 ID<select value={customer} onChange={(event) => updateField('customer', setCustomer, event.target.value)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none transition-colors focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"><option value="">全部客户</option>{customers.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
             <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-44">服务器 SN<input value={serialNumber} onChange={(event) => updateField('serialNumber', setSerialNumber, event.target.value)} placeholder="精确输入 SN" className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" /></label>
             <div className="relative z-0 flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 focus-within:z-30 xl:max-w-48">
@@ -620,7 +652,7 @@ export default function StationPassRatePage() {
 
           {(loading || error || hasSearched) && <div className="overflow-auto">
             <table className="w-full min-w-max border-separate border-spacing-0 text-left">
-              <thead className="text-xs font-semibold text-slate-600"><tr><th className="sticky left-0 top-0 z-20 min-w-52 border-b border-r border-slate-200 bg-slate-50 px-4 py-3 text-left shadow-[1px_0_0_0_rgb(226_232_240)]">{dimensionLabel}</th><th className="sticky left-52 top-0 z-20 min-w-30 border-b border-r border-slate-200 bg-slate-100 px-3 py-3 text-center shadow-[1px_0_0_0_rgb(226_232_240)]">RTY直通率</th><th className="sticky left-[20.5rem] top-0 z-20 min-w-32 border-b border-r border-slate-200 bg-cyan-50 px-3 py-3 text-center"><span className="inline-flex items-center justify-center gap-1">组合工站直通率<button type="button" onClick={() => setCalculationHelpOpen(true)} className="inline-flex size-5 items-center justify-center rounded-full text-cyan-700 transition-colors hover:bg-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600" title="查看组合工站直通率计算方法" aria-label="查看组合工站直通率计算方法"><CircleHelp className="size-3.5" /></button></span></th>{matrix.stations.map((station) => { const stationName = rows.find((row) => row.stationCode === station)?.stationName; return <th key={station} className="sticky top-0 z-10 min-w-32 border-b border-r border-slate-200 bg-slate-50 px-3 py-3 text-center font-mono" title={stationName || station}><span className="block text-slate-700">{station}</span>{stationName && <span className="mt-0.5 block max-w-28 truncate font-sans text-[10px] font-medium text-slate-400">{stationName}</span>}</th>; })}</tr></thead>
+          <thead className="text-xs font-semibold text-slate-600"><tr><th className="sticky left-0 top-0 z-20 min-w-52 border-b border-r border-slate-200 bg-slate-50 px-4 py-3 text-left shadow-[1px_0_0_0_rgb(226_232_240)]">{dimensionLabel}</th><th className="sticky left-52 top-0 z-20 min-w-30 border-b border-r border-slate-200 bg-slate-100 px-3 py-3 text-center shadow-[1px_0_0_0_rgb(226_232_240)]">RTY直通率</th><th className="sticky left-[20.5rem] top-0 z-20 min-w-32 border-b border-r border-slate-200 bg-cyan-50 px-3 py-3 text-center"><span className="inline-flex items-center justify-center gap-1">组合工站直通率<button type="button" onClick={() => setCalculationHelpOpen(true)} className="inline-flex size-5 items-center justify-center rounded-full text-cyan-700 transition-colors hover:bg-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600" title="查看组合工站直通率计算方法" aria-label="查看组合工站直通率计算方法"><CircleHelp className="size-3.5" /></button></span></th>{matrix.stations.map((station) => { const sourceName = rows.find((row) => row.stationCode === station)?.stationName; const description = stationDescription(station, sourceName !== station ? sourceName : ''); return <th key={station} className="sticky top-0 z-10 min-w-32 border-b border-r border-slate-200 bg-slate-50 px-3 py-3 text-center font-mono" title={description}><span className="block text-slate-700">{station}</span><span className="mt-0.5 block max-w-28 truncate font-sans text-[10px] font-medium text-slate-400">{description}</span></th>; })}</tr></thead>
               <tbody className="text-xs">
                 {loading ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-slate-500"><span className="inline-flex items-center gap-2"><RefreshCw className="size-4 animate-spin text-cyan-600" />正在计算工位过站量与维修记录匹配关系... {formatDuration(loadingElapsedMs)}</span></td></tr> : error ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-red-600">{error}</td></tr> : matrix.rows.length === 0 ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-slate-500">当前条件下暂无工位过站数据</td></tr> : tableRows.length === 0 ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-slate-500">没有落在该区间的记录</td></tr> : tableRows.map((row) => { const combinedRate = combinedStationPassRate(row.stationRows, selectedStations); return <tr key={row.dimensionValue} className="group"><th className="sticky left-0 z-10 max-w-52 truncate border-b border-r border-slate-200 bg-white px-4 py-3.5 text-left font-mono font-semibold text-slate-800 shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-slate-50" title={row.dimensionValue}>{row.dimensionValue}</th><td className="sticky left-52 z-10 border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-center shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-slate-100/70"><div className="font-mono text-sm font-semibold text-slate-800">{formatRate(row.total.inputCount, row.total.defectCount)}</div><div className="mt-0.5 font-mono text-[11px] text-slate-500">{row.total.defectCount}/{row.total.inputCount}</div></td><td className="sticky left-[20.5rem] z-10 border-b border-r border-slate-200 bg-cyan-50 px-3 py-2 text-center shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-cyan-100/70"><div className="font-mono text-sm font-semibold text-cyan-900">{combinedRate === null ? '-' : `${combinedRate.toFixed(2)}%`}</div><div className="mt-0.5 text-[11px] text-cyan-700">{selectedStations.length ? `${selectedStations.length} 个工站` : '未选择工站'}</div></td>{matrix.stations.map((station) => { const rate = row.stationRows.get(station); return !rate ? <td key={station} className="border-b border-r border-slate-100 bg-slate-50/40 px-3 py-2 text-center text-slate-300">-</td> : <td key={station} className="border-b border-r border-slate-100 p-1.5 text-center"><button type="button" onClick={() => void openDetail(rate)} className={`flex min-h-13 w-full flex-col items-center justify-center rounded-sm px-2 py-1.5 font-mono transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${rateTone(rate.passRate)}`} title={`过站量 ${rate.inputCount}，维修记录 ${rate.defectCount} 条；点击查看明细`}><span className="text-sm font-semibold">{rate.passRate.toFixed(2)}%</span><span className="mt-0.5 text-[11px] font-medium opacity-75">{rate.defectCount}/{rate.inputCount}</span></button></td>; })}</tr>; })}
               </tbody>

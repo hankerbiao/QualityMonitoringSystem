@@ -29,6 +29,7 @@ from app.schemas.settings import (
     ModelTargetsResponse,
     ProcessRecordConfig,
     ProcessRecordConfigUpdate,
+    QualitySettingsResponse,
     SettingsResponse,
     SettingsUpdateRequest,
 )
@@ -41,7 +42,7 @@ from app.services.process_record_service import process_record_gateway
 from app.services.settings_service import SettingsService
 from app.services.weekly_alert import get_weekly_production_candidates, run_weekly_production_check
 
-router = APIRouter(dependencies=[Depends(require_admin)])
+router = APIRouter(dependencies=[Depends(get_current_user)])
 public_router = APIRouter()
 
 CONFIGS = Collections.CONFIGS
@@ -89,35 +90,60 @@ async def get_dashboard_statuses(_: Annotated[dict, Depends(get_current_user)]):
 # ============== 统一设置接口 ==============
 
 
-@router.get("", response_model=Response[SettingsResponse])
-async def get_all_settings():
-    """获取所有系统配置"""
-    return Response(success=True, data=await _service().get_all())
+@router.get("", response_model=Response[SettingsResponse | QualitySettingsResponse])
+async def get_all_settings(current_user: Annotated[dict, Depends(get_current_user)]):
+    """按角色返回可管理的系统配置。"""
+    service = _service()
+    data = (
+        await service.get_all()
+        if current_user.get("role") == "admin"
+        else await service.get_quality()
+    )
+    return Response(success=True, data=data)
 
 
-@router.put("", response_model=Response[SettingsResponse])
-async def update_all_settings(request: SettingsUpdateRequest):
-    """批量更新系统配置"""
+@router.put("", response_model=Response[SettingsResponse | QualitySettingsResponse])
+async def update_all_settings(
+    request: SettingsUpdateRequest,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """批量更新当前角色可管理的配置，先校验权限再写入。"""
+    is_admin = current_user.get("role") == "admin"
+    if not is_admin and request.model_fields_set - {"modelTargets", "emailAlert"}:
+        raise HTTPException(status_code=403, detail="仅管理员可修改此配置")
     try:
         data = await _service().update_all(request)
     except CredentialEncryptionError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if request.processRecords is not None:
         await process_record_gateway.invalidate_clients()
-    return Response(success=True, data=data)
+    return Response(
+        success=True,
+        data=data
+        if is_admin
+        else QualitySettingsResponse(modelTargets=data.modelTargets, emailAlert=data.emailAlert),
+    )
 
 
 # ============== 关键工位影像追溯配置接口 ==============
 
 
-@router.get("/process-records", response_model=Response[ProcessRecordConfig])
+@router.get(
+    "/process-records",
+    response_model=Response[ProcessRecordConfig],
+    dependencies=[Depends(require_admin)],
+)
 async def get_process_record_config():
     """读取两个实时影像数据源共用的凭据状态。"""
     doc = await _read_doc("process_record_config")
     return Response(success=True, data=_process_records_from_doc(doc))
 
 
-@router.put("/process-records", response_model=Response[ProcessRecordConfig])
+@router.put(
+    "/process-records",
+    response_model=Response[ProcessRecordConfig],
+    dependencies=[Depends(require_admin)],
+)
 async def update_process_record_config(config: ProcessRecordConfigUpdate):
     """更新共享凭据；空密码表示保留当前值。"""
     data = config.model_dump(exclude_none=True)
@@ -145,6 +171,7 @@ async def update_process_record_config(config: ProcessRecordConfigUpdate):
 @router.post(
     "/process-records/test",
     response_model=Response[ProcessRecordConnectionTest],
+    dependencies=[Depends(require_admin)],
 )
 async def test_process_record_config(config: ProcessRecordConfigUpdate | None = None):
     """并行测试两个系统；可测试尚未保存的新账号密码。"""
@@ -255,7 +282,11 @@ async def update_email_alert_config(config: EmailAlertConfigUpdate):
     return Response(success=True, data=_email_from_doc(doc), message="邮件预警配置已更新")
 
 
-@router.post("/email-alert/run-weekly-check", response_model=Response[dict])
+@router.post(
+    "/email-alert/run-weekly-check",
+    response_model=Response[dict],
+    dependencies=[Depends(require_admin)],
+)
 async def run_weekly_check():
     """
     手动触发「每周生产量预警检查」。
@@ -278,7 +309,11 @@ async def get_qualified_models(threshold: int = Query(..., ge=0)):
 # ============== 周期统计看板配置接口 ==============
 
 
-@router.get("/cycle-stats-config", response_model=Response[CycleStatsConfig])
+@router.get(
+    "/cycle-stats-config",
+    response_model=Response[CycleStatsConfig],
+    dependencies=[Depends(require_admin)],
+)
 async def get_cycle_stats_config():
     """获取周期统计看板配置"""
     doc = await _read_doc("cycle_stats_config")
@@ -286,7 +321,11 @@ async def get_cycle_stats_config():
     return Response(success=True, data=data)
 
 
-@router.put("/cycle-stats-config", response_model=Response[CycleStatsConfig])
+@router.put(
+    "/cycle-stats-config",
+    response_model=Response[CycleStatsConfig],
+    dependencies=[Depends(require_admin)],
+)
 async def update_cycle_stats_config(config: CycleStatsConfig):
     """保存周期统计看板配置"""
     db = get_database()

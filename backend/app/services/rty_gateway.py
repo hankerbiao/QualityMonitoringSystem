@@ -731,6 +731,7 @@ async def station_rates(
     group_by: str = "salesOrder",
     order_scope: str = "normal",
     customer: str | None = None,
+    overseas: bool = False,
 ) -> list[StationPassRate]:
     start, end = _date_range(date_from, date_to)
     date_from_iso = f"{start[:4]}-{start[4:6]}-{start[6:]}"
@@ -756,6 +757,7 @@ async def station_rates(
                 "base": base or "",
                 "customer": customer or "",
                 "orderScope": order_scope,
+                "overseas": "true" if overseas else "",
             }
         ),
     )
@@ -769,7 +771,7 @@ async def station_rates(
     records = _station_rows_in_planned_range(records, start, end)
     scope_orders = (
         {normalize_order(row["aufnr"]) for row in orders if normalize_order(row["aufnr"])}
-        if order_scope == "l6" or customer
+        if order_scope == "l6" or customer or overseas
         else None
     )
 
@@ -870,6 +872,7 @@ async def station_details(
     dimension_value: str | None = None,
     order_scope: str = "normal",
     customer: str | None = None,
+    overseas: bool = False,
 ) -> list[StationPassDetail]:
     start, end = _date_range(date_from, date_to)
     records = await data_gateway.all_station_rows(
@@ -882,7 +885,7 @@ async def station_details(
     )
     records = _station_rows_in_planned_range(records, start, end)
     scope_orders = None
-    if order_scope == "l6" or customer:
+    if order_scope == "l6" or customer or overseas:
         orders = await _orders(
             {
                 "dateFrom": f"{start[:4]}-{start[4:6]}-{start[6:]}",
@@ -892,6 +895,7 @@ async def station_details(
                 "base": base or "",
                 "customer": customer or "",
                 "orderScope": order_scope,
+                "overseas": "true" if overseas else "",
             }
         )
         if customer:
@@ -1020,7 +1024,7 @@ async def details_by_orders(
         row for row in detail_rows
         if normalize_order(row.get("AUFNR")) in selected_orders
     ]
-    rows = _dedup_faults(detail_rows) if detail_rows else links
+    rows = _dedup_faults(detail_rows)
     return [
         to_detail(row)
         for row in sorted(

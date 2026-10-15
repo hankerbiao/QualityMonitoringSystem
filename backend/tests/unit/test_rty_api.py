@@ -91,6 +91,20 @@ async def test_station_pass_endpoints_forward_customer_filter(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_station_pass_endpoints_forward_overseas_filter(monkeypatch):
+    station_rates = AsyncMock(return_value=[])
+    station_details = AsyncMock(return_value=[])
+    monkeypatch.setattr(rty_gateway, "station_rates", station_rates)
+    monkeypatch.setattr(rty_gateway, "station_details", station_details)
+
+    await rty.get_station_pass_rates(overseas=True)
+    await rty.get_station_pass_details(stationCode="OP10", overseas=True)
+
+    assert station_rates.await_args.kwargs["overseas"] is True
+    assert station_details.await_args.kwargs["overseas"] is True
+
+
+@pytest.mark.asyncio
 async def test_template_export_forwards_complete_filters_and_is_protected(monkeypatch):
     export = AsyncMock(return_value=RTYTemplateExport())
     monkeypatch.setattr(rty.rty_export, "build_template_export", export)
@@ -139,8 +153,8 @@ async def test_cycle_export_passes_repeated_filters_and_requires_only_rty_permis
     permissions,
     status,
 ):
-    export = AsyncMock(return_value=RTYTemplateExport())
-    monkeypatch.setattr(rty.rty_export, "build_template_export", export)
+    export = AsyncMock(return_value=StationPassExport())
+    monkeypatch.setattr(rty.rty_export, "build_source_export", export)
     app = FastAPI()
     app.include_router(rty.router, prefix="/api/rty")
     app.dependency_overrides[auth.get_current_user] = lambda: {
@@ -152,7 +166,7 @@ async def test_cycle_export_passes_repeated_filters_and_requires_only_rty_permis
         base_url="http://test",
     ) as client:
         response = await client.get(
-            "/api/rty/export",
+            "/api/rty/cycle-export",
             params=[
                 ("dateFrom", "2026-10-05"),
                 ("dateTo", "2026-10-11"),
@@ -166,6 +180,7 @@ async def test_cycle_export_passes_repeated_filters_and_requires_only_rty_permis
         )
     assert response.status_code == status
     if status == 200:
+        assert response.json()["data"] == {"orders": [], "faults": []}
         assert export.await_args.kwargs == {
             "product_models": ["M, A", "M B"],
             "bases": ["B", "D"],
@@ -179,6 +194,22 @@ async def test_cycle_export_passes_repeated_filters_and_requires_only_rty_permis
 
 
 @pytest.mark.asyncio
+async def test_station_export_forwards_overseas_filter(monkeypatch):
+    export = AsyncMock(return_value=StationPassExport())
+    monkeypatch.setattr(rty.rty_export, "build_source_export", export)
+
+    response = await rty.get_station_pass_export(
+        request=None,
+        dateFrom="2026-10-05",
+        dateTo="2026-10-11",
+        overseas=True,
+    )
+
+    assert response.success
+    assert export.await_args.args[0]["overseas"] == "true"
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("permissions", "status"),
     [(["station-pass-rate"], 200), (["rty"], 403), ([], 403)],
@@ -189,7 +220,7 @@ async def test_station_export_uses_station_permission_and_applied_filters(
     status,
 ):
     export = AsyncMock(return_value=StationPassExport(orders=[{"AUFNR": "00001"}]))
-    monkeypatch.setattr(rty.rty_export, "build_station_export", export)
+    monkeypatch.setattr(rty.rty_export, "build_source_export", export)
     app = FastAPI()
     app.include_router(rty.router, prefix="/api/rty")
     app.dependency_overrides[auth.get_current_user] = lambda: {

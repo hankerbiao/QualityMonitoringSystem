@@ -114,7 +114,7 @@ export function EmailAlertTab({ config, onChange }: EmailAlertTabProps) {
           <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-1.5">
             <Hash className="w-4 h-4 text-slate-400" /> 周生产量阈值（台）
           </label>
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center gap-3">
             <input
               type="number"
               min={0}
@@ -123,16 +123,16 @@ export function EmailAlertTab({ config, onChange }: EmailAlertTabProps) {
                 const v = Number(e.target.value);
                 onChange({ ...config, weeklyProductionThreshold: Number.isFinite(v) && v >= 0 ? v : 0 });
               }}
-              className="w-32 border border-slate-300 rounded-md px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+              className="w-32 shrink-0 border border-slate-300 rounded-md px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
             />
-            <span className="text-xs text-slate-500">
+            <span className="min-w-32 flex-1 text-xs text-slate-500">
               窗口内某机型投入台数 ≥ 该值，才纳入 RTY 判定
             </span>
             <button
               type="button"
               onClick={handleGetQualifiedModels}
               disabled={loadingModels}
-              className="inline-flex items-center gap-1.5 px-3 py-2 border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-60 rounded-md text-sm font-medium transition-colors"
+              className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap px-3 py-2 border border-slate-300 text-slate-700 hover:bg-slate-50 disabled:opacity-60 rounded-md text-sm font-medium transition-colors"
             >
               {loadingModels ? <Loader2 className="w-4 h-4 animate-spin" /> : <ListFilter className="w-4 h-4" />}
               {loadingModels ? '查询中...' : '查看符合机型'}

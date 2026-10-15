@@ -17,6 +17,7 @@ from app.schemas.settings import (
     DashboardStatus,
     EmailAlertConfig,
     ProcessRecordConfig,
+    QualitySettingsResponse,
     SettingsResponse,
     SettingsUpdateRequest,
     StationPassRateConfig,
@@ -70,6 +71,14 @@ class SettingsService:
                 ),
                 configured=docs["station_pass_rate_config"] is not None,
             ),
+        )
+
+    async def get_quality(self) -> QualitySettingsResponse:
+        targets = await self.read_doc("model_targets")
+        email = await self.read_doc("email_alert_config")
+        return QualitySettingsResponse(
+            modelTargets=(targets or {}).get("targets", {}),
+            emailAlert=self.email_from_doc(email),
         )
 
     async def update_all(self, request: SettingsUpdateRequest) -> SettingsResponse:

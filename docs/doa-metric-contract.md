@@ -16,7 +16,7 @@ SAP shipment scope is excluded and reported through `excludedRepairRecords`.
 
 ## Denominator
 
-The data gateway `GET /api/orders/all` response used by DOA must support
+The data gateway `GET /api/orders` paginated response used by DOA must support
 `company5000=true` and `shipmentOnly=true` and return these fields on every
 item:
 

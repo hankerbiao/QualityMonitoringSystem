@@ -60,7 +60,6 @@ export default function Home() {
   const isAdmin = user?.role === 'admin';
   useEffect(() => {
     if (!isAdmin) {
-      setIsSettingsOpen(false);
       setActiveFilter(current => current === 'management' ? 'all' : current);
     }
   }, [isAdmin]);
@@ -197,7 +196,7 @@ export default function Home() {
               <span className="size-2 rounded-full bg-amber-400" aria-hidden="true" />
               {plannedFunctionCount} 个建设中
             </span>
-            {isAdmin && <button
+            <button
               type="button"
               onClick={openSettings}
               aria-label="系统配置管理"
@@ -205,7 +204,7 @@ export default function Home() {
             >
               <SettingsIcon className="size-3.5" aria-hidden="true" />
               <span>系统配置</span>
-            </button>}
+            </button>
           </div>
         </div>
 
@@ -315,7 +314,7 @@ export default function Home() {
         <span>有问题请联系 @libiao1</span>
       </footer>
 
-      {isSettingsOpen && isAdmin && (
+      {isSettingsOpen && (
         <SettingsModal
           onClose={() => setIsSettingsOpen(false)}
           onSaved={() => window.dispatchEvent(new CustomEvent('settings-saved'))}

@@ -50,8 +50,9 @@ def _order_filters(
     date_to: str | None = None,
     order_scope: OrderScope = "normal",
     calculation_method: CalculationMethod | None = None,
+    overseas: str = "",
 ) -> dict[str, str]:
-    return {
+    result = {
         "salesOrder": sales_order or "",
         "productionOrder": production_order or "",
         "serialNumber": serial_number or "",
@@ -63,6 +64,9 @@ def _order_filters(
         "orderScope": order_scope,
         "calculationMethod": calculation_method or "",
     }
+    if overseas:
+        result["overseas"] = overseas
+    return result
 
 
 async def _targets() -> dict[str, float]:
@@ -110,6 +114,7 @@ async def get_station_pass_rates(
     base: str | None = None,
     groupBy: StationGroupByQuery = "salesOrder",
     orderScope: OrderScopeQuery = "normal",
+    overseas: bool = False,
 ):
     rows = await rty_gateway.station_rates(
         dateFrom,
@@ -120,6 +125,7 @@ async def get_station_pass_rates(
         groupBy,
         orderScope,
         customer=customer,
+        overseas=overseas,
     )
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 个工位")
 
@@ -141,6 +147,7 @@ async def get_station_pass_details(
     groupBy: StationGroupBy = "salesOrder",
     dimensionValue: str | None = None,
     orderScope: OrderScopeQuery = "normal",
+    overseas: bool = False,
 ):
     rows = await rty_gateway.station_details(
         stationCode.strip(),
@@ -154,6 +161,7 @@ async def get_station_pass_details(
         dimensionValue,
         orderScope,
         customer=customer,
+        overseas=overseas,
     )
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 条明细")
 
@@ -173,9 +181,10 @@ async def get_station_pass_export(
     customer: str | None = None,
     base: str | None = None,
     orderScope: OrderScopeQuery = "normal",
+    overseas: bool = False,
 ):
     del request
-    data = await rty_export.build_station_export(
+    data = await rty_export.build_source_export(
         _order_filters(
             serial_number=serialNumber,
             base=base,
@@ -184,7 +193,37 @@ async def get_station_pass_export(
             date_from=dateFrom,
             date_to=dateTo,
             order_scope=orderScope,
+            overseas="true" if overseas else "",
         )
+    )
+    return Response(success=True, data=data)
+
+
+@router.get(
+    "/cycle-export",
+    response_model=Response[StationPassExport],
+    dependencies=[Depends(dashboard_dependency("rty"))],
+)
+@audit_log("QUERY", "rty_cycle_export")
+async def get_cycle_export(
+    request: Request,
+    dateFrom: str | None = None,
+    dateTo: str | None = None,
+    customer: str | None = None,
+    orderScope: OrderScopeQuery = "normal",
+    productModels: Annotated[list[str] | None, Query()] = None,
+    bases: Annotated[list[str] | None, Query()] = None,
+):
+    del request
+    data = await rty_export.build_source_export(
+        _order_filters(
+            date_from=dateFrom,
+            date_to=dateTo,
+            customer=customer,
+            order_scope=orderScope,
+        ),
+        product_models=productModels,
+        bases=bases,
     )
     return Response(success=True, data=data)
 

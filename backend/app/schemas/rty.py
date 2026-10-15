@@ -77,7 +77,7 @@ class RTYTemplateExport(BaseModel):
 
 
 class StationPassExport(BaseModel):
-    """Raw order and fault rows for the station workbook's source sheets."""
+    """Shared raw order and fault sheets for station and cycle workbooks."""
 
     orders: list[dict[str, Any]] = Field(default_factory=list)
     faults: list[dict[str, Any]] = Field(default_factory=list)

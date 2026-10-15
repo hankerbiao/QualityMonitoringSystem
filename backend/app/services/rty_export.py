@@ -24,6 +24,7 @@ from app.services.rty_shared import (
 MAX_EXPORT_ORDERS = 100_000
 MAX_EXPORT_FAULTS = 250_000
 ORDER_DETAIL_CONCURRENCY = 8
+MatchedFault = tuple[dict[str, Any], set[tuple[str, str]]]
 ORDER_FIELDS = (
     "VBELN",
     "POSNR",
@@ -132,10 +133,7 @@ async def _load_orders(
         for key, value in filters.items()
         if value and key not in {"orderScope", "calculationMethod"}
     }
-    # /orders/all silently caps at 10,000 rows; export must use checked pagination.
-    items = await data_gateway.all_pages(
-        "GET", "/api/orders", filters=gateway_filters, max_rows=MAX_EXPORT_ORDERS
-    )
+    items = await data_gateway.all_orders(max_rows=MAX_EXPORT_ORDERS, **gateway_filters)
     start = compact_date(validate_date(filters["dateFrom"]))
     end = compact_date(validate_date(filters["dateTo"]))
     selected_models = set(product_models) if product_models else None
@@ -219,32 +217,28 @@ async def _child_bindings(
     return result
 
 
-async def build_template_export(
+async def _load_sources(
     filters: dict[str, str],
     *,
     product_models: list[str] | None = None,
     bases: list[str] | None = None,
-) -> RTYTemplateExport:
+) -> tuple[list[dict[str, Any]], list[MatchedFault]]:
     start = validate_date(filters["dateFrom"])
     end = validate_date(filters["dateTo"])
     if start > end:
         raise HTTPException(status_code=422, detail="开始日期不能晚于结束日期")
     orders = await _load_orders(filters, product_models=product_models, bases=bases)
     if not orders:
-        return RTYTemplateExport()
+        return [], []
 
-    by_model: dict[str, list[dict[str, Any]]] = defaultdict(list)
     order_models: dict[str, set[str]] = defaultdict(set)
     for row in orders:
         model = str(row.get("MAKTX_TH") or "")
-        by_model[model].append(row)
         order_models[normalize_order(row["AUFNR"])].add(model)
     children = await _child_bindings(orders)
     lookup_orders = sorted(set(order_models) | {order for order, _ in children})
-    faults = []
+    faults: list[MatchedFault] = []
     seen_ids: set[str] = set()
-    defect_sns: dict[str, set[str]] = defaultdict(set)
-    top_groups: dict[tuple[str, ...], set[str]] = defaultdict(set)
     for index in range(0, len(lookup_orders), 50):
         items = await data_gateway.all_pages(
             "GET",
@@ -269,28 +263,45 @@ async def build_template_export(
                 continue
             if identity:
                 seen_ids.add(identity)
-            faults.append(_columns(raw, FAULT_FIELDS))
+            faults.append((_columns(raw, FAULT_FIELDS), matches))
             if len(faults) > MAX_EXPORT_FAULTS:
                 raise HTTPException(status_code=413, detail="维修明细超过导出上限，请缩小筛选范围")
-            for model, head_sn in matches:
-                defect_sns[model].add(head_sn)
-                # Conflicting PNs and material serial numbers cannot identify one part.
-                materials = {
-                    str(raw.get(key) or "").strip()
-                    for key in ("ZCCLH", "MATNR")
-                    if str(raw.get(key) or "").strip()
-                }
-                material = next(iter(materials)) if len(materials) == 1 else ""
-                group = (
-                    model,
-                    str(raw.get("ZNGWD3") or ""),
-                    str(raw.get("ZWXWD3") or ""),
-                    material,
-                    str(raw.get("MAKTX") or "")
-                    if material and material == str(raw.get("MATNR") or "").strip()
-                    else "",
-                )
-                top_groups[group].add(head_sn)
+    return orders, faults
+
+
+async def build_template_export(
+    filters: dict[str, str],
+    *,
+    product_models: list[str] | None = None,
+    bases: list[str] | None = None,
+) -> RTYTemplateExport:
+    orders, faults = await _load_sources(filters, product_models=product_models, bases=bases)
+    by_model: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for row in orders:
+        by_model[str(row.get("MAKTX_TH") or "")].append(row)
+
+    defect_sns: dict[str, set[str]] = defaultdict(set)
+    top_groups: dict[tuple[str, ...], set[str]] = defaultdict(set)
+    for raw, matches in faults:
+        # Conflicting PNs and material serial numbers cannot identify one part.
+        materials = {
+            str(raw.get(key) or "").strip()
+            for key in ("ZCCLH", "MATNR")
+            if str(raw.get(key) or "").strip()
+        }
+        material = next(iter(materials)) if len(materials) == 1 else ""
+        for model, head_sn in matches:
+            defect_sns[model].add(head_sn)
+            group = (
+                model,
+                str(raw.get("ZNGWD3") or ""),
+                str(raw.get("ZWXWD3") or ""),
+                material,
+                str(raw.get("MAKTX") or "")
+                if material and material == str(raw.get("MATNR") or "").strip()
+                else "",
+            )
+            top_groups[group].add(head_sn)
 
     quantities = {model: _sum_quantity(rows, "WMENG") for model, rows in by_model.items()}
     summary = []
@@ -328,12 +339,20 @@ async def build_template_export(
     return RTYTemplateExport(
         summary=summary,
         orders=[_columns(row, ORDER_FIELDS) for row in orders],
-        faults=faults,
+        faults=[raw for raw, _ in faults],
         topProblems=top_problems,
     )
 
 
-async def build_station_export(filters: dict[str, str]) -> StationPassExport:
-    """Use the same selected orders and raw faults as RTY template exports."""
-    data = await build_template_export(filters)
-    return StationPassExport(orders=data.orders, faults=data.faults)
+async def build_source_export(
+    filters: dict[str, str],
+    *,
+    product_models: list[str] | None = None,
+    bases: list[str] | None = None,
+) -> StationPassExport:
+    """Load raw source sheets without computing template summary or TOP rows."""
+    orders, faults = await _load_sources(filters, product_models=product_models, bases=bases)
+    return StationPassExport(
+        orders=[_columns(row, ORDER_FIELDS) for row in orders],
+        faults=[raw for raw, _ in faults],
+    )
