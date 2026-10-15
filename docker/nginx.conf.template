@@ -7,10 +7,12 @@ server {
     client_max_body_size 20m;
 
     location = /QualiBoard {
+        absolute_redirect off;
         return 302 /$is_args$args;
     }
 
     location = /QualiBoard/ {
+        absolute_redirect off;
         return 302 /$is_args$args;
     }
 
