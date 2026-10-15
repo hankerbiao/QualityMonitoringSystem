@@ -105,8 +105,8 @@ describe('cycle query and export', () => {
     expect(workbook.Sheets['销售订单'].C2.v).toBe('000000000001');
     expect(workbook.Sheets['销售订单'].E2.v).toBe('Product A');
     expect(workbook.Sheets['销售订单'].J2).toMatchObject({ t: 'n', v: 0 });
-    expect(workbook.Sheets['销售订单'].R1.v).toBe('NAME1_ZU（最终用户）');
-    expect(workbook.Sheets['维修故障明记录'].AH1.v).toBe('RMA_RESULT-RMA复判结论');
+    expect(workbook.Sheets['销售订单'].R1.v).toBe('最终用户');
+    expect(workbook.Sheets['维修故障明记录'].AH1.v).toBe('RMA复判结论');
     expect(workbook.Sheets['维修故障明记录'].E2.v).toBe('CHILD-SN');
     expect(workbook.Sheets['维修故障明记录'].E3.v).toBe('CHILD-SN');
   });

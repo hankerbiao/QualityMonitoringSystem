@@ -18,11 +18,11 @@ describe('RTY template workbook', () => {
     expect(summary['!ref']).toBe('A1:S1');
     const orders = workbook.Sheets['销售订单-分母'];
     expect(orders.A1.v).toBe('数据字段按如下顺序显示');
-    expect(orders.A2.v).toBe('VBELN(销售订单）');
-    expect(orders.R2.v).toBe('NAME1_ZU（最终用户）');
+    expect(orders.A2.v).toBe('销售订单');
+    expect(orders.R2.v).toBe('最终用户');
     const faults = workbook.Sheets['维修故障明记录-分子'];
-    expect(faults.A2.v).toBe('FACTORY-生产基地');
-    expect(faults.AH2.v).toBe('RMA_RESULT-RMA复判结论');
+    expect(faults.A2.v).toBe('生产基地');
+    expect(faults.AH2.v).toBe('RMA复判结论');
     const top = workbook.Sheets['TOP问题'];
     expect(top.A1.v).toBe('序号');
     expect(top.L1.v).toBe('整机故障率');

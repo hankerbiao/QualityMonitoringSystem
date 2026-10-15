@@ -10,7 +10,8 @@
 
 不再生成“汇总故障明细”页。两个新增 Sheet 第一行为表头；
 无记录时也保留全部列，缺失值留空，数量 0 和标识前导零正常保留。
-IF_l6 表头读取数据源 IF_L6。ZWXDT 仅按原始字段输出，
+表头只显示中文业务说明，移除 VBELN、POSNR、CPXH 等字段代码前缀。
+“L6标识”表头读取数据源 IF_L6。ZWXDT 仅按原始字段输出，
 不使用 ZDATE_WX/ZTIME 拼接，不用 ZUSER 代填 U_FIX。
 
 原始数据请求 `GET /api/rty/station-pass-export`，使用工位看板权限，
