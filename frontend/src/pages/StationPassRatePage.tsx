@@ -121,6 +121,8 @@ function CalculationHelpDialog({ onClose }: { onClose: () => void }) {
           <section>
             <h3 className="font-semibold text-slate-800">RTY 汇总列</h3>
             <p>RTY 汇总列使用订单的 <span className="font-mono text-slate-800">WMENG</span>（订单产量）作为分母，订单计划开始日期使用 <span className="font-mono text-slate-800">GSTRS</span>；它与各工站过站 SN 数不是同一统计口径。</p>
+            <p className="mt-1">故障数为所选订单关联的 2026 年维修 SN 去重数量，包含所选日期范围之外的维修，与 RTY 页周期统计保持一致。</p>
+            <p className="mt-1">跨月或跨工厂地点时，按 RTY 页相同的分组计算后汇总。</p>
           </section>
           <section>
             <h3 className="font-semibold text-slate-800">组合工站直通率</h3>

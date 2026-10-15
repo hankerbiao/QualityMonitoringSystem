@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, TypeVar
 
 from fastapi import HTTPException
 
@@ -49,6 +49,7 @@ RTY_CYCLE_CACHE_TTL_SECONDS = 60.0
 RTY_LIST_CACHE_TTL_SECONDS = 15.0
 _RTY_CYCLE_CACHE = AsyncTTLCache()
 _RTY_LIST_CACHE = AsyncTTLCache()
+_GroupKey = TypeVar("_GroupKey")
 
 
 def _raw(item: dict[str, Any]) -> dict[str, Any]:
@@ -384,11 +385,11 @@ class CompositeFaults:
 
 
 async def _fault_sns_by_composite_groups(
-    groups: dict[str, dict[str, Any]],
+    groups: dict[_GroupKey, dict[str, Any]],
     *,
     date_from: str | None = None,
     date_to: str | None = None,
-) -> dict[str, CompositeFaults]:
+) -> dict[_GroupKey, CompositeFaults]:
     """Resolve all composite groups with one binding query and one child query."""
     if not groups:
         return {}
@@ -400,7 +401,7 @@ async def _fault_sns_by_composite_groups(
         date_to=date_to or REPAIR_YEAR_END,
     )
     result = {key: CompositeFaults() for key in groups}
-    order_to_groups: dict[str, set[str]] = defaultdict(set)
+    order_to_groups: dict[str, set[_GroupKey]] = defaultdict(set)
     for key, group in groups.items():
         for order in group["orders"]:
             order_to_groups[normalize_order(order)].add(key)
@@ -615,6 +616,50 @@ async def cycle_data(
     )
 
 
+async def _rty_order_groups(
+    orders: list[dict[str, Any]], *, group_by: str | None = None
+) -> dict[tuple[str, str, str, str], dict[str, Any]]:
+    """Share cycle RTY grouping and annual repair rules with station summaries."""
+    groups: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    for row in orders:
+        data = row["data"]
+        dimension = (
+            _station_dimension_value({**data, "AUFNR": row["aufnr"]}, group_by)
+            if group_by
+            else ""
+        )
+        model = str(data.get("MAKTX_TH") or "")
+        key = (dimension, row["gstrs_date"][:7], model, str(data.get("LGORT") or ""))
+        group = groups.setdefault(key, {"input": 0.0, "orders": set(), "model": model})
+        group["input"] += _num(data.get("WMENG"))
+        group["orders"].add(row["aufnr"])
+    normal_orders = {
+        order
+        for group in groups.values()
+        if group["model"] not in COMPOSITE_MODEL_ITEMS
+        for order in group["orders"]
+    }
+    composite_groups = {
+        key: group for key, group in groups.items() if group["model"] in COMPOSITE_MODEL_ITEMS
+    }
+    normal_faults, composite_faults = await asyncio.gather(
+        _fault_sns_by_orders(normal_orders, date_from=REPAIR_YEAR_START, date_to=REPAIR_YEAR_END),
+        _fault_sns_by_composite_groups(
+            composite_groups, date_from=REPAIR_YEAR_START, date_to=REPAIR_YEAR_END
+        ),
+    )
+    for key, group in groups.items():
+        faults = normal_faults
+        composite = composite_faults.get(key)
+        if group["model"] in COMPOSITE_MODEL_ITEMS:
+            faults = composite.by_order if composite else {}
+        group["defects"] = set().union(
+            *(faults.get(normalize_order(order), set()) for order in group["orders"])
+        )
+        group["fault_sns"] = composite.source_sns if composite else None
+    return groups
+
+
 async def _build_cycle_data(
     order_scope: str,
     customer: str | None,
@@ -630,50 +675,11 @@ async def _build_cycle_data(
             "dateTo": date_to,
         }
     )
-    groups: dict[tuple[str, str, str], dict[str, Any]] = {}
-    for row in orders:
-        data = row["data"]
-        key = (row["gstrs_date"][:7], str(data.get("MAKTX_TH") or ""), str(data.get("LGORT") or ""))
-        group = groups.setdefault(key, {"input": 0.0, "orders": set()})
-        group["input"] += _num(data.get("WMENG"))
-        group["orders"].add(row["aufnr"])
-    normal_orders = {
-        order
-        for (_month, model, _base), group in groups.items()
-        if model not in COMPOSITE_MODEL_ITEMS
-        for order in group["orders"]
-    }
-    # One batched fault read replaces one request per month/model/base group.
-    # The response is still raw repair data; grouping and de-duplication stay
-    # in this quality service.
-    normal_fault_rows = await _faults_for_orders(
-        normal_orders, date_from=REPAIR_YEAR_START, date_to=REPAIR_YEAR_END
-    )
-    normal_faults: dict[str, set[str]] = defaultdict(set)
-    for fault in normal_fault_rows:
-        order = normalize_order(fault.get("AUFNR"))
-        sn = str(fault.get("PCODE") or "").strip()
-        if order and sn:
-            normal_faults[order].add(sn)
-    composite_groups = {
-        f"{month}:{model}:{base}": {**group, "model": model}
-        for (month, model, base), group in groups.items()
-        if model in COMPOSITE_MODEL_ITEMS
-    }
-    composite_faults_by_key = await _fault_sns_by_composite_groups(
-        composite_groups,
-        date_from=REPAIR_YEAR_START,
-        date_to=REPAIR_YEAR_END,
-    )
+    groups = await _rty_order_groups(orders)
     rows = []
-    for (month, model, base), group in sorted(groups.items()):
-        faults = normal_faults
-        composite = composite_faults_by_key.get(f"{month}:{model}:{base}")
-        if model in COMPOSITE_MODEL_ITEMS:
-            faults = composite.by_order if composite else {}
-        defect_sns = set().union(*(faults.get(normalize_order(o), set()) for o in group["orders"]))
+    for (_dimension, month, model, base), group in sorted(groups.items()):
         inp = round(group["input"])
-        defects = len(defect_sns)
+        defects = len(group["defects"])
         rows.append(
             RTYData(
                 id=f"cycle:{month}:{model}:{base}",
@@ -688,8 +694,10 @@ async def _build_cycle_data(
                 targetRate=float(targets.get(model, 100)),
                 salesOrders=[],
                 productionOrders=[],
-                serialNumbers=sorted(defect_sns),
-                faultSerialNumbers=sorted(composite.source_sns) if composite else None,
+                serialNumbers=sorted(group["defects"]),
+                faultSerialNumbers=(
+                    sorted(group["fault_sns"]) if group["fault_sns"] is not None else None
+                ),
                 salesOrder="",
                 productionOrder="",
                 productLine="",
@@ -776,9 +784,7 @@ async def station_rates(
             productModel=product_model or "",
             base=base or "",
         ),
-        # The summary shown beside the station columns must use the same source
-        # and counting rules as RTY: WMENG is the denominator and fault SNs are
-        # globally de-duplicated per RTY dimension.
+        # Reuse cycle RTY grouping below; individual station metrics stay separate.
         _orders(
             {
                 "dateFrom": date_from_iso,
@@ -799,17 +805,6 @@ async def station_rates(
             if str(row["data"].get("KID") or "").strip() == customer_id
         ]
     records = _station_rows_in_planned_range(records, start, end)
-    summary_groups: dict[str, dict[str, Any]] = {}
-    for row in orders:
-        data = row["data"]
-        dimension_value = _station_dimension_value(data, group_by)
-        group = summary_groups.setdefault(
-            dimension_value,
-            {"input": 0.0, "orders": set(), "model": str(data.get("MAKTX_TH") or "")},
-        )
-        group["input"] += _num(data.get("WMENG"))
-        group["orders"].add(row["aufnr"])
-
     scope_orders = (
         {normalize_order(row["aufnr"]) for row in orders if normalize_order(row["aufnr"])}
         if order_scope == "l6" or customer
@@ -848,34 +843,17 @@ async def station_rates(
                 "sns"
             ].add(sn)
     all_sns = {sn for value in by_station.values() for sn in value["sns"]}
-    normal_orders = {
-        order
-        for group in summary_groups.values()
-        if group["model"] not in COMPOSITE_MODEL_ITEMS
-        for order in group["orders"]
-    }
-    composite_groups = {
-        dimension: group
-        for dimension, group in summary_groups.items()
-        if group["model"] in COMPOSITE_MODEL_ITEMS
-    }
-    repairs, normal_faults, composite_faults = await asyncio.gather(
+    repairs, rty_groups = await asyncio.gather(
         _station_repairs_for_sns(all_sns, date_from=start, date_to=end),
-        _fault_sns_by_orders(normal_orders, date_from=start, date_to=end),
-        _fault_sns_by_composite_groups(
-            composite_groups, date_from=start, date_to=end
-        ),
+        _rty_order_groups(orders, group_by=group_by),
     )
     summary_counts: dict[str, tuple[int, int]] = {}
-    for dimension, group in summary_groups.items():
-        faults = normal_faults
-        if group["model"] in COMPOSITE_MODEL_ITEMS:
-            composite = composite_faults.get(dimension)
-            faults = composite.by_order if composite else {}
-        defect_sns = set().union(
-            *(faults.get(normalize_order(order), set()) for order in group["orders"])
+    for (dimension, _month, _model, _base), group in rty_groups.items():
+        inputs, defects = summary_counts.get(dimension, (0, 0))
+        summary_counts[dimension] = (
+            inputs + round(group["input"]),
+            defects + len(group["defects"]),
         )
-        summary_counts[dimension] = (round(group["input"]), len(defect_sns))
     defect_by_station: dict[tuple[str, str], set[str]] = defaultdict(set)
     for row in repairs:
         repair_station = normalize_station_code(str(row.get("ZNGGZ") or ""))

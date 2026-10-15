@@ -871,8 +871,179 @@ async def test_station_rates_uses_the_same_wmeng_and_fault_sn_summary_as_rty(mon
     assert rows[0].inputCount == 1
     assert rows[0].totalInputCount == 101
     assert rows[0].totalDefectCount == 2
-    assert faults.await_args.kwargs["date_from"] == "20260701"
-    assert faults.await_args.kwargs["date_to"] == "20260731"
+    assert faults.await_args.kwargs["date_from"] == rty_gateway.REPAIR_YEAR_START
+    assert faults.await_args.kwargs["date_to"] == rty_gateway.REPAIR_YEAR_END
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("model", ["6210 C21", "6215 C32"])
+async def test_station_rty_matches_cycle_for_repairs_outside_selected_order_dates(
+    monkeypatch, model
+):
+    gateway = rty_gateway.data_gateway
+    composite = model in rty_gateway.COMPOSITE_MODEL_ITEMS
+    monkeypatch.setattr(
+        gateway,
+        "all_orders",
+        AsyncMock(
+            return_value=[
+                {
+                    "aufnr": order,
+                    "productionModel": model,
+                    "inventoryLocation": "B1",
+                    "plannedStartDate": planned_date,
+                    "orderQuantity": quantity,
+                }
+                for order, planned_date, quantity in [
+                    ("1", "2026-10-05", 600),
+                    ("2", "2026-10-11", 658),
+                    ("3", "2026-10-12", 200),
+                ]
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        gateway,
+        "all_station_rows",
+        AsyncMock(
+            return_value=[
+                {
+                    "PCODE": "SN-IN",
+                    "AUFNR": "1",
+                    "SPEC": "OP205",
+                    "MAKTX_TH": model,
+                    "GSTRS": "20261005",
+                }
+            ]
+        ),
+    )
+    late_order, late_sn = ("20", "CHILD-LATE") if composite else ("2", "SN-LATE")
+    fault_rows = [
+        {"AUFNR": order, "PCODE": sn, "ZDATE_WX": repair_date}
+        for order, sn, repair_date in [
+            ("000000000001", "SN-IN", "20261006"),
+            (late_order, late_sn, "20261012"),
+            (late_order, late_sn, "20261014"),
+            ("1", "SN-PREVIOUS-YEAR", "20251231"),
+            ("1", "SN-NEXT-YEAR", "20270101"),
+            ("3", "SN-OTHER-ORDER", "20261010"),
+        ]
+    ]
+
+    async def fault_lookup(*, production_orders, date_from, date_to):
+        orders = {rty_gateway.normalize_order(order) for order in production_orders}
+        return [
+            row
+            for row in fault_rows
+            if rty_gateway.normalize_order(row["AUFNR"]) in orders
+            and date_from <= row["ZDATE_WX"] <= date_to
+        ]
+
+    monkeypatch.setattr(gateway, "fault_lookup", fault_lookup)
+    monkeypatch.setattr(
+        rty_gateway,
+        "_bindings",
+        AsyncMock(
+            return_value=[
+                {
+                    "AUFNR_HEAD": "000000000002",
+                    "AUFNR_ITEM": "000000000020",
+                    "ZCODE_HEAD": "SN-LATE",
+                    "ZCODE_ITEM": "CHILD-LATE",
+                }
+            ]
+        ),
+    )
+    station_repairs = AsyncMock(return_value=[{"PCODE": "SN-IN", "ZNGGZ": "OP205"}])
+    monkeypatch.setattr(rty_gateway, "_station_repairs_for_sns", station_repairs)
+
+    cycle_rows = await rty_gateway._build_cycle_data("normal", None, {}, "2026-10-05", "2026-10-11")
+    station_rows = await rty_gateway.station_rates(
+        "2026-10-05", "2026-10-11", product_model=model, group_by="productModel"
+    )
+
+    assert len(cycle_rows) == len(station_rows) == 1
+    assert station_rows[0].totalInputCount == cycle_rows[0].inputCount == 1258
+    assert station_rows[0].totalDefectCount == cycle_rows[0].defectCount == 2
+    assert cycle_rows[0].serialNumbers == ["SN-IN", "SN-LATE"]
+    assert station_rows[0].inputCount == 1
+    assert station_rows[0].defectCount == 1
+    station_repairs.assert_awaited_once_with({"SN-IN"}, date_from="20261005", date_to="20261011")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("group_by", ["productModel", "salesOrder", "productionOrder"])
+async def test_station_rty_reuses_cycle_month_and_base_grouping(monkeypatch, group_by):
+    gateway = rty_gateway.data_gateway
+    order_values = [
+        ("1", "2026-07-01", "B1"),
+        ("2", "2026-07-01", "B2"),
+        ("3", "2026-08-01", "B1"),
+        ("4", "2026-07-02", "B1"),
+    ]
+    monkeypatch.setattr(
+        gateway,
+        "all_orders",
+        AsyncMock(
+            return_value=[
+                {
+                    "aufnr": order,
+                    "salesOrder": "SO-1",
+                    "productionModel": "6210 C21",
+                    "inventoryLocation": base,
+                    "plannedStartDate": planned_date,
+                    "orderQuantity": 10,
+                }
+                for order, planned_date, base in order_values
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        gateway,
+        "all_station_rows",
+        AsyncMock(
+            return_value=[
+                {
+                    "AUFNR": order,
+                    "VBELN": "SO-1",
+                    "MAKTX_TH": "6210 C21",
+                    "LGORT": base,
+                    "GSTRS": planned_date,
+                    "PCODE": "SN-SHARED",
+                    "SPEC": "OP205",
+                }
+                for order, planned_date, base in order_values
+            ]
+        ),
+    )
+
+    async def fault_lookup(*, production_orders, date_from, date_to):
+        orders = {rty_gateway.normalize_order(order) for order in production_orders}
+        return [
+            {"AUFNR": order, "PCODE": "SN-SHARED"}
+            for order, _date, _base in order_values
+            if order in orders
+        ]
+
+    monkeypatch.setattr(gateway, "fault_lookup", fault_lookup)
+    monkeypatch.setattr(rty_gateway, "_station_repairs_for_sns", AsyncMock(return_value=[]))
+
+    cycle_rows = await rty_gateway._build_cycle_data("normal", None, {}, "2026-07-01", "2026-08-31")
+    station_rows = await rty_gateway.station_rates(
+        "2026-07-01", "2026-08-31", product_model="6210 C21", group_by=group_by
+    )
+
+    assert len(cycle_rows) == 3
+    assert sum(row.inputCount for row in cycle_rows) == 40
+    assert sum(row.defectCount for row in cycle_rows) == 3
+    if group_by == "productionOrder":
+        assert {
+            row.dimensionValue: (row.totalInputCount, row.totalDefectCount) for row in station_rows
+        } == {order: (10, 1) for order, _date, _base in order_values}
+    else:
+        assert len(station_rows) == 1
+        assert station_rows[0].totalInputCount == sum(row.inputCount for row in cycle_rows)
+        assert station_rows[0].totalDefectCount == sum(row.defectCount for row in cycle_rows)
 
 
 @pytest.mark.asyncio
