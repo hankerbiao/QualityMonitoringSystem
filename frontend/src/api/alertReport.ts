@@ -1,6 +1,5 @@
 import type { AlertReportData } from '../types/alertReport';
-
-const API_BASE = '/api';
+import { API_BASE_URL } from '../constants';
 
 export const alertReportApi = {
   /**
@@ -8,7 +7,7 @@ export const alertReportApi = {
    * 注意: 必须使用普通 fetch，不能走 apiFetch（后者会强制附加 Bearer token 并尝试刷新）。
    */
   async getReport(token: string): Promise<AlertReportData> {
-    const res = await fetch(`${API_BASE}/alert-report/${token}`, {
+    const res = await fetch(`${API_BASE_URL}/alert-report/${token}`, {
       method: 'GET',
       headers: { 'Content-Type': 'application/json' },
     });

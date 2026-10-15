@@ -7,6 +7,7 @@ import type {
   LRROptions,
 } from '../types';
 import { requestJson } from './authApi';
+import { API_BASE_URL } from '../constants';
 
 const inFlightRequests = new Map<string, Promise<unknown>>();
 const completedRequests = new Map<string, { expiresAt: number; value: unknown }>();
@@ -85,7 +86,7 @@ export const lrrApi = {
     signal?: AbortSignal,
   ): Promise<LRRListResponse> {
     const qs = buildQuery(filters, { page, limit: pageSize });
-    const url = `/api/lrr/list${qs}`;
+    const url = `${API_BASE_URL}/lrr/list${qs}`;
     if (signal) {
       const generation = cacheGeneration;
       return requestJson<LRRListResponse>(url, { signal }).then((value) => {
@@ -113,7 +114,7 @@ export const lrrApi = {
 
   /** 过滤器下拉枚举 */
   async getOptions(): Promise<LRROptions> {
-    const url = '/api/lrr/options';
+    const url = `${API_BASE_URL}/lrr/options`;
     return requestOnce(url, async () => {
       return requestJson<LRROptions>(url);
     });
@@ -122,7 +123,7 @@ export const lrrApi = {
   /** 故障明细(用于导出)，返回全量命中记录 */
   async getFaultDetails(filters: LRRFilters = {}, limit = 50000): Promise<LRRFaultDetailsResponse> {
     const qs = buildQuery(filters, { limit });
-    const url = `/api/lrr/fault-details${qs}`;
+    const url = `${API_BASE_URL}/lrr/fault-details${qs}`;
     return cachedRequest(url, () => requestJson<LRRFaultDetailsResponse>(url));
   },
 };

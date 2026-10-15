@@ -5,6 +5,7 @@ import { LoadingPage } from './components/ui';
 import { SettingsProvider } from './context/SettingsContext';
 import { useSettings } from './context/SettingsContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { getAppBasePath } from './constants';
 
 const Home = lazy(() => import('./pages/Home'));
 const RTYPage = lazy(() => import('./pages/RTYPage'));
@@ -128,13 +129,8 @@ function AppContent() {
 }
 
 export default function App() {
-  const pathname = window.location.pathname;
-  const basename = pathname === '/QualiBoard' || pathname.startsWith('/QualiBoard/')
-    ? '/QualiBoard'
-    : '/';
-
   return (
-    <Router basename={basename}>
+    <Router basename={getAppBasePath() || '/'}>
       <AuthProvider>
         <SettingsProvider>
           <AppContent />

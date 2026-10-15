@@ -48,8 +48,14 @@ redirect. `/QualiBoard/` also works. The browser router selects its base path
 from the entry URL, so login, logout, and dashboard navigation keep the chosen
 prefix. For example, `/QualiBoard/rty` supports direct access and page reloads.
 
-Nginx serves `index.html` for frontend routes. Both entries share the same
-build, root-relative `/assets/` resources, and `/api/` requests.
+Both entries share one build. Built assets use `/QualiBoard/assets/`, and API
+requests use the current entry prefix (`/api/` or `/QualiBoard/api/`). Nginx
+internally removes `/QualiBoard/` before serving assets, routing API requests,
+or serving `index.html` for frontend routes. The browser URL stays unchanged.
+
+A gateway can expose the application at `https://your-domain/QualiBoard/` by
+proxying `/QualiBoard/` to the frontend container, preserving the request path.
+No domain-root `/assets/` or `/api/` gateway routes are required.
 
 ## Operations
 

@@ -1,5 +1,6 @@
 import { DefectDetail, RTYData, RTYFilterParams, SalesOrderSummary, PaginatedRTYResponse, PaginatedExcludedOrdersResponse, StationPassDetail, StationPassQuery, StationPassRate } from '../types';
 import { requestData, requestJson } from './authApi';
+import { API_BASE_URL } from '../constants';
 import type { RTYTemplateExport, StationPassExport } from '../types/rty';
 
 const RTY_LIST_CACHE_TTL_MS = 2_000;
@@ -109,7 +110,7 @@ function buildStationPassQuery(params: StationPassQuery): URLSearchParams {
 
 export const rtyApi = {
   async getTemplateExport(params: RTYFilterParams): Promise<RTYTemplateExport> {
-    return requestData<RTYTemplateExport>(`/api/rty/export?${buildRtyQuery(params)}`);
+    return requestData<RTYTemplateExport>(`${API_BASE_URL}/rty/export?${buildRtyQuery(params)}`);
   },
   async getCycleExport(params: {
     dateFrom: string;
@@ -125,7 +126,7 @@ export const rtyApi = {
     if (params.customer) qs.set('customer', params.customer);
     params.productModels?.forEach(model => qs.append('productModels', model));
     params.bases?.forEach(base => qs.append('bases', base));
-    return requestData<StationPassExport>(`/api/rty/cycle-export?${qs}`);
+    return requestData<StationPassExport>(`${API_BASE_URL}/rty/cycle-export?${qs}`);
   },
 
   async getStationPassRates(params: StationPassQuery): Promise<StationPassRate[]> {
@@ -134,18 +135,18 @@ export const rtyApi = {
     // Station RTY must reflect the current filters and latest source snapshot.
     // Keep request coalescing in the browser out of this result path so a
     // repeated query does not reuse a multi-hour option cache entry.
-    return requestData<StationPassRate[]>(`/api/rty/station-pass-rates${suffix ? `?${suffix}` : ''}`);
+    return requestData<StationPassRate[]>(`${API_BASE_URL}/rty/station-pass-rates${suffix ? `?${suffix}` : ''}`);
   },
 
   async getStationPassExport(params: StationPassQuery): Promise<StationPassExport> {
-    return requestData<StationPassExport>(`/api/rty/station-pass-export?${buildStationPassQuery(params)}`);
+    return requestData<StationPassExport>(`${API_BASE_URL}/rty/station-pass-export?${buildStationPassQuery(params)}`);
   },
 
   async getStationPassDetails(stationCode: string, params: StationPassQuery, detailType: 'input' | 'defect' = 'input'): Promise<StationPassDetail[]> {
     const qs = buildStationPassQuery(params);
     qs.set('stationCode', stationCode);
     qs.set('detailType', detailType);
-    return requestData<StationPassDetail[]>(`/api/rty/station-pass-details?${qs}`);
+    return requestData<StationPassDetail[]>(`${API_BASE_URL}/rty/station-pass-details?${qs}`);
   },
 
   async getCycleData(
@@ -181,7 +182,7 @@ export const rtyApi = {
       if (customer) qs.set('customer', customer);
       if (dateFrom) qs.set('dateFrom', dateFrom);
       if (dateTo) qs.set('dateTo', dateTo);
-      return requestData<RTYData[]>(`/api/rty/cycle-data?${qs.toString()}`);
+      return requestData<RTYData[]>(`${API_BASE_URL}/rty/cycle-data?${qs.toString()}`);
     })();
     const entry = { expiresAt: Date.now() + RTY_CYCLE_CACHE_TTL_MS, promise, cachedAt: Date.now() };
     rtyCycleCache.set(key, entry);
@@ -204,7 +205,7 @@ export const rtyApi = {
     const cached = rtyListCache.get(requestKey);
     if (cached && cached.expiresAt > Date.now()) return cached.promise;
 
-    const promise = requestJson<PaginatedRTYResponse>(`/api/rty/list?${requestKey}`)
+    const promise = requestJson<PaginatedRTYResponse>(`${API_BASE_URL}/rty/list?${requestKey}`)
       .then(json => {
         if (!Array.isArray(json.items)) throw new Error('RTY 列表响应格式无效');
         rtyListCache.set(requestKey, { expiresAt: Date.now() + RTY_LIST_CACHE_TTL_MS, promise });
@@ -231,7 +232,7 @@ export const rtyApi = {
     qs.set('page', String(page));
     qs.set('limit', String(pageSize));
     buildRtyQuery(params).forEach((value, key) => qs.set(key, value));
-    const json = await requestJson<PaginatedExcludedOrdersResponse>(`/api/rty/excluded-orders?${qs}`);
+    const json = await requestJson<PaginatedExcludedOrdersResponse>(`${API_BASE_URL}/rty/excluded-orders?${qs}`);
     if (!Array.isArray(json.items)) throw new Error('已过滤订单响应格式无效');
     return json as PaginatedExcludedOrdersResponse;
   },
@@ -239,41 +240,41 @@ export const rtyApi = {
   async getDefectDetails(serialNumbers: string[]): Promise<DefectDetail[]> {
     if (!serialNumbers.length) return [];
     const qs = new URLSearchParams({ sns: serialNumbers.join(',') });
-    return requestData<DefectDetail[]>(`/api/rty/defects?${qs}`);
+    return requestData<DefectDetail[]>(`${API_BASE_URL}/rty/defects?${qs}`);
   },
 
   async getDefectDetailsByOrder(productionOrder: string): Promise<DefectDetail[]> {
     const qs = new URLSearchParams({ productionOrder });
-    return requestData<DefectDetail[]>(`/api/rty/defects/by-order?${qs}`);
+    return requestData<DefectDetail[]>(`${API_BASE_URL}/rty/defects/by-order?${qs}`);
   },
 
   async getDefectDetailsByFilters(params: RTYFilterParams): Promise<DefectDetail[]> {
     const qs = buildRtyQuery(params);
 
-    return requestData<DefectDetail[]>(`/api/rty/defects/by-filters?${qs}`);
+    return requestData<DefectDetail[]>(`${API_BASE_URL}/rty/defects/by-filters?${qs}`);
   },
 
   async getSalesOrderSummary(salesOrders: string[]): Promise<SalesOrderSummary[]> {
     if (!salesOrders.length) return [];
     const qs = new URLSearchParams({ salesOrders: salesOrders.join(',') });
-    return requestData<SalesOrderSummary[]>(`/api/rty/sales-order-summary?${qs}`);
+    return requestData<SalesOrderSummary[]>(`${API_BASE_URL}/rty/sales-order-summary?${qs}`);
   },
 
   async getProductModels(orderScope: RTYFilterParams['orderScope'] = 'normal'): Promise<{ model: string; count: number }[]> {
     return cachedOption(`product-models:${orderScope}`, async () => {
-      return requestData<{ model: string; count: number }[]>(`/api/rty/product-models?orderScope=${orderScope}`);
+      return requestData<{ model: string; count: number }[]>(`${API_BASE_URL}/rty/product-models?orderScope=${orderScope}`);
     });
   },
 
   async getBases(orderScope: RTYFilterParams['orderScope'] = 'normal'): Promise<{ base: string; count: number }[]> {
     return cachedOption(`bases:${orderScope}`, async () => {
-      return requestData<{ base: string; count: number }[]>(`/api/rty/bases?orderScope=${orderScope}`);
+      return requestData<{ base: string; count: number }[]>(`${API_BASE_URL}/rty/bases?orderScope=${orderScope}`);
     });
   },
 
   async getCustomers(orderScope: RTYFilterParams['orderScope'] = 'normal'): Promise<string[]> {
     return cachedOption(`customers:${orderScope}`, async () => {
-      return requestData<string[]>(`/api/rty/customers?orderScope=${orderScope}`);
+      return requestData<string[]>(`${API_BASE_URL}/rty/customers?orderScope=${orderScope}`);
     });
   },
 
@@ -287,7 +288,7 @@ export const rtyApi = {
         productModels: { model: string; count: number }[];
         bases: { base: string; count: number }[];
         customers: string[];
-      }>(`/api/rty/filter-options?orderScope=${orderScope}`);
+      }>(`${API_BASE_URL}/rty/filter-options?orderScope=${orderScope}`);
     });
   },
 
