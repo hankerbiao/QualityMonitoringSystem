@@ -16,6 +16,7 @@ FILTERS = {
 
 def order(number="1", **fields):
     return {
+        "id": f"SG:{number}",
         "aufnr": number,
         "plannedStartDate": "2026-09-01",
         "raw": {
@@ -60,6 +61,12 @@ def source(monkeypatch, orders, faults=(), bindings=()):
 
     loader = AsyncMock(side_effect=all_pages)
     monkeypatch.setattr(rty_export.data_gateway, "all_pages", loader)
+    by_id = {row["id"]: row for row in orders if row.get("id")}
+    monkeypatch.setattr(
+        rty_export.data_gateway,
+        "order_detail",
+        AsyncMock(side_effect=lambda identity: {"raw": by_id[identity]["raw"]}),
+    )
     return loader
 
 
@@ -141,20 +148,21 @@ async def test_export_joins_order_faults_without_repair_date_filters(monkeypatch
     assert result.summary[0]["defectCount"] == 5
     assert len(result.faults) == 5
     fault_requests = [
-        call.kwargs["filters"]
-        for call in loader.await_args_list
-        if call.args[1] == "/api/faults"
+        call.kwargs["filters"] for call in loader.await_args_list if call.args[1] == "/api/faults"
     ]
-    assert fault_requests == [{
-        "productionOrders": "000000000001,1",
-        "timeField": "planned",
-    }]
+    assert fault_requests == [
+        {
+            "productionOrders": "000000000001,1",
+            "timeField": "planned",
+        }
+    ]
 
 
 @pytest.mark.asyncio
 async def test_station_export_returns_only_raw_order_and_fault_columns(monkeypatch):
     source(
-        monkeypatch, [order("000000000001", POSNR=None, WMENG=0, IF_L6="X")],
+        monkeypatch,
+        [order("000000000001", POSNR=None, WMENG=0, IF_L6="X")],
         [
             fault("first", PCODE="00001", U_FIX=None, ZUSER="not-a-substitute", ZDATE_WX=""),
             fault("second", PCODE="00001", ZWXDT="2027-01-01"),
@@ -272,6 +280,95 @@ async def test_fault_failure_aborts_export_instead_of_returning_partial_sheets(m
 
 
 @pytest.mark.asyncio
+async def test_export_fetches_full_order_fields_by_source_id(monkeypatch):
+    first = order("000000000001")
+    second = {**order("000000000001"), "id": "KK:000000000001"}
+    source(monkeypatch, [first, second])
+    details = {
+        first["id"]: {
+            "raw": {
+                "data": {
+                    **first["raw"]["data"],
+                    "POSNR": "000010",
+                    "CPXH": "PRODUCT-A",
+                    "IF_L6": "",
+                    "WERKS": "5203",
+                    "MATNR": "00001234",
+                    "ZDATE_STARTED": "2026-09-02 08:00:00",
+                }
+            }
+        },
+        second["id"]: {
+            "raw": {"data": {**second["raw"]["data"], "POSNR": 20, "CPXH": "PRODUCT-B"}}
+        },
+    }
+    detail_loader = AsyncMock(side_effect=lambda identity: details[identity])
+    monkeypatch.setattr(rty_export.data_gateway, "order_detail", detail_loader)
+
+    result = await rty_export.build_station_export(FILTERS)
+
+    assert len(result.orders) == 2
+    assert result.orders[0]["POSNR"] == "000010"
+    assert result.orders[0]["CPXH"] == "PRODUCT-A"
+    assert result.orders[0]["MATNR"] == "00001234"
+    assert result.orders[0]["WERKS"] == "5203"
+    assert result.orders[0]["ZDATE_STARTED"] == "2026-09-02 08:00:00"
+    assert result.orders[0]["IF_L6"] == ""
+    assert result.orders[1]["POSNR"] == 20
+    assert result.orders[1]["CPXH"] == "PRODUCT-B"
+    assert result.orders[1]["MATNR"] is None
+    assert {call.args[0] for call in detail_loader.await_args_list} == set(details)
+
+
+@pytest.mark.asyncio
+async def test_export_scope_uses_full_order_source(monkeypatch):
+    item = order()
+    source(monkeypatch, [item])
+    monkeypatch.setattr(
+        rty_export.data_gateway,
+        "order_detail",
+        AsyncMock(return_value={"raw": {"data": {**item["raw"]["data"], "IF_L6": "X"}}}),
+    )
+
+    normal = await rty_export.build_template_export(FILTERS)
+    l6 = await rty_export.build_template_export({**FILTERS, "orderScope": "l6"})
+
+    assert normal.orders == []
+    assert len(l6.orders) == 1
+    assert l6.orders[0]["IF_L6"] == "X"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("response", [None, {}, {"raw": {}}, {"raw": {"data": []}}])
+async def test_invalid_order_detail_aborts_export(monkeypatch, response):
+    source(monkeypatch, [order()])
+    monkeypatch.setattr(rty_export.data_gateway, "order_detail", AsyncMock(return_value=response))
+    with pytest.raises(DataGatewayError, match="订单详情缺少原始数据"):
+        await rty_export.build_station_export(FILTERS)
+
+
+@pytest.mark.asyncio
+async def test_order_detail_failure_aborts_export(monkeypatch):
+    source(monkeypatch, [order()])
+    monkeypatch.setattr(
+        rty_export.data_gateway,
+        "order_detail",
+        AsyncMock(side_effect=DataGatewayError("detail failed")),
+    )
+    with pytest.raises(DataGatewayError, match="detail failed"):
+        await rty_export.build_station_export(FILTERS)
+
+
+@pytest.mark.asyncio
+async def test_missing_order_source_id_aborts_export(monkeypatch):
+    item = order()
+    del item["id"]
+    source(monkeypatch, [item])
+    with pytest.raises(DataGatewayError, match="订单缺少数据源 ID"):
+        await rty_export.build_station_export(FILTERS)
+
+
+@pytest.mark.asyncio
 async def test_order_export_reads_past_the_gateway_all_endpoint_cap(monkeypatch):
     requests = []
 
@@ -286,6 +383,11 @@ async def test_order_export_reads_past_the_gateway_all_endpoint_cap(monkeypatch)
     client = DataGatewayClient("http://gateway.test")
     client._client = httpx.AsyncClient(
         transport=httpx.MockTransport(handler), base_url=client.base_url
+    )
+    monkeypatch.setattr(
+        client,
+        "order_detail",
+        AsyncMock(side_effect=lambda identity: {"raw": order(identity.split(":")[1])["raw"]}),
     )
     monkeypatch.setattr(rty_export, "data_gateway", client)
     try:

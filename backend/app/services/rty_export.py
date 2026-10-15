@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
 from decimal import Decimal, InvalidOperation
 from math import isfinite
@@ -11,7 +12,7 @@ from fastapi import HTTPException
 
 from app.schemas.rty import RTYTemplateExport, StationPassExport
 from app.services import rty_gateway
-from app.services.data_gateway_client import data_gateway
+from app.services.data_gateway_client import DataGatewayError, data_gateway
 from app.services.lrr_normalization import compact_date
 from app.services.rty_shared import (
     COMPOSITE_MODEL_ITEMS,
@@ -22,6 +23,7 @@ from app.services.rty_shared import (
 
 MAX_EXPORT_ORDERS = 100_000
 MAX_EXPORT_FAULTS = 250_000
+ORDER_DETAIL_CONCURRENCY = 8
 ORDER_FIELDS = (
     "VBELN",
     "POSNR",
@@ -131,20 +133,49 @@ async def _load_orders(filters: dict[str, str]) -> list[dict[str, Any]]:
     )
     start = compact_date(validate_date(filters["dateFrom"]))
     end = compact_date(validate_date(filters["dateTo"]))
-    rows = []
+    candidates = []
     for item in items:
         normalized = rty_gateway.normalize_order_row(item)
-        data = dict(_source(item))
-        planned_date = compact_date(data.get("GSTRS") or normalized["gstrs_date"])
-        if (
-            normalized["aufnr"]
-            and start <= planned_date <= end
-            and rty_gateway._eligible(normalized, filters.get("orderScope", "normal"))
-        ):
-            if not str(data.get("AUFNR") or "").strip():
-                data["AUFNR"] = normalized["aufnr"]
-            rows.append(data)
+        planned_date = compact_date(normalized["gstrs_date"])
+        if normalized["aufnr"] and start <= planned_date <= end:
+            candidates.append(item)
+
+    rows = []
+    # List raw.data is projected: read full documents by source ID before
+    # exporting fields or applying rules that depend on source fields.
+    for index in range(0, len(candidates), ORDER_DETAIL_CONCURRENCY):
+        details = await asyncio.gather(
+            *(_full_order(item) for item in candidates[index : index + ORDER_DETAIL_CONCURRENCY]),
+            return_exceptions=True,
+        )
+        for detail in details:
+            if isinstance(detail, BaseException):
+                raise detail
+            normalized = rty_gateway.normalize_order_row(detail)
+            data = dict(_source(detail))
+            planned_date = compact_date(data.get("GSTRS") or normalized["gstrs_date"])
+            if (
+                normalized["aufnr"]
+                and start <= planned_date <= end
+                and rty_gateway._eligible(normalized, filters.get("orderScope", "normal"))
+            ):
+                if not str(data.get("AUFNR") or "").strip():
+                    data["AUFNR"] = normalized["aufnr"]
+                rows.append(data)
     return rows
+
+
+async def _full_order(item: dict[str, Any]) -> dict[str, Any]:
+    raw = item.get("raw")
+    identity = item.get("id") or (raw.get("_id") if isinstance(raw, dict) else None)
+    if not identity:
+        raise DataGatewayError("订单缺少数据源 ID，无法读取完整导出字段")
+    detail = await data_gateway.order_detail(str(identity))
+    full_raw = detail.get("raw") if isinstance(detail, dict) else None
+    if not isinstance(full_raw, dict) or not isinstance(full_raw.get("data"), dict):
+        raise DataGatewayError("订单详情缺少原始数据，无法完整导出")
+    order = detail.get("order")
+    return {**item, **(order if isinstance(order, dict) else {}), "raw": full_raw}
 
 
 async def _child_bindings(
