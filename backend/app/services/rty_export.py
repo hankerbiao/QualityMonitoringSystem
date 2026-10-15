@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import gzip
+import json
 from collections import defaultdict
 from collections.abc import AsyncIterator
 from decimal import Decimal, InvalidOperation
@@ -13,6 +15,7 @@ from fastapi import HTTPException
 
 from app.schemas.rty import RTYTemplateExport, StationPassExport
 from app.services import rty_gateway
+from app.services.async_ttl_cache import AsyncTTLCache
 from app.services.data_gateway_client import DataGatewayError, data_gateway
 from app.services.lrr_normalization import compact_date
 from app.services.rty_shared import (
@@ -28,6 +31,8 @@ ORDER_DETAIL_CONCURRENCY = 8
 # Each paginated query can issue eight requests; four batches fit the
 # gateway client's 32-connection pool without unbounded source fan-out.
 SOURCE_BATCH_CONCURRENCY = 4
+EXPORT_SOURCE_CACHE_TTL_SECONDS = 60 * 60
+_SOURCE_CACHE = AsyncTTLCache(max_entries=8)
 MatchedFault = tuple[dict[str, Any], set[tuple[str, str]]]
 ORDER_FIELDS = (
     "VBELN",
@@ -157,11 +162,8 @@ async def _load_orders(
     rows = []
     # List raw.data is projected: read full documents by source ID before
     # exporting fields or applying rules that depend on source fields.
-    for index in range(0, len(candidates), ORDER_DETAIL_CONCURRENCY):
-        details = await asyncio.gather(
-            *(_full_order(item) for item in candidates[index : index + ORDER_DETAIL_CONCURRENCY]),
-            return_exceptions=True,
-        )
+    for index in range(0, len(candidates), 1000):
+        details = await _full_orders(candidates[index : index + 1000])
         for detail in details:
             if isinstance(detail, BaseException):
                 raise detail
@@ -192,13 +194,66 @@ async def _full_order(item: dict[str, Any]) -> dict[str, Any]:
     return {**item, **(order if isinstance(order, dict) else {}), "raw": full_raw}
 
 
+async def _full_orders(items: list[dict[str, Any]]) -> list[dict[str, Any] | BaseException]:
+    identities = []
+    for item in items:
+        raw = item.get("raw")
+        identity = item.get("id") or (raw.get("_id") if isinstance(raw, dict) else None)
+        if not identity:
+            raise DataGatewayError("订单缺少数据源 ID，无法读取完整导出字段")
+        identities.append(str(identity))
+    sources = await data_gateway.export_rows("orders", identities, max_rows=1000)
+    if sources is None:
+        details = []
+        for index in range(0, len(items), ORDER_DETAIL_CONCURRENCY):
+            details.extend(
+                await asyncio.gather(
+                    *(
+                        _full_order(item)
+                        for item in items[index : index + ORDER_DETAIL_CONCURRENCY]
+                    ),
+                    return_exceptions=True,
+                )
+            )
+        return details
+    by_id = {str(raw.get("_id")): raw for raw in sources}
+    if len(by_id) != len(sources) or set(by_id) != set(identities):
+        raise DataGatewayError("订单原始数据缺失或重复，无法完整导出")
+    result = []
+    for item, identity in zip(items, identities, strict=True):
+        raw = by_id[identity]
+        if not isinstance(raw.get("data"), dict):
+            raise DataGatewayError("订单详情缺少原始数据，无法完整导出")
+        result.append(
+            {
+                **item,
+                "aufnr": raw.get("aufnr") or item.get("aufnr"),
+                "plannedStartDate": raw["data"].get("GSTRS") or "",
+                "raw": raw,
+            }
+        )
+    return result
+
+
+async def _read_source_batch(
+    path: str, filters: dict[str, str], *, max_rows: int
+) -> list[dict[str, Any]]:
+    resource, key = (
+        ("faults", "productionOrders") if path == "/api/faults" else ("bindings", "headOrder")
+    )
+    items = await data_gateway.export_rows(resource, filters[key].split(","), max_rows=max_rows)
+    if items is not None:
+        return items
+    return await data_gateway.all_pages("GET", path, filters=filters, max_rows=max_rows)
+
+
 async def _source_batches(
     path: str, filters: list[dict[str, str]], *, max_rows: int
 ) -> AsyncIterator[list[dict[str, Any]]]:
     for index in range(0, len(filters), SOURCE_BATCH_CONCURRENCY):
         batches = await asyncio.gather(
             *(
-                data_gateway.all_pages("GET", path, filters=batch, max_rows=max_rows)
+                _read_source_batch(path, batch, max_rows=max_rows)
                 for batch in filters[index : index + SOURCE_BATCH_CONCURRENCY]
             ),
             return_exceptions=True,
@@ -239,6 +294,42 @@ async def _child_bindings(
 
 
 async def _load_sources(
+    filters: dict[str, str],
+    *,
+    product_models: list[str] | None = None,
+    bases: list[str] | None = None,
+) -> tuple[list[dict[str, Any]], list[MatchedFault]]:
+    start = validate_date(filters["dateFrom"])
+    end = validate_date(filters["dateTo"])
+    if start > end:
+        raise HTTPException(status_code=422, detail="开始日期不能晚于结束日期")
+    try:
+        version = await data_gateway.export_version()
+    except DataGatewayError:
+        version = None
+    if version is None:
+        return await _load_sources_uncached(filters, product_models=product_models, bases=bases)
+    key = (
+        data_gateway.base_url,
+        tuple(sorted(version.items())),
+        tuple(sorted(filters.items())),
+        tuple(sorted(set(product_models or []))),
+        tuple(sorted(set(bases or []))),
+    )
+
+    async def load() -> bytes:
+        orders, faults = await _load_sources_uncached(
+            filters, product_models=product_models, bases=bases
+        )
+        payload = [orders, [[row, sorted(matches)] for row, matches in faults]]
+        return gzip.compress(json.dumps(payload, ensure_ascii=False).encode(), compresslevel=1)
+
+    payload = await _SOURCE_CACHE.get_or_set(key, load, ttl_seconds=EXPORT_SOURCE_CACHE_TTL_SECONDS)
+    orders, faults = json.loads(gzip.decompress(payload))
+    return orders, [(row, {tuple(match) for match in matches}) for row, matches in faults]
+
+
+async def _load_sources_uncached(
     filters: dict[str, str],
     *,
     product_models: list[str] | None = None,

@@ -12,7 +12,8 @@ from typing import Any
 class AsyncTTLCache:
     """Cache stable dashboard calculations without caching failed loads."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, max_entries: int | None = None) -> None:
+        self.max_entries = max_entries
         self._values: dict[Hashable, tuple[float, Any]] = {}
         self._inflight: dict[Hashable, asyncio.Task[Any]] = {}
         self._lock = asyncio.Lock()
@@ -56,5 +57,11 @@ class AsyncTTLCache:
                     self._inflight.pop(key, None)
 
         async with self._lock:
+            now = time.monotonic()
+            for expired in [key for key, (expires, _) in self._values.items() if expires <= now]:
+                self._values.pop(expired, None)
             self._values[key] = (time.monotonic() + ttl_seconds, value)
+            if self.max_entries is not None:
+                while len(self._values) > self.max_entries:
+                    self._values.pop(next(iter(self._values)))
         return copy.deepcopy(value)

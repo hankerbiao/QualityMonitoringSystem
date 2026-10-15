@@ -456,6 +456,7 @@ async def test_order_export_reads_past_the_gateway_all_endpoint_cap(monkeypatch)
         AsyncMock(side_effect=lambda identity: {"raw": order(identity.split(":")[1])["raw"]}),
     )
     monkeypatch.setattr(rty_export, "data_gateway", client)
+    monkeypatch.setattr(client, "export_rows", AsyncMock(return_value=None), raising=False)
     try:
         rows = await rty_export._load_orders(FILTERS)
     finally:
@@ -518,6 +519,98 @@ async def test_large_export_overlaps_source_batches_with_bounded_concurrency(mon
         assert {row["PCODE"] for row in result.faults} == {f"SN-{n}" for n in range(1, 252)}
     assert 1 < peak <= 4
     assert active == 0
+
+
+@pytest.mark.asyncio
+async def test_bulk_order_export_matches_source_ids_and_reads_complete_fields(monkeypatch):
+    source(monkeypatch, [order("1"), {**order("1"), "id": "KK:1"}])
+    monkeypatch.setattr(
+        rty_export.data_gateway,
+        "export_rows",
+        AsyncMock(
+            return_value=[
+                {
+                    "_id": "KK:1",
+                    "aufnr": "1",
+                    "data": {**order("1")["raw"]["data"], "POSNR": "000020", "CPXH": "B"},
+                },
+                {
+                    "_id": "SG:1",
+                    "aufnr": "1",
+                    "data": {**order("1")["raw"]["data"], "POSNR": "000010", "CPXH": "A"},
+                },
+            ]
+        ),
+        raising=False,
+    )
+    rows = await rty_export._load_orders(FILTERS)
+    assert [(row["POSNR"], row["CPXH"]) for row in rows] == [("000010", "A"), ("000020", "B")]
+    rty_export.data_gateway.order_detail.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_bulk_order_export_aborts_when_a_source_id_is_missing(monkeypatch):
+    source(monkeypatch, [order("1"), order("2")])
+    monkeypatch.setattr(
+        rty_export.data_gateway,
+        "export_rows",
+        AsyncMock(
+            return_value=[
+                {"_id": "SG:1", "data": order("1")["raw"]["data"]},
+            ]
+        ),
+        raising=False,
+    )
+    with pytest.raises(DataGatewayError):
+        await rty_export._load_orders(FILTERS)
+
+
+@pytest.mark.asyncio
+async def test_export_cache_reuses_sources_invalidates_on_sync_and_isolates_filters(monkeypatch):
+    source(monkeypatch, [])
+    version = {"orders": "v1", "faults": "v1", "bindings": "v1"}
+    monkeypatch.setattr(
+        rty_export.data_gateway,
+        "export_version",
+        AsyncMock(side_effect=lambda: dict(version)),
+        raising=False,
+    )
+    load = AsyncMock(
+        return_value=(
+            [order()["raw"]["data"]],
+            [(rty_export._columns(fault()["raw"], rty_export.FAULT_FIELDS), {("M", "SN-1")})],
+        )
+    )
+    monkeypatch.setattr(rty_export, "_load_sources_uncached", load, raising=False)
+    first, second = await asyncio.gather(
+        rty_export.build_source_export(FILTERS),
+        rty_export.build_source_export(FILTERS),
+    )
+    assert len(first.orders) == len(second.orders) == 1
+    assert load.await_count == 1
+    first.orders[0]["POSNR"] = "mutated"
+    assert (await rty_export.build_source_export(FILTERS)).orders[0]["POSNR"] is None
+    assert load.await_count == 1
+    version["faults"] = "v2"
+    await rty_export.build_source_export(FILTERS)
+    assert load.await_count == 2
+    await rty_export.build_source_export({**FILTERS, "orderScope": "l6"})
+    await rty_export.build_source_export(FILTERS, product_models=["Other"])
+    assert load.await_count == 4
+
+
+@pytest.mark.asyncio
+async def test_export_bypasses_cache_when_source_version_is_unavailable(monkeypatch):
+    monkeypatch.setattr(
+        rty_export.data_gateway,
+        "export_version",
+        AsyncMock(side_effect=DataGatewayError("version offline")),
+    )
+    load = AsyncMock(return_value=([], []))
+    monkeypatch.setattr(rty_export, "_load_sources_uncached", load)
+    await rty_export.build_source_export(FILTERS)
+    await rty_export.build_source_export(FILTERS)
+    assert load.await_count == 2
 
 
 @pytest.mark.asyncio

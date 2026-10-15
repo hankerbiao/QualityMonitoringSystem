@@ -370,6 +370,80 @@ class DataGatewayClient:
     async def order_detail(self, order_id: str) -> dict[str, Any]:
         return await self.request_json("GET", "/api/orders/detail", params={"id": order_id})
 
+    async def export_version(self) -> dict[str, str] | None:
+        if not self.enabled:
+            return None
+        try:
+            payload = await self.request_json("GET", "/api/exports/version")
+        except DataGatewayError as exc:
+            if exc.status_code in {404, 405}:
+                return None
+            raise
+        if not isinstance(payload, dict) or any(
+            not isinstance(payload.get(key), str) or not payload[key]
+            for key in ("orders", "faults", "bindings")
+        ):
+            raise DataGatewayError("生产数据源导出版本格式错误")
+        return {key: payload[key] for key in ("orders", "faults", "bindings")}
+
+    async def export_rows(
+        self, resource: str, keys: list[str], *, max_rows: int = 250_000
+    ) -> list[dict[str, Any]] | None:
+        """Read complete export fields; None means the gateway predates this API."""
+        if not self.enabled:
+            return None
+        if resource not in {"orders", "faults", "bindings"}:
+            raise ValueError("Unknown export resource")
+        values = list(dict.fromkeys(keys))
+        rows = []
+        for index in range(0, len(values), 1000):
+            chunk = values[index : index + 1000]
+            try:
+                payload = await self.request_json(
+                    "POST", "/api/exports/rows", json={"resource": resource, "keys": chunk}
+                )
+            except DataGatewayError as exc:
+                if exc.status_code in {404, 405}:
+                    return None
+                if exc.status_code != 413:
+                    raise
+                if len(chunk) > 1:
+                    middle = len(chunk) // 2
+                    left = await self.export_rows(resource, chunk[:middle], max_rows=max_rows)
+                    right = await self.export_rows(resource, chunk[middle:], max_rows=max_rows)
+                    if left is None or right is None:
+                        return None
+                    items = left + right
+                elif resource != "orders":
+                    path, field = (
+                        ("/api/faults", "productionOrders")
+                        if resource == "faults"
+                        else ("/api/views/ZSGV_ZPP_SERNOLIST", "headOrder")
+                    )
+                    filters = {field: chunk[0]}
+                    if resource == "faults":
+                        filters["timeField"] = "planned"
+                    items = await self.all_pages("GET", path, filters=filters, max_rows=max_rows)
+                else:
+                    raise
+            else:
+                if (
+                    not isinstance(payload, dict)
+                    or payload.get("complete") is not True
+                    or type(payload.get("total")) is not int
+                    or not isinstance(payload.get("items"), list)
+                    or payload["total"] != len(payload["items"])
+                    or any(not isinstance(item, dict) for item in payload["items"])
+                ):
+                    raise DataGatewayError("生产数据源导出结果不完整，请重新导出")
+                items = payload["items"]
+            rows.extend(items)
+            if len(rows) > max_rows:
+                raise DataGatewayError(
+                    "原始导出数据超过处理上限，请缩小筛选范围", code="QUERY_TOO_LARGE"
+                )
+        return rows
+
     async def order_stats(self, **filters: str) -> dict[str, Any]:
         return await self.request_json(
             "GET",

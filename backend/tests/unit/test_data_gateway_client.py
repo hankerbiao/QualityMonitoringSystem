@@ -8,6 +8,73 @@ from app.services.data_gateway_client import DataGatewayClient, DataGatewayError
 
 
 @pytest.mark.asyncio
+async def test_export_rows_splits_oversized_batches_and_retains_every_repair():
+    def handler(request):
+        import json
+
+        body = json.loads(request.read())
+        assert request.url.path == "/api/exports/rows"
+        assert body["resource"] == "faults"
+        if len(body["keys"]) > 1:
+            return httpx.Response(413, json={"error": "split batch"})
+        number = body["keys"][0]
+        rows = [
+            {"_id": f"{number}-{index}", "AUFNR": number, "PCODE": "SAME-SN", "U_FIND": "finder"}
+            for index in range(2)
+        ]
+        return httpx.Response(200, json={"items": rows, "total": 2, "complete": True})
+
+    client = DataGatewayClient("http://gateway.test")
+    client._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url=client.base_url
+    )
+    try:
+        rows = await client.export_rows("faults", ["1", "2"], max_rows=10)
+        assert [row["_id"] for row in rows] == ["1-0", "1-1", "2-0", "2-1"]
+        with pytest.raises(DataGatewayError):
+            await client.export_rows("faults", ["1", "2"], max_rows=3)
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"items": [{"_id": "1"}], "total": 1, "complete": False},
+        {"items": [{"_id": "1"}], "total": 2, "complete": True},
+        {"items": [None], "total": 1, "complete": True},
+    ],
+)
+async def test_export_rows_rejects_incomplete_source_data(payload):
+    client = DataGatewayClient("http://gateway.test")
+    client.request_json = AsyncMock(return_value=payload)
+    with pytest.raises(DataGatewayError):
+        await client.export_rows("orders", ["SG:1"])
+
+
+@pytest.mark.asyncio
+async def test_export_rows_uses_checked_pagination_when_one_key_exceeds_bulk_limit():
+    client = DataGatewayClient("http://gateway.test")
+    client.request_json = AsyncMock(side_effect=DataGatewayError("too many rows", status_code=413))
+    client.all_pages = AsyncMock(return_value=[{"_id": "1"}, {"_id": "2"}])
+    assert len(await client.export_rows("faults", ["1"])) == 2
+    assert client.all_pages.await_args.args == ("GET", "/api/faults")
+    assert client.all_pages.await_args.kwargs["filters"]["timeField"] == "planned"
+
+
+@pytest.mark.asyncio
+async def test_export_bulk_falls_back_only_for_unsupported_gateways():
+    client = DataGatewayClient("http://gateway.test")
+    client.request_json = AsyncMock(side_effect=DataGatewayError("not found", status_code=404))
+    assert await client.export_rows("orders", ["SG:1"]) is None
+    assert await client.export_version() is None
+    client.request_json.side_effect = DataGatewayError("offline", status_code=503)
+    with pytest.raises(DataGatewayError):
+        await client.export_rows("orders", ["SG:1"])
+
+
+@pytest.mark.asyncio
 async def test_orders_maps_gateway_pagination_and_filters():
     captured: dict[str, object] = {}
 
