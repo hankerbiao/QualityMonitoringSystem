@@ -128,8 +128,13 @@ function AppContent() {
 }
 
 export default function App() {
+  const pathname = window.location.pathname;
+  const basename = pathname === '/QualiBoard' || pathname.startsWith('/QualiBoard/')
+    ? '/QualiBoard'
+    : '/';
+
   return (
-    <Router>
+    <Router basename={basename}>
       <AuthProvider>
         <SettingsProvider>
           <AppContent />

@@ -41,6 +41,16 @@ docker compose -f docker/compose.yaml --profile tools run --rm init-config
 Open `http://localhost:4000`. The backend health endpoint is available at both
 `http://localhost:4000/health` and `http://localhost:4001/health`.
 
+## Frontend Entry Paths
+
+Both `/` and `/QualiBoard` serve the application directly, without an HTTP
+redirect. `/QualiBoard/` also works. The browser router selects its base path
+from the entry URL, so login, logout, and dashboard navigation keep the chosen
+prefix. For example, `/QualiBoard/rty` supports direct access and page reloads.
+
+Nginx serves `index.html` for frontend routes. Both entries share the same
+build, root-relative `/assets/` resources, and `/api/` requests.
+
 ## Operations
 
 ```bash
