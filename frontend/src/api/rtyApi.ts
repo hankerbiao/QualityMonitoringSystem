@@ -6,6 +6,7 @@ const RTY_LIST_CACHE_TTL_MS = 2_000;
 const rtyListCache = new Map<string, { expiresAt: number; promise: Promise<PaginatedRTYResponse> }>();
 const rtyListInFlight = new Map<string, Promise<PaginatedRTYResponse>>();
 const RTY_OPTIONS_CACHE_TTL_MS = 5 * 60 * 60 * 1_000;
+const RTY_CYCLE_CACHE_TTL_MS = 60 * 60 * 1_000;
 const RTY_CYCLE_CACHE_STORAGE_PREFIX = 'qualiboard:rty-cycle-data:v2:';
 const rtyOptionsCache = new Map<string, { expiresAt: number; promise: Promise<unknown> }>();
 const rtyCycleCache = new Map<string, {
@@ -40,7 +41,8 @@ function getStoredCycleData(key: string): StoredCycleData | null {
     if (!raw) return null;
 
     const cached = JSON.parse(raw) as StoredCycleData;
-    if (!Array.isArray(cached.data) || cached.expiresAt <= Date.now()) {
+    cached.expiresAt = Math.min(cached.expiresAt, cached.cachedAt + RTY_CYCLE_CACHE_TTL_MS);
+    if (!Array.isArray(cached.data) || !Number.isFinite(cached.expiresAt) || cached.expiresAt <= Date.now()) {
       window.localStorage.removeItem(`${RTY_CYCLE_CACHE_STORAGE_PREFIX}${key}`);
       return null;
     }
@@ -180,7 +182,7 @@ export const rtyApi = {
       if (dateTo) qs.set('dateTo', dateTo);
       return requestData<RTYData[]>(`/api/rty/cycle-data?${qs.toString()}`);
     })();
-    const entry = { expiresAt: Date.now() + RTY_OPTIONS_CACHE_TTL_MS, promise, cachedAt: Date.now() };
+    const entry = { expiresAt: Date.now() + RTY_CYCLE_CACHE_TTL_MS, promise, cachedAt: Date.now() };
     rtyCycleCache.set(key, entry);
     void promise.then((data) => setStoredCycleData(key, { ...entry, data }));
     void promise.catch(() => {
