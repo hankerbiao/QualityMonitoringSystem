@@ -112,4 +112,26 @@ describe('rtyApi list cache', () => {
     });
     expect(requestData).toHaveBeenCalledTimes(2);
   });
+
+  it('exports cycle sources with repeated exact model and base filters using RTY permissions', async () => {
+    const payload = { summary: [], orders: [], faults: [], topProblems: [] };
+    vi.mocked(requestData).mockResolvedValue(payload);
+    const filters = {
+      dateFrom: '2026-10-05', dateTo: '2026-10-11', orderScope: 'l6' as const,
+      customer: 'Customer 1', productModels: ['M, A', 'M B'], bases: ['B', 'D'],
+    };
+
+    expect(await rtyApi.getCycleExport(filters)).toBe(payload);
+    await rtyApi.getCycleExport(filters);
+
+    const url = new URL(vi.mocked(requestData).mock.calls[0][0], 'http://localhost');
+    expect(url.pathname).toBe('/api/rty/export');
+    expect(url.searchParams.getAll('productModels')).toEqual(filters.productModels);
+    expect(url.searchParams.getAll('bases')).toEqual(filters.bases);
+    expect(url.searchParams.get('dateFrom')).toBe(filters.dateFrom);
+    expect(url.searchParams.get('dateTo')).toBe(filters.dateTo);
+    expect(url.searchParams.get('customer')).toBe(filters.customer);
+    expect(url.searchParams.get('orderScope')).toBe('l6');
+    expect(requestData).toHaveBeenCalledTimes(2);
+  });
 });

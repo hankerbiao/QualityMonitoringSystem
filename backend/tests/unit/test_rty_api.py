@@ -109,14 +109,73 @@ async def test_template_export_forwards_complete_filters_and_is_protected(monkey
     )
 
     assert response.success
-    export.assert_awaited_once_with({
-        "salesOrder": "SO-1", "productionOrder": "PO-1", "serialNumber": "SN-1",
-        "base": "B", "productModel": "M", "customer": "C",
-        "dateFrom": "2026-09-01", "dateTo": "2026-09-30",
-        "orderScope": "l6", "calculationMethod": "",
-    })
+    export.assert_awaited_once_with(
+        {
+            "salesOrder": "SO-1",
+            "productionOrder": "PO-1",
+            "serialNumber": "SN-1",
+            "base": "B",
+            "productModel": "M",
+            "customer": "C",
+            "dateFrom": "2026-09-01",
+            "dateTo": "2026-09-30",
+            "orderScope": "l6",
+            "calculationMethod": "",
+        },
+        product_models=None,
+        bases=None,
+    )
     route = next(route for route in rty.router.routes if route.path == "/export")
     assert route.dependencies
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("permissions", "status"),
+    [(["rty"], 200), (["station-pass-rate"], 403), ([], 403)],
+)
+async def test_cycle_export_passes_repeated_filters_and_requires_only_rty_permission(
+    monkeypatch,
+    permissions,
+    status,
+):
+    export = AsyncMock(return_value=RTYTemplateExport())
+    monkeypatch.setattr(rty.rty_export, "build_template_export", export)
+    app = FastAPI()
+    app.include_router(rty.router, prefix="/api/rty")
+    app.dependency_overrides[auth.get_current_user] = lambda: {
+        "role": "user",
+        "dashboardPermissions": permissions,
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.get(
+            "/api/rty/export",
+            params=[
+                ("dateFrom", "2026-10-05"),
+                ("dateTo", "2026-10-11"),
+                ("orderScope", "l6"),
+                ("customer", "C"),
+                ("productModels", "M, A"),
+                ("productModels", "M B"),
+                ("bases", "B"),
+                ("bases", "D"),
+            ],
+        )
+    assert response.status_code == status
+    if status == 200:
+        assert export.await_args.kwargs == {
+            "product_models": ["M, A", "M B"],
+            "bases": ["B", "D"],
+        }
+        assert export.await_args.args[0]["orderScope"] == "l6"
+        assert export.await_args.args[0]["customer"] == "C"
+        assert export.await_args.args[0]["dateFrom"] == "2026-10-05"
+        assert export.await_args.args[0]["dateTo"] == "2026-10-11"
+    else:
+        export.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -125,30 +184,50 @@ async def test_template_export_forwards_complete_filters_and_is_protected(monkey
     [(["station-pass-rate"], 200), (["rty"], 403), ([], 403)],
 )
 async def test_station_export_uses_station_permission_and_applied_filters(
-    monkeypatch, permissions, status,
+    monkeypatch,
+    permissions,
+    status,
 ):
     export = AsyncMock(return_value=StationPassExport(orders=[{"AUFNR": "00001"}]))
     monkeypatch.setattr(rty.rty_export, "build_station_export", export)
     app = FastAPI()
     app.include_router(rty.router, prefix="/api/rty")
     app.dependency_overrides[auth.get_current_user] = lambda: {
-        "role": "user", "dashboardPermissions": permissions,
+        "role": "user",
+        "dashboardPermissions": permissions,
     }
     async with httpx.AsyncClient(
-        transport=httpx.ASGITransport(app=app), base_url="http://test",
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
     ) as client:
-        response = await client.get("/api/rty/station-pass-export", params={
-            "dateFrom": "2026-10-05", "dateTo": "2026-10-11", "orderScope": "l6",
-            "serialNumber": "SN", "productModel": "M", "customer": "C", "base": "B",
-        })
+        response = await client.get(
+            "/api/rty/station-pass-export",
+            params={
+                "dateFrom": "2026-10-05",
+                "dateTo": "2026-10-11",
+                "orderScope": "l6",
+                "serialNumber": "SN",
+                "productModel": "M",
+                "customer": "C",
+                "base": "B",
+            },
+        )
     assert response.status_code == status
     if status == 200:
         assert response.json()["data"] == {"orders": [{"AUFNR": "00001"}], "faults": []}
-        export.assert_awaited_once_with({
-            "salesOrder": "", "productionOrder": "", "serialNumber": "SN",
-            "productModel": "M", "customer": "C", "base": "B",
-            "dateFrom": "2026-10-05", "dateTo": "2026-10-11", "orderScope": "l6",
-            "calculationMethod": "",
-        })
+        export.assert_awaited_once_with(
+            {
+                "salesOrder": "",
+                "productionOrder": "",
+                "serialNumber": "SN",
+                "productModel": "M",
+                "customer": "C",
+                "base": "B",
+                "dateFrom": "2026-10-05",
+                "dateTo": "2026-10-11",
+                "orderScope": "l6",
+                "calculationMethod": "",
+            }
+        )
     else:
         export.assert_not_awaited()

@@ -121,7 +121,12 @@ def _fault_rate(count: int | None, quantity: int | float | None) -> float | None
     return count / quantity
 
 
-async def _load_orders(filters: dict[str, str]) -> list[dict[str, Any]]:
+async def _load_orders(
+    filters: dict[str, str],
+    *,
+    product_models: list[str] | None = None,
+    bases: list[str] | None = None,
+) -> list[dict[str, Any]]:
     gateway_filters = {
         key: value
         for key, value in filters.items()
@@ -133,11 +138,18 @@ async def _load_orders(filters: dict[str, str]) -> list[dict[str, Any]]:
     )
     start = compact_date(validate_date(filters["dateFrom"]))
     end = compact_date(validate_date(filters["dateTo"]))
+    selected_models = set(product_models) if product_models else None
+    selected_bases = set(bases) if bases else None
     candidates = []
     for item in items:
         normalized = rty_gateway.normalize_order_row(item)
         planned_date = compact_date(normalized["gstrs_date"])
-        if normalized["aufnr"] and start <= planned_date <= end:
+        if (
+            normalized["aufnr"]
+            and start <= planned_date <= end
+            and (selected_models is None or normalized["data"].get("MAKTX_TH") in selected_models)
+            and (selected_bases is None or normalized["data"].get("LGORT") in selected_bases)
+        ):
             candidates.append(item)
 
     rows = []
@@ -207,12 +219,17 @@ async def _child_bindings(
     return result
 
 
-async def build_template_export(filters: dict[str, str]) -> RTYTemplateExport:
+async def build_template_export(
+    filters: dict[str, str],
+    *,
+    product_models: list[str] | None = None,
+    bases: list[str] | None = None,
+) -> RTYTemplateExport:
     start = validate_date(filters["dateFrom"])
     end = validate_date(filters["dateTo"])
     if start > end:
         raise HTTPException(status_code=422, detail="开始日期不能晚于结束日期")
-    orders = await _load_orders(filters)
+    orders = await _load_orders(filters, product_models=product_models, bases=bases)
     if not orders:
         return RTYTemplateExport()
 

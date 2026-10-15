@@ -17,7 +17,7 @@ import { rtyApi } from '../api/rtyApi';
 import { useSettings } from '../context/SettingsContext';
 import type { RTYFilterParams, CycleStatsConfig } from '../types';
 import { buildCycleVisualData } from './alert-config/cycleData';
-import { loadFaultExportRows } from './rty/exportData';
+import { appendSourceSheets } from './rty/templateExport';
 
 interface AlertConfigModalProps {
   onClose?: () => void;
@@ -375,6 +375,7 @@ export default function AlertConfigModal({
   const [exportError, setExportError] = useState('');
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const exportInProgress = useRef(false);
   const [cycleCacheInfo, setCycleCacheInfo] = useState<{ cachedAt: number | null; fromCache: boolean }>({
     cachedAt: null,
     fromCache: false,
@@ -477,11 +478,11 @@ export default function AlertConfigModal({
   );
 
   const exportCycleData = async () => {
-    if (exporting || loading || loadedQueryKey !== queryKey) return;
+    if (exportInProgress.current || loading || loadedQueryKey !== queryKey) return;
+    exportInProgress.current = true;
     setExporting(true);
     setExportError('');
     try {
-      const exportRows = filteredData.filter((item) => selectedModels === null || selectedModels.has(item.productModel));
       const summaryData = monthlyData
         .filter(item => selectedModels === null || selectedModels.has(item.model))
         .map(item => ({
@@ -493,14 +494,22 @@ export default function AlertConfigModal({
           目标直通率: `${item.targetRate.toFixed(3)}%`,
           状态: item.rtyRate === null ? '-' : item.rtyRate >= item.targetRate ? '达成' : '未达标',
         }));
-      const defectData = await loadFaultExportRows(exportRows);
+      const source = await rtyApi.getCycleExport({
+        dateFrom: appliedRange.start,
+        dateTo: appliedRange.end,
+        orderScope,
+        customer: selectedCustomer || undefined,
+        productModels: selectedModels?.size ? Array.from(selectedModels) : undefined,
+        bases: selectedBases?.size ? Array.from(selectedBases) : undefined,
+      });
       const book = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(summaryData), '趋势汇总');
-      XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(defectData), '故障明细');
+      appendSourceSheets(book, source);
       XLSX.writeFile(book, `月度生产量及直通率趋势_${appliedRange.start}_${appliedRange.end}.xlsx`);
     } catch (error) {
       setExportError(error instanceof Error ? error.message : '周期统计导出失败，请重试');
     } finally {
+      exportInProgress.current = false;
       setExporting(false);
     }
   };
@@ -739,7 +748,7 @@ export default function AlertConfigModal({
                   onClick={() => void exportCycleData()}
                   disabled={loading || exporting || loadedQueryKey !== queryKey || filteredData.length === 0}
                   className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
-                  title="导出趋势汇总和故障明细"
+                  title="导出趋势汇总、销售订单及维修故障明记录"
                 >
                   <Download className="size-3.5" />
                   {exporting ? '导出中...' : '导出'}

@@ -17,6 +17,8 @@ IF_l6 表头读取数据源 IF_L6。ZWXDT 仅按原始字段输出，
 不要求 RTY 看板权限。接口接收 dateFrom、dateTo、serialNumber、
 productModel、customer、base、orderScope，沿用 RTY 订单排除和复合机型绑定规则。
 groupBy 仅控制前端透视表，不影响原始列。
+两个原始数据 Sheet 的生成逻辑也供 RTY 主看板周期统计导出复用，
+两处表头、列顺序、空值处理及原始数据格式一致。
 
 订单按 GSTRS 选取，再关联所选订单的全部维修记录，不限制维修日期或维修年份。
 复合机型包含绑定子件的维修，保留实际维修子件 SN，不改写源订单号。

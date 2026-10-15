@@ -360,6 +360,34 @@ async def test_order_detail_failure_aborts_export(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_cycle_export_selects_exact_models_and_bases_before_loading_details(monkeypatch):
+    loader = source(
+        monkeypatch,
+        [
+            order("1", MAKTX_TH="M, A", LGORT="B"),
+            order("2", MAKTX_TH="M B", LGORT="D"),
+            order("3", MAKTX_TH="M C", LGORT="B"),
+            order("4", MAKTX_TH="M, A", LGORT="E"),
+        ],
+        [fault("F1"), fault("F2", AUFNR="2"), fault("F3", AUFNR="3")],
+    )
+
+    result = await rty_export.build_template_export(
+        FILTERS, product_models=["M, A", "M B"], bases=["B", "D"]
+    )
+
+    assert [row["AUFNR"] for row in result.orders] == ["1", "2"]
+    assert len(result.faults) == 2
+    assert {row["model"] for row in result.summary} == {"M, A", "M B"}
+    assert {call.args[0] for call in rty_export.data_gateway.order_detail.await_args_list} == {
+        "SG:1",
+        "SG:2",
+    }
+    assert "productModels" not in loader.await_args_list[0].kwargs["filters"]
+    assert "bases" not in loader.await_args_list[0].kwargs["filters"]
+
+
+@pytest.mark.asyncio
 async def test_missing_order_source_id_aborts_export(monkeypatch):
     item = order()
     del item["id"]

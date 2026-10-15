@@ -207,6 +207,8 @@ async def get_rty_template_export(
     dateTo: str | None = None,
     orderScope: OrderScopeQuery = "normal",
     calculationMethod: CalculationMethodQuery = None,
+    productModels: Annotated[list[str] | None, Query()] = None,
+    bases: Annotated[list[str] | None, Query()] = None,
 ):
     del request
     data = await rty_export.build_template_export(
@@ -221,7 +223,9 @@ async def get_rty_template_export(
             date_to=dateTo,
             order_scope=orderScope,
             calculation_method=calculationMethod,
-        )
+        ),
+        product_models=productModels,
+        bases=bases,
     )
     return Response(success=True, data=data)
 

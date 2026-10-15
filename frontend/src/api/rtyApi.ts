@@ -108,6 +108,22 @@ export const rtyApi = {
   async getTemplateExport(params: RTYFilterParams): Promise<RTYTemplateExport> {
     return requestData<RTYTemplateExport>(`/api/rty/export?${buildRtyQuery(params)}`);
   },
+  async getCycleExport(params: {
+    dateFrom: string;
+    dateTo: string;
+    orderScope: RTYFilterParams['orderScope'];
+    customer?: string;
+    productModels?: string[];
+    bases?: string[];
+  }): Promise<RTYTemplateExport> {
+    const qs = new URLSearchParams({
+      dateFrom: params.dateFrom, dateTo: params.dateTo, orderScope: params.orderScope,
+    });
+    if (params.customer) qs.set('customer', params.customer);
+    params.productModels?.forEach(model => qs.append('productModels', model));
+    params.bases?.forEach(base => qs.append('bases', base));
+    return requestData<RTYTemplateExport>(`/api/rty/export?${qs}`);
+  },
 
   async getStationPassRates(params: StationPassQuery): Promise<StationPassRate[]> {
     const query = buildStationPassQuery(params);
