@@ -126,6 +126,32 @@ async def test_export_applies_order_exclusions_scope_and_date_bounds(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_export_joins_order_faults_without_repair_date_filters(monkeypatch):
+    loader = source(
+        monkeypatch,
+        [order()],
+        [
+            fault(f"F{index}", PCODE=f"SN-{index}", ZDATE_WX=repair_date)
+            for index, repair_date in enumerate(["20251231", "20270101", "", "invalid", None])
+        ],
+    )
+
+    result = await rty_export.build_template_export(FILTERS)
+
+    assert result.summary[0]["defectCount"] == 5
+    assert len(result.faults) == 5
+    fault_requests = [
+        call.kwargs["filters"]
+        for call in loader.await_args_list
+        if call.args[1] == "/api/faults"
+    ]
+    assert fault_requests == [{
+        "productionOrders": "000000000001,1",
+        "timeField": "planned",
+    }]
+
+
+@pytest.mark.asyncio
 async def test_composite_children_count_against_the_bound_head_and_keep_original_repair_sn(
     monkeypatch,
 ):

@@ -203,9 +203,7 @@ async def build_template_export(filters: dict[str, str]) -> RTYTemplateExport:
             "/api/faults",
             filters={
                 "productionOrders": ",".join(order_variants(lookup_orders[index : index + 50])),
-                "dateFrom": start,
-                "dateTo": end,
-                "timeField": "repair",
+                "timeField": "planned",
             },
             max_rows=MAX_EXPORT_FAULTS,
         )

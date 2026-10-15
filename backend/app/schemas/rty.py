@@ -100,7 +100,7 @@ class StationPassDetail(BaseModel):
     stationName: str = ""
     passDate: str = ""
     status: Literal["passed", "defect"]
-    repairTime: str = ""
+    repairTime: str = Field("", deprecated=True, description="已停用，保留空值兼容旧客户端")
     defectCode: str = ""
     description: str = ""
     repairPerson: str = ""
@@ -122,7 +122,7 @@ class DefectDetailBase(BaseModel):
     product_family: str = Field("", description="产品机型")
     fault_2nd_appear: str = Field("", description="二次故障现象")
     fault_3rd_appear: str = Field("", description="三次故障现象")
-    repairTime: str = Field("", description="维修时间")
+    repairTime: str = Field("", deprecated=True, description="已停用，保留空值兼容旧客户端")
     repairPerson: str = Field("", description="维修人")
     repair_effectiveness: str = Field("", description="维修有效性")
     customer: str = Field("", description="维修记录回填的客户名称")

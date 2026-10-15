@@ -69,11 +69,10 @@ def _defect_table_html(report: AlertReportData, more_html: str) -> str:
             + _cell(d.defectCode)
             + _cell(d.description)
             + _cell(d.repairPerson)
-            + _cell(d.repairTime)
             + "</tr>"
         )
     empty_row = (
-        '<tr><td colspan="5" style="padding:14px;text-align:center;'
+        '<tr><td colspan="4" style="padding:14px;text-align:center;'
         'font-size:13px;color:#94a3b8;">暂无故障明细</td></tr>'
     )
     body = rows_html or empty_row
@@ -85,7 +84,6 @@ def _defect_table_html(report: AlertReportData, more_html: str) -> str:
         '<th style="padding:10px;text-align:left;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0;">故障类型</th>'
         '<th style="padding:10px;text-align:left;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0;">故障描述</th>'
         '<th style="padding:10px;text-align:left;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0;">维修人</th>'
-        '<th style="padding:10px;text-align:left;font-size:12px;color:#64748b;border-bottom:1px solid #e2e8f0;">维修时间</th>'
         "</tr></thead><tbody>"
         f"{body}"
         "</tbody></table>"

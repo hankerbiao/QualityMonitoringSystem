@@ -17,9 +17,11 @@ describe('loadFaultExportRows', () => {
       { serialNumbers: ['NORMAL-SN', 'CHILD-SN'] },
     ] as RTYData[];
 
-    expect(await loadFaultExportRows(rows)).toMatchObject([
+    const exported = await loadFaultExportRows(rows);
+    expect(exported).toMatchObject([
       { 机器SN: 'CHILD-SN', 故障类型: 'F-1', 故障描述: 'Repair' },
     ]);
+    expect(exported[0]).not.toHaveProperty('维修时间');
     expect(rtyApi.getDefectDetails).toHaveBeenCalledExactlyOnceWith(['CHILD-SN', 'NORMAL-SN']);
   });
 

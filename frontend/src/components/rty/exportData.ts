@@ -18,7 +18,6 @@ export async function loadFaultExportRows(rows: RTYData[]) {
     二次故障现象: item.fault_2nd_appear,
     三次故障现象: item.fault_3rd_appear,
     维修人: item.repairPerson,
-    维修时间: item.repairTime,
     维修有效性: item.repair_effectiveness,
   }));
 }

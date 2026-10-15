@@ -266,19 +266,48 @@ async def test_details_by_orders_resolves_fault_links_to_full_rows(monkeypatch):
     )
     monkeypatch.setattr(gateway, "fault_rows_by_sns", fault_rows_by_sns)
 
-    details = await rty_gateway.details_by_orders(
-        {"1"}, date_from="2026-01-01", date_to="2026-01-31"
-    )
+    details = await rty_gateway.details_by_orders({"1"})
 
     assert [detail.sn for detail in details] == ["SN1"]
     fault_lookup.assert_awaited_once_with(
         production_orders=["000000000001", "1"],
-        date_from="2026-01-01",
-        date_to="2026-01-31",
+        time_field="planned",
     )
     fault_rows_by_sns.assert_awaited_once_with(
-        ["SN1"], date_from="2026-01-01", date_to="2026-01-31", station=""
+        ["SN1"], date_from="", date_to="", station="", time_field="planned"
     )
+
+
+@pytest.mark.asyncio
+async def test_order_details_keep_invalid_repair_dates_and_stay_with_selected_orders(monkeypatch):
+    gateway = rty_gateway.data_gateway
+    monkeypatch.setattr(gateway, "fault_lookup", AsyncMock(return_value=[
+        {"productionOrder": "1", "serialNumber": "SN1"},
+    ]))
+    monkeypatch.setattr(gateway, "fault_rows_by_sns", AsyncMock(return_value=[
+        {"_id": "b", "AUFNR": "000000000001", "PCODE": "SN1", "ZDATE_WX": "20251231"},
+        {"_id": "a", "AUFNR": "1", "PCODE": "SN1", "ZDATE_WX": ""},
+        {"_id": "c", "AUFNR": "1", "PCODE": "SN1", "ZDATE_WX": "invalid"},
+        {"_id": "d", "AUFNR": "1", "PCODE": "SN1", "ZDATE_WX": "20270101"},
+        {"_id": "other", "AUFNR": "2", "PCODE": "SN1", "ZDATE_WX": ""},
+    ]))
+
+    rows = await rty_gateway.details_by_orders({"1"})
+
+    assert [row.id for row in rows] == ["a", "b", "c", "d"]
+    assert all(row.repairTime == "" for row in rows)
+
+
+def test_fault_deduplication_does_not_depend_on_repair_date():
+    base = {"AUFNR": "1", "PCODE": "SN1", "ZNGWD": "F1"}
+    rows = [
+        {**base, "ZDATE_WX": "", "ZTIME": ""},
+        {**base, "ZDATE_WX": "20270101", "ZTIME": "120000"},
+        {**base, "_id": "separate-repair-1"},
+        {**base, "_id": "separate-repair-2"},
+    ]
+
+    assert rty_gateway._dedup_faults(rows) == [rows[0], rows[2], rows[3]]
 
 
 @pytest.mark.asyncio
@@ -353,9 +382,7 @@ async def test_composite_faults_use_padded_binding_orders_and_map_child_sn_to_he
     monkeypatch.setattr(rty_gateway, "_faults_for_orders", faults)
     monkeypatch.setattr(rty_gateway, "_bindings", bindings)
 
-    result = await rty_gateway._fault_sns_by_composite_groups(
-        {"group": {"orders": {"1"}}}, date_from="2026-01-01", date_to="2026-12-31"
-    )
+    result = await rty_gateway._fault_sns_by_composite_groups({"group": {"orders": {"1"}}})
 
     assert result["group"].by_order["1"] == {"HEAD-SN"}
     assert result["group"].source_sns == {"ITEM-SN"}
@@ -560,7 +587,7 @@ async def test_station_input_details_include_matching_fault_fields(monkeypatch):
     assert rows[0].sn == "SN-1"
     assert rows[0].defectCode == "F-001"
     assert rows[0].description == "装配异常"
-    assert rows[0].repairTime == "20260720 103000"
+    assert rows[0].repairTime == ""
     assert rows[1].sn == "SN-2"
     assert rows[1].defectCode == ""
     assert rows[1].description == ""
@@ -871,8 +898,10 @@ async def test_station_rates_uses_the_same_wmeng_and_fault_sn_summary_as_rty(mon
     assert rows[0].inputCount == 1
     assert rows[0].totalInputCount == 101
     assert rows[0].totalDefectCount == 2
-    assert faults.await_args.kwargs["date_from"] == rty_gateway.REPAIR_YEAR_START
-    assert faults.await_args.kwargs["date_to"] == rty_gateway.REPAIR_YEAR_END
+    assert faults.await_args.kwargs == {
+        "production_orders": ["000000000001", "1"],
+        "time_field": "planned",
+    }
 
 
 @pytest.mark.asyncio
@@ -926,17 +955,19 @@ async def test_station_rty_matches_cycle_for_repairs_outside_selected_order_date
             (late_order, late_sn, "20261014"),
             ("1", "SN-PREVIOUS-YEAR", "20251231"),
             ("1", "SN-NEXT-YEAR", "20270101"),
+            ("1", "SN-NO-DATE", ""),
+            ("1", "SN-BAD-DATE", "invalid"),
             ("3", "SN-OTHER-ORDER", "20261010"),
         ]
     ]
 
-    async def fault_lookup(*, production_orders, date_from, date_to):
+    async def fault_lookup(*, production_orders, time_field):
+        assert time_field == "planned"
         orders = {rty_gateway.normalize_order(order) for order in production_orders}
         return [
             row
             for row in fault_rows
             if rty_gateway.normalize_order(row["AUFNR"]) in orders
-            and date_from <= row["ZDATE_WX"] <= date_to
         ]
 
     monkeypatch.setattr(gateway, "fault_lookup", fault_lookup)
@@ -961,11 +992,23 @@ async def test_station_rty_matches_cycle_for_repairs_outside_selected_order_date
     station_rows = await rty_gateway.station_rates(
         "2026-10-05", "2026-10-11", product_model=model, group_by="productModel"
     )
+    list_rows = await rty_gateway._build_rty_list(
+        {
+            "dateFrom": "2026-10-05",
+            "dateTo": "2026-10-11",
+            "productModel": model,
+            "orderScope": "normal",
+        },
+        1, 50, {},
+    )
 
     assert len(cycle_rows) == len(station_rows) == 1
     assert station_rows[0].totalInputCount == cycle_rows[0].inputCount == 1258
-    assert station_rows[0].totalDefectCount == cycle_rows[0].defectCount == 2
-    assert cycle_rows[0].serialNumbers == ["SN-IN", "SN-LATE"]
+    assert station_rows[0].totalDefectCount == cycle_rows[0].defectCount == 6
+    assert list_rows["items"][0].defectCount == 6
+    assert cycle_rows[0].serialNumbers == sorted([
+        "SN-IN", "SN-LATE", "SN-PREVIOUS-YEAR", "SN-NEXT-YEAR", "SN-NO-DATE", "SN-BAD-DATE",
+    ])
     assert station_rows[0].inputCount == 1
     assert station_rows[0].defectCount == 1
     station_repairs.assert_awaited_once_with({"SN-IN"}, date_from="20261005", date_to="20261011")
@@ -1017,7 +1060,8 @@ async def test_station_rty_reuses_cycle_month_and_base_grouping(monkeypatch, gro
         ),
     )
 
-    async def fault_lookup(*, production_orders, date_from, date_to):
+    async def fault_lookup(*, production_orders, time_field):
+        assert time_field == "planned"
         orders = {rty_gateway.normalize_order(order) for order in production_orders}
         return [
             {"AUFNR": order, "PCODE": "SN-SHARED"}

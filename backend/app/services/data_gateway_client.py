@@ -481,7 +481,12 @@ class DataGatewayClient:
             rows.extend(item for item in payload["items"] if isinstance(item, dict))
         # Older gateways ignore timeField and omit GSTRS, so a planned-date
         # request would otherwise drop every repair in the local date check.
-        if time_field == "planned" and rows and not _repair_row_has_planned_field(rows[0]):
+        if (
+            time_field == "planned"
+            and (date_from or date_to)
+            and rows
+            and not _repair_row_has_planned_field(rows[0])
+        ):
             return await self._fault_rows_by_sns_paged(
                 values,
                 date_from=date_from,

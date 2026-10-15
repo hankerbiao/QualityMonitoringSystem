@@ -27,15 +27,12 @@ async def test_defect_details_uses_gateway_sn_lookup(monkeypatch):
 
     response = await rty.get_defect_details(" SN-1，SN-1 ,SN-2 ")
 
-    fault_rows_by_sns.assert_awaited_once_with(
-        {"SN-1", "SN-2"},
-        date_from=rty.YEAR_START,
-        date_to=rty.YEAR_END,
-    )
+    fault_rows_by_sns.assert_awaited_once_with({"SN-1", "SN-2"})
     assert response.success
     assert len(response.data) == 1
     assert response.data[0].sn == "SN-1"
     assert response.data[0].defectCode == "F-01"
+    assert response.data[0].repairTime == ""
 
 
 @pytest.mark.asyncio

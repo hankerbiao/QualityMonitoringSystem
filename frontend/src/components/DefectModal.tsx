@@ -77,7 +77,6 @@ export default function DefectModal({ filters, filterLabel, onClose }: DefectMod
                     <th className="px-3 py-2 font-medium text-slate-700">二次故障现象</th>
                     <th className="px-3 py-2 font-medium text-slate-700">三次故障现象</th>
                     <th className="px-3 py-2 font-medium text-slate-700">维修人</th>
-                    <th className="px-3 py-2 font-medium text-slate-700">维修时间</th>
                     <th className="px-3 py-2 font-medium text-slate-700">维修有效性</th>
                   </tr>
                 </thead>
@@ -94,7 +93,6 @@ export default function DefectModal({ filters, filterLabel, onClose }: DefectMod
                       <td className="px-3 py-2 max-w-[120px] truncate" title={item.fault_2nd_appear}>{item.fault_2nd_appear || '-'}</td>
                       <td className="px-3 py-2 max-w-[120px] truncate" title={item.fault_3rd_appear}>{item.fault_3rd_appear || '-'}</td>
                       <td className="px-3 py-2">{item.repairPerson}</td>
-                      <td className="px-3 py-2 text-slate-500">{item.repairTime}</td>
                       <td className="px-3 py-2">
                         {item.repair_effectiveness ? (
                           <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-medium ${

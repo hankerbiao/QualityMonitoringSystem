@@ -87,7 +87,6 @@ export default function AlertReportPage() {
       故障类型: d.defectCode,
       故障描述: d.description,
       维修人: d.repairPerson,
-      维修时间: d.repairTime,
     }));
     const ws = XLSX.utils.json_to_sheet(exportData);
     const wb = XLSX.utils.book_new();
@@ -205,9 +204,8 @@ export default function AlertReportPage() {
                   <tr>
                     <th className="px-4 py-2 font-medium w-[22%]">机器SN</th>
                     <th className="px-4 py-2 font-medium w-[16%]">故障类型</th>
-                    <th className="px-4 py-2 font-medium w-[30%]">故障描述</th>
-                    <th className="px-4 py-2 font-medium w-[14%]">维修人</th>
-                    <th className="px-4 py-2 font-medium w-[18%]">维修时间</th>
+                    <th className="px-4 py-2 font-medium w-[44%]">故障描述</th>
+                    <th className="px-4 py-2 font-medium w-[18%]">维修人</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -215,9 +213,8 @@ export default function AlertReportPage() {
                     <tr key={`${item.id}-${item.sn}`} className="hover:bg-slate-50">
                       <td className="px-4 py-2.5 font-mono text-xs w-[22%] break-all">{item.sn}</td>
                       <td className="px-4 py-2.5 font-medium text-slate-700 w-[16%]">{item.defectCode}</td>
-                      <td className="px-4 py-2.5 text-slate-600 text-xs w-[30%]">{item.description}</td>
-                      <td className="px-4 py-2.5 w-[14%]">{item.repairPerson}</td>
-                      <td className="px-4 py-2.5 text-xs text-slate-500 w-[18%]">{item.repairTime}</td>
+                      <td className="px-4 py-2.5 text-slate-600 text-xs w-[44%]">{item.description}</td>
+                      <td className="px-4 py-2.5 w-[18%]">{item.repairPerson}</td>
                     </tr>
                   ))}
                 </tbody>

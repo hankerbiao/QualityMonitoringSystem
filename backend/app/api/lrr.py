@@ -219,14 +219,6 @@ def aggregate_lrr(
                         sn=str(fault.get("PCODE") or ""),
                         faultType=str(fault.get("ZNGWD") or ""),
                         faultDesc=str(fault.get("ZWXWD") or ""),
-                        ngTime=" ".join(
-                            value
-                            for value in (
-                                str(fault.get("ZDATE_WX") or "").strip(),
-                                str(fault.get("ZTIME") or "").strip(),
-                            )
-                            if value
-                        ),
                     ),
                 )
 

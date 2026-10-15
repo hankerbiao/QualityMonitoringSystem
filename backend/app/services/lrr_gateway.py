@@ -72,8 +72,6 @@ def normalize_fault(item: dict[str, Any]) -> dict[str, Any]:
         "ZNGGZ": data.get("ZNGGZ", ""),
         "ZNGWD": data.get("ZNGWD", ""),
         "ZWXWD": data.get("ZWXWD", ""),
-        "ZDATE_WX": data.get("ZDATE_WX", ""),
-        "ZTIME": data.get("ZTIME", ""),
         "GSTRS": data.get("GSTRS", data.get("plannedStartDate", "")),
         "ZJXMC": data.get("ZJXMC", ""),
         "MATNR": material_number,

@@ -69,4 +69,4 @@ class LRRFaultDetail(BaseModel):
     sn: str = ""
     faultType: str = ""
     faultDesc: str = ""
-    ngTime: str = ""
+    ngTime: str = Field("", deprecated=True, description="已停用，保留空值兼容旧客户端")

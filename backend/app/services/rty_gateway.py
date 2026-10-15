@@ -30,8 +30,6 @@ from app.services.rty_shared import (
     EXCLUDED_ORDER_TYPES,
     MAX_BINDING_ROW_COUNT,
     MAX_DETAIL_ROW_COUNT,
-    REPAIR_YEAR_END,
-    REPAIR_YEAR_START,
     YEAR_END,
     YEAR_START,
     normalize_order,
@@ -90,8 +88,6 @@ def normalize_fault_row(item: dict[str, Any]) -> dict[str, Any]:
         "PCODE": raw.get("PCODE") or item.get("serialNumber") or item.get("hostBarcode") or "",
         "AUFNR": item.get("productionOrder") or raw.get("AUFNR") or "",
         "VBELN": item.get("salesOrder") or raw.get("VBELN") or "",
-        "ZDATE_WX": raw.get("ZDATE_WX") or str(item.get("repairAt") or "")[:10].replace("-", ""),
-        "ZTIME": raw.get("ZTIME") or "",
         "ZNGGZ": raw.get("ZNGGZ") or item.get("ngStation") or "",
         "ZNGWD": raw.get("ZNGWD") or item.get("errorCode") or "",
         "ZWXWD": raw.get("ZWXWD")
@@ -190,17 +186,20 @@ async def excluded_orders(filters: dict[str, Any], page: int, limit: int) -> dic
 
 
 async def _faults(filters: dict[str, Any]) -> list[dict[str, Any]]:
-    rows = [normalize_fault_row(item) for item in await data_gateway.all_faults(**filters)]
+    rows = [
+        normalize_fault_row(item)
+        for item in await data_gateway.all_faults(**{**filters, "timeField": "planned"})
+    ]
     return rows
 
 
 async def _faults_for_sns(
     sns: set[str],
     *,
-    date_from: str,
-    date_to: str,
+    date_from: str = "",
+    date_to: str = "",
     station: str | None = None,
-    time_field: str = "",
+    time_field: str = "planned",
 ) -> list[dict[str, Any]]:
     """Query repairs in bounded SN batches so URLs and Mongo filters stay manageable."""
     values = sorted(value for value in sns if value)
@@ -236,12 +235,7 @@ def _repair_gstrs_date(row: dict[str, Any]) -> str:
 async def _station_repairs_for_sns(
     sns: set[str], *, date_from: str, date_to: str
 ) -> list[dict[str, Any]]:
-    """Return station repairs whose repair-table planned start is in range.
-
-    The gateway's default fault date parameters use the repair date
-    (ZDATE_WX). Station RTY explicitly requests its planned-start variant
-    (GSTRS) and keeps a local field check as a defense against gateway drift.
-    """
+    """Return station repairs whose planned start (GSTRS) is in range."""
     rows = await _faults_for_sns(
         sns,
         date_from=date_from,
@@ -257,9 +251,9 @@ async def _station_repairs_for_sns(
 
 
 async def _faults_for_orders(
-    orders: set[str], *, date_from: str, date_to: str, chunk_size: int = 500
+    orders: set[str], *, chunk_size: int = 500
 ) -> list[dict[str, Any]]:
-    """Fetch fault rows in bounded batches so URL/query size stays manageable."""
+    """Join selected orders to all faults, without filtering repair dates."""
     variants = order_variants(sorted(orders))
     if not variants:
         return []
@@ -270,8 +264,7 @@ async def _faults_for_orders(
         async with semaphore:
             return await data_gateway.fault_lookup(
                 production_orders=chunk,
-                date_from=date_from,
-                date_to=date_to,
+                time_field="planned",
             )
 
     rows = await asyncio.gather(*(fetch(chunk) for chunk in chunks))
@@ -290,8 +283,8 @@ def _num(value: Any) -> float:
 
 
 def _date_range(date_from: str | None, date_to: str | None) -> tuple[str, str]:
-    start = validate_date(date_from).replace("-", "") if date_from else REPAIR_YEAR_START
-    end = validate_date(date_to).replace("-", "") if date_to else REPAIR_YEAR_END
+    start = (validate_date(date_from) if date_from else YEAR_START).replace("-", "")
+    end = (validate_date(date_to) if date_to else YEAR_END).replace("-", "")
     if start > end:
         raise HTTPException(status_code=422, detail="开始日期不能晚于结束日期")
     return start, end
@@ -311,14 +304,14 @@ def _dedup_faults(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "PCODE",
                 "AUFNR",
                 "VBELN",
-                "ZDATE_WX",
-                "ZTIME",
                 "ZNGWD",
                 "ZNGGZ",
                 "ZWXWD",
                 "ZUSER",
             )
         )
+        if row.get("_id"):
+            key = ("id", str(row["_id"]))
         if key not in seen:
             seen.add(key)
             result.append(row)
@@ -329,16 +322,10 @@ async def _fault_sns_by_orders(
     orders: set[str],
     *,
     model: str | None = None,
-    date_from: str | None = None,
-    date_to: str | None = None,
 ) -> dict[str, set[str]]:
     if not orders:
         return {}
-    rows = await _faults_for_orders(
-        orders,
-        date_from=date_from or REPAIR_YEAR_START,
-        date_to=date_to or REPAIR_YEAR_END,
-    )
+    rows = await _faults_for_orders(orders)
     result: dict[str, set[str]] = defaultdict(set)
     for row in rows:
         order = normalize_order(row.get("AUFNR"))
@@ -365,11 +352,7 @@ async def _fault_sns_by_orders(
                 status_code=413, detail="刀片绑定记录超过上限 100000，请缩小筛选范围"
             )
         if item_order_to_heads:
-            child_rows = await _faults_for_orders(
-                set(item_order_to_heads),
-                date_from=date_from or REPAIR_YEAR_START,
-                date_to=date_to or REPAIR_YEAR_END,
-            )
+            child_rows = await _faults_for_orders(set(item_order_to_heads))
             for row in child_rows:
                 child_sn = str(row.get("PCODE") or "").strip()
                 child_order = normalize_order(row.get("AUFNR"))
@@ -386,20 +369,13 @@ class CompositeFaults:
 
 async def _fault_sns_by_composite_groups(
     groups: dict[_GroupKey, dict[str, Any]],
-    *,
-    date_from: str | None = None,
-    date_to: str | None = None,
 ) -> dict[_GroupKey, CompositeFaults]:
     """Resolve all composite groups with one binding query and one child query."""
     if not groups:
         return {}
 
     head_orders = set().union(*(group["orders"] for group in groups.values()))
-    head_faults = await _faults_for_orders(
-        head_orders,
-        date_from=date_from or REPAIR_YEAR_START,
-        date_to=date_to or REPAIR_YEAR_END,
-    )
+    head_faults = await _faults_for_orders(head_orders)
     result = {key: CompositeFaults() for key in groups}
     order_to_groups: dict[str, set[_GroupKey]] = defaultdict(set)
     for key, group in groups.items():
@@ -450,11 +426,7 @@ async def _fault_sns_by_composite_groups(
     if not child_orders:
         return result
 
-    child_faults = await _faults_for_orders(
-        child_orders,
-        date_from=date_from or REPAIR_YEAR_START,
-        date_to=date_to or REPAIR_YEAR_END,
-    )
+    child_faults = await _faults_for_orders(child_orders)
     for row in child_faults:
         child_order = normalize_order(row.get("AUFNR"))
         child_sn = str(row.get("PCODE") or "").strip()
@@ -527,22 +499,14 @@ async def _build_rty_list(
         model = str((group["first"].get("data") or {}).get("MAKTX_TH") or "")
         if model not in COMPOSITE_MODEL_ITEMS:
             normal_orders.update(group["orders"])
-    shared_faults = await _fault_sns_by_orders(
-        normal_orders,
-        date_from=filters.get("dateFrom"),
-        date_to=filters.get("dateTo"),
-    )
+    shared_faults = await _fault_sns_by_orders(normal_orders)
     composite_groups = {
         key: groups[key]
         for key in page_keys
         if str((groups[key]["first"].get("data") or {}).get("MAKTX_TH") or "")
         in COMPOSITE_MODEL_ITEMS
     }
-    composite_faults = await _fault_sns_by_composite_groups(
-        composite_groups,
-        date_from=filters.get("dateFrom"),
-        date_to=filters.get("dateTo"),
-    )
+    composite_faults = await _fault_sns_by_composite_groups(composite_groups)
     for key in page_keys:
         group = groups[key]
         model = str((group["first"].get("data") or {}).get("MAKTX_TH") or "")
@@ -619,7 +583,7 @@ async def cycle_data(
 async def _rty_order_groups(
     orders: list[dict[str, Any]], *, group_by: str | None = None
 ) -> dict[tuple[str, str, str, str], dict[str, Any]]:
-    """Share cycle RTY grouping and annual repair rules with station summaries."""
+    """Share cycle RTY grouping and order-linked faults with station summaries."""
     groups: dict[tuple[str, str, str, str], dict[str, Any]] = {}
     for row in orders:
         data = row["data"]
@@ -643,10 +607,8 @@ async def _rty_order_groups(
         key: group for key, group in groups.items() if group["model"] in COMPOSITE_MODEL_ITEMS
     }
     normal_faults, composite_faults = await asyncio.gather(
-        _fault_sns_by_orders(normal_orders, date_from=REPAIR_YEAR_START, date_to=REPAIR_YEAR_END),
-        _fault_sns_by_composite_groups(
-            composite_groups, date_from=REPAIR_YEAR_START, date_to=REPAIR_YEAR_END
-        ),
+        _fault_sns_by_orders(normal_orders),
+        _fault_sns_by_composite_groups(composite_groups),
     )
     for key, group in groups.items():
         faults = normal_faults
@@ -983,12 +945,6 @@ async def station_details(
                 stationName=station,
                 passDate=_station_gstrs_date(item),
                 status="passed",
-                repairTime=(
-                    f"{repairs_by_sn[sn].get('ZDATE_WX') or ''} "
-                    f"{repairs_by_sn[sn].get('ZTIME') or ''}"
-                ).strip()
-                if sn in repairs_by_sn
-                else "",
                 defectCode=str(repairs_by_sn[sn].get("ZNGWD") or "") if sn in repairs_by_sn else "",
                 description=str(repairs_by_sn[sn].get("ZWXWD") or "")
                 if sn in repairs_by_sn
@@ -1019,7 +975,6 @@ async def station_details(
                 stationName=station,
                 passDate=_station_gstrs_date(pass_row),
                 status="defect",
-                repairTime=f"{row.get('ZDATE_WX') or ''} {row.get('ZTIME') or ''}".strip(),
                 defectCode=str(row.get("ZNGWD") or ""),
                 description=str(row.get("ZWXWD") or ""),
                 repairPerson=str(row.get("ZUSER") or ""),
@@ -1041,7 +996,6 @@ def to_detail(row: dict[str, Any]) -> DefectDetail:
         product_family=str(row.get("ZJXMC") or row.get("MAKTX") or ""),
         fault_2nd_appear="",
         fault_3rd_appear="",
-        repairTime=f"{row.get('ZDATE_WX') or ''} {row.get('ZTIME') or ''}".strip(),
         repairPerson=str(row.get("ZUSER") or ""),
         repair_effectiveness="",
         customer=str(row.get("customer") or ""),
@@ -1051,9 +1005,6 @@ def to_detail(row: dict[str, Any]) -> DefectDetail:
 async def details_by_orders(
     orders: set[str],
     model: str | None = None,
-    *,
-    date_from: str | None = None,
-    date_to: str | None = None,
 ) -> list[DefectDetail]:
     if not orders:
         return []
@@ -1061,26 +1012,24 @@ async def details_by_orders(
     # The lookup endpoint intentionally returns only order-to-SN associations.
     # Resolve those SNs through the detail endpoint before rendering the modal,
     # otherwise every detail column is blank even though the RTY count is nonzero.
-    links = _dedup_faults(
-        await _faults_for_orders(
-            orders,
-            date_from=date_from or YEAR_START,
-            date_to=date_to or YEAR_END,
-        )
-    )
+    links = _dedup_faults(await _faults_for_orders(orders))
     sns = {str(row.get("PCODE") or "").strip() for row in links}
-    detail_rows = await _faults_for_sns(
-        sns,
-        date_from=date_from or YEAR_START,
-        date_to=date_to or YEAR_END,
-    )
+    detail_rows = await _faults_for_sns(sns)
+    selected_orders = {normalize_order(order) for order in orders}
+    detail_rows = [
+        row for row in detail_rows
+        if normalize_order(row.get("AUFNR")) in selected_orders
+    ]
     rows = _dedup_faults(detail_rows) if detail_rows else links
     return [
         to_detail(row)
         for row in sorted(
             rows,
-            key=lambda row: (str(row.get("ZDATE_WX") or ""), str(row.get("ZTIME") or "")),
-            reverse=True,
+            key=lambda row: (
+                normalize_order(row.get("AUFNR")),
+                str(row.get("PCODE") or ""),
+                str(row.get("_id") or ""),
+            ),
         )[:MAX_DETAIL_ROW_COUNT]
     ]
 

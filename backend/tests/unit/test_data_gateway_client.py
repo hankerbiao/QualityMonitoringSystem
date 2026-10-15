@@ -1,4 +1,5 @@
 import asyncio
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -451,6 +452,23 @@ async def test_fault_rows_by_sns_falls_back_when_gateway_omits_planned_date():
 
     assert rows == [{"PCODE": "SN-1", "GSTRS": "2026-07-15"}]
     assert calls == ["POST", "GET"]
+
+
+@pytest.mark.asyncio
+async def test_fault_rows_without_date_filter_keep_rows_missing_planned_date():
+    client = DataGatewayClient("http://gateway.test", timeout=2)
+    client.request_json = AsyncMock(return_value={
+        "items": [{"PCODE": "SN-1", "ZDATE_WX": ""}],
+    })
+    client.all_pages = AsyncMock()
+
+    rows = await client.fault_rows_by_sns(["SN-1"], time_field="planned")
+
+    assert rows == [{"PCODE": "SN-1", "ZDATE_WX": ""}]
+    client.all_pages.assert_not_awaited()
+    assert client.request_json.await_args.kwargs["json"] == {
+        "sns": ["SN-1"], "dateFrom": "", "dateTo": "", "station": "", "timeField": "planned",
+    }
 
 
 @pytest.mark.asyncio

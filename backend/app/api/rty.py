@@ -308,8 +308,6 @@ async def get_defect_details_by_filters(
     rows = await rty_gateway.details_by_orders(
         {row["aufnr"] for row in orders},
         productModel,
-        date_from=filters["dateFrom"],
-        date_to=filters["dateTo"],
     )
     return Response(success=True, data=rows, message="网关故障明细查询完成")
 
@@ -323,11 +321,7 @@ async def get_defect_details(sns: str = Query(..., description="机器序列号�
     values = _split_values(sns)
     if not values:
         return Response(success=True, data=[], message="无 SN 参数")
-    rows = await rty_gateway._faults_for_sns(
-        set(values),
-        date_from=YEAR_START,
-        date_to=YEAR_END,
-    )
+    rows = await rty_gateway._faults_for_sns(set(values))
     data = [rty_gateway.to_detail(row) for row in rty_gateway._dedup_faults(rows)]
     return Response(success=True, data=data, message=f"查询到 {len(data)} 条维修故障记录")
 

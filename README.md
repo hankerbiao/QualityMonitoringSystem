@@ -241,6 +241,10 @@ QualityMonitoringSystem/
 | `sessions` | 登录会话 | `sessionId`, `itcode`, `accessToken`, `refreshToken`, `expiresAt` |
 | `usage_events` | 运营使用事件 | `itcode`, `module`, `timestamp` |
 
+RTY 日期筛选使用订单的 `GSTRS`（计划开始时间），故障按所选订单关联。
+维修时间 `ZDATE_WX` / `ZTIME` / `repair_time` 已停用，不参与筛选、统计、排序或去重；
+历史数据保留原字段，旧接口的 `repairTime` / `ngTime` 返回空值。
+
 ### 字段映射
 
 | RTY 字段 | MongoDB 字段 |

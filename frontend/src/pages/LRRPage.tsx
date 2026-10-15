@@ -110,7 +110,7 @@ function DetailModal({ title, items, loading, error, onClose }: { title: string;
           <div className="overflow-auto">
             <table className="w-full min-w-[900px] text-left text-xs">
               <thead className="sticky top-0 bg-slate-100 text-slate-600">
-                <tr>{['月份', '物料 PN', '物料描述', 'SN', '故障类型', '故障描述', 'NG 时间'].map((name) => <th key={name} className="px-3 py-2 font-semibold">{name}</th>)}</tr>
+                <tr>{['月份', '物料 PN', '物料描述', 'SN', '故障类型', '故障描述'].map((name) => <th key={name} className="px-3 py-2 font-semibold">{name}</th>)}</tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {items.map((item, index) => (
@@ -121,7 +121,6 @@ function DetailModal({ title, items, loading, error, onClose }: { title: string;
                     <td className="px-3 py-2 font-mono">{item.sn || '-'}</td>
                     <td className="px-3 py-2">{item.faultType || '-'}</td>
                     <td className="max-w-[240px] truncate px-3 py-2">{item.faultDesc || '-'}</td>
-                    <td className="px-3 py-2">{item.ngTime || '-'}</td>
                   </tr>
                 ))}
               </tbody>
@@ -338,7 +337,6 @@ export default function LRRPage() {
         SN: item.sn,
         故障类型: item.faultType,
         故障描述: item.faultDesc,
-        NG时间: item.ngTime,
       }));
       const summaryRows = materialItems.map((item) => ({
         月份: item.month,

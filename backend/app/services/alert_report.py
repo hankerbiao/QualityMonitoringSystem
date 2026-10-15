@@ -81,12 +81,12 @@ async def build_alert_report(context: AlertContext) -> AlertReportData:
     target_rate = float(targets_map.get(product_model, 100))
     reached = rty_rate >= target_rate
 
-    # 故障明细（按维修时间倒序，限 DEFECT_LIMIT）
+    # 按机器 SN 和记录 ID 稳定排序，限 DEFECT_LIMIT。
     defects: list[DefectDetail] = []
     if sns:
         defect_cursor = db[Collections.FAULT_INFO].aggregate([
             {"$match": {"sn": {"$in": sns}}},
-            {"$sort": {"repair_time": -1}},
+            {"$sort": {"sn": 1, "_id": 1}},
             {"$limit": DEFECT_LIMIT},
         ])
         items = await defect_cursor.to_list(length=DEFECT_LIMIT)
@@ -102,7 +102,6 @@ async def build_alert_report(context: AlertContext) -> AlertReportData:
                 product_family=it.get("product_family") or "",
                 fault_2nd_appear=it.get("fault_2nd_appear") or "",
                 fault_3rd_appear=it.get("fault_3rd_appear") or "",
-                repairTime=it.get("repair_time") or "",
                 repairPerson=it.get("repair_person") or "",
                 repair_effectiveness=it.get("repair_effectiveness") or "",
             )

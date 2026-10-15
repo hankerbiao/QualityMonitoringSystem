@@ -283,7 +283,7 @@ def test_lrr_groups_usage_by_material_and_month_and_matches_fault_description():
     assert by_key[("PN-2", "2026-01")].faultCount == 0
     assert len(details) == 1
     assert details[0].materialNumber == "PN-1"
-    assert details[0].ngTime == "20260125"
+    assert details[0].ngTime == ""
 
 
 def test_lrr_matches_repair_material_to_zero_padded_bom_material():
@@ -370,7 +370,7 @@ def test_lrr_counts_fault_by_planned_production_month_not_actual_repair_month():
 
     assert rows[0].month == "2026-07"
     assert rows[0].faultCount == 1
-    assert details[0].ngTime == "20260802"
+    assert details[0].ngTime == ""
 
 
 def test_lrr_supports_compacted_fault_counts():
@@ -431,7 +431,7 @@ def test_lrr_detail_does_not_treat_station_as_fault_code():
 
     assert details[0].faultType == ""
     assert details[0].faultDesc == "Power-on failure"
-    assert details[0].ngTime == "20260202 113419"
+    assert details[0].ngTime == ""
 
 
 def test_lrr_does_not_assign_repairs_when_bom_material_description_is_missing():
