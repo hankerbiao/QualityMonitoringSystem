@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock
 
 import httpx
@@ -462,3 +463,85 @@ async def test_order_export_reads_past_the_gateway_all_endpoint_cap(monkeypatch)
     assert len(rows) == 10_001
     assert len(requests) == 101
     assert rows[-1]["AUFNR"] == "10001"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["bindings", "faults"])
+async def test_large_export_overlaps_source_batches_with_bounded_concurrency(monkeypatch, stage):
+    orders = [
+        order(str(number), MAKTX_TH="6210 C21 BOX")["raw"]["data"] for number in range(1, 252)
+    ]
+    monkeypatch.setattr(rty_export, "_load_orders", AsyncMock(return_value=orders))
+    if stage == "faults":
+        monkeypatch.setattr(rty_export, "_child_bindings", AsyncMock(return_value={}))
+    active = 0
+    peak = 0
+
+    async def read_batch(method, path, *, filters, max_rows):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        try:
+            await asyncio.sleep(0)
+            key = "headOrder" if stage == "bindings" else "productionOrders"
+            selected = {int(value) for value in filters[key].split(",")}
+            if stage == "bindings":
+                assert path == "/api/views/ZSGV_ZPP_SERNOLIST"
+                return [
+                    {
+                        "AUFNR_HEAD": str(number),
+                        "AUFNR_ITEM": str(number + 1000),
+                        "ZCODE_HEAD": f"HEAD-{number}",
+                        "ZCODE_ITEM": f"CHILD-{number}",
+                    }
+                    for number in sorted(selected)
+                ]
+            assert path == "/api/faults"
+            assert filters["timeField"] == "planned"
+            assert max_rows == 250_000
+            return [
+                fault(f"F{number}", AUFNR=str(number), PCODE=f"SN-{number}")
+                for number in sorted(selected)
+            ]
+        finally:
+            active -= 1
+
+    monkeypatch.setattr(rty_export.data_gateway, "all_pages", read_batch)
+    if stage == "bindings":
+        result = await rty_export._child_bindings(orders)
+        assert len(result) == 251
+        assert result[("1251", "CHILD-251")] == {("6210 C21 BOX", "HEAD-251")}
+    else:
+        result = await rty_export.build_source_export(FILTERS)
+        assert len(result.orders) == 251
+        assert len(result.faults) == 251
+        assert {row["PCODE"] for row in result.faults} == {f"SN-{n}" for n in range(1, 252)}
+    assert 1 < peak <= 4
+    assert active == 0
+
+
+@pytest.mark.asyncio
+async def test_failed_export_waits_for_started_source_batches_and_returns_no_partial_data(
+    monkeypatch,
+):
+    orders = [order(str(number))["raw"]["data"] for number in range(1, 202)]
+    monkeypatch.setattr(rty_export, "_load_orders", AsyncMock(return_value=orders))
+    monkeypatch.setattr(rty_export, "_child_bindings", AsyncMock(return_value={}))
+    active = 0
+
+    async def read_batch(*_args, **kwargs):
+        nonlocal active
+        active += 1
+        try:
+            await asyncio.sleep(0)
+            if "1" in kwargs["filters"]["productionOrders"].split(","):
+                raise DataGatewayError("batch failed")
+            await asyncio.sleep(0)
+            return [fault()]
+        finally:
+            active -= 1
+
+    monkeypatch.setattr(rty_export.data_gateway, "all_pages", read_batch)
+    with pytest.raises(DataGatewayError, match="batch failed"):
+        await rty_export.build_source_export(FILTERS)
+    assert active == 0

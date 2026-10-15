@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
+from collections.abc import AsyncIterator
 from decimal import Decimal, InvalidOperation
 from math import isfinite
 from typing import Any
@@ -24,6 +25,9 @@ from app.services.rty_shared import (
 MAX_EXPORT_ORDERS = 100_000
 MAX_EXPORT_FAULTS = 250_000
 ORDER_DETAIL_CONCURRENCY = 8
+# Each paginated query can issue eight requests; four batches fit the
+# gateway client's 32-connection pool without unbounded source fan-out.
+SOURCE_BATCH_CONCURRENCY = 4
 MatchedFault = tuple[dict[str, Any], set[tuple[str, str]]]
 ORDER_FIELDS = (
     "VBELN",
@@ -188,6 +192,25 @@ async def _full_order(item: dict[str, Any]) -> dict[str, Any]:
     return {**item, **(order if isinstance(order, dict) else {}), "raw": full_raw}
 
 
+async def _source_batches(
+    path: str, filters: list[dict[str, str]], *, max_rows: int
+) -> AsyncIterator[list[dict[str, Any]]]:
+    for index in range(0, len(filters), SOURCE_BATCH_CONCURRENCY):
+        batches = await asyncio.gather(
+            *(
+                data_gateway.all_pages("GET", path, filters=batch, max_rows=max_rows)
+                for batch in filters[index : index + SOURCE_BATCH_CONCURRENCY]
+            ),
+            return_exceptions=True,
+        )
+        # Await the whole window before propagating an error, so no batch
+        # keeps reading the source after an export has failed.
+        for items in batches:
+            if isinstance(items, BaseException):
+                raise items
+            yield items
+
+
 async def _child_bindings(
     orders: list[dict[str, Any]],
 ) -> dict[tuple[str, str], set[tuple[str, str]]]:
@@ -198,13 +221,11 @@ async def _child_bindings(
             heads[normalize_order(row["AUFNR"])].add(model)
     result: dict[tuple[str, str], set[tuple[str, str]]] = defaultdict(set)
     values = sorted(heads)
-    for index in range(0, len(values), 32):
-        items = await data_gateway.all_pages(
-            "GET",
-            "/api/views/ZSGV_ZPP_SERNOLIST",
-            filters={"headOrder": ",".join(order_variants(values[index : index + 32]))},
-            max_rows=100_000,
-        )
+    batches = [
+        {"headOrder": ",".join(order_variants(values[index : index + 32]))}
+        for index in range(0, len(values), 32)
+    ]
+    async for items in _source_batches("/api/views/ZSGV_ZPP_SERNOLIST", batches, max_rows=100_000):
         for item in items:
             raw = _source(item)
             head_order = normalize_order(raw.get("AUFNR_HEAD"))
@@ -239,16 +260,14 @@ async def _load_sources(
     lookup_orders = sorted(set(order_models) | {order for order, _ in children})
     faults: list[MatchedFault] = []
     seen_ids: set[str] = set()
-    for index in range(0, len(lookup_orders), 50):
-        items = await data_gateway.all_pages(
-            "GET",
-            "/api/faults",
-            filters={
-                "productionOrders": ",".join(order_variants(lookup_orders[index : index + 50])),
-                "timeField": "planned",
-            },
-            max_rows=MAX_EXPORT_FAULTS,
-        )
+    batches = [
+        {
+            "productionOrders": ",".join(order_variants(lookup_orders[index : index + 50])),
+            "timeField": "planned",
+        }
+        for index in range(0, len(lookup_orders), 50)
+    ]
+    async for items in _source_batches("/api/faults", batches, max_rows=MAX_EXPORT_FAULTS):
         for item in items:
             raw = _source(item)
             order = normalize_order(raw.get("AUFNR") or item.get("productionOrder"))
