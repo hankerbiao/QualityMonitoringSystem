@@ -4,7 +4,6 @@ import {
   AlertCircle,
   ArrowRight,
   Boxes,
-  CheckCircle2,
   Eye,
   EyeOff,
   Gauge,
@@ -223,20 +222,6 @@ export default function LoginPage() {
               )}
             </button>
           </form>
-
-          <div className="mt-6 rounded-lg border border-[#e6dfb8] bg-[#fffceb] px-4 py-3.5">
-            <div className="flex items-start gap-3">
-              <CheckCircle2 className="mt-0.5 h-[18px] w-[18px] shrink-0 text-[#7b721e]" strokeWidth={1.8} />
-              <div className="min-w-0">
-                <p className="text-xs font-medium text-[#5e581d]">默认登录信息</p>
-                <p className="mt-1.5 break-words font-mono text-xs text-[#746c24]">
-                  用户名 <strong className="text-[#403b11]">admin</strong>
-                  <span className="mx-2 text-[#b2a94f]">|</span>
-                  密码 <strong className="text-[#403b11]">admin123</strong>
-                </p>
-              </div>
-            </div>
-          </div>
 
           <footer className="mt-8 flex items-center justify-between border-t border-[#e2e7e8] pt-5 text-xs text-[#7b888c]">
             <span className="flex items-center gap-2">

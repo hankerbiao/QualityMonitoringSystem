@@ -13,6 +13,7 @@ import {
 const datePresets: { id: StationDatePreset; label: string }[] = [
   { id: '7d', label: '近7天' },
   { id: '30d', label: '近30天' },
+  { id: 'lastWeek', label: '上周' },
   { id: 'thisMonth', label: '本月' },
   { id: 'lastMonth', label: '上月' },
   { id: 'year', label: '今年' },

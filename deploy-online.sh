@@ -22,11 +22,9 @@ cd "$SCRIPT_DIR"
 
 branch="$(git branch --show-current)"
 [[ -n "$branch" ]] || fail "Detached HEAD; switch to a branch before deploying."
-git rev-parse --abbrev-ref --symbolic-full-name '@{upstream}' >/dev/null 2>&1 \
-  || fail "Current branch has no upstream; configure one before deploying."
-
 info "Pushing branch ${branch} to origin"
-git push origin "$branch"
+deploy_commit="$(git rev-parse HEAD)"
+git push origin "$deploy_commit:refs/heads/$branch"
 
 if [[ -z "${DEPLOY_SSH_PASSWORD:-}" ]]; then
   read -r -s -p "SSH password for ${REMOTE_USER}@${REMOTE_HOST}: " DEPLOY_SSH_PASSWORD
@@ -36,8 +34,8 @@ fi
 export SSHPASS="$DEPLOY_SSH_PASSWORD"
 unset DEPLOY_SSH_PASSWORD
 
-printf -v remote_command 'APP_DIR=%q HTTP_PROXY_URL=%q SOCKS_PROXY_URL=%q bash -s' \
-  "$REMOTE_DIR" "$HTTP_PROXY_URL" "$SOCKS_PROXY_URL"
+printf -v remote_command 'APP_DIR=%q HTTP_PROXY_URL=%q SOCKS_PROXY_URL=%q DEPLOY_BRANCH=%q DEPLOY_COMMIT=%q bash -s' \
+  "$REMOTE_DIR" "$HTTP_PROXY_URL" "$SOCKS_PROXY_URL" "$branch" "$deploy_commit"
 
 info "Deploying on ${REMOTE_HOST}:${REMOTE_DIR}"
 sshpass -e ssh \
@@ -66,9 +64,12 @@ cd "$APP_DIR"
 command -v docker >/dev/null 2>&1 || { printf '[deploy] ERROR: docker is not installed\n' >&2; exit 1; }
 docker compose version >/dev/null
 
-git fetch origin
-upstream_ref="$(git rev-parse --symbolic-full-name '@{upstream}')"
-incoming_paths="$(git diff --name-only HEAD "$upstream_ref")"
+[[ "$(git branch --show-current)" == "$DEPLOY_BRANCH" ]] \
+  || { printf '[deploy] ERROR: remote branch must be %s\n' "$DEPLOY_BRANCH" >&2; exit 1; }
+git fetch origin "refs/heads/$DEPLOY_BRANCH"
+[[ "$(git rev-parse FETCH_HEAD)" == "$DEPLOY_COMMIT" ]] \
+  || { printf '[deploy] ERROR: branch changed after push; run deployment again\n' >&2; exit 1; }
+incoming_paths="$(git diff --name-only HEAD "$DEPLOY_COMMIT")"
 while IFS= read -r status_line; do
   [[ -n "$status_line" ]] || continue
   path="${status_line:3}"
@@ -87,8 +88,10 @@ while IFS= read -r status_line; do
   esac
 done < <(git status --porcelain=v1 --untracked-files=all)
 
-printf '[deploy] Pulling latest commit through the configured proxy\n'
-git pull --ff-only
+printf '[deploy] Updating to commit %s\n' "$DEPLOY_COMMIT"
+git merge --ff-only "$DEPLOY_COMMIT"
+[[ "$(git rev-parse HEAD)" == "$DEPLOY_COMMIT" ]] \
+  || { printf '[deploy] ERROR: remote HEAD differs from deployment commit\n' >&2; exit 1; }
 
 printf '[deploy] Validating Compose configuration\n'
 docker compose -f docker/compose.yaml config --quiet

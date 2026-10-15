@@ -493,7 +493,8 @@ class MockMotorCollection:
 
                 new_doc = dict(filter_spec)
                 if "$set" in update:
-                    new_doc.update(update["$set"])
+                    for key, value in update["$set"].items():
+                        self._set_path(new_doc, key, value)
                 if "_id" not in new_doc:
                     new_doc["_id"] = str(ObjectId())
                 if new_doc["_id"] in self._docs:
@@ -504,7 +505,8 @@ class MockMotorCollection:
 
         doc = docs[0]
         if "$set" in update:
-            doc.update(update["$set"])
+            for key, value in update["$set"].items():
+                self._set_path(doc, key, value)
         elif "$setOnInsert" in update:
             pass  # Only set if new
         self._docs[doc["_id"]] = doc

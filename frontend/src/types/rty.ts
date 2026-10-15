@@ -14,8 +14,16 @@ export interface RTYData {
   salesOrders: string[];
   productionOrders: string[];
   serialNumbers: string[];
+  faultSerialNumbers?: string[] | null;
   productLine: string;
   status: string;
+}
+
+export interface RTYTemplateExport {
+  summary: Record<string, string | number | boolean | null>[];
+  orders: Record<string, string | number | boolean | null>[];
+  faults: Record<string, string | number | boolean | null>[];
+  topProblems: Record<string, string | number | boolean | null>[];
 }
 
 export interface ExcludedOrder {
@@ -49,6 +57,7 @@ export interface StationPassQuery {
   dateTo?: string;
   serialNumber?: string;
   productModel?: string;
+  customer?: string;
   base?: string;
   groupBy: StationGroupBy;
   orderScope?: 'normal' | 'l6';

@@ -85,6 +85,40 @@ function InnerAuthProvider({ children }: { children: ReactNode }) {
       .finally(() => setIsAuthLoaded(true));
   }, []);
 
+  const username = user?.username || user?.itcode;
+  useEffect(() => {
+    if (!isAuthLoaded || !username) return;
+    let active = true;
+    let refreshing = false;
+    const refreshProfile = async () => {
+      if (document.visibilityState === 'hidden' || refreshing || !getAccessToken()) return;
+      refreshing = true;
+      try {
+        const current = await getCurrentUser();
+        if (active) {
+          const profile = current.user as UserProfile;
+          setUser(previous => {
+            if (!previous || (previous.username || previous.itcode) !== username) return previous;
+            return JSON.stringify(previous) === JSON.stringify(profile) ? previous : profile;
+          });
+        }
+      } catch {
+        // Keep the current profile on transient errors; 401 already triggers logout.
+      } finally {
+        refreshing = false;
+      }
+    };
+    const interval = window.setInterval(() => void refreshProfile(), 60_000);
+    window.addEventListener('focus', refreshProfile);
+    document.addEventListener('visibilitychange', refreshProfile);
+    return () => {
+      active = false;
+      window.clearInterval(interval);
+      window.removeEventListener('focus', refreshProfile);
+      document.removeEventListener('visibilitychange', refreshProfile);
+    };
+  }, [isAuthLoaded, username]);
+
   return (
     <AuthContext.Provider value={{ user, isAuthenticated: !!user, isAuthLoaded, login, logout }}>
       {children}

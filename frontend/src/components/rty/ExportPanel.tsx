@@ -4,9 +4,10 @@ interface ExportPanelProps {
   onToggle: (key: string) => void;
   onConfirm: () => void;
   onClose: () => void;
+  disabled: boolean;
 }
 
-export function ExportPanel({ columns, selected, onToggle, onConfirm, onClose }: ExportPanelProps) {
+export function ExportPanel({ columns, selected, onToggle, onConfirm, onClose, disabled }: ExportPanelProps) {
   return (
     <div className="absolute right-0 top-full mt-1 bg-white border border-slate-200 rounded-sm shadow-lg z-50 w-52">
       <div className="px-3 py-2 border-b border-slate-100 text-xs font-semibold text-slate-700 flex justify-between items-center">
@@ -29,9 +30,10 @@ export function ExportPanel({ columns, selected, onToggle, onConfirm, onClose }:
       <div className="px-3 py-2 border-t border-slate-100 flex justify-end">
         <button
           onClick={onConfirm}
-          className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs rounded-sm font-medium"
+          disabled={disabled}
+          className="px-3 py-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs rounded-sm font-medium disabled:opacity-50"
         >
-          确认导出
+          {disabled ? '导出中...' : '确认导出'}
         </button>
       </div>
     </div>

@@ -4,6 +4,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.api import rty
+from app.schemas.rty import RTYTemplateExport
 from app.services import rty_gateway
 
 
@@ -70,3 +71,51 @@ async def test_cycle_data_rejects_reversed_daily_range():
             "2026-04-14",
         )
     assert error.value.detail == "开始日期不能晚于结束日期"
+
+
+@pytest.mark.asyncio
+async def test_station_pass_endpoints_forward_customer_filter(monkeypatch):
+    station_rates = AsyncMock(return_value=[])
+    station_details = AsyncMock(return_value=[])
+    monkeypatch.setattr(rty_gateway, "station_rates", station_rates)
+    monkeypatch.setattr(rty_gateway, "station_details", station_details)
+
+    rates_response = await rty.get_station_pass_rates(customer="customer-1")
+    details_response = await rty.get_station_pass_details(
+        stationCode="OP10",
+        customer="customer-1",
+    )
+
+    assert rates_response.success
+    assert station_rates.await_args.kwargs["customer"] == "customer-1"
+    assert details_response.success
+    assert station_details.await_args.kwargs["customer"] == "customer-1"
+
+
+@pytest.mark.asyncio
+async def test_template_export_forwards_complete_filters_and_is_protected(monkeypatch):
+    export = AsyncMock(return_value=RTYTemplateExport())
+    monkeypatch.setattr(rty.rty_export, "build_template_export", export)
+
+    response = await rty.get_rty_template_export(
+        request=None,
+        salesOrder="SO-1",
+        productionOrder="PO-1",
+        serialNumber="SN-1",
+        base="B",
+        productModel="M",
+        customer="C",
+        dateFrom="2026-09-01",
+        dateTo="2026-09-30",
+        orderScope="l6",
+    )
+
+    assert response.success
+    export.assert_awaited_once_with({
+        "salesOrder": "SO-1", "productionOrder": "PO-1", "serialNumber": "SN-1",
+        "base": "B", "productModel": "M", "customer": "C",
+        "dateFrom": "2026-09-01", "dateTo": "2026-09-30",
+        "orderScope": "l6", "calculationMethod": "",
+    })
+    route = next(route for route in rty.router.routes if route.path == "/export")
+    assert route.dependencies

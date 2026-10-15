@@ -51,7 +51,7 @@ export function rankVolumes(items: readonly VolumeItem[], limit = 10, pinnedLabe
   };
 }
 
-export type StationDatePreset = '7d' | '30d' | 'thisMonth' | 'lastMonth' | 'year';
+export type StationDatePreset = '7d' | '30d' | 'lastWeek' | 'thisMonth' | 'lastMonth' | 'year';
 
 function formatDateInput(date: Date): string {
   return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
@@ -65,6 +65,14 @@ export function datePresetRange(preset: StationDatePreset, today: Date): { from:
   const end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
   if (preset === '7d') return { from: formatDateInput(shiftDays(end, -6)), to: formatDateInput(end) };
   if (preset === '30d') return { from: formatDateInput(shiftDays(end, -29)), to: formatDateInput(end) };
+  if (preset === 'lastWeek') {
+    const daysSinceMonday = (end.getDay() + 6) % 7;
+    const lastSunday = shiftDays(end, -daysSinceMonday - 1);
+    return {
+      from: formatDateInput(shiftDays(lastSunday, -6)),
+      to: formatDateInput(lastSunday),
+    };
+  }
   if (preset === 'thisMonth') {
     return {
       from: formatDateInput(new Date(end.getFullYear(), end.getMonth(), 1)),
@@ -84,7 +92,7 @@ export function datePresetRange(preset: StationDatePreset, today: Date): { from:
 }
 
 export function matchingDatePreset(from: string, to: string, today: Date): StationDatePreset | null {
-  const presets: StationDatePreset[] = ['7d', '30d', 'thisMonth', 'lastMonth', 'year'];
+  const presets: StationDatePreset[] = ['7d', '30d', 'lastWeek', 'thisMonth', 'lastMonth', 'year'];
   return presets.find((preset) => {
     const range = datePresetRange(preset, today);
     return range.from === from && range.to === to;

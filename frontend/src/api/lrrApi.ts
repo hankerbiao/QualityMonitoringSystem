@@ -13,9 +13,12 @@ const completedRequests = new Map<string, { expiresAt: number; value: unknown }>
 const LRR_PAGE_LIMIT = 500;
 const LRR_CACHE_TTL_MS = 5 * 60 * 1_000;
 const LRR_CACHE_MAX_ENTRIES = 12;
+let cacheGeneration = 0;
 
 /** Clear the short-lived LRR result cache after an explicit data refresh. */
 export function clearLrrApiCache(): void {
+  cacheGeneration += 1;
+  inFlightRequests.clear();
   completedRequests.clear();
 }
 
@@ -31,7 +34,8 @@ function requestOnce<T>(url: string, request: () => Promise<T>): Promise<T> {
   return promise;
 }
 
-function storeCompletedRequest<T>(url: string, value: T): void {
+function storeCompletedRequest<T>(url: string, value: T, generation: number): void {
+  if (generation !== cacheGeneration) return;
   const now = Date.now();
   for (const [key, cached] of completedRequests) {
     if (cached.expiresAt <= now) completedRequests.delete(key);
@@ -49,11 +53,12 @@ function cachedRequest<T>(url: string, request: () => Promise<T>): Promise<T> {
   if (cached && cached.expiresAt > Date.now()) return Promise.resolve(cached.value as T);
   if (cached) completedRequests.delete(url);
 
-  const promise = requestOnce(url, request).then((value) => {
-    storeCompletedRequest(url, value);
+  const generation = cacheGeneration;
+  return requestOnce(url, async () => {
+    const value = await request();
+    storeCompletedRequest(url, value, generation);
     return value;
   });
-  return promise;
 }
 
 function buildQuery(filters: LRRFilters, extra?: Record<string, unknown>): string {
@@ -82,8 +87,9 @@ export const lrrApi = {
     const qs = buildQuery(filters, { page, limit: pageSize });
     const url = `/api/lrr/list${qs}`;
     if (signal) {
+      const generation = cacheGeneration;
       return requestJson<LRRListResponse>(url, { signal }).then((value) => {
-        if (!signal.aborted) storeCompletedRequest(url, value);
+        if (!signal.aborted) storeCompletedRequest(url, value, generation);
         return value;
       });
     }

@@ -17,6 +17,7 @@ import { rtyApi } from '../api/rtyApi';
 import { useSettings } from '../context/SettingsContext';
 import type { RTYFilterParams, CycleStatsConfig } from '../types';
 import { buildCycleVisualData } from './alert-config/cycleData';
+import { loadFaultExportRows } from './rty/exportData';
 
 interface AlertConfigModalProps {
   onClose?: () => void;
@@ -359,15 +360,19 @@ export default function AlertConfigModal({
   const [viewMode, setViewMode] = useState<'chart' | 'heatmap'>('heatmap');
   const [showScopeSummaries, setShowScopeSummaries] = useState(true);
   const [appliedRange, setAppliedRange] = useState<CycleDateRange>(() => getPresetRange('6m'));
-  const [draftRange, setDraftRange] = useState<CycleDateRange>(() => getPresetRange('6m'));
+  const [draftRange, setDraftRange] = useState<CycleDateRange>(appliedRange);
   
   // 独立数据拉取（不受主表单影响）
-  const [allRawData, setAllRawData] = useState<RTYData[]>([]);
   const [scopeRawData, setScopeRawData] = useState<Record<RTYFilterParams['orderScope'], RTYData[]>>({
     normal: [],
     l6: [],
   });
+  const allRawData = scopeRawData[orderScope];
   const latestFetchId = useRef(0);
+  const [loadedQueryKey, setLoadedQueryKey] = useState<string | null>(null);
+  const queryKey = JSON.stringify([orderScope, selectedCustomer, appliedRange.start, appliedRange.end]);
+  const [fetchError, setFetchError] = useState('');
+  const [exportError, setExportError] = useState('');
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
   const [cycleCacheInfo, setCycleCacheInfo] = useState<{ cachedAt: number | null; fromCache: boolean }>({
@@ -378,11 +383,12 @@ export default function AlertConfigModal({
   const fetchAllData = useCallback(async (forceRefresh = false) => {
     const fetchId = ++latestFetchId.current;
     setLoading(true);
+    setFetchError('');
+    setExportError('');
     try {
       const customer = selectedCustomer || undefined;
-      const scopes: RTYFilterParams['orderScope'][] = Array.from(new Set([orderScope, 'normal', 'l6']));
       const results = await Promise.all(
-        scopes.map(scope => rtyApi.getCycleData(scope, customer, {
+        (['normal', 'l6'] as const).map(scope => rtyApi.getCycleData(scope, customer, {
           dateFrom: appliedRange.start,
           dateTo: appliedRange.end,
           forceRefresh,
@@ -390,27 +396,27 @@ export default function AlertConfigModal({
       );
       if (fetchId !== latestFetchId.current) return;
 
-      const dataByScope = new Map(scopes.map((scope, index) => [scope, results[index]]));
-      setAllRawData(dataByScope.get(orderScope)?.data || []);
-      setScopeRawData({
-        normal: dataByScope.get('normal')?.data || [],
-        l6: dataByScope.get('l6')?.data || [],
-      });
+      setScopeRawData({ normal: results[0].data, l6: results[1].data });
+      setLoadedQueryKey(queryKey);
       setCycleCacheInfo({
-        cachedAt: results.length > 0 ? Math.min(...results.map(result => result.cachedAt)) : null,
-        fromCache: results.length > 0 && results.every(result => result.cached),
+        cachedAt: Math.min(...results.map(result => result.cachedAt)),
+        fromCache: results.every(result => result.cached),
       });
     } catch (error) {
       if (fetchId === latestFetchId.current) {
-        console.error('Failed to fetch cycle stats data', error);
+        setFetchError(error instanceof Error ? error.message : '周期统计查询失败，请重试');
+        setScopeRawData({ normal: [], l6: [] });
+        setLoadedQueryKey(null);
+        setCycleCacheInfo({ cachedAt: null, fromCache: false });
       }
     } finally {
       if (fetchId === latestFetchId.current) setLoading(false);
     }
-  }, [orderScope, selectedCustomer, appliedRange.start, appliedRange.end]);
+  }, [queryKey, selectedCustomer, appliedRange.start, appliedRange.end]);
 
   useEffect(() => {
-    fetchAllData();
+    void fetchAllData();
+    return () => { latestFetchId.current += 1; };
   }, [fetchAllData]);
 
   const cacheTimeLabel = cycleCacheInfo.cachedAt
@@ -465,62 +471,35 @@ export default function AlertConfigModal({
     [allRawData],
   );
 
-  const { trendData, trendModels, tableData, allMonths } = useMemo(
+  const { monthlyData, trendData, trendModels, tableData, allMonths } = useMemo(
     () => buildCycleVisualData(filteredData, modelTargets),
     [filteredData, modelTargets],
   );
 
   const exportCycleData = async () => {
-    if (exporting) return;
+    if (exporting || loading || loadedQueryKey !== queryKey) return;
     setExporting(true);
+    setExportError('');
     try {
       const exportRows = filteredData.filter((item) => selectedModels === null || selectedModels.has(item.productModel));
-      const summaryMap = new Map<string, { month: string; model: string; inputCount: number; defectCount: number; targetRate: number }>();
-      exportRows.forEach((item) => {
-        const month = item.time.substring(0, 7);
-        const key = `${month}\u0000${item.productModel}`;
-        const current = summaryMap.get(key) || { month, model: item.productModel, inputCount: 0, defectCount: 0, targetRate: modelTargets[item.productModel] ?? item.targetRate };
-        current.inputCount += item.inputCount;
-        current.defectCount += item.defectCount;
-        summaryMap.set(key, current);
-      });
-      const summaryData = Array.from(summaryMap.values()).sort((left, right) => `${left.month}${left.model}`.localeCompare(`${right.month}${right.model}`)).map((item) => {
-        const rtyRate = item.inputCount ? ((item.inputCount - item.defectCount) / item.inputCount) * 100 : 0;
-        return {
+      const summaryData = monthlyData
+        .filter(item => selectedModels === null || selectedModels.has(item.model))
+        .map(item => ({
           月份: item.month,
           机型: item.model,
           产量: item.inputCount,
           故障数: item.defectCount,
-          直通率: `${rtyRate.toFixed(3)}%`,
+          直通率: item.rtyRate === null ? '-' : `${item.rtyRate.toFixed(3)}%`,
           目标直通率: `${item.targetRate.toFixed(3)}%`,
-          状态: rtyRate >= item.targetRate ? '达成' : '未达标',
-        };
-      });
-      const serialNumbers = Array.from(new Set(exportRows.flatMap((item) => item.serialNumbers || []).filter(Boolean)));
-      const defectBatches = await Promise.all(
-        Array.from({ length: Math.ceil(serialNumbers.length / 200) }, (_, index) =>
-          rtyApi.getDefectDetails(serialNumbers.slice(index * 200, (index + 1) * 200))),
-      );
-      const defectData = defectBatches.flat().map((item) => ({
-        机器SN: item.sn,
-        销售订单: item.sale_no,
-        生产订单: item.mfg_order,
-        客户: item.customer,
-        产品机型: item.product_family,
-        故障类型: item.defectCode,
-        故障描述: item.description,
-        二次故障现象: item.fault_2nd_appear,
-        三次故障现象: item.fault_3rd_appear,
-        维修人: item.repairPerson,
-        维修时间: item.repairTime,
-        维修有效性: item.repair_effectiveness,
-      }));
+          状态: item.rtyRate === null ? '-' : item.rtyRate >= item.targetRate ? '达成' : '未达标',
+        }));
+      const defectData = await loadFaultExportRows(exportRows);
       const book = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(summaryData), '趋势汇总');
       XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(defectData), '故障明细');
       XLSX.writeFile(book, `月度生产量及直通率趋势_${appliedRange.start}_${appliedRange.end}.xlsx`);
     } catch (error) {
-      console.error('Failed to export cycle statistics', error);
+      setExportError(error instanceof Error ? error.message : '周期统计导出失败，请重试');
     } finally {
       setExporting(false);
     }
@@ -681,7 +660,14 @@ export default function AlertConfigModal({
         </div>
         
         <div className="p-6 overflow-y-auto bg-white flex flex-col gap-6 relative">
-          {loading && (
+          {fetchError && (
+            <div role="alert" className="flex items-center justify-between gap-3 rounded-sm border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+              <span>{fetchError}</span>
+              <button type="button" onClick={() => void fetchAllData(true)} className="shrink-0 underline">重新查询</button>
+            </div>
+          )}
+          {exportError && <p role="alert" className="text-sm text-red-700">{exportError}</p>}
+          {(loading || (!fetchError && loadedQueryKey !== queryKey)) && (
             <div className="absolute inset-0 z-20 bg-white/70 flex items-center justify-center">
               <Loader2 className="w-6 h-6 text-blue-600 animate-spin" />
             </div>
@@ -751,7 +737,7 @@ export default function AlertConfigModal({
                 <button
                   type="button"
                   onClick={() => void exportCycleData()}
-                  disabled={loading || exporting || filteredData.length === 0}
+                  disabled={loading || exporting || loadedQueryKey !== queryKey || filteredData.length === 0}
                   className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
                   title="导出趋势汇总和故障明细"
                 >

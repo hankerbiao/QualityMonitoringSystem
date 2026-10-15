@@ -58,6 +58,18 @@ describe('datePresetRange', () => {
     expect(matchingDatePreset('2026-08-25', '2026-09-23', today)).toBe('30d');
     expect(matchingDatePreset('2026-08-01', '2026-08-20', today)).toBeNull();
   });
+
+  it.each([
+    { today: new Date(2026, 9, 15, 16, 30), from: '2026-10-05', to: '2026-10-11' },
+    { today: new Date(2026, 9, 12), from: '2026-10-05', to: '2026-10-11' },
+    { today: new Date(2026, 9, 18), from: '2026-10-05', to: '2026-10-11' },
+    { today: new Date(2026, 9, 5), from: '2026-09-28', to: '2026-10-04' },
+    { today: new Date(2027, 0, 4), from: '2026-12-28', to: '2027-01-03' },
+    { today: new Date(2027, 0, 1), from: '2026-12-21', to: '2026-12-27' },
+  ])('selects the previous Monday through Sunday for $today', ({ today, from, to }) => {
+    expect(datePresetRange('lastWeek', today)).toEqual({ from, to });
+    expect(matchingDatePreset(from, to, today)).toBe('lastWeek');
+  });
 });
 
 describe('summarizeStationRates', () => {

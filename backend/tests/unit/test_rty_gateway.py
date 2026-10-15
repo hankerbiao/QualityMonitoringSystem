@@ -357,8 +357,59 @@ async def test_composite_faults_use_padded_binding_orders_and_map_child_sn_to_he
         {"group": {"orders": {"1"}}}, date_from="2026-01-01", date_to="2026-12-31"
     )
 
-    assert result["group"]["1"] == {"HEAD-SN"}
+    assert result["group"].by_order["1"] == {"HEAD-SN"}
+    assert result["group"].source_sns == {"ITEM-SN"}
     assert queried_bindings == [{"headOrder": "000000000001"}]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("view", ["cycle", "list"])
+async def test_composite_export_preserves_child_repair_sns(monkeypatch, view):
+    monkeypatch.setattr(
+        rty_gateway,
+        "_orders",
+        AsyncMock(
+            return_value=[
+                {
+                    "aufnr": "1",
+                    "gstrs_date": "2026-09-15",
+                    "data": {
+                        "MAKTX_TH": "6215 C32",
+                        "LGORT": "B1",
+                        "VBELN": "SO-1",
+                        "WMENG": 10,
+                    },
+                }
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        rty_gateway,
+        "_bindings",
+        AsyncMock(
+            return_value=[
+                {
+                    "AUFNR_HEAD": "1",
+                    "AUFNR_ITEM": "2",
+                    "ZCODE_HEAD": "HEAD-SN",
+                    "ZCODE_ITEM": "CHILD-SN",
+                }
+            ]
+        ),
+    )
+
+    async def faults(orders, **_kwargs):
+        return [{"AUFNR": "2", "PCODE": "CHILD-SN"}] if "2" in orders else []
+
+    monkeypatch.setattr(rty_gateway, "_faults_for_orders", faults)
+    if view == "cycle":
+        rows = await rty_gateway._build_cycle_data("normal", None, {}, "2026-09-01", "2026-09-30")
+    else:
+        rows = (await rty_gateway._build_rty_list({"orderScope": "normal"}, 1, 50, {}))["items"]
+
+    assert rows[0].defectCount == 1
+    assert rows[0].serialNumbers == ["HEAD-SN"]
+    assert rows[0].faultSerialNumbers == ["CHILD-SN"]
 
 
 @pytest.mark.asyncio
@@ -820,5 +871,152 @@ async def test_station_rates_uses_the_same_wmeng_and_fault_sn_summary_as_rty(mon
     assert rows[0].inputCount == 1
     assert rows[0].totalInputCount == 101
     assert rows[0].totalDefectCount == 2
-    assert faults.await_args.kwargs["date_from"] == "20260101"
-    assert faults.await_args.kwargs["date_to"] == "20261231"
+    assert faults.await_args.kwargs["date_from"] == "20260701"
+    assert faults.await_args.kwargs["date_to"] == "20260731"
+
+
+@pytest.mark.asyncio
+async def test_station_rates_customer_filter_scopes_station_and_rty_counts(monkeypatch):
+    gateway = rty_gateway.data_gateway
+    queried_filters: dict[str, object] = {}
+
+    async def all_orders(**filters):
+        queried_filters.update(filters)
+        return [
+            {
+                "aufnr": "ORDER-A",
+                "customerId": "CUST-A",
+                "plannedStartDate": "2026-07-15",
+                "orderQuantity": 10,
+                "productionModel": "M-1",
+                "raw": {
+                    "data": {
+                        "AUFNR": "ORDER-A",
+                        "KID": "CUST-A",
+                        "WMENG": 10,
+                        "MAKTX_TH": "M-1",
+                        "IF_L6": "",
+                    }
+                },
+            },
+            {
+                "aufnr": "ORDER-B",
+                "customerId": "CUST-B",
+                "plannedStartDate": "2026-07-15",
+                "orderQuantity": 20,
+                "productionModel": "M-1",
+                "raw": {
+                    "data": {
+                        "AUFNR": "ORDER-B",
+                        "KID": "CUST-B",
+                        "WMENG": 20,
+                        "MAKTX_TH": "M-1",
+                        "IF_L6": "",
+                    }
+                },
+            },
+        ]
+
+    monkeypatch.setattr(gateway, "all_orders", all_orders)
+    monkeypatch.setattr(
+        gateway,
+        "all_station_rows",
+        AsyncMock(
+            return_value=[
+                {
+                    "PCODE": "SN-A",
+                    "AUFNR": "ORDER-A",
+                    "SPEC": "Line-OP10:Assembly",
+                    "MAKTX_TH": "M-1",
+                    "GSTRS": "20260715",
+                },
+                {
+                    "PCODE": "SN-B",
+                    "AUFNR": "ORDER-B",
+                    "SPEC": "Line-OP10:Assembly",
+                    "MAKTX_TH": "M-1",
+                    "GSTRS": "20260715",
+                },
+            ]
+        ),
+    )
+    repairs = AsyncMock(return_value=[])
+    faults = AsyncMock(return_value={"ORDER-A": {"SN-A"}})
+    monkeypatch.setattr(rty_gateway, "_station_repairs_for_sns", repairs)
+    monkeypatch.setattr(rty_gateway, "_fault_sns_by_orders", faults)
+    monkeypatch.setattr(rty_gateway, "_fault_sns_by_composite_groups", AsyncMock(return_value={}))
+
+    rows = await rty_gateway.station_rates(
+        "2026-07-01",
+        "2026-07-31",
+        group_by="productModel",
+        customer="CUST-A",
+    )
+
+    assert queried_filters["customer"] == "CUST-A"
+    assert faults.await_args.args[0] == {"ORDER-A"}
+    assert repairs.await_args.args[0] == {"SN-A"}
+    assert len(rows) == 1
+    assert rows[0].inputCount == 1
+    assert rows[0].totalInputCount == 10
+    assert rows[0].totalDefectCount == 1
+
+
+@pytest.mark.asyncio
+async def test_station_details_customer_filter_excludes_other_customers(monkeypatch):
+    gateway = rty_gateway.data_gateway
+    monkeypatch.setattr(
+        gateway,
+        "all_orders",
+        AsyncMock(
+            return_value=[
+                {
+                    "aufnr": "ORDER-A",
+                    "customerId": "CUST-A",
+                    "plannedStartDate": "2026-07-15",
+                    "raw": {"data": {"AUFNR": "ORDER-A", "KID": "CUST-A", "IF_L6": ""}},
+                },
+                {
+                    "aufnr": "ORDER-B",
+                    "customerId": "CUST-B",
+                    "plannedStartDate": "2026-07-15",
+                    "raw": {"data": {"AUFNR": "ORDER-B", "KID": "CUST-B", "IF_L6": ""}},
+                },
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        gateway,
+        "all_station_rows",
+        AsyncMock(
+            return_value=[
+                {
+                    "PCODE": "SN-A",
+                    "AUFNR": "ORDER-A",
+                    "SPEC": "Line-OP10:Assembly",
+                    "MAKTX_TH": "M-1",
+                    "GSTRS": "20260715",
+                },
+                {
+                    "PCODE": "SN-B",
+                    "AUFNR": "ORDER-B",
+                    "SPEC": "Line-OP10:Assembly",
+                    "MAKTX_TH": "M-1",
+                    "GSTRS": "20260715",
+                },
+            ]
+        ),
+    )
+    monkeypatch.setattr(rty_gateway, "_station_repairs_for_sns", AsyncMock(return_value=[]))
+
+    rows = await rty_gateway.station_details(
+        "OP10",
+        "2026-07-01",
+        "2026-07-31",
+        "input",
+        group_by="productModel",
+        dimension_value="M-1",
+        customer="CUST-A",
+    )
+
+    assert [row.sn for row in rows] == ["SN-A"]

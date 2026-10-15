@@ -27,4 +27,7 @@ def decrypt_credential(value: str) -> str:
     try:
         return _cipher().decrypt(value.encode("ascii")).decode("utf-8")
     except (InvalidToken, UnicodeError) as exc:
-        raise CredentialEncryptionError("Stored credential cannot be decrypted") from exc
+        raise CredentialEncryptionError(
+            "影像数据源密码无法解密，请联系管理员核对服务端加密配置；"
+            "如原加密密钥无法恢复，请在系统配置管理中重新保存数据源密码"
+        ) from exc

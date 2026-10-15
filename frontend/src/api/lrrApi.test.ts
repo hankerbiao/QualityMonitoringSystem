@@ -61,4 +61,51 @@ describe('lrrApi full material list', () => {
 
     expect(vi.mocked(requestJson)).toHaveBeenCalledTimes(1);
   });
+
+  it.each(['before', 'after'])('isolates an old pending response completed %s refresh', async (order) => {
+    let resolveOld!: (value: unknown) => void;
+    let resolveFresh!: (value: unknown) => void;
+    vi.mocked(requestJson)
+      .mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }))
+      .mockImplementationOnce(() => new Promise(resolve => { resolveFresh = resolve; }));
+    const filters = { materialNumber: 'PN-1' };
+    const oldValue = { items: [], total: 0, truncated: false };
+    const freshValue = { items: [], total: 1, truncated: false };
+
+    const old = lrrApi.getFaultDetails(filters);
+    clearLrrApiCache();
+    const fresh = lrrApi.getFaultDetails(filters);
+    expect(requestJson).toHaveBeenCalledTimes(2);
+
+    if (order === 'before') {
+      resolveOld(oldValue);
+      await old;
+      const shared = lrrApi.getFaultDetails(filters);
+      expect(requestJson).toHaveBeenCalledTimes(2);
+      resolveFresh(freshValue);
+      expect(await shared).toEqual(freshValue);
+    } else {
+      resolveFresh(freshValue);
+      await fresh;
+      resolveOld(oldValue);
+      await old;
+    }
+    expect(await fresh).toEqual(freshValue);
+    expect(await lrrApi.getFaultDetails(filters)).toEqual(freshValue);
+    expect(requestJson).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not cache a list response started before a clear', async () => {
+    let resolveOld!: (value: unknown) => void;
+    vi.mocked(requestJson)
+      .mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }))
+      .mockResolvedValueOnce({ items: [], total: 1, page: 1, limit: 50 });
+    const old = lrrApi.getLRRData(1, 50, {}, new AbortController().signal);
+    clearLrrApiCache();
+    resolveOld({ items: [], total: 0, page: 1, limit: 50 });
+    await old;
+
+    expect((await lrrApi.getLRRData()).total).toBe(1);
+    expect(requestJson).toHaveBeenCalledTimes(2);
+  });
 });

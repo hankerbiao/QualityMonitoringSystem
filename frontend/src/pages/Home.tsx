@@ -58,6 +58,12 @@ export default function Home() {
   const department = user?.部门 || user?.department || '';
   const email = user?.邮件 || user?.email || '';
   const isAdmin = user?.role === 'admin';
+  useEffect(() => {
+    if (!isAdmin) {
+      setIsSettingsOpen(false);
+      setActiveFilter(current => current === 'management' ? 'all' : current);
+    }
+  }, [isAdmin]);
   const dashboardPermissions = new Set(user?.dashboardPermissions ?? []);
   const canView = (id: string) => isAdmin || dashboardPermissions.has(id);
   const configuredQualityModules = qualityModules.map((module) => ({
@@ -309,7 +315,7 @@ export default function Home() {
         <span>有问题请联系 @libiao1</span>
       </footer>
 
-      {isSettingsOpen && (
+      {isSettingsOpen && isAdmin && (
         <SettingsModal
           onClose={() => setIsSettingsOpen(false)}
           onSaved={() => window.dispatchEvent(new CustomEvent('settings-saved'))}

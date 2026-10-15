@@ -1,5 +1,7 @@
 """User management request and response models."""
 
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 from app.auth_permissions import ALL_DASHBOARD_PERMISSIONS
@@ -8,8 +10,9 @@ from app.auth_permissions import ALL_DASHBOARD_PERMISSIONS
 class UserSummary(BaseModel):
     username: str
     displayName: str
-    role: str
+    role: Literal["user", "admin"]
     isActive: bool
+    isProtected: bool = False
     dashboardPermissions: list[str] = Field(default_factory=lambda: list(ALL_DASHBOARD_PERMISSIONS))
     createdAt: str | None = None
     updatedAt: str | None = None
@@ -23,6 +26,7 @@ class CreateUserRequest(BaseModel):
 
 
 class UpdateUserRequest(BaseModel):
+    role: Literal["user", "admin"] | None = None
     displayName: str | None = Field(default=None, min_length=1, max_length=80)
     isActive: bool | None = None
     dashboardPermissions: list[str] | None = None

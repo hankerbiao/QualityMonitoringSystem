@@ -158,7 +158,8 @@ class TestProcessRecordConfig:
         response = await client.post("/api/settings/process-records/test")
 
         assert response.status_code == 400
-        assert response.json()["detail"] == "Stored credential cannot be decrypted"
+        assert "无法解密" in response.json()["detail"]
+        assert "管理员" in response.json()["detail"]
 
 
 @pytest.mark.integration

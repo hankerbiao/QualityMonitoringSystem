@@ -32,6 +32,9 @@ class RTYData(RTYDataBase):
 
     id: str = Field(..., description="记录ID")
     serialNumbers: list[str] = Field(default_factory=list, description="整机序列号列表")
+    faultSerialNumbers: list[str] | None = Field(
+        None, description="复合机型实际维修 SN；普通机型沿用 serialNumbers"
+    )
     salesOrders: list[str] = Field(default_factory=list, description="销售订单号列表（聚合时返回）")
     productionOrders: list[str] = Field(
         default_factory=list, description="生产订单号列表（聚合时返回）"
@@ -62,6 +65,15 @@ class RTYListResponse(BaseModel):
     total: int
     page: int = 1
     limit: int = 100
+
+
+class RTYTemplateExport(BaseModel):
+    """Data for the four fixed template sheets; absent values stay blank."""
+
+    summary: list[dict[str, Any]] = Field(default_factory=list)
+    orders: list[dict[str, Any]] = Field(default_factory=list)
+    faults: list[dict[str, Any]] = Field(default_factory=list)
+    topProblems: list[dict[str, Any]] = Field(default_factory=list)
 
 
 class StationPassRate(BaseModel):

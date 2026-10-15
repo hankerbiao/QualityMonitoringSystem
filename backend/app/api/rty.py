@@ -13,11 +13,12 @@ from app.schemas.rty import (
     DefectDetail,
     ExcludedOrder,
     RTYData,
+    RTYTemplateExport,
     SalesOrderSummary,
     StationPassDetail,
     StationPassRate,
 )
-from app.services import rty_gateway
+from app.services import rty_export, rty_gateway
 from app.services.rty_shared import YEAR_END, YEAR_START, validate_date
 
 router = APIRouter()
@@ -104,12 +105,20 @@ async def get_station_pass_rates(
     dateTo: str | None = None,
     serialNumber: str | None = None,
     productModel: str | None = None,
+    customer: str | None = None,
     base: str | None = None,
     groupBy: StationGroupByQuery = "salesOrder",
     orderScope: OrderScopeQuery = "normal",
 ):
     rows = await rty_gateway.station_rates(
-        dateFrom, dateTo, serialNumber, productModel, base, groupBy, orderScope
+        dateFrom,
+        dateTo,
+        serialNumber,
+        productModel,
+        base,
+        groupBy,
+        orderScope,
+        customer=customer,
     )
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 个工位")
 
@@ -126,6 +135,7 @@ async def get_station_pass_details(
     detailType: Literal["input", "defect"] = "input",
     serialNumber: str | None = None,
     productModel: str | None = None,
+    customer: str | None = None,
     base: str | None = None,
     groupBy: StationGroupBy = "salesOrder",
     dimensionValue: str | None = None,
@@ -142,8 +152,46 @@ async def get_station_pass_details(
         groupBy,
         dimensionValue,
         orderScope,
+        customer=customer,
     )
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 条明细")
+
+
+@router.get(
+    "/export",
+    response_model=Response[RTYTemplateExport],
+    dependencies=[Depends(dashboard_dependency("rty"))],
+)
+@audit_log("QUERY", "rty_template_export")
+async def get_rty_template_export(
+    request: Request,
+    salesOrder: str | None = None,
+    productionOrder: str | None = None,
+    serialNumber: str | None = None,
+    base: str | None = None,
+    productModel: str | None = None,
+    customer: str | None = None,
+    dateFrom: str | None = None,
+    dateTo: str | None = None,
+    orderScope: OrderScopeQuery = "normal",
+    calculationMethod: CalculationMethodQuery = None,
+):
+    del request
+    data = await rty_export.build_template_export(
+        _order_filters(
+            sales_order=salesOrder,
+            production_order=productionOrder,
+            serial_number=serialNumber,
+            base=base,
+            product_model=productModel,
+            customer=customer,
+            date_from=dateFrom,
+            date_to=dateTo,
+            order_scope=orderScope,
+            calculation_method=calculationMethod,
+        )
+    )
+    return Response(success=True, data=data)
 
 
 @router.get(

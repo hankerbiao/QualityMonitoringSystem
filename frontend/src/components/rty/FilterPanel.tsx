@@ -2,8 +2,6 @@ import { useState, useEffect, useRef } from 'react';
 import { BarChart3, CalendarDays, Download, RotateCcw, Search, X } from 'lucide-react';
 import { rtyApi } from '../../api/rtyApi';
 import type { RTYFilterParams } from '../../types';
-import { ExportPanel } from './ExportPanel';
-import { RTY_EXPORT_COLUMNS } from './exportColumns';
 import { MonthQuickPicker } from '../shared/MonthQuickPicker';
 
 const COMPOSITE_MODELS = new Set(['6210 C21 BOX', '6215 C32']);
@@ -150,7 +148,9 @@ interface FilterPanelProps {
   onFiltersChange: (filters: RTYFilterParams) => void;
   onSearch: () => void;
   onAlertModalOpen: () => void;
-  onExportConfirm: (selectedColumns: Record<string, boolean>) => void;
+  onExportConfirm: () => Promise<void>;
+  exporting: boolean;
+  exportDisabled: boolean;
 }
 
 export function FilterPanel({
@@ -159,6 +159,8 @@ export function FilterPanel({
   onSearch,
   onAlertModalOpen,
   onExportConfirm,
+  exporting,
+  exportDisabled,
 }: FilterPanelProps) {
   const [filters, setFilters] = useState<RTYFilterParams>(initialFilters);
   const [productModelList, setProductModelList] = useState<{ model: string; count: number }[]>([]);
@@ -166,22 +168,6 @@ export function FilterPanel({
   const [customerList, setCustomerList] = useState<string[]>([]);
   const [showModelSuggestions, setShowModelSuggestions] = useState(false);
   const [showCustomerSuggestions, setShowCustomerSuggestions] = useState(false);
-  const [showExportPanel, setShowExportPanel] = useState(false);
-  const [exportColumns, setExportColumns] = useState<Record<string, boolean>>({
-    time: true,
-    productModel: true,
-    customer: true,
-    base: true,
-    defectCount: true,
-    inputCount: true,
-    rtyRate: true,
-    targetRate: true,
-    status: true,
-    salesOrder: true,
-    productionOrder: true,
-    serialNumbers: false,
-    productLine: false,
-  });
 
   const update = (partial: Partial<RTYFilterParams>) => {
     const newFilters = { ...filters, ...partial };
@@ -206,11 +192,6 @@ export function FilterPanel({
     };
     load();
   }, [filters.orderScope]);
-
-  const handleExportConfirm = () => {
-    onExportConfirm(exportColumns);
-    setShowExportPanel(false);
-  };
 
   const filteredCustomers = customerList.filter(customer =>
     !filters.customer || customer.toLowerCase().includes(filters.customer.toLowerCase())
@@ -439,21 +420,13 @@ export function FilterPanel({
             </button>
             <div className="relative">
               <button
-                onClick={() => setShowExportPanel(!showExportPanel)}
-                className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-4 py-1.5 rounded-sm text-xs font-medium transition-colors flex items-center shadow-sm"
+                onClick={() => void onExportConfirm()}
+                disabled={exporting || exportDisabled}
+                className="bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 px-4 py-1.5 rounded-sm text-xs font-medium transition-colors flex items-center shadow-sm disabled:opacity-50"
               >
                 <Download className="w-3.5 h-3.5 mr-1.5 text-emerald-500" />
-                导出
+                {exporting ? '导出中...' : '导出'}
               </button>
-              {showExportPanel && (
-                <ExportPanel
-                  columns={RTY_EXPORT_COLUMNS}
-                  selected={exportColumns}
-                  onToggle={key => setExportColumns(prev => ({ ...prev, [key]: !prev[key] }))}
-                  onConfirm={handleExportConfirm}
-                  onClose={() => setShowExportPanel(false)}
-                />
-              )}
             </div>
           </div>
         </div>

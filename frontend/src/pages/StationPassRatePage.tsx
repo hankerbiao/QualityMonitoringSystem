@@ -34,6 +34,7 @@ type StationQueryState = {
   dateTo: string;
   serialNumber: string;
   productModel: string;
+  customer: string;
   base: string;
   groupBy: StationGroupBy;
   orderScope: 'normal' | 'l6';
@@ -139,8 +140,10 @@ export default function StationPassRatePage() {
   const [dateTo, setDateTo] = useState(initialDateRange.to);
   const [serialNumber, setSerialNumber] = useState('');
   const [productModel, setProductModel] = useState('');
+  const [customer, setCustomer] = useState('');
   const [base, setBase] = useState('');
   const [productModels, setProductModels] = useState<{ model: string; count: number }[]>([]);
+  const [customers, setCustomers] = useState<string[]>([]);
   const [bases, setBases] = useState<{ base: string; count: number }[]>([]);
   const [showProductModelSuggestions, setShowProductModelSuggestions] = useState(false);
   const [showBaseSuggestions, setShowBaseSuggestions] = useState(false);
@@ -175,6 +178,7 @@ export default function StationPassRatePage() {
     dateTo: initialDateRange.to,
     serialNumber: '',
     productModel: '',
+    customer: '',
     base: '',
     groupBy: 'productModel',
     orderScope: 'normal',
@@ -212,6 +216,7 @@ export default function StationPassRatePage() {
       dateTo: next.dateTo,
       serialNumber: next.serialNumber.trim() || undefined,
       productModel: next.productModel.trim() || undefined,
+      customer: next.customer.trim() || undefined,
       base: next.base.trim() || undefined,
       groupBy: next.groupBy,
       orderScope: next.orderScope,
@@ -264,11 +269,17 @@ export default function StationPassRatePage() {
         const options = await rtyApi.getFilterOptions(orderScope);
         if (cancelled) return;
         setProductModels(options.productModels);
+        setCustomers(options.customers);
         setBases(options.bases);
+        if (queryRef.current.customer && !options.customers.includes(queryRef.current.customer)) {
+          setCustomer('');
+          queryRef.current = { ...queryRef.current, customer: '' };
+        }
       } catch (err) {
         console.error('Failed to fetch station filter options', err);
         if (!cancelled) {
           setProductModels([]);
+          setCustomers([]);
           setBases([]);
         }
       } finally {
@@ -326,6 +337,7 @@ export default function StationPassRatePage() {
     setDateTo(initialDateRange.to);
     setSerialNumber('');
     setProductModel('');
+    setCustomer('');
     setBase('');
     setGroupBy('productModel');
     queryRef.current = {
@@ -334,6 +346,7 @@ export default function StationPassRatePage() {
       dateTo: initialDateRange.to,
       serialNumber: '',
       productModel: '',
+      customer: '',
       base: '',
       groupBy: 'productModel',
     };
@@ -487,6 +500,7 @@ export default function StationPassRatePage() {
     if (overrides.dateTo !== undefined) setDateTo(overrides.dateTo);
     if (overrides.serialNumber !== undefined) setSerialNumber(overrides.serialNumber);
     if (overrides.productModel !== undefined) setProductModel(overrides.productModel);
+    if (overrides.customer !== undefined) setCustomer(overrides.customer);
     if (overrides.base !== undefined) setBase(overrides.base);
     if (overrides.groupBy !== undefined) setGroupBy(overrides.groupBy);
     if (overrides.orderScope !== undefined) setOrderScope(overrides.orderScope);
@@ -587,6 +601,7 @@ export default function StationPassRatePage() {
             </div>
               <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-44">统计维度<select value={groupBy} onChange={(event) => updateField('groupBy', setGroupBy, event.target.value as StationGroupBy)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none transition-colors focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"><option value="salesOrder">销售订单号</option><option value="productionOrder">生产订单号</option><option value="productModel">机型</option></select></label>
               <div className="flex min-w-36 flex-col gap-1 text-xs font-medium text-slate-600"><span>订单范围</span><div className="inline-flex h-9 overflow-hidden rounded-md border border-slate-300 bg-white"><button type="button" onClick={() => updateField('orderScope', setOrderScope, 'normal')} className={`px-3 text-xs ${orderScope === 'normal' ? 'bg-cyan-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>普通订单</button><button type="button" onClick={() => updateField('orderScope', setOrderScope, 'l6')} className={`border-l border-slate-300 px-3 text-xs ${orderScope === 'l6' ? 'bg-cyan-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>L6 订单</button></div></div>
+            <label className="flex min-w-40 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-52">客户 ID<select value={customer} onChange={(event) => updateField('customer', setCustomer, event.target.value)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none transition-colors focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"><option value="">全部客户</option>{customers.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
             <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-44">服务器 SN<input value={serialNumber} onChange={(event) => updateField('serialNumber', setSerialNumber, event.target.value)} placeholder="精确输入 SN" className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" /></label>
             <div className="relative z-0 flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 focus-within:z-30 xl:max-w-48">
               <label htmlFor="station-product-model">机型</label>

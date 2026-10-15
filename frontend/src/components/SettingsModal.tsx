@@ -83,30 +83,32 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm">
       <div
-        className="bg-white rounded-lg shadow-2xl border border-slate-200 w-full max-w-4xl h-[600px] overflow-hidden flex flex-col"
+        className="bg-white rounded-lg shadow-2xl border border-slate-200 w-full max-w-4xl h-[600px] max-h-[calc(100dvh-2rem)] overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <header className="px-6 py-4 flex items-center justify-between border-b border-slate-200 bg-slate-50">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 bg-white rounded flex items-center justify-center border border-slate-200 shadow-sm">
+        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 bg-slate-50 px-4 py-4 sm:px-6">
+          <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
+            <div className="w-8 h-8 shrink-0 bg-white rounded flex items-center justify-center border border-slate-200 shadow-sm">
               <Settings className="w-4 h-4 text-slate-600" />
             </div>
             <div>
-              <h2 className="text-lg font-bold text-slate-900 tracking-tight">系统配置管理</h2>
-              <p className="text-xs text-slate-500">统一管理系统数据源接入、告警规则及业务指标标准。</p>
+              <h2 className="text-base font-bold text-slate-900 sm:text-lg">系统配置管理</h2>
+              <p className="hidden text-xs text-slate-500 sm:block">统一管理系统数据源接入、告警规则及业务指标标准。</p>
             </div>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex shrink-0 items-center gap-2 sm:gap-3">
             <button
               onClick={handleSave}
               disabled={saving}
-              className="px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 shadow-sm"
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap shadow-sm sm:px-4"
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               {saving ? '保存中...' : '保存配置'}
             </button>
             <button
               onClick={onClose}
+              aria-label="关闭系统配置"
+              title="关闭系统配置"
               className="p-1.5 rounded-md hover:bg-slate-200 text-slate-500 transition-colors"
             >
               <X className="w-5 h-5" />
@@ -114,13 +116,13 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
           </div>
         </header>
 
-        <div className="flex flex-1 overflow-hidden bg-white">
-          <nav className="w-56 bg-slate-50 border-r border-slate-200 flex flex-col p-3 gap-1">
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white sm:flex-row">
+          <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50 p-2 sm:w-56 sm:flex-col sm:border-b-0 sm:border-r sm:p-3">
             {TABS.filter(({ key }) => key !== 'users' || user?.role === 'admin').map(({ key, label, icon: Icon }) => (
               <button
                 key={key}
                 onClick={() => setActiveTab(key)}
-                className={`flex items-center gap-2.5 px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${activeTab === key ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
+                className={`flex shrink-0 items-center gap-2.5 whitespace-nowrap px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${activeTab === key ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
               >
                 <Icon className={`w-4 h-4 ${activeTab === key ? 'text-blue-600' : 'text-slate-400'}`} />
                 {label}
@@ -128,7 +130,7 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
             ))}
           </nav>
 
-          <div className="flex-1 overflow-y-auto p-6">
+          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
             {activeTab === 'processRecords' && (
               <ProcessRecordConfigTab config={processRecordConfig} onChange={setProcessRecordConfig} />
             )}

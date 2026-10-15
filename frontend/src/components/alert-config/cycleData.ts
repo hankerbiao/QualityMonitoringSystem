@@ -25,11 +25,15 @@ export type CycleTableRow = {
 };
 
 export function buildCycleVisualData(data: RTYData[], modelTargets: Record<string, number>) {
-  const byMonth = new Map<string, Map<string, CycleMetric>>();
+  const byMonth = new Map<string, Map<string, CycleMetric & { targetRate: number }>>();
   for (const item of data) {
     const month = item.time.substring(0, 7);
-    const models = byMonth.get(month) ?? new Map<string, CycleMetric>();
-    const current = models.get(item.productModel) ?? { inputCount: 0, defectCount: 0 };
+    const models = byMonth.get(month) ?? new Map<string, CycleMetric & { targetRate: number }>();
+    const current = models.get(item.productModel) ?? {
+      inputCount: 0,
+      defectCount: 0,
+      targetRate: modelTargets[item.productModel] ?? item.targetRate ?? 100,
+    };
     current.inputCount += item.inputCount;
     current.defectCount += item.defectCount;
     models.set(item.productModel, current);
@@ -38,6 +42,18 @@ export function buildCycleVisualData(data: RTYData[], modelTargets: Record<strin
 
   const months = [...byMonth.keys()].sort();
   const models = [...new Set(data.map((item) => item.productModel).filter(Boolean))].sort();
+  const monthlyData = months.flatMap(month =>
+    [...byMonth.get(month)!.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([model, metric]) => ({
+        month,
+        model,
+        ...metric,
+        rtyRate: metric.inputCount
+          ? ((metric.inputCount - metric.defectCount) / metric.inputCount) * 100
+          : null,
+      })),
+  );
   const trendData: CycleChartRow[] = months.map((month) => {
     const row: CycleChartRow = { time: month };
     const monthData = byMonth.get(month)!;
@@ -63,7 +79,7 @@ export function buildCycleVisualData(data: RTYData[], modelTargets: Record<strin
       const rty = ((value.inputCount - value.defectCount) / value.inputCount) * 100;
       return [month, {
         text: `${rty.toFixed(3)}% (${value.defectCount}/${value.inputCount})`,
-        belowTarget: rty < (modelTargets[model] ?? 100),
+        belowTarget: rty < value.targetRate,
         inputCount: value.inputCount,
         defectCount: value.defectCount,
       }];
@@ -71,5 +87,5 @@ export function buildCycleVisualData(data: RTYData[], modelTargets: Record<strin
     return { model, cells, inputCount, defectCount };
   });
 
-  return { trendData, trendModels: models, tableData, allMonths: months };
+  return { monthlyData, trendData, trendModels: models, tableData, allMonths: months };
 }

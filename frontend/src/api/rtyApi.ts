@@ -1,11 +1,12 @@
 import { DefectDetail, RTYData, RTYFilterParams, SalesOrderSummary, PaginatedRTYResponse, PaginatedExcludedOrdersResponse, StationPassDetail, StationPassQuery, StationPassRate } from '../types';
 import { requestData, requestJson } from './authApi';
+import type { RTYTemplateExport } from '../types/rty';
 
 const RTY_LIST_CACHE_TTL_MS = 2_000;
 const rtyListCache = new Map<string, { expiresAt: number; promise: Promise<PaginatedRTYResponse> }>();
 const rtyListInFlight = new Map<string, Promise<PaginatedRTYResponse>>();
 const RTY_OPTIONS_CACHE_TTL_MS = 5 * 60 * 60 * 1_000;
-const RTY_CYCLE_CACHE_STORAGE_PREFIX = 'qualiboard:rty-cycle-data:';
+const RTY_CYCLE_CACHE_STORAGE_PREFIX = 'qualiboard:rty-cycle-data:v2:';
 const rtyOptionsCache = new Map<string, { expiresAt: number; promise: Promise<unknown> }>();
 const rtyCycleCache = new Map<string, {
   expiresAt: number;
@@ -97,18 +98,24 @@ function buildStationPassQuery(params: StationPassQuery): URLSearchParams {
   if (params.dateTo) qs.set('dateTo', params.dateTo);
   if (params.serialNumber) qs.set('serialNumber', params.serialNumber);
   if (params.productModel) qs.set('productModel', params.productModel);
+  if (params.customer) qs.set('customer', params.customer);
   if (params.base) qs.set('base', params.base);
   if (params.dimensionValue) qs.set('dimensionValue', params.dimensionValue);
   return qs;
 }
 
 export const rtyApi = {
+  async getTemplateExport(params: RTYFilterParams): Promise<RTYTemplateExport> {
+    return requestData<RTYTemplateExport>(`/api/rty/export?${buildRtyQuery(params)}`);
+  },
+
   async getStationPassRates(params: StationPassQuery): Promise<StationPassRate[]> {
     const query = buildStationPassQuery(params);
     const suffix = query.toString();
-    return cachedOption(`station-pass-rates:${suffix}`, async () => {
-      return requestData<StationPassRate[]>(`/api/rty/station-pass-rates${suffix ? `?${suffix}` : ''}`);
-    });
+    // Station RTY must reflect the current filters and latest source snapshot.
+    // Keep request coalescing in the browser out of this result path so a
+    // repeated query does not reuse a multi-hour option cache entry.
+    return requestData<StationPassRate[]>(`/api/rty/station-pass-rates${suffix ? `?${suffix}` : ''}`);
   },
 
   async getStationPassDetails(stationCode: string, params: StationPassQuery, detailType: 'input' | 'defect' = 'input'): Promise<StationPassDetail[]> {

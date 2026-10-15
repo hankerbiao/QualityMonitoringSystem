@@ -6,6 +6,7 @@ export interface ManagedUser {
   displayName: string;
   role: 'user' | 'admin';
   isActive: boolean;
+  isProtected: boolean;
   dashboardPermissions: string[];
   createdAt?: string | null;
   updatedAt?: string | null;
@@ -19,6 +20,7 @@ export interface CreateManagedUser {
 }
 
 export interface UpdateManagedUser {
+  role?: 'user' | 'admin';
   displayName?: string;
   isActive?: boolean;
   dashboardPermissions?: string[];

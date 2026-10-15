@@ -9,6 +9,7 @@ import {
   Download,
   ExternalLink,
   Loader2,
+  RefreshCw,
   Search,
   X,
 } from 'lucide-react';
@@ -272,6 +273,10 @@ export default function ProcessRecordsPage() {
     : source === 'system2'
       ? '工位，例如 封箱检查'
       : '工位/工序名称';
+  const failedSources = Object.entries(data?.sources ?? {}).filter(
+    ([, result]) => result && !result.online,
+  );
+  const queryFailed = Boolean(error || failedSources.length);
 
   return (
     <div className="h-screen bg-slate-50 flex flex-col overflow-hidden text-slate-800">
@@ -386,8 +391,28 @@ export default function ProcessRecordsPage() {
           </div>
         )}
 
-        {error && (
-          <div className="border border-red-200 bg-red-50 text-red-700 px-3 py-2 text-sm rounded-sm">{error}</div>
+        {queryFailed && (
+          <div role="alert" className="shrink-0 flex flex-wrap items-start gap-3 border border-red-200 bg-red-50 text-red-700 px-3 py-2 text-sm rounded-sm">
+            <div className="min-w-0 flex-1 space-y-1 break-words">
+              {error && <p>{error}</p>}
+              {failedSources.map(([key, result]) => (
+                <p key={key}>
+                  <span className="font-medium">{key === 'system1' ? '工序扫码拍照' : '装配关键工位'}：</span>
+                  {result?.error || '数据源查询失败'}
+                </p>
+              ))}
+              {Boolean(data?.rows.length) && <p className="text-xs">当前仅显示查询成功的数据源记录。</p>}
+            </div>
+            <button
+              type="button"
+              onClick={() => setRefreshToken((value) => value + 1)}
+              disabled={loading}
+              className="shrink-0 inline-flex h-8 items-center gap-1.5 rounded-sm border border-red-300 px-2.5 text-xs font-medium hover:bg-red-100 disabled:opacity-50"
+            >
+              {loading ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              重新查询
+            </button>
+          </div>
         )}
 
         <section className="flex-1 min-h-0 bg-white border border-slate-200 rounded-md overflow-hidden flex flex-col">
@@ -412,7 +437,7 @@ export default function ProcessRecordsPage() {
                 {loading ? (
                   <tr><td colSpan={11} className="h-48 text-center text-slate-400"><Loader2 className="w-5 h-5 animate-spin inline mr-2" />实时查询中...</td></tr>
                 ) : !data?.rows.length ? (
-                  <tr><td colSpan={11} className="h-48 text-center text-slate-400">没有查询到记录</td></tr>
+                  <tr><td colSpan={11} className="h-48 text-center text-slate-400">{queryFailed ? '数据源查询失败，暂时无法获取记录' : '没有查询到记录'}</td></tr>
                 ) : data.rows.map((row) => (
                   <tr key={row.key} onClick={() => setDetail(row)} className="hover:bg-cyan-50/40 cursor-pointer">
                     <td className="px-3 py-2.5">

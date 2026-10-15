@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, ChevronLeft, ChevronRight, ListFilter, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -8,7 +8,7 @@ import { useSettings } from '../context/SettingsContext';
 import DefectModal from '../components/DefectModal';
 import AlertConfigModal from '../components/AlertConfigModal';
 import { ExcludedOrdersModal, FilterPanel } from '../components/rty';
-import { RTY_EXPORT_COLUMNS } from '../components/rty/exportColumns';
+import { buildTemplateWorkbook } from '../components/rty/templateExport';
 import { SortIcon } from '../components/shared/SortIcon';
 import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
 
@@ -49,7 +49,11 @@ export default function RTYPage() {
   const [filters, setFilters] = useState<RTYFilterParams>(initialFilters);
 
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
+  const exportInProgress = useRef(false);
   const [data, setData] = useState<RTYData[]>([]);
+  const [exportFilters, setExportFilters] = useState<RTYFilterParams | null>(null);
   const [page, setPage] = useState(1);
   const [total, setTotal] = useState(0);
   const pageSize = 50;
@@ -73,6 +77,7 @@ export default function RTYPage() {
     try {
       const result = await rtyApi.getRTYData(filters, targetPage, pageSize);
       setData(result.items);
+      setExportFilters({ ...filters, dateRange: { ...filters.dateRange } });
       setTotal(result.total);
       setPage(result.page);
     } catch (error) {
@@ -103,6 +108,7 @@ export default function RTYPage() {
 
   const openDetails = () => {
     setData([]);
+    setExportFilters(null);
     setTotal(0);
     setPage(1);
     setDetailSearched(false);
@@ -130,47 +136,23 @@ export default function RTYPage() {
     }
   };
 
-  const handleExport = async (selectedColumns: Record<string, boolean>) => {
-    const selectedKeys = Object.entries(selectedColumns).filter(([, v]) => v).map(([k]) => k);
-    const exportData = sortedData.map(row => {
-      const item: Record<string, unknown> = {};
-      selectedKeys.forEach(key => {
-        if (key === 'status') {
-          item[RTY_EXPORT_COLUMNS[key]] = row.rtyRate >= (modelTargets[row.productModel] || row.targetRate) ? '达成' : '未达标';
-        } else if (key === 'serialNumbers') {
-          item[RTY_EXPORT_COLUMNS[key]] = Array.isArray(row.serialNumbers) ? row.serialNumbers.join(', ') : row.serialNumbers;
-        } else {
-          item[RTY_EXPORT_COLUMNS[key]] = row[key as keyof RTYData];
-        }
-      });
-      return item;
-    });
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'RTY数据');
-    const serialNumbers = Array.from(new Set(sortedData.flatMap((row) => row.serialNumbers || []).filter(Boolean)));
-    if (serialNumbers.length > 0) {
-      const defectRows = await Promise.all(
-        Array.from({ length: Math.ceil(serialNumbers.length / 200) }, (_, index) =>
-          rtyApi.getDefectDetails(serialNumbers.slice(index * 200, (index + 1) * 200))),
-      );
-      const defectData = defectRows.flat().map((item) => ({
-        机器SN: item.sn,
-        销售订单: item.sale_no,
-        生产订单: item.mfg_order,
-        客户: item.customer,
-        产品机型: item.product_family,
-        故障类型: item.defectCode,
-        故障描述: item.description,
-        二次故障现象: item.fault_2nd_appear,
-        三次故障现象: item.fault_3rd_appear,
-        维修人: item.repairPerson,
-        维修时间: item.repairTime,
-        维修有效性: item.repair_effectiveness,
-      }));
-      XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(defectData), '故障明细');
+  const handleExport = async () => {
+    if (exportInProgress.current || loading || !sortedData.length || !exportFilters) return;
+    exportInProgress.current = true;
+    setExporting(true);
+    setExportError('');
+    try {
+      const exportData = await rtyApi.getTemplateExport(exportFilters);
+      const workbook = buildTemplateWorkbook(exportData);
+      const date = new Date();
+      const stamp = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+      XLSX.writeFile(workbook, `RTY数据导出_${stamp}.xlsx`);
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : 'RTY 导出失败，请重试');
+    } finally {
+      exportInProgress.current = false;
+      setExporting(false);
     }
-    XLSX.writeFile(wb, `RTY数据导出_${new Date().toISOString().split('T')[0]}.xlsx`);
   };
 
   const sortedData = useMemo(() => {
@@ -264,7 +246,10 @@ export default function RTYPage() {
                   onSearch={searchDetails}
                   onAlertModalOpen={() => setDetailOpen(false)}
                   onExportConfirm={handleExport}
+                  exporting={exporting}
+                  exportDisabled={loading || data.length === 0}
                 />
+                {exportError && <p role="alert" className="mb-3 text-sm text-red-700">{exportError}</p>}
 
                 {/* 数据表格 */}
                 <div className="flex-1 min-h-0 overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
