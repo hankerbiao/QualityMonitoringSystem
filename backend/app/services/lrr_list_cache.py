@@ -45,6 +45,7 @@ class LRRListQuery:
     material_number: str | None = None
     product_model: str | None = None
     base: str | None = None
+    base_permissions: tuple[str, ...] | None = None
     customer_ids: tuple[str, ...] = ()
     sort_by: str = "month"
     sort_dir: str = "asc"

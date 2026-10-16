@@ -8,6 +8,7 @@ export interface ManagedUser {
   isActive: boolean;
   isProtected: boolean;
   dashboardPermissions: string[];
+  basePermissions?: string[] | null;
   createdAt?: string | null;
   updatedAt?: string | null;
 }
@@ -17,6 +18,7 @@ export interface CreateManagedUser {
   displayName: string;
   password: string;
   dashboardPermissions: string[];
+  basePermissions: string[] | null;
 }
 
 export interface UpdateManagedUser {
@@ -24,11 +26,13 @@ export interface UpdateManagedUser {
   displayName?: string;
   isActive?: boolean;
   dashboardPermissions?: string[];
+  basePermissions?: string[] | null;
   password?: string;
 }
 
 export const adminUsersApi = {
   list: () => requestJson<ManagedUser[]>(`${API_BASE_URL}/admin/users`),
+  baseOptions: () => requestJson<{ code: string; name: string }[]>(`${API_BASE_URL}/admin/base-options`),
   create: (payload: CreateManagedUser) => requestJson<ManagedUser>(`${API_BASE_URL}/admin/users`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

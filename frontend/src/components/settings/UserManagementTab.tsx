@@ -21,12 +21,15 @@ type EditorState = {
   role: ManagedUser['role'];
   originalRole: ManagedUser['role'];
   dashboardPermissions: string[];
+  basePermissions: string[] | null;
+  originalBasePermissions: string[] | null;
 };
 const allPermissions = PERMISSIONS.map(([key]) => key);
 const USERNAME_PATTERN = /^[A-Za-z0-9_.-]+$/;
 const newEditor = (): EditorState => ({
   mode: 'create', username: '', displayName: '', password: '',
   role: 'user', originalRole: 'user', dashboardPermissions: [...allPermissions],
+  basePermissions: null, originalBasePermissions: null,
 });
 
 function confirmRoleChange(displayName: string, role: ManagedUser['role']) {
@@ -38,16 +41,22 @@ function confirmRoleChange(displayName: string, role: ManagedUser['role']) {
 export default function UserManagementTab() {
   const { user: currentUser } = useAuth();
   const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [baseOptions, setBaseOptions] = useState<{ code: string; name: string }[]>([]);
   const [editor, setEditor] = useState<EditorState | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const currentUsername = currentUser?.username || currentUser?.itcode;
+  const canGrantAllBases = currentUser?.basePermissions == null;
+  const baseNames = new Map(baseOptions.map(option => [option.code, option.name]));
 
   const load = useCallback(async () => {
     setLoading(true);
-    try { setUsers(await adminUsersApi.list()); setError(''); }
+    try {
+      const [rows, options] = await Promise.all([adminUsersApi.list(), adminUsersApi.baseOptions()]);
+      setUsers(rows); setBaseOptions(options); setError('');
+    }
     catch (err) { setError(err instanceof Error ? err.message : '用户列表加载失败'); }
     finally { setLoading(false); }
   }, []);
@@ -60,12 +69,13 @@ export default function UserManagementTab() {
     if (roleChanged && (editor.username === currentUsername || !confirmRoleChange(editor.displayName, editor.role))) return;
     setSaving(true); setError(''); setNotice('');
     try {
-      if (editor.mode === 'create') await adminUsersApi.create({ username: normalizedUsername, displayName: editor.displayName.trim(), password: editor.password, dashboardPermissions: editor.dashboardPermissions });
+      if (editor.mode === 'create') await adminUsersApi.create({ username: normalizedUsername, displayName: editor.displayName.trim(), password: editor.password, dashboardPermissions: editor.dashboardPermissions, basePermissions: editor.basePermissions });
       else await adminUsersApi.update(editor.username, {
         displayName: editor.displayName.trim(),
         ...(roleChanged ? { role: editor.role } : {}),
         ...(editor.role === 'user' && editor.originalRole === 'user' ? { dashboardPermissions: editor.dashboardPermissions } : {}),
         ...(editor.password ? { password: editor.password } : {}),
+        ...(JSON.stringify(editor.basePermissions) !== JSON.stringify(editor.originalBasePermissions) ? { basePermissions: editor.basePermissions } : {}),
       });
       setEditor(null); setNotice(editor.mode === 'create' ? '用户创建成功' : '用户资料已更新'); await load();
     } catch (err) { setError(err instanceof Error ? err.message : '用户保存失败'); }
@@ -111,7 +121,7 @@ export default function UserManagementTab() {
     <div className="space-y-5">
       <div className="flex flex-wrap items-start justify-between gap-4">
         <h3 className="text-base font-semibold text-slate-900">用户管理</h3>
-        <button type="button" disabled={saving} onClick={() => { setError(''); setEditor(newEditor()); }} className="flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
+        <button type="button" disabled={saving} onClick={() => { setError(''); setEditor({ ...newEditor(), basePermissions: currentUser?.basePermissions ?? null }); }} className="flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50">
           <Plus className="size-4" />新建用户
         </button>
       </div>
@@ -130,14 +140,16 @@ export default function UserManagementTab() {
                 <th className="px-3 py-2.5">角色</th>
                 <th className="px-3 py-2.5">状态</th>
                 <th className="px-3 py-2.5">可访问看板</th>
+                <th className="px-3 py-2.5">可访问基地</th>
                 <th className="sticky right-0 z-10 border-l border-slate-200 bg-slate-50 px-3 py-2.5 text-right">操作</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
               {users.map((user) => {
                 const isSelf = user.username === currentUsername;
-                const protectedAction = user.isProtected || isSelf;
-                const protectionTitle = user.isProtected ? '内置管理员账号受保护' : '不能对当前账号执行此操作';
+                const outsideScope = !canGrantAllBases && (user.basePermissions == null || user.basePermissions.some(code => !currentUser?.basePermissions?.includes(code)));
+                const protectedAction = user.isProtected || isSelf || outsideScope;
+                const protectionTitle = user.isProtected ? '内置管理员账号受保护' : outsideScope ? '该账号包含未授权基地' : '不能对当前账号执行此操作';
                 const roleAction = user.role === 'admin' ? '取消管理员' : '设为管理员';
                 const roleLabel = user.isProtected ? '内置管理员' : user.role === 'admin' ? '管理员' : '普通用户';
                 return (
@@ -159,12 +171,15 @@ export default function UserManagementTab() {
                     <td className="whitespace-nowrap px-3 py-3 text-xs text-slate-500">
                       {user.role === 'admin' || user.dashboardPermissions.length === allPermissions.length ? '全部看板' : `${user.dashboardPermissions.length} 个看板`}
                     </td>
+                    <td className="max-w-48 px-3 py-3 text-xs text-slate-500">
+                      {user.basePermissions == null ? '全部基地' : user.basePermissions.length ? user.basePermissions.map(code => baseNames.get(code) ?? code).join('、') : '无基地权限'}
+                    </td>
                     <td className="sticky right-0 z-[1] border-l border-slate-200 bg-white px-3 py-3">
                       <div className="flex justify-end gap-1">
                         <button
-                          type="button" title={user.isProtected ? protectionTitle : '编辑用户'} aria-label="编辑用户"
-                          disabled={saving || user.isProtected}
-                          onClick={() => setEditor({ mode: 'edit', username: user.username, displayName: user.displayName, password: '', role: user.role, originalRole: user.role, dashboardPermissions: [...user.dashboardPermissions] })}
+                          type="button" title={user.isProtected || outsideScope ? protectionTitle : '编辑用户'} aria-label="编辑用户"
+                          disabled={saving || user.isProtected || outsideScope}
+                          onClick={() => setEditor({ mode: 'edit', username: user.username, displayName: user.displayName, password: '', role: user.role, originalRole: user.role, dashboardPermissions: [...user.dashboardPermissions], basePermissions: user.basePermissions ?? null, originalBasePermissions: user.basePermissions ?? null })}
                           className="rounded p-2 text-slate-500 hover:bg-slate-100 hover:text-blue-600 disabled:cursor-not-allowed disabled:opacity-40"
                         ><Pencil className="size-4" /></button>
                         <button
@@ -240,6 +255,33 @@ export default function UserManagementTab() {
                   </div>
                 </fieldset>
               )}
+              <fieldset disabled={saving} className="border-t border-slate-200 pt-3">
+                <legend className="text-sm text-slate-600">可访问基地</legend>
+                <label className="block text-sm text-slate-600">基地权限
+                  <select
+                    value={editor.basePermissions === null ? 'all' : 'selected'}
+                    onChange={event => setEditor({ ...editor, basePermissions: event.target.value === 'all' ? null : [] })}
+                    className="mt-1 h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-slate-800"
+                  >
+                    <option value="all" disabled={!canGrantAllBases}>全部基地</option>
+                    <option value="selected">指定基地</option>
+                  </select>
+                </label>
+                {editor.basePermissions !== null && (
+                  <div className="mt-3 grid grid-cols-2 gap-2">
+                    {baseOptions.map(({ code, name }) => (
+                      <label key={code} className="flex items-center gap-2 text-sm text-slate-600">
+                        <input
+                          type="checkbox"
+                          checked={editor.basePermissions!.includes(code)}
+                          onChange={event => setEditor({ ...editor, basePermissions: event.target.checked ? [...editor.basePermissions!, code] : editor.basePermissions!.filter(value => value !== code) })}
+                        />{name}
+                      </label>
+                    ))}
+                  </div>
+                )}
+                {editor.basePermissions?.length === 0 && <p className="mt-2 text-xs text-amber-700">未选择基地，该用户将无法查看基地数据。</p>}
+              </fieldset>
             </div>
             <div className="mt-5 flex justify-end gap-2">
               <button type="button" disabled={saving} onClick={closeDialogs} className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-600 disabled:opacity-50">取消</button>

@@ -13,6 +13,7 @@ from typing import Any
 
 from fastapi import HTTPException
 
+from app.base_access import base_allowed, current_base_permissions
 from app.schemas.rty import RTYTemplateExport, StationPassExport
 from app.services import repair_integration, rty_gateway
 from app.services.async_ttl_cache import AsyncTTLCache
@@ -137,6 +138,8 @@ async def _load_orders(
     product_models: list[str] | None = None,
     bases: list[str] | None = None,
 ) -> list[dict[str, Any]]:
+    if current_base_permissions() == ():
+        return []
     gateway_filters = {
         key: value
         for key, value in filters.items()
@@ -153,6 +156,7 @@ async def _load_orders(
         planned_date = compact_date(normalized["gstrs_date"])
         if (
             normalized["aufnr"]
+            and base_allowed(normalized["data"].get("LGORT"))
             and start <= planned_date <= end
             and (selected_models is None or normalized["data"].get("MAKTX_TH") in selected_models)
             and (selected_bases is None or normalized["data"].get("LGORT") in selected_bases)
@@ -172,6 +176,7 @@ async def _load_orders(
             planned_date = compact_date(data.get("GSTRS") or normalized["gstrs_date"])
             if (
                 normalized["aufnr"]
+                and base_allowed(data.get("LGORT") or normalized["data"].get("LGORT"))
                 and start <= planned_date <= end
                 and rty_gateway._eligible(normalized, filters.get("orderScope", "normal"))
             ):
@@ -310,6 +315,7 @@ async def _load_sources(
     if version is None:
         return await _load_sources_uncached(filters, product_models=product_models, bases=bases)
     key = (
+        current_base_permissions(),
         data_gateway.base_url,
         tuple(sorted(version.items())),
         tuple(sorted(filters.items())),

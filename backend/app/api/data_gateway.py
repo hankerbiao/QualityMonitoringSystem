@@ -7,7 +7,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from app.api.auth import get_current_user, require_admin
 from app.services.data_gateway_client import DataGatewayError, data_gateway
 
-router = APIRouter(dependencies=[Depends(require_admin)])
+
+async def require_unrestricted_admin(
+    current_user: Annotated[dict, Depends(require_admin)],
+) -> dict:
+    if current_user.get("basePermissions") is not None:
+        raise HTTPException(status_code=403, detail="当前基地权限不允许访问全量数据源接口")
+    return current_user
+
+
+router = APIRouter(dependencies=[Depends(require_unrestricted_admin)])
 
 
 @router.get("/status")

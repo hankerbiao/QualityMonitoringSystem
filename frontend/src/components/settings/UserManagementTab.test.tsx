@@ -6,7 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import UserManagementTab from './UserManagementTab';
 
 vi.mock('../../api/adminUsersApi', () => ({
-  adminUsersApi: { list: vi.fn(), create: vi.fn(), update: vi.fn(), remove: vi.fn() },
+  adminUsersApi: { list: vi.fn(), baseOptions: vi.fn(), create: vi.fn(), update: vi.fn(), remove: vi.fn() },
 }));
 vi.mock('../../context/AuthContext', () => ({ useAuth: vi.fn() }));
 
@@ -30,6 +30,9 @@ describe('user administrator roles', () => {
       isAuthenticated: true, isAuthLoaded: true, login: vi.fn(), logout: vi.fn(),
     });
     vi.mocked(adminUsersApi.list).mockResolvedValue([admin, alice]);
+    vi.mocked(adminUsersApi.baseOptions).mockResolvedValue([
+      { code: '1000', name: '天津' }, { code: '3000', name: '昆山' },
+    ]);
     vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
   afterEach(() => { cleanup(); vi.restoreAllMocks(); });
@@ -180,5 +183,52 @@ describe('user administrator roles', () => {
     expect(adminUsersApi.update).toHaveBeenCalledTimes(1);
     resolve(promotedAlice);
     await waitFor(() => expect(screen.getByText('已设为管理员')).toBeTruthy());
+  });
+
+  it('lets administrators assign bases to another administrator', async () => {
+    vi.mocked(adminUsersApi.list).mockResolvedValue([admin, promotedAlice]);
+    vi.mocked(adminUsersApi.update).mockResolvedValue({ ...promotedAlice, basePermissions: ['1000'] });
+    render(<UserManagementTab />);
+    fireEvent.click(within(await screen.findByRole('row', { name: /Alice/ })).getByRole('button', { name: '编辑用户' }));
+    const dialog = screen.getByRole('dialog', { name: '编辑用户' });
+    fireEvent.change(within(dialog).getByLabelText('基地权限'), { target: { value: 'selected' } });
+    expect(within(dialog).getByText('未选择基地，该用户将无法查看基地数据。')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('checkbox', { name: '天津' }));
+    fireEvent.click(within(dialog).getByRole('button', { name: '保存' }));
+    await waitFor(() => expect(adminUsersApi.update).toHaveBeenCalledWith('alice', {
+      displayName: 'Alice', basePermissions: ['1000'],
+    }));
+  });
+
+  it('restores all bases explicitly with null', async () => {
+    vi.mocked(adminUsersApi.list).mockResolvedValue([admin, { ...alice, basePermissions: ['1000'] }]);
+    vi.mocked(adminUsersApi.update).mockResolvedValue({ ...alice, basePermissions: null });
+    render(<UserManagementTab />);
+    fireEvent.click(within(await screen.findByRole('row', { name: /Alice/ })).getByRole('button', { name: '编辑用户' }));
+    const dialog = screen.getByRole('dialog', { name: '编辑用户' });
+    fireEvent.change(within(dialog).getByLabelText('基地权限'), { target: { value: 'all' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '保存' }));
+    await waitFor(() => expect(adminUsersApi.update).toHaveBeenCalledWith('alice', {
+      displayName: 'Alice', dashboardPermissions: ['rty'], basePermissions: null,
+    }));
+  });
+
+  it('limits a scoped administrator to their own bases and protects broader accounts', async () => {
+    vi.mocked(useAuth).mockReturnValue({
+      user: { itcode: 'manager', role: 'admin', basePermissions: ['1000'] },
+      isAuthenticated: true, isAuthLoaded: true, login: vi.fn(), logout: vi.fn(),
+    });
+    vi.mocked(adminUsersApi.list).mockResolvedValue([
+      admin, { ...alice, basePermissions: ['1000'] }, { ...alice, username: 'broader', displayName: 'Broader', basePermissions: null },
+    ]);
+    vi.mocked(adminUsersApi.baseOptions).mockResolvedValue([{ code: '1000', name: '天津' }]);
+    render(<UserManagementTab />);
+    const broader = await screen.findByRole('row', { name: /Broader/ });
+    expect(within(broader).getAllByRole('button').every(button => (button as HTMLButtonElement).disabled)).toBe(true);
+    fireEvent.click(within(screen.getByRole('row', { name: /Alice/ })).getByRole('button', { name: '编辑用户' }));
+    const dialog = screen.getByRole('dialog', { name: '编辑用户' });
+    expect((within(dialog).getByRole('option', { name: '全部基地' }) as HTMLOptionElement).disabled).toBe(true);
+    expect(within(dialog).getByRole('checkbox', { name: '天津' })).toBeTruthy();
+    expect(within(dialog).queryByRole('checkbox', { name: '昆山' })).toBeNull();
   });
 });

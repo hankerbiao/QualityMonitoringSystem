@@ -100,6 +100,46 @@ async def test_orders_maps_gateway_pagination_and_filters():
 
 
 @pytest.mark.asyncio
+async def test_order_models_reads_distinct_endpoint_without_dashboard_filters():
+    captured = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append((request.method, request.url.path, dict(request.url.params)))
+        return httpx.Response(200, json={"items": ["Normal", " L6 ", "Historical", "Normal", " "]})
+
+    client = DataGatewayClient("http://gateway.test")
+    client._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url=client.base_url
+    )
+    try:
+        assert await client.order_models() == ["Historical", "L6", "Normal"]
+    finally:
+        await client.close()
+    assert captured == [("GET", "/api/orders/models", {})]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "payload",
+    [None, [], {}, {"items": None}, {"items": "M"}, {"items": ["M", None]}, {"items": [1]}],
+)
+async def test_order_models_rejects_invalid_list_and_allows_retry(payload):
+    client = DataGatewayClient("http://gateway.test")
+    client.request_json = AsyncMock(side_effect=[payload, {"items": ["M"]}])
+    with pytest.raises(DataGatewayError, match="无效机型列表") as error:
+        await client.order_models()
+    assert error.value.code == "DATA_GATEWAY_BAD_RESPONSE"
+    assert await client.order_models() == ["M"]
+
+
+@pytest.mark.asyncio
+async def test_order_models_accepts_empty_source():
+    client = DataGatewayClient("http://gateway.test")
+    client.request_json = AsyncMock(return_value={"items": []})
+    assert await client.order_models() == []
+
+
+@pytest.mark.asyncio
 async def test_gateway_errors_are_normalized():
     def handler(_request: httpx.Request) -> httpx.Response:
         return httpx.Response(503, json={"error": "MongoDB unavailable"})

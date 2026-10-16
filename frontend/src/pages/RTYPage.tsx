@@ -404,10 +404,10 @@ export default function RTYPage() {
                         {row.rtyRate}%
                       </td>
                       <td className="px-3 py-2 text-slate-500">
-                        {modelTargets[row.productModel] || row.targetRate}%
+                        {modelTargets[row.productModel] ?? row.targetRate ?? 100}%
                       </td>
                       <td className="px-3 py-2 text-center">
-                        {row.rtyRate >= (modelTargets[row.productModel] || row.targetRate) ? (
+                        {row.rtyRate >= (modelTargets[row.productModel] ?? row.targetRate ?? 100) ? (
                           <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-[2px] bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-medium leading-tight">
                             达成
                           </span>

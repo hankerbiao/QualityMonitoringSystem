@@ -54,12 +54,14 @@ function formatRawValue(value: unknown): string {
 function AuthenticatedImage({
   source,
   path,
+  accessToken,
   alt,
   className,
   loading,
 }: {
   source: 'system1' | 'system2';
   path: string;
+  accessToken?: string | null;
   alt: string;
   className: string;
   loading?: 'eager' | 'lazy';
@@ -67,7 +69,7 @@ function AuthenticatedImage({
   const [imageUrl, setImageUrl] = useState<string | null>(null);
   const [visibleRequestKey, setVisibleRequestKey] = useState<string | null>(null);
   const targetRef = useRef<HTMLSpanElement>(null);
-  const requestKey = `${source}:${path}`;
+  const requestKey = `${source}:${path}:${accessToken ?? ''}`;
   const shouldLoad = loading === 'eager' || visibleRequestKey === requestKey;
 
   useEffect(() => {
@@ -107,7 +109,7 @@ function AuthenticatedImage({
 
     const load = async () => {
       try {
-        const response = await apiFetch(processRecordsApi.imageUrl(source, path), {
+        const response = await apiFetch(processRecordsApi.imageUrl(source, path, accessToken), {
           signal: controller.signal,
         });
         if (!response.ok) throw new Error(`图片请求失败 (${response.status})`);
@@ -131,7 +133,7 @@ function AuthenticatedImage({
       controller.abort();
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [path, shouldLoad, source]);
+  }, [path, shouldLoad, source, accessToken]);
 
   if (!imageUrl || !shouldLoad) {
     return <span ref={targetRef} className={`${className} flex items-center justify-center`} aria-label={`${alt}加载中`}><Loader2 className="w-4 h-4 animate-spin text-slate-400" /></span>;
@@ -157,7 +159,7 @@ export default function ProcessRecordsPage() {
   const [error, setError] = useState('');
   const [data, setData] = useState<ProcessRecordRealtimeData | null>(null);
   const [detail, setDetail] = useState<ProcessRecordItem | null>(null);
-  const [preview, setPreview] = useState<{ source: 'system1' | 'system2'; path: string } | null>(null);
+  const [preview, setPreview] = useState<{ source: 'system1' | 'system2'; path: string; accessToken?: string | null } | null>(null);
   const [downloadingKey, setDownloadingKey] = useState<string | null>(null);
 
   const fetchRecords = useCallback(async () => {
@@ -244,7 +246,7 @@ export default function ProcessRecordsPage() {
     try {
       for (let index = 0; index < row.photos.length; index += 1) {
         const photo = row.photos[index];
-        const response = await apiFetch(processRecordsApi.imageUrl(row.source, photo.path));
+        const response = await apiFetch(processRecordsApi.imageUrl(row.source, photo.path, photo.accessToken));
         if (!response.ok) throw new Error(`图片请求失败 (${response.status})`);
         const blob = await response.blob();
         const objectUrl = URL.createObjectURL(blob);
@@ -455,10 +457,10 @@ export default function ProcessRecordsPage() {
                             <button
                               key={`${photo.path}-${index}`}
                               title="查看原图"
-                              onClick={(event) => { event.stopPropagation(); setPreview({ source: row.source, path: photo.path }); }}
+                              onClick={(event) => { event.stopPropagation(); setPreview({ source: row.source, ...photo }); }}
                               className="w-10 h-10 border border-slate-200 rounded-sm overflow-hidden bg-slate-100"
                             >
-                              <AuthenticatedImage source={row.source} path={photo.path} alt="工位现场" className="w-full h-full object-cover" loading="lazy" />
+                              <AuthenticatedImage source={row.source} path={photo.path} accessToken={photo.accessToken} alt="工位现场" className="w-full h-full object-cover" loading="lazy" />
                             </button>
                           ))}
                           <span className="text-slate-400">{row.photos.length} 张</span>
@@ -513,8 +515,8 @@ export default function ProcessRecordsPage() {
               {detail.photos.length > 0 && (
                 <div className="grid grid-cols-3 gap-2">
                   {detail.photos.map((photo, index) => (
-                    <button key={`${photo.path}-${index}`} onClick={() => setPreview({ source: detail.source, path: photo.path })} className="aspect-square border border-slate-200 rounded-sm overflow-hidden bg-slate-100">
-                      <AuthenticatedImage source={detail.source} path={photo.path} alt={`现场图片 ${index + 1}`} className="w-full h-full object-cover" loading="lazy" />
+                    <button key={`${photo.path}-${index}`} onClick={() => setPreview({ source: detail.source, ...photo })} className="aspect-square border border-slate-200 rounded-sm overflow-hidden bg-slate-100">
+                      <AuthenticatedImage source={detail.source} path={photo.path} accessToken={photo.accessToken} alt={`现场图片 ${index + 1}`} className="w-full h-full object-cover" loading="lazy" />
                     </button>
                   ))}
                 </div>
@@ -535,7 +537,7 @@ export default function ProcessRecordsPage() {
       {preview && (
         <div className="fixed inset-0 z-50 bg-slate-950/85 flex items-center justify-center p-6" onClick={() => setPreview(null)}>
           <button title="关闭图片" onClick={() => setPreview(null)} className="absolute top-4 right-4 p-2 text-white/80 hover:text-white"><X className="w-6 h-6" /></button>
-          <AuthenticatedImage source={preview.source} path={preview.path} alt="关键工位原图" className="max-w-full max-h-full object-contain" loading="eager" />
+          <AuthenticatedImage source={preview.source} path={preview.path} accessToken={preview.accessToken} alt="关键工位原图" className="max-w-full max-h-full object-contain" loading="eager" />
         </div>
       )}
     </div>

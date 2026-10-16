@@ -45,7 +45,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="QualiBoard API",
     description="QualiBoard 品质看板后端 API，支持 RTY/LRR/DOA/MFR 数据管理",
-    version="1.0.1",
+    version="1.0.2",
     docs_url="/docs" if get_settings().DEBUG else None,
     redoc_url="/redoc" if get_settings().DEBUG else None,
     lifespan=lifespan,
@@ -94,7 +94,7 @@ app.include_router(sn_info.router, prefix="/api/sn-info", tags=["SN Info"])
 @app.get("/health")
 async def health_check():
     """健康检查接口"""
-    return {"status": "healthy", "version": "1.0.1"}
+    return {"status": "healthy", "version": "1.0.2"}
 
 
 @app.exception_handler(HTTPException)

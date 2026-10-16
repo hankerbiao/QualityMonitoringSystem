@@ -13,6 +13,7 @@ from typing import Any, TypeVar
 
 from fastapi import HTTPException
 
+from app.base_access import base_allowed, current_base_permissions
 from app.schemas.rty import (
     DefectDetail,
     ExcludedOrder,
@@ -107,6 +108,8 @@ async def _orders(filters: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 async def _order_rows(filters: dict[str, Any]) -> list[dict[str, Any]]:
+    if current_base_permissions() == ():
+        return []
     gateway_filters = {
         key: value
         for key, value in filters.items()
@@ -116,6 +119,7 @@ async def _order_rows(filters: dict[str, Any]) -> list[dict[str, Any]]:
         normalize_order_row(item)
         for item in await data_gateway.all_orders(max_rows=1_000_000, **gateway_filters)
     ]
+    rows = [row for row in rows if base_allowed(row["data"].get("LGORT"))]
     date_from = validate_date(filters["dateFrom"]) if filters.get("dateFrom") else None
     date_to = validate_date(filters["dateTo"]) if filters.get("dateTo") else None
     if date_from or date_to:
@@ -446,6 +450,7 @@ async def rty_list(
     filters: dict[str, Any], page: int, limit: int, targets: dict[str, float]
 ) -> dict[str, Any]:
     key = (
+        current_base_permissions(),
         tuple(sorted((name, str(value)) for name, value in filters.items())),
         page,
         limit,
@@ -567,6 +572,7 @@ async def cycle_data(
     date_to: str = YEAR_END,
 ) -> list[RTYData]:
     key = (
+        current_base_permissions(),
         order_scope,
         customer or "",
         date_from,
@@ -689,6 +695,8 @@ def _matches_station_filters(
     dimension_value: str | None = None,
     scope_orders: set[str] | None = None,
 ) -> bool:
+    if not base_allowed(raw.get("LGORT")):
+        return False
     if serial_number and str(raw.get("PCODE") or "").strip() != serial_number.strip():
         return False
     if product_model and str(raw.get("MAKTX_TH") or "").strip() != product_model.strip():
@@ -733,6 +741,8 @@ async def station_rates(
     customer: str | None = None,
     overseas: bool = False,
 ) -> list[StationPassRate]:
+    if current_base_permissions() == ():
+        return []
     start, end = _date_range(date_from, date_to)
     date_from_iso = f"{start[:4]}-{start[4:6]}-{start[6:]}"
     date_to_iso = f"{end[:4]}-{end[4:6]}-{end[6:]}"
@@ -874,6 +884,8 @@ async def station_details(
     customer: str | None = None,
     overseas: bool = False,
 ) -> list[StationPassDetail]:
+    if current_base_permissions() == ():
+        return []
     start, end = _date_range(date_from, date_to)
     records = await data_gateway.all_station_rows(
         dateFrom=f"{start[:4]}-{start[4:6]}-{start[6:]}",
@@ -1010,6 +1022,9 @@ async def details_by_orders(
     orders: set[str],
     model: str | None = None,
 ) -> list[DefectDetail]:
+    if current_base_permissions() is not None:
+        allowed = await accessible_order_numbers()
+        orders = {order for order in orders if normalize_order(order) in allowed}
     if not orders:
         return []
 
@@ -1038,12 +1053,26 @@ async def details_by_orders(
     ]
 
 
+async def accessible_order_numbers() -> set[str]:
+    """Use order ownership, including excluded and L6 orders, for detail authorization."""
+    return {normalize_order(row["aufnr"]) for row in await _order_rows({}) if row["aufnr"]}
+
+
+async def authorized_fault_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    if current_base_permissions() is None:
+        return rows
+    allowed = await accessible_order_numbers()
+    return [row for row in rows if normalize_order(row.get("AUFNR")) in allowed]
+
+
 async def sales_order_summary(
     sales_orders: list[str], order_scope: str, targets: dict[str, float] | None = None
 ) -> list[SalesOrderSummary]:
     result = []
     for sales_order in sales_orders:
         rows = await _orders({"salesOrder": sales_order, "orderScope": order_scope})
+        if not rows and current_base_permissions() is not None:
+            continue
         orders = {row["aufnr"] for row in rows}
         model = str((rows[0]["data"] or {}).get("MAKTX_TH") or "") if rows else None
         faults = await _fault_sns_by_orders(orders, model=model)

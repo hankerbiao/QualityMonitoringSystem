@@ -17,6 +17,10 @@ export interface WeeklyQualifiedModels {
 }
 
 export const settingsApi = {
+  async getModelTargetSourceModels(): Promise<string[]> {
+    return requestData<string[]>(`${API_BASE_URL}/settings/model-targets/models`);
+  },
+
   async getAll(): Promise<AccessibleSettingsResponse> {
     return requestData<AccessibleSettingsResponse>(`${API_BASE_URL}/settings`);
   },

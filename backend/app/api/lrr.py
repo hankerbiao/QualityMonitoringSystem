@@ -14,6 +14,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from app.auth_permissions import dashboard_dependency
+from app.base_access import current_base_permissions
 from app.core.logger import audit_log, log_info
 from app.schemas.lrr import (
     LRRData,
@@ -551,6 +552,7 @@ async def get_lrr_list(
         material_number=materialNumber,
         product_model=productModel,
         base=base,
+        base_permissions=current_base_permissions(),
         customer_ids=tuple(sorted(set(customerId or []))),
         sort_by=sortBy,
         sort_dir=sortDir,

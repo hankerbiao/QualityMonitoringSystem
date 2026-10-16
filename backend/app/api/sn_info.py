@@ -9,6 +9,7 @@ from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.auth import get_current_user
 from app.auth_permissions import dashboard_dependency
+from app.base_access import current_base_permissions
 from app.schemas.common import Response
 from app.schemas.sn_info import (
     SnInfoItem,
@@ -16,6 +17,8 @@ from app.schemas.sn_info import (
     SnInfoRequest,
     SnInfoSourceResult,
 )
+from app.services.rty_gateway import accessible_order_numbers
+from app.services.rty_shared import normalize_order
 from app.services.sap_sn_info_service import SapSnInfoService
 
 router = APIRouter(dependencies=[Depends(dashboard_dependency("rty"))])
@@ -74,6 +77,12 @@ async def query_sn_info(
             },
         )
 
+    if current_base_permissions() is not None:
+        allowed = await accessible_order_numbers()
+        for result in results.values():
+            result.records = [
+                row for row in result.records if normalize_order(row.get("AUFNR")) in allowed
+            ]
     items = _merge_records(results)
     response = SnInfoQueryResponse(
         requested_count=len(body.sn_list),

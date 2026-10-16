@@ -4,6 +4,7 @@ export interface UserProfile {
   role?: 'admin' | 'user';
   isActive?: boolean;
   dashboardPermissions?: string[];
+  basePermissions?: string[] | null;
   name?: string;
   姓名?: string;
   真实姓名?: string;

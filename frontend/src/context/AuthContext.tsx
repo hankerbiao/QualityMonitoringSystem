@@ -10,6 +10,7 @@ import {
   getAccessToken,
 } from '../api/authApi';
 import type { UserProfile, AuthContextType } from '../types';
+import { setRtyAccessScope } from '../api/rtyApi';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -47,6 +48,7 @@ function InnerAuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     clearTokens();
+    setRtyAccessScope(null);
     setUser(null);
     navigate('/login', { replace: true });
   }, [navigate]);
@@ -64,6 +66,7 @@ function InnerAuthProvider({ children }: { children: ReactNode }) {
     setAccessToken(result.access_token, result.expires_in ?? 900);
     setRefreshToken(result.refresh_token);
     const profile = result.user as UserProfile;
+    setRtyAccessScope(profile);
     setUser(profile);
     showLoginSuccess(profile.姓名 || profile.真实姓名 || profile.name);
     navigate('/', { replace: true });
@@ -72,14 +75,20 @@ function InnerAuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const token = getAccessToken();
     if (!token) {
+      setRtyAccessScope(null);
       setUser(null);
       setIsAuthLoaded(true);
       return;
     }
     getCurrentUser()
-      .then((current) => setUser(current.user as UserProfile))
+      .then((current) => {
+        const profile = current.user as UserProfile;
+        setRtyAccessScope(profile);
+        setUser(profile);
+      })
       .catch(() => {
         clearTokens();
+        setRtyAccessScope(null);
         setUser(null);
       })
       .finally(() => setIsAuthLoaded(true));
@@ -97,6 +106,7 @@ function InnerAuthProvider({ children }: { children: ReactNode }) {
         const current = await getCurrentUser();
         if (active) {
           const profile = current.user as UserProfile;
+          setRtyAccessScope(profile);
           setUser(previous => {
             if (!previous || (previous.username || previous.itcode) !== username) return previous;
             return JSON.stringify(previous) === JSON.stringify(profile) ? previous : profile;

@@ -6,9 +6,11 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import Response as FastAPIResponse
 
 from app.auth_permissions import dashboard_dependency
+from app.base_access import current_base_permissions
 from app.schemas.common import Response
 from app.schemas.process_records import ProcessRecordFilterOptions, ProcessRecordRealtimeData
 from app.services.credential_crypto import CredentialEncryptionError
+from app.services.image_access import require_image_grant
 from app.services.process_record_service import (
     CredentialsNotConfiguredError,
     get_filter_options,
@@ -52,7 +54,10 @@ async def get_record_filter_options():
 async def get_record_image(
     source: Literal["system1", "system2"],
     path: str = Query(..., min_length=1, max_length=1000),
+    accessToken: str = Query("", max_length=6000),
 ):
+    if current_base_permissions() is not None:
+        require_image_grant(accessToken, source, path)
     try:
         content, content_type = await process_record_gateway.fetch_image(source, path)
     except (CredentialsNotConfiguredError, CredentialEncryptionError) as exc:
@@ -64,5 +69,9 @@ async def get_record_image(
     return FastAPIResponse(
         content=content,
         media_type=content_type,
-        headers={"Cache-Control": "private, max-age=60"},
+        headers={
+            "Cache-Control": "private, no-store"
+            if current_base_permissions() is not None
+            else "private, max-age=60"
+        },
     )

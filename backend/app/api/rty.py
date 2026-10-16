@@ -400,6 +400,7 @@ async def get_defect_details(sns: str = Query(..., description="机器序列号�
     if not values:
         return Response(success=True, data=[], message="无 SN 参数")
     rows = await rty_gateway._faults_for_sns(set(values))
+    rows = await rty_gateway.authorized_fault_rows(rows)
     data = [rty_gateway.to_detail(row) for row in rty_gateway._dedup_faults(rows)]
     return Response(success=True, data=data, message=f"查询到 {len(data)} 条维修故障记录")
 
@@ -462,7 +463,7 @@ def _option_totals(rows: list[dict[str, object]], field: str) -> dict[str, float
 @router.get(
     "/product-models",
     response_model=Response[list[dict[str, object]]],
-    dependencies=[Depends(dashboard_dependency("rty"))],
+    dependencies=[Depends(dashboard_dependency(("rty", "station-pass-rate")))],
 )
 async def get_product_models(orderScope: OrderScopeQuery = "normal"):
     totals = _option_totals(await _scope_orders(orderScope), "MAKTX_TH")
@@ -475,7 +476,7 @@ async def get_product_models(orderScope: OrderScopeQuery = "normal"):
 @router.get(
     "/bases",
     response_model=Response[list[dict[str, object]]],
-    dependencies=[Depends(dashboard_dependency("rty"))],
+    dependencies=[Depends(dashboard_dependency(("rty", "station-pass-rate")))],
 )
 async def get_bases(orderScope: OrderScopeQuery = "normal"):
     totals = _option_totals(await _scope_orders(orderScope), "LGORT")
@@ -488,7 +489,7 @@ async def get_bases(orderScope: OrderScopeQuery = "normal"):
 @router.get(
     "/customers",
     response_model=Response[list[str]],
-    dependencies=[Depends(dashboard_dependency("rty"))],
+    dependencies=[Depends(dashboard_dependency(("rty", "station-pass-rate")))],
 )
 async def get_customers(orderScope: OrderScopeQuery = "normal"):
     return Response(
@@ -499,7 +500,7 @@ async def get_customers(orderScope: OrderScopeQuery = "normal"):
 @router.get(
     "/filter-options",
     response_model=Response[dict[str, list]],
-    dependencies=[Depends(dashboard_dependency("rty"))],
+    dependencies=[Depends(dashboard_dependency(("rty", "station-pass-rate")))],
 )
 async def get_filter_options(orderScope: OrderScopeQuery = "normal"):
     rows = await _scope_orders(orderScope)

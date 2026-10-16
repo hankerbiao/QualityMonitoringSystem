@@ -31,6 +31,7 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
   const [activeTab, setActiveTab] = useState<TabKey>('processRecords');
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [modelTargetsBusy, setModelTargetsBusy] = useState(false);
   const [error, setError] = useState('');
   const { settings, updateSettings, loading: settingsLoading, error: loadError, reloadSettings } = useSettings();
   const { user } = useAuth();
@@ -51,7 +52,7 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
   }, [settings]);
 
   const handleSave = async () => {
-    if (saving || settingsLoading || loadError) return;
+    if (saving || modelTargetsBusy || settingsLoading || loadError) return;
     setSaving(true);
     setError('');
     try {
@@ -95,7 +96,7 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
             {selectedTab !== 'password' && selectedTab !== 'users' && <button
               onClick={handleSave}
-              disabled={saving || settingsLoading || !!loadError}
+              disabled={saving || modelTargetsBusy || settingsLoading || !!loadError}
               className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap shadow-sm sm:px-4"
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
@@ -149,7 +150,7 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
                 <ProcessRecordConfigTab config={processRecordConfig} onChange={setProcessRecordConfig} />
               )}
               {selectedTab === 'rty' && (
-                <ModelTargetsTab targets={modelTargets} onChange={setModelTargets} />
+                <ModelTargetsTab targets={modelTargets} onChange={setModelTargets} disabled={saving} onBusyChange={setModelTargetsBusy} />
               )}
               {selectedTab === 'email' && (
                 <EmailAlertTab config={emailConfig} onChange={setEmailConfig} />

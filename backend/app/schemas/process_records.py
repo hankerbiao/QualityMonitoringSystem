@@ -9,6 +9,7 @@ ProcessRecordSource = Literal["all", "system1", "system2"]
 
 class ProcessRecordPhoto(BaseModel):
     path: str
+    accessToken: str | None = None
 
 
 class ProcessRecordItem(BaseModel):

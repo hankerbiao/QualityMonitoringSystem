@@ -166,6 +166,40 @@ class TestProcessRecordConfig:
 class TestModelTargets:
     """Tests for model targets CRUD"""
 
+    async def test_template_models_include_all_source_scopes_without_date_filters(
+        self, client, monkeypatch
+    ):
+        from unittest.mock import AsyncMock
+
+        from app.services.data_gateway_client import data_gateway
+
+        loader = AsyncMock(return_value={"items": ["Normal", " L6 ", "Historical", "Normal", " "]})
+        orders = AsyncMock(side_effect=AssertionError("Template must not paginate orders"))
+        monkeypatch.setattr(data_gateway, "request_json", loader)
+        monkeypatch.setattr(data_gateway, "all_orders", orders)
+        response = await client.get("/api/settings/model-targets/models")
+        assert response.status_code == 200
+        assert response.json()["data"] == ["Historical", "L6", "Normal"]
+        loader.assert_awaited_once_with("GET", "/api/orders/models")
+        orders.assert_not_awaited()
+
+    @pytest.mark.parametrize(
+        "targets",
+        [
+            {"": 99},
+            {" M ": 99, "M": 98},
+            {"M": -1},
+            {"M": 101},
+            {"M": True},
+        ],
+    )
+    async def test_unified_save_rejects_invalid_imported_targets_before_writing(
+        self, client, db_clean, targets
+    ):
+        response = await client.put("/api/settings", json={"modelTargets": targets})
+        assert response.status_code == 422
+        assert await db_clean.configs.find_one({"key": "model_targets"}) is None
+
     async def test_get_empty_model_targets(self, client, db_clean):
         response = await client.get("/api/settings/model-targets")
         assert response.status_code == 200
@@ -269,6 +303,20 @@ async def ordinary_user_headers(client):
 
 @pytest.mark.integration
 class TestOrdinaryUserSettings:
+    async def test_template_source_models_are_accessible_without_dashboard_permissions(
+        self, client, ordinary_user_headers, monkeypatch
+    ):
+        from unittest.mock import AsyncMock
+
+        from app.services.data_gateway_client import data_gateway
+
+        monkeypatch.setattr(data_gateway, "order_models", AsyncMock(return_value=["M"]))
+        response = await client.get(
+            "/api/settings/model-targets/models", headers=ordinary_user_headers
+        )
+        assert response.status_code == 200
+        assert response.json()["data"] == ["M"]
+
     async def test_reads_only_model_and_email_settings(self, client, ordinary_user_headers):
         await client.put(
             "/api/settings",
@@ -411,6 +459,7 @@ class TestOrdinaryUserSettings:
             ("get", "/api/settings", None),
             ("put", "/api/settings", {"modelTargets": {"X1": 99}}),
             ("get", "/api/settings/model-targets", None),
+            ("get", "/api/settings/model-targets/models", None),
             ("put", "/api/settings/email-alert", {"enabled": False}),
             ("get", "/api/settings/email-alert/qualified-models?threshold=50", None),
         ],

@@ -32,6 +32,7 @@ from app.schemas.settings import (
     QualitySettingsResponse,
     SettingsResponse,
     SettingsUpdateRequest,
+    validate_model_targets,
 )
 from app.services.credential_crypto import (
     CredentialEncryptionError,
@@ -205,14 +206,19 @@ async def get_model_targets():
     )
 
 
+@router.get("/model-targets/models", response_model=Response[list[str]])
+async def get_model_target_source_models():
+    """Source model names for the target template, accessible to settings users."""
+    return Response(success=True, data=await _service().get_source_models())
+
+
 @router.put("/model-targets", response_model=Response[ModelTargetsResponse])
 async def update_model_targets(targets: dict[str, float]):
     """批量更新机型目标直通率"""
-    for model, rate in targets.items():
-        if not isinstance(model, str) or not model.strip():
-            raise HTTPException(status_code=400, detail=f"Invalid model name: {model}")
-        if not isinstance(rate, int | float) or rate < 0 or rate > 100:
-            raise HTTPException(status_code=400, detail=f"Invalid target rate for {model}: {rate}")
+    try:
+        targets = validate_model_targets(targets)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     await get_database()[CONFIGS].update_one(
         {"key": "model_targets"},
@@ -227,9 +233,13 @@ async def update_model_targets(targets: dict[str, float]):
 @router.post("/model-targets/{model}", response_model=Response[ModelTargetsResponse])
 async def add_model_target(model: str, targetRate: float):
     """添加或更新单个机型的目标直通率"""
+    try:
+        validated = validate_model_targets({model: targetRate})
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     doc = await _read_doc("model_targets")
     targets: dict[str, float] = doc.get("targets", {}).copy() if doc else {}
-    targets[model] = targetRate
+    targets.update(validated)
     await get_database()[CONFIGS].update_one(
         {"key": "model_targets"},
         {"$set": {"targets": targets, "updatedAt": datetime.now(timezone.utc)}},

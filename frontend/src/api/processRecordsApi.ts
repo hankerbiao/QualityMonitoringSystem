@@ -30,8 +30,9 @@ export const processRecordsApi = {
     return requestData<ProcessRecordFilterOptions>(`${API_BASE_URL}/process-records/filter-options`);
   },
 
-  imageUrl(source: 'system1' | 'system2', path: string): string {
+  imageUrl(source: 'system1' | 'system2', path: string, accessToken?: string | null): string {
     const query = new URLSearchParams({ source, path });
+    if (accessToken) query.set('accessToken', accessToken);
     return `${API_BASE_URL}/process-records/image?${query}`;
   },
 };

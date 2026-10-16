@@ -2,6 +2,7 @@ export type ProcessRecordSource = 'all' | 'system1' | 'system2';
 
 export interface ProcessRecordPhoto {
   path: string;
+  accessToken?: string | null;
 }
 
 export interface ProcessRecordItem {

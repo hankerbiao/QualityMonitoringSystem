@@ -2,6 +2,7 @@ import { DefectDetail, RTYData, RTYFilterParams, SalesOrderSummary, PaginatedRTY
 import { requestData, requestJson } from './authApi';
 import { API_BASE_URL } from '../constants';
 import type { RTYTemplateExport, StationPassExport } from '../types/rty';
+import type { UserProfile } from '../types/auth';
 
 const RTY_LIST_CACHE_TTL_MS = 2_000;
 const rtyListCache = new Map<string, { expiresAt: number; promise: Promise<PaginatedRTYResponse> }>();
@@ -15,6 +16,24 @@ const rtyCycleCache = new Map<string, {
   promise: Promise<RTYData[]>;
   cachedAt: number;
 }>();
+let accessScope = '';
+
+export function setRtyAccessScope(user: UserProfile | null): void {
+  const next = user ? JSON.stringify([
+    user.username || user.itcode,
+    user.role,
+    user.basePermissions ?? null,
+    user.dashboardPermissions ?? [],
+  ]) : '';
+  if (next !== accessScope) {
+    accessScope = next;
+    clearRtyApiCache();
+  }
+}
+
+function scopedKey(key: string): string {
+  return accessScope ? `${accessScope}:${key}` : key;
+}
 
 /** Clear transient dashboard data after a user explicitly requests refresh. */
 export function clearRtyApiCache(): void {
@@ -70,6 +89,7 @@ function removeStoredCycleData(key: string): void {
 }
 
 function cachedOption<T>(key: string, loader: () => Promise<T>): Promise<T> {
+  key = scopedKey(key);
   const cached = rtyOptionsCache.get(key);
   if (cached && cached.expiresAt > Date.now()) return cached.promise as Promise<T>;
   const promise = loader().catch(error => {
@@ -156,7 +176,7 @@ export const rtyApi = {
   ): Promise<CycleDataResult> {
     const dateFrom = options.dateFrom || '';
     const dateTo = options.dateTo || '';
-    const key = `cycle-data:${orderScope}:${customer || ''}:${dateFrom}:${dateTo}`;
+    const key = scopedKey(`cycle-data:${orderScope}:${customer || ''}:${dateFrom}:${dateTo}`);
     if (options.forceRefresh) {
       rtyCycleCache.delete(key);
       removeStoredCycleData(key);
@@ -186,7 +206,7 @@ export const rtyApi = {
     })();
     const entry = { expiresAt: Date.now() + RTY_CYCLE_CACHE_TTL_MS, promise, cachedAt: Date.now() };
     rtyCycleCache.set(key, entry);
-    void promise.then((data) => setStoredCycleData(key, { ...entry, data }));
+    void promise.then((data) => setStoredCycleData(key, { ...entry, data }), () => undefined);
     void promise.catch(() => {
       if (rtyCycleCache.get(key)?.promise === promise) rtyCycleCache.delete(key);
     });
@@ -199,13 +219,13 @@ export const rtyApi = {
     qs.set('limit', String(pageSize));
     buildRtyQuery(params).forEach((value, key) => qs.set(key, value));
 
-    const requestKey = qs.toString();
+    const requestKey = scopedKey(qs.toString());
     const inFlight = rtyListInFlight.get(requestKey);
     if (inFlight) return inFlight;
     const cached = rtyListCache.get(requestKey);
     if (cached && cached.expiresAt > Date.now()) return cached.promise;
 
-    const promise = requestJson<PaginatedRTYResponse>(`${API_BASE_URL}/rty/list?${requestKey}`)
+    const promise = requestJson<PaginatedRTYResponse>(`${API_BASE_URL}/rty/list?${qs}`)
       .then(json => {
         if (!Array.isArray(json.items)) throw new Error('RTY 列表响应格式无效');
         rtyListCache.set(requestKey, { expiresAt: Date.now() + RTY_LIST_CACHE_TTL_MS, promise });

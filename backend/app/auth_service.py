@@ -12,6 +12,7 @@ from fastapi import HTTPException
 from pymongo.errors import DuplicateKeyError
 
 from app.auth_permissions import ALL_DASHBOARD_PERMISSIONS, normalize_dashboard_permissions
+from app.base_access import normalize_base_permissions
 from app.core.config import get_settings
 
 
@@ -146,6 +147,9 @@ class AuthService:
             "auth_type": "local",
             "isActive": bool(is_active),
             "dashboardPermissions": permissions,
+            "basePermissions": normalize_base_permissions(
+                user.get("basePermissions", stored.get("basePermissions"))
+            ),
         }
 
     async def _ensure_admin(self, username: str, password: str, now: datetime) -> dict:
@@ -312,6 +316,7 @@ class AuthService:
             "role": profile["role"],
             "isActive": profile["isActive"],
             "dashboardPermissions": profile["dashboardPermissions"],
+            "basePermissions": profile["basePermissions"],
             "user": profile,
         }
 

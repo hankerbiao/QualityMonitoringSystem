@@ -55,7 +55,7 @@ class RouteErrorBoundary extends Component<{ children: ReactNode }, { hasError: 
 }
 
 function ProtectedLayout() {
-  const { isAuthenticated, isAuthLoaded } = useAuth();
+  const { isAuthenticated, isAuthLoaded, user } = useAuth();
   const location = useLocation();
 
   useEffect(() => {
@@ -67,7 +67,7 @@ function ProtectedLayout() {
 
   if (!isAuthLoaded) return null;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
-  return <Outlet />;
+  return <Outlet key={JSON.stringify([user?.username || user?.itcode, user?.role, user?.basePermissions, user?.dashboardPermissions])} />;
 }
 
 function DashboardAccess({ permission, children }: { permission: string; children: ReactNode }) {

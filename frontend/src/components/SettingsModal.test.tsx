@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as XLSX from 'xlsx';
 import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import type { SettingsResponse } from '../types';
@@ -71,6 +72,24 @@ describe('settings pages by role', () => {
       modelTargets: settings.modelTargets,
       emailAlert: settings.emailAlert,
       dashboardStatuses: settings.dashboardStatuses,
+    }));
+  });
+
+  it('saves imported targets through the existing settings action, preserving unlisted models', async () => {
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
+      ['机型名称', '直通率标准 (%)'], ['M1', 99.5], ['M2', null],
+    ]), '直通率标准');
+    const file = new File([XLSX.write(workbook, { type: 'array', bookType: 'xlsx' })], 'targets.xlsx');
+    render(<SettingsModal onClose={vi.fn()} onSaved={vi.fn()} />);
+    fireEvent.change(screen.getByLabelText('选择直通率标准模板'), { target: { files: [file] } });
+    expect((screen.getByRole('button', { name: '保存配置' }) as HTMLButtonElement).disabled).toBe(true);
+    await waitFor(() => expect(screen.getByRole('status').textContent).toContain('已导入'));
+    expect(updateSettings).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+    await waitFor(() => expect(updateSettings).toHaveBeenCalledWith({
+      modelTargets: { X1: 98, M1: 99.5, M2: 100 },
+      emailAlert: settings.emailAlert,
     }));
   });
 

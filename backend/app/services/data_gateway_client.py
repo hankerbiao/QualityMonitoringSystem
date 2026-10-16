@@ -451,6 +451,20 @@ class DataGatewayClient:
             params={key: value for key, value in filters.items() if value},
         )
 
+    async def order_models(self) -> list[str]:
+        """Read all distinct source models without paginating production orders."""
+        payload = await self.request_json("GET", "/api/orders/models")
+        if (
+            not isinstance(payload, dict)
+            or not isinstance(payload.get("items"), list)
+            or any(not isinstance(item, str) for item in payload["items"])
+        ):
+            raise DataGatewayError(
+                "生产数据源返回了无效机型列表，请联系管理员",
+                code="DATA_GATEWAY_BAD_RESPONSE",
+            )
+        return sorted({item.strip() for item in payload["items"] if item.strip()})
+
     async def data_status(self) -> dict[str, Any]:
         return await self.request_json("GET", "/api/data-status")
 

@@ -5,6 +5,12 @@ import re
 from datetime import datetime, timezone
 from typing import Any
 
+from app.base_access import (
+    base_allowed,
+    canonical_base,
+    current_base_permissions,
+    require_base_access,
+)
 from app.db.mongodb import get_database
 from app.libs.photo_sources import PhotoSourceClient, SourceDefinition
 from app.schemas.process_records import (
@@ -19,6 +25,7 @@ from app.schemas.process_records import (
     SourceConnectionResult,
 )
 from app.services.credential_crypto import decrypt_credential
+from app.services.image_access import image_grant
 
 CONFIG_KEY = "process_record_config"
 
@@ -92,6 +99,7 @@ def get_filter_options() -> ProcessRecordFilterOptions:
         bases=[
             ProcessRecordBaseOption(name=name, sources=list(values))
             for name, values in BASE_FILTER_VALUES.items()
+            if base_allowed(name)
         ],
         system1Processes=SYSTEM1_PROCESS_OPTIONS,
     )
@@ -263,6 +271,12 @@ class ProcessRecordGateway:
                 station=station,
             )
             rows = [normalize_record(source, row) for row in payload.get("rows", [])]
+            if base and any(canonical_base(row.base) != canonical_base(base) for row in rows):
+                raise ValueError("影像数据源未正确应用基地筛选，请联系管理员")
+            if current_base_permissions() is not None:
+                for row in rows:
+                    for photo in row.photos:
+                        photo.accessToken = image_grant(source, photo.path, row.base)
             return ProcessRecordSourceResult(
                 online=True,
                 total=int(payload.get("total") or len(rows)),
@@ -282,14 +296,47 @@ class ProcessRecordGateway:
     ) -> ProcessRecordRealtimeData:
         if base and base not in BASE_FILTER_VALUES:
             raise ValueError(f"不支持的基地筛选值: {base}")
+        require_base_access(base)
         selected = ["system1", "system2"] if source == "all" else [source]
         source_page = 1 if source == "all" else page
-        results = await asyncio.gather(
-            *(
-                self._query_source(key, source_page, page_size, sn, base, station)
-                for key in selected
+        if current_base_permissions() is None:
+            results = await asyncio.gather(
+                *(
+                    self._query_source(key, source_page, page_size, sn, base, station)
+                    for key in selected
+                )
             )
-        )
+        else:
+            bases = [base] if base else [name for name in BASE_FILTER_VALUES if base_allowed(name)]
+            requests = [
+                (key, name) for key in selected for name in bases if key in BASE_FILTER_VALUES[name]
+            ]
+            batches = await asyncio.gather(
+                *(
+                    self._query_source(key, 1, source_page * page_size, sn, name, station)
+                    for key, name in requests
+                )
+            )
+            results = []
+            for key in selected:
+                parts = [
+                    result
+                    for (part_key, _), result in zip(requests, batches, strict=True)
+                    if part_key == key
+                ]
+                combined = sorted(
+                    (row for part in parts for row in part.rows),
+                    key=_record_sort_key,
+                    reverse=True,
+                )
+                results.append(
+                    ProcessRecordSourceResult(
+                        online=all(part.online for part in parts),
+                        total=sum(part.total for part in parts),
+                        rows=combined[(source_page - 1) * page_size : source_page * page_size],
+                        error="；".join(part.error for part in parts if part.error) or None,
+                    )
+                )
         sources = dict(zip(selected, results, strict=True))
         rows = [item for result in results for item in result.rows]
         rows.sort(key=_record_sort_key, reverse=True)

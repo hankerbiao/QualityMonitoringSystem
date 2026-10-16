@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { requestData } from './authApi';
-import { clearRtyApiCache, rtyApi } from './rtyApi';
+import { clearRtyApiCache, rtyApi, setRtyAccessScope } from './rtyApi';
 
 vi.mock('./authApi', () => ({ requestData: vi.fn(), requestJson: vi.fn() }));
 
@@ -14,7 +14,9 @@ describe('RTY cycle cache lifetime', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(now);
+    setRtyAccessScope(null);
     clearRtyApiCache();
+    setRtyAccessScope(null);
     window.localStorage.clear();
     vi.mocked(requestData).mockReset().mockResolvedValue([]);
   });
@@ -96,5 +98,27 @@ describe('RTY cycle cache lifetime', () => {
       .toMatchObject({ cached: false, cachedAt: now + 60_000 });
     expect(requestData).toHaveBeenCalledTimes(2);
     expect(JSON.parse(window.localStorage.getItem(storageKey)!).cachedAt).toBe(now + 60_000);
+  });
+
+  it('separates stored and in-memory data by user and current base permissions', async () => {
+    setRtyAccessScope({ itcode: 'alice', basePermissions: null });
+    await rtyApi.getCycleData('normal', undefined, options);
+    setRtyAccessScope({ itcode: 'alice', basePermissions: ['1000'] });
+    expect((await rtyApi.getCycleData('normal', undefined, options)).cached).toBe(false);
+    setRtyAccessScope({ itcode: 'bob', basePermissions: ['1000'] });
+    expect((await rtyApi.getCycleData('normal', undefined, options)).cached).toBe(false);
+    expect(requestData).toHaveBeenCalledTimes(3);
+    setRtyAccessScope({ itcode: 'alice', basePermissions: ['1000'] });
+    expect((await rtyApi.getCycleData('normal', undefined, options)).cached).toBe(true);
+    expect(requestData).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not reuse legacy unscoped storage after an authenticated profile loads', async () => {
+    window.localStorage.setItem(storageKey, JSON.stringify({
+      data: [{ base: '3000' }], cachedAt: now, expiresAt: now + HOUR,
+    }));
+    setRtyAccessScope({ itcode: 'alice', basePermissions: ['1000'] });
+    expect((await rtyApi.getCycleData('normal', undefined, options)).cached).toBe(false);
+    expect(requestData).toHaveBeenCalledTimes(1);
   });
 });

@@ -24,6 +24,7 @@ from app.schemas.settings import (
 )
 from app.services.alert_mail_support import EMAIL_DEFAULT
 from app.services.credential_crypto import encrypt_credential
+from app.services.data_gateway_client import data_gateway
 
 CONFIGS = Collections.CONFIGS
 
@@ -36,6 +37,10 @@ class SettingsService:
 
     async def read_doc(self, key: str) -> dict[str, Any] | None:
         return cast(dict[str, Any] | None, await self.db[CONFIGS].find_one({"key": key}))
+
+    async def get_source_models(self) -> list[str]:
+        """All source models, including L6 and historical orders, without dashboard filters."""
+        return await data_gateway.order_models()
 
     async def save_section(self, key: str, update: Any) -> dict[str, Any] | None:
         data = update.model_dump(exclude_none=True)

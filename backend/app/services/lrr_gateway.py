@@ -11,6 +11,7 @@ from datetime import date, timedelta
 from time import perf_counter
 from typing import Any
 
+from app.base_access import base_allowed, current_base_permissions
 from app.core.logger import log_info
 from app.services.data_gateway_client import DataGatewayError, data_gateway
 from app.services.lrr_normalization import (
@@ -120,6 +121,8 @@ async def load_bom(
     planned_date_to: str | None = None,
     order_keyword: str | None = None,
 ) -> list[dict[str, Any]]:
+    if current_base_permissions() == ():
+        return []
     # Some deployed gateway versions do not apply productionOrder/salesOrder
     # filters on HANA views. Use its indexed keyword search for recall and
     # retain exact order matching below for compatibility with both versions.
@@ -264,6 +267,8 @@ async def load_bom(
             base_value, customer, model = "", "", ""
         else:
             base_value, customer, model = metadata_values
+        if not base_allowed(base_value or row.get("LGORT")):
+            continue
         if base and base.strip() not in {str(row.get("LGORT") or "").strip(), base_value}:
             continue
         if customer_ids and customer not in customer_ids:
@@ -488,7 +493,23 @@ async def load_faults(
 
 
 async def options() -> dict[str, list[str]]:
-    orders = await data_gateway.all_orders()
+    if current_base_permissions() == ():
+        return {
+            key: []
+            for key in (
+                "productionOrders",
+                "salesOrders",
+                "materialNumbers",
+                "productModels",
+                "bases",
+                "customerIds",
+            )
+        }
+    orders = [
+        item
+        for item in await data_gateway.all_orders()
+        if base_allowed(item.get("inventoryLocation") or source_data(item).get("LGORT"))
+    ]
     production = {normalize_production_order(item.get("aufnr")) for item in orders}
     sales = {normalize_sales_order(item.get("salesOrder")) for item in orders}
     bases = set()

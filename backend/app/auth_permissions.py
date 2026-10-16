@@ -2,7 +2,9 @@
 
 from typing import Annotated, Final
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
+
+from app.base_access import base_access_scope, require_base_access
 
 ALL_DASHBOARD_PERMISSIONS: Final[tuple[str, ...]] = (
     "rty",
@@ -42,13 +44,20 @@ def has_dashboard_permission(user: dict, permission: str) -> bool:
     return permission in set(user.get("dashboardPermissions") or [])
 
 
-def dashboard_dependency(permission: str):
+def dashboard_dependency(permission: str | tuple[str, ...]):
     """Build a FastAPI dependency enforcing one dashboard permission."""
     from app.api.auth import get_current_user
 
-    async def dependency(current_user: Annotated[dict, Depends(get_current_user)]) -> dict:
-        if not has_dashboard_permission(current_user, permission):
+    async def dependency(
+        request: Request, current_user: Annotated[dict, Depends(get_current_user)]
+    ):
+        permissions = (permission,) if isinstance(permission, str) else permission
+        if not any(has_dashboard_permission(current_user, value) for value in permissions):
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="无权访问该看板")
-        return current_user
+        with base_access_scope(current_user.get("basePermissions")):
+            for key in ("base", "bases"):
+                for value in request.query_params.getlist(key):
+                    require_base_access(value)
+            yield current_user
 
     return dependency

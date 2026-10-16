@@ -12,6 +12,7 @@ from app.auth_permissions import (
     normalize_dashboard_permissions,
 )
 from app.auth_service import AuthService
+from app.base_access import BASE_OPTIONS, require_scope_subset
 from app.core.config import get_settings
 from app.core.logger import get_audit_logger
 from app.db.mongodb import get_database
@@ -38,6 +39,7 @@ def _summary(doc: dict) -> UserSummary:
         isActive=profile["isActive"],
         isProtected=profile["username"] == get_settings().DEFAULT_ADMIN_USERNAME,
         dashboardPermissions=profile["dashboardPermissions"],
+        basePermissions=profile["basePermissions"],
         createdAt=doc.get("createdAt"),
         updatedAt=doc.get("updatedAt"),
     )
@@ -66,11 +68,26 @@ async def list_users(_: Annotated[dict, Depends(require_admin)]):
     return [_summary(doc) for doc in docs if not _is_deleted(doc)]
 
 
+@router.get("/admin/base-options")
+async def base_options(current_user: Annotated[dict, Depends(require_admin)]):
+    allowed = current_user.get("basePermissions")
+    options = {code: name for code, name, _ in BASE_OPTIONS}
+    for doc in await get_database().users.find({}).to_list(length=1000):
+        for code in AuthService._user_profile(doc)["basePermissions"] or []:
+            options.setdefault(code, code)
+    return [
+        {"code": code, "name": name}
+        for code, name in options.items()
+        if allowed is None or code in allowed
+    ]
+
+
 @router.post("/admin/users", response_model=UserSummary, status_code=status.HTTP_201_CREATED)
 async def create_user(
     payload: CreateUserRequest,
-    _: Annotated[dict, Depends(require_admin)],
+    current_user: Annotated[dict, Depends(require_admin)],
 ):
+    require_scope_subset(current_user, payload.basePermissions)
     db = get_database()
     username = payload.username.strip()
     if username == get_settings().DEFAULT_ADMIN_USERNAME:
@@ -89,6 +106,7 @@ async def create_user(
         "auth_type": "local",
         "isActive": True,
         "dashboardPermissions": permissions,
+        "basePermissions": payload.basePermissions,
     }
     doc = {
         "username": username,
@@ -97,6 +115,7 @@ async def create_user(
         "role": "user",
         "isActive": True,
         "dashboardPermissions": permissions,
+        "basePermissions": payload.basePermissions,
         "passwordHash": _service().hash_password(payload.password),
         "profile": profile,
         "createdAt": now,
@@ -125,6 +144,7 @@ async def create_user(
                         "role": "user",
                         "isActive": True,
                         "dashboardPermissions": permissions,
+                        "basePermissions": payload.basePermissions,
                         "passwordHash": doc["passwordHash"],
                         "profile": profile,
                         "deletedAt": None,
@@ -158,6 +178,7 @@ async def update_user(
     if _is_deleted(doc):
         raise HTTPException(status_code=404, detail="用户不存在")
     _check_protected_account(doc)
+    require_scope_subset(current_user, AuthService._user_profile(doc)["basePermissions"])
     if username == current_user["username"] and (
         payload.role == "user" or payload.isActive is False
     ):
@@ -191,6 +212,12 @@ async def update_user(
         updates["profile.dashboardPermissions"] = permissions
         result_doc["dashboardPermissions"] = permissions
         result_profile["dashboardPermissions"] = permissions
+    if "basePermissions" in payload.model_fields_set:
+        require_scope_subset(current_user, payload.basePermissions)
+        updates["basePermissions"] = payload.basePermissions
+        updates["profile.basePermissions"] = payload.basePermissions
+        result_doc["basePermissions"] = payload.basePermissions
+        result_profile["basePermissions"] = payload.basePermissions
     if payload.password is not None:
         updates["passwordHash"] = _service().hash_password(payload.password)
     if not updates:
@@ -204,6 +231,15 @@ async def update_user(
             user_id=current_user["username"],
             method="PATCH",
             details=f"role: {previous_role} -> {payload.role}",
+        )
+    if "basePermissions" in payload.model_fields_set:
+        get_audit_logger().log(
+            action="CHANGE_USER_BASE_PERMISSIONS",
+            resource=f"User:{username}",
+            user_id=current_user["username"],
+            method="PATCH",
+            details=f"basePermissions: {AuthService._user_profile(doc)['basePermissions']} -> "
+            f"{payload.basePermissions}",
         )
     if payload.isActive is False or payload.password is not None:
         await _service().revoke_user_sessions(username)
@@ -222,6 +258,7 @@ async def delete_user(
     if not doc or _is_deleted(doc):
         raise HTTPException(status_code=404, detail="用户不存在")
     _check_protected_account(doc)
+    require_scope_subset(current_user, AuthService._user_profile(doc)["basePermissions"])
     if username == current_user["username"]:
         raise HTTPException(status_code=403, detail="不能删除自己的账号")
     now = datetime.now(timezone.utc).isoformat()
@@ -243,7 +280,7 @@ async def delete_user(
 async def reset_password(
     username: str,
     payload: ResetPasswordRequest,
-    _: Annotated[dict, Depends(require_admin)],
+    current_user: Annotated[dict, Depends(require_admin)],
 ):
     db = get_database()
     doc = await db.users.find_one({"username": username})
@@ -252,6 +289,7 @@ async def reset_password(
     if _is_deleted(doc):
         raise HTTPException(status_code=404, detail="用户不存在")
     _check_protected_account(doc)
+    require_scope_subset(current_user, AuthService._user_profile(doc)["basePermissions"])
     await db.users.update_one(
         {"username": username},
         {

@@ -2,6 +2,7 @@
 系统配置相关 Pydantic 模型
 """
 
+from math import isfinite
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -37,6 +38,25 @@ class ProcessRecordConfigUpdate(BaseModel):
 
 
 # ============== 机型指标配置 ==============
+
+
+def validate_model_targets(value: dict) -> dict[str, float]:
+    targets: dict[str, float] = {}
+    for model, rate in value.items():
+        if not isinstance(model, str) or not model.strip():
+            raise ValueError("机型名称不能为空")
+        model = model.strip()
+        if model in targets:
+            raise ValueError(f"机型名称重复：{model}")
+        if (
+            isinstance(rate, bool)
+            or not isinstance(rate, int | float)
+            or not isfinite(rate)
+            or not 0 <= rate <= 100
+        ):
+            raise ValueError(f"机型 {model} 的直通率标准必须为 0–100 的数字")
+        targets[model] = float(rate)
+    return targets
 
 
 class ModelTargetBase(BaseModel):
@@ -144,6 +164,15 @@ class SettingsUpdateRequest(BaseModel):
     dashboardStatuses: dict[str, DashboardStatus] | None = None
     cycleStatsConfig: CycleStatsConfig | None = None
     stationPassRateConfig: StationPassRateConfig | None = None
+
+    @field_validator("modelTargets", mode="before")
+    @classmethod
+    def validate_targets(cls, value: dict | None) -> dict[str, float] | None:
+        if value is not None:
+            if not isinstance(value, dict):
+                raise ValueError("机型指标必须为机型与直通率的映射")
+            return validate_model_targets(value)
+        return value
 
     @field_validator("dashboardStatuses")
     @classmethod
