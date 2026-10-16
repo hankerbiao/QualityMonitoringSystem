@@ -191,7 +191,7 @@ async def test_all_orders_reuses_short_lived_cache():
     def handler(_request: httpx.Request) -> httpx.Response:
         nonlocal calls
         calls += 1
-        return httpx.Response(200, json={"items": [{"aufnr": "1"}], "total": 1})
+        return httpx.Response(200, json={"items": [{"id": "KK:1", "aufnr": "1"}], "total": 1})
 
     client = DataGatewayClient("http://gateway.test", timeout=2)
     client.cache_ttl = 10
@@ -216,13 +216,13 @@ async def test_all_orders_coalesces_concurrent_loads():
     async def request_json(*_args, **_kwargs):
         nonlocal calls
         calls += 1
-        return {"items": [{"aufnr": "1"}], "total": 1}
+        return {"items": [{"id": "KK:1", "aufnr": "1"}], "total": 1}
 
     client = DataGatewayClient("http://gateway.test", timeout=2)
     client.request_json = request_json  # type: ignore[method-assign]
     first, second = await asyncio.gather(client.all_orders(), client.all_orders())
     assert calls == 1
-    assert first == second == [{"aufnr": "1"}]
+    assert first == second == [{"id": "KK:1", "aufnr": "1"}]
 
 
 @pytest.mark.asyncio
@@ -235,14 +235,14 @@ async def test_all_orders_reads_beyond_the_bulk_endpoint_cap():
         requests.append((method, path, params))
         first = (params["page"] - 1) * 100
         return {
-            "items": [{"id": index} for index in range(first, min(first + 100, 10_001))],
+            "items": [{"id": f"KK:{index}"} for index in range(first, min(first + 100, 10_001))],
             "total": 10_001,
         }
 
     client.request_json = request_json
     result = await client.all_orders(dateFrom="2026-01-01")
     assert len(result) == 10_001
-    assert result[-1] == {"id": 10_000}
+    assert result[-1] == {"id": "KK:10000"}
     assert len(requests) == 101
     assert all(path == "/api/orders" for _, path, _ in requests)
     assert all(params["dateFrom"] == "2026-01-01" for _, _, params in requests)
@@ -251,18 +251,65 @@ async def test_all_orders_reads_beyond_the_bulk_endpoint_cap():
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("duplicate_index", [0, 99])
+async def test_all_orders_rejects_duplicate_ids_across_pages_without_caching(duplicate_index):
+    client = DataGatewayClient("http://gateway.test")
+    client.cache_ttl = 10
+    first_page = [{"id": f"KK:{index}"} for index in range(100)]
+    client.request_json = AsyncMock(
+        side_effect=[
+            {"items": list(first_page), "total": 101},
+            {"items": [{"id": f"KK:{duplicate_index}"}], "total": 101},
+            {"items": list(first_page), "total": 101},
+            {"items": [{"id": "KK:100"}], "total": 101},
+        ]
+    )
+
+    with pytest.raises(DataGatewayError) as error:
+        await client.all_orders()
+    assert error.value.code == "DATA_GATEWAY_BAD_RESPONSE"
+    assert error.value.retryable is True
+    assert await client.all_orders() == [*first_page, {"id": "KK:100"}]
+    assert client.request_json.await_count == 4
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "items",
+    [
+        [{"id": "KK:1"}, {"id": "KK:1"}],
+        [{"id": "KK:1"}, {"aufnr": "2"}],
+        [{"id": ""}],
+        [{"id": None}],
+        [{"id": []}],
+        [{"id": 1}],
+    ],
+)
+async def test_all_orders_rejects_duplicate_or_invalid_ids_within_a_page(items):
+    client = DataGatewayClient("http://gateway.test")
+    client.request_json = AsyncMock(return_value={"items": items, "total": len(items)})
+
+    with pytest.raises(DataGatewayError) as error:
+        await client.all_orders()
+    assert error.value.code == "DATA_GATEWAY_BAD_RESPONSE"
+    assert error.value.retryable is True
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("concurrent", [False, True])
 async def test_order_row_limits_are_enforced_for_cached_and_concurrent_reads(concurrent):
     client = DataGatewayClient("http://gateway.test")
     client.cache_ttl = 10
-    client.request_json = AsyncMock(return_value={"items": [{"id": 1}, {"id": 2}], "total": 2})
+    client.request_json = AsyncMock(
+        return_value={"items": [{"id": "KK:1"}, {"id": "KK:2"}], "total": 2}
+    )
     if concurrent:
         large, small = await asyncio.gather(
             client.all_orders(max_rows=2),
             client.all_orders(max_rows=1),
             return_exceptions=True,
         )
-        assert large == [{"id": 1}, {"id": 2}]
+        assert large == [{"id": "KK:1"}, {"id": "KK:2"}]
         assert isinstance(small, DataGatewayError)
         assert small.code == "QUERY_TOO_LARGE"
     else:

@@ -488,7 +488,17 @@ class DataGatewayClient:
         cache_key = tuple(sorted((str(key), str(value)) for key, value in filters.items() if value))
 
         async def load() -> list[dict[str, Any]]:
-            return await self.all_pages("GET", "/api/orders", filters=filters, max_rows=max_rows)
+            rows = await self.all_pages("GET", "/api/orders", filters=filters, max_rows=max_rows)
+            ids = [row.get("id") for row in rows]
+            if any(not isinstance(value, str) or not value for value in ids) or len(
+                set(ids)
+            ) != len(rows):
+                raise DataGatewayError(
+                    "生产数据源订单分页存在重复或缺失标识，请重新查询",
+                    code="DATA_GATEWAY_BAD_RESPONSE",
+                    retryable=True,
+                )
+            return rows
 
         return await self._cached_list(
             self._orders_cache, ("orders", max_rows, cache_key), load, max_rows
