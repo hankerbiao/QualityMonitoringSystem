@@ -43,6 +43,37 @@ describe('cycle query and export', () => {
   });
   afterEach(cleanup);
 
+  it.each([
+    { name: 'configured target', target: 92, sourceTarget: 100, input: 360, defects: 8, rate: '97.78%', color: 'text-green-700' },
+    { name: 'exact target', target: 92, sourceTarget: 100, input: 400, defects: 32, rate: '92.00%', color: 'text-green-700' },
+    { name: 'below target', target: 92, sourceTarget: 85, input: 400, defects: 33, rate: '91.75%', color: 'text-red-600' },
+    { name: 'server target', target: undefined, sourceTarget: 92, input: 360, defects: 8, rate: '97.78%', color: 'text-green-700' },
+    { name: 'zero target', target: 0, sourceTarget: 100, input: 360, defects: 360, rate: '0.00%', color: 'text-green-700' },
+    { name: 'no production', target: 92, sourceTarget: 92, input: 0, defects: 0, rate: '-', color: 'text-slate-400' },
+  ])('colors production totals using the $name', async ({ target, sourceTarget, input, defects, rate, color }) => {
+    vi.mocked(rtyApi.getCycleData).mockResolvedValue({
+      ...result,
+      data: [{ ...row, productModel: '3210 C3', inputCount: input, defectCount: defects, targetRate: sourceTarget }],
+    });
+    render(<AlertConfigModal embedded modelTargets={target === undefined ? {} : { '3210 C3': target }} />);
+    const modelRow = await screen.findByRole('row', { name: /3210 C3/ });
+    const total = within(modelRow).getAllByRole('cell').at(-1)!;
+    expect(within(total).getByText(rate)).toBeTruthy();
+    expect(total.className).toContain(color);
+  });
+
+  it('updates total colors when model targets change without reloading cycle data', async () => {
+    vi.mocked(rtyApi.getCycleData).mockResolvedValue({
+      ...result,
+      data: [{ ...row, productModel: '3210 C3', inputCount: 360, defectCount: 8 }],
+    });
+    const view = render(<AlertConfigModal embedded modelTargets={{ '3210 C3': 92 }} />);
+    const modelRow = await screen.findByRole('row', { name: /3210 C3/ });
+    expect(within(modelRow).getAllByRole('cell').at(-1)!.className).toContain('text-green-700');
+    view.rerender(<AlertConfigModal embedded modelTargets={{ '3210 C3': 99 }} />);
+    expect(within(modelRow).getAllByRole('cell').at(-1)!.className).toContain('text-red-600');
+  });
+
   it.each(['normal', 'l6'] as const)(
     'applies model and base filters to both summaries and the %s overview',
     async orderScope => {

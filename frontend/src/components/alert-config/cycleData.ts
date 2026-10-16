@@ -19,12 +19,16 @@ export type CycleHeatmapCell = {
 
 export type CycleTableRow = {
   model: string;
+  targetRate: number;
   cells: Record<string, CycleHeatmapCell>;
   inputCount: number;
   defectCount: number;
 };
 
 export function buildCycleVisualData(data: RTYData[], modelTargets: Record<string, number>) {
+  const targetRates = new Map(data.map(item => [
+    item.productModel, modelTargets[item.productModel] ?? item.targetRate ?? 100,
+  ]));
   const byMonth = new Map<string, Map<string, CycleMetric & { targetRate: number }>>();
   for (const item of data) {
     const month = item.time.substring(0, 7);
@@ -32,7 +36,7 @@ export function buildCycleVisualData(data: RTYData[], modelTargets: Record<strin
     const current = models.get(item.productModel) ?? {
       inputCount: 0,
       defectCount: 0,
-      targetRate: modelTargets[item.productModel] ?? item.targetRate ?? 100,
+      targetRate: targetRates.get(item.productModel)!,
     };
     current.inputCount += item.inputCount;
     current.defectCount += item.defectCount;
@@ -41,7 +45,7 @@ export function buildCycleVisualData(data: RTYData[], modelTargets: Record<strin
   }
 
   const months = [...byMonth.keys()].sort();
-  const models = [...new Set(data.map((item) => item.productModel).filter(Boolean))].sort();
+  const models = [...targetRates.keys()].filter(Boolean).sort();
   const monthlyData = months.flatMap(month =>
     [...byMonth.get(month)!.entries()]
       .sort(([left], [right]) => left.localeCompare(right))
@@ -84,7 +88,7 @@ export function buildCycleVisualData(data: RTYData[], modelTargets: Record<strin
         defectCount: value.defectCount,
       }];
     }));
-    return { model, cells, inputCount, defectCount };
+    return { model, targetRate: targetRates.get(model)!, cells, inputCount, defectCount };
   });
 
   return { monthlyData, trendData, trendModels: models, tableData, allMonths: months };

@@ -973,7 +973,7 @@ export default function AlertConfigModal({
                                 </td>
                               );
                             })}
-                            <td className={`px-2 py-2 border-r border-slate-100 text-center text-[10px] font-semibold bg-slate-100 ${totalRty === null ? 'text-slate-400' : totalRty >= 99.5 ? 'text-green-700' : 'text-red-600'}`}>
+                            <td className={`px-2 py-2 border-r border-slate-100 text-center text-[10px] font-semibold bg-slate-100 ${totalRty === null ? 'text-slate-400' : totalRty >= row.targetRate ? 'text-green-700' : 'text-red-600'}`}>
                               {totalRty === null ? '-' : (
                                 <div className="leading-tight">
                                   <div>{totalRty.toFixed(2)}%</div>
