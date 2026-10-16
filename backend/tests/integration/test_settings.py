@@ -317,7 +317,7 @@ class TestOrdinaryUserSettings:
         assert response.status_code == 200
         assert response.json()["data"] == ["M"]
 
-    async def test_reads_only_model_and_email_settings(self, client, ordinary_user_headers):
+    async def test_reads_quality_and_shared_station_settings(self, client, ordinary_user_headers):
         await client.put(
             "/api/settings",
             json={
@@ -325,12 +325,17 @@ class TestOrdinaryUserSettings:
                 "modelTargets": {"X1": 98.5},
                 "emailAlert": {"emails": "quality@company.com"},
                 "cycleStatsConfig": {"selectedModels": ["private-model"]},
+                "stationPassRateConfig": {"selectedStations": ["OP10"]},
             },
         )
         response = await client.get("/api/settings", headers=ordinary_user_headers)
         assert response.status_code == 200
         data = response.json()["data"]
-        assert set(data) == {"modelTargets", "emailAlert"}
+        assert set(data) == {"modelTargets", "emailAlert", "stationPassRateConfig"}
+        assert data["stationPassRateConfig"] == {
+            "selectedStations": ["OP10"],
+            "configured": True,
+        }
         assert data["modelTargets"] == {"X1": 98.5}
         assert data["emailAlert"]["emails"] == "quality@company.com"
         assert "private-source" not in response.text
@@ -361,7 +366,7 @@ class TestOrdinaryUserSettings:
         )
         assert response.status_code == 200
         data = response.json()["data"]
-        assert set(data) == {"modelTargets", "emailAlert"}
+        assert set(data) == {"modelTargets", "emailAlert", "stationPassRateConfig"}
         assert data["modelTargets"] == {"X1": 99}
         assert data["emailAlert"]["weeklyProductionThreshold"] == 100
         assert data["emailAlert"]["enabled"] is False

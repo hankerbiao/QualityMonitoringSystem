@@ -40,7 +40,7 @@ export interface SettingsResponse {
 
 export type AccessibleSettingsResponse =
   | SettingsResponse
-  | Pick<SettingsResponse, 'modelTargets' | 'emailAlert'>;
+  | Pick<SettingsResponse, 'modelTargets' | 'emailAlert' | 'stationPassRateConfig'>;
 
 export interface SettingsContextType {
   settings: SettingsResponse;

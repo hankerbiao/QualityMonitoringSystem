@@ -136,10 +136,11 @@ class StationPassRateConfig(BaseModel):
 
 
 class QualitySettingsResponse(BaseModel):
-    """所有已登录用户可管理的质量指标与邮件预警配置。"""
+    """所有已登录用户可读取的质量配置；工站配置仅管理员可写。"""
 
     modelTargets: dict[str, float] = Field(default_factory=dict)
     emailAlert: EmailAlertConfig
+    stationPassRateConfig: StationPassRateConfig = Field(default_factory=StationPassRateConfig)
 
 
 class SettingsResponse(QualitySettingsResponse):
@@ -150,7 +151,6 @@ class SettingsResponse(QualitySettingsResponse):
         default_factory=default_dashboard_statuses
     )
     cycleStatsConfig: CycleStatsConfig = Field(default_factory=CycleStatsConfig)
-    stationPassRateConfig: StationPassRateConfig = Field(default_factory=StationPassRateConfig)
 
 
 class SettingsUpdateRequest(BaseModel):

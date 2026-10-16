@@ -1,10 +1,13 @@
 import asyncio
+import json
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 from fastapi import HTTPException
 
+from app.base_access import base_access_scope
+from app.schemas.rty import RTYTemplateExport, StationPassExport
 from app.services import rty_export
 from app.services.data_gateway_client import DataGatewayClient, DataGatewayError
 
@@ -63,7 +66,7 @@ def source(monkeypatch, orders, faults=(), bindings=()):
     loader = AsyncMock(side_effect=all_pages)
     monkeypatch.setattr(rty_export.data_gateway, "all_pages", loader)
 
-    async def all_orders(*, max_rows, **filters):
+    async def all_orders(*, max_rows, source_version=None, **filters):
         return await loader("GET", "/api/orders", filters=filters, max_rows=max_rows)
 
     monkeypatch.setattr(rty_export.data_gateway, "all_orders", AsyncMock(side_effect=all_orders))
@@ -643,6 +646,145 @@ async def test_export_bypasses_cache_when_source_version_is_unavailable(monkeypa
     await rty_export.build_source_export(FILTERS)
     await rty_export.build_source_export(FILTERS)
     assert load.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_export_rejects_changed_source_version_and_does_not_cache_it(monkeypatch):
+    version = {"orders": "v1", "faults": "v1", "bindings": "v1"}
+    monkeypatch.setattr(
+        rty_export.data_gateway, "export_version", AsyncMock(side_effect=lambda: dict(version))
+    )
+
+    async def load(*_args, **kwargs):
+        assert kwargs["order_version"] == version["orders"]
+        version["orders"] = "v2"
+        return [], []
+
+    loader = AsyncMock(side_effect=load)
+    monkeypatch.setattr(rty_export, "_load_sources_uncached", loader)
+    with pytest.raises(DataGatewayError, match="版本"):
+        await rty_export._load_sources(FILTERS)
+    await rty_export._load_sources(FILTERS)
+    assert loader.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_new_export_generation_does_not_reuse_unversioned_order_list(monkeypatch):
+    orders = [order("1"), order("2")]
+    source(monkeypatch, orders)
+    client = DataGatewayClient("http://gateway.test")
+    client.all_pages = AsyncMock(side_effect=[orders[:1], orders])
+    assert (
+        len(
+            await client.all_orders(
+                max_rows=100_000, dateFrom=FILTERS["dateFrom"], dateTo=FILTERS["dateTo"]
+            )
+        )
+        == 1
+    )
+    monkeypatch.setattr(rty_export.data_gateway, "all_orders", client.all_orders)
+    monkeypatch.setattr(
+        rty_export.data_gateway,
+        "export_version",
+        AsyncMock(return_value={"orders": "v2", "faults": "v2", "bindings": "v2"}),
+    )
+    assert len((await rty_export.build_source_export(FILTERS)).orders) == 2
+    assert len((await rty_export.build_source_export(FILTERS)).orders) == 2
+    assert client.all_pages.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_final_export_cache_reuses_json_and_isolates_versions_permissions_and_filters(
+    monkeypatch,
+):
+    version = {"orders": "1", "faults": "1", "bindings": "1"}
+    bom = ["bom1"]
+    monkeypatch.setattr(
+        rty_export.data_gateway, "export_version", AsyncMock(side_effect=lambda: dict(version))
+    )
+    monkeypatch.setattr(
+        rty_export.repair_integration, "_bom_version", AsyncMock(side_effect=lambda: bom[0])
+    )
+    source_builder = AsyncMock(return_value=StationPassExport(orders=[{"AUFNR": "1"}]))
+    template_builder = AsyncMock(return_value=RTYTemplateExport())
+    monkeypatch.setattr(rty_export, "build_source_export", source_builder)
+    monkeypatch.setattr(rty_export, "build_template_export", template_builder)
+    first, second = await asyncio.gather(
+        rty_export.build_export_response("source", FILTERS, product_models=["B", "A"]),
+        rty_export.build_export_response("source", FILTERS, product_models=["A", "B", "A"]),
+    )
+    assert first is second
+    assert json.loads(first)["data"]["orders"] == [{"AUFNR": "1"}]
+    assert source_builder.await_count == 1
+    version["faults"] = "2"
+    await rty_export.build_export_response("source", FILTERS, product_models=["A", "B"])
+    bom[0] = "bom2"
+    await rty_export.build_export_response("source", FILTERS, product_models=["A", "B"])
+    with base_access_scope(["1000"]):
+        await rty_export.build_export_response("source", FILTERS, product_models=["A", "B"])
+    await rty_export.build_export_response("source", {**FILTERS, "customer": "C"})
+    await rty_export.build_export_response("source", FILTERS, bases=["3000"])
+    await rty_export.build_export_response("template", FILTERS)
+    assert source_builder.await_count == 6
+    assert template_builder.await_count == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("changed", ["orders", "bom", "offline", "failure"])
+async def test_final_export_cache_never_publishes_failed_or_mixed_snapshots(monkeypatch, changed):
+    version = {"orders": "1", "faults": "1", "bindings": "1"}
+    bom = ["bom1"]
+    monkeypatch.setattr(
+        rty_export.data_gateway, "export_version", AsyncMock(side_effect=lambda: dict(version))
+    )
+    monkeypatch.setattr(
+        rty_export.repair_integration, "_bom_version", AsyncMock(side_effect=lambda: bom[0])
+    )
+
+    async def build(*_args, **_kwargs):
+        if changed == "failure":
+            raise DataGatewayError("offline")
+        if changed == "orders":
+            version["orders"] = "2"
+        else:
+            bom[0] = "bom2" if changed == "bom" else ""
+        return StationPassExport()
+
+    builder = AsyncMock(side_effect=build)
+    monkeypatch.setattr(rty_export, "build_source_export", builder)
+    with pytest.raises(DataGatewayError):
+        await rty_export.build_export_response("source", FILTERS)
+    builder.side_effect = None
+    builder.return_value = StationPassExport()
+    await rty_export.build_export_response("source", FILTERS)
+    assert builder.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_final_export_cache_bypasses_unversioned_bom(monkeypatch):
+    monkeypatch.setattr(
+        rty_export.data_gateway,
+        "export_version",
+        AsyncMock(return_value={"orders": "1", "faults": "1", "bindings": "1"}),
+    )
+    monkeypatch.setattr(rty_export.repair_integration, "_bom_version", AsyncMock(return_value=""))
+    builder = AsyncMock(return_value=StationPassExport())
+    monkeypatch.setattr(rty_export, "build_source_export", builder)
+    await rty_export.build_export_response("source", FILTERS)
+    await rty_export.build_export_response("source", FILTERS)
+    assert builder.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_integrated_template_skips_legacy_top_but_keeps_machine_counts(monkeypatch):
+    source(monkeypatch, [order()], [fault()])
+    monkeypatch.setattr(
+        rty_export.repair_integration, "build_model_sheets", AsyncMock(return_value=[])
+    )
+    result = await rty_export.build_template_export(FILTERS, integrate=True)
+    assert result.topProblems == []
+    assert result.summary[0]["defectCount"] == 1
+    assert len(result.faults) == 1
 
 
 @pytest.mark.asyncio

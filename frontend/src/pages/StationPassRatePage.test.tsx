@@ -6,6 +6,14 @@ import * as XLSX from 'xlsx';
 import { rtyApi } from '../api/rtyApi';
 import StationPassRatePage from './StationPassRatePage';
 
+const context = vi.hoisted(() => ({
+  role: 'user',
+  stationConfig: { selectedStations: [] as string[], configured: false },
+  updateSettings: vi.fn(),
+}));
+vi.mock('../context/AuthContext', () => ({
+  useAuth: () => ({ user: { role: context.role } }),
+}));
 vi.mock('../api/rtyApi', () => ({
   rtyApi: {
     getFilterOptions: vi.fn(),
@@ -20,8 +28,8 @@ vi.mock('xlsx', async (importOriginal) => ({
 }));
 vi.mock('../context/SettingsContext', () => ({
   useSettings: () => ({
-    settings: { stationPassRateConfig: { selectedStations: [], configured: false } },
-    updateSettings: vi.fn(),
+    settings: { stationPassRateConfig: context.stationConfig },
+    updateSettings: context.updateSettings,
   }),
 }));
 vi.mock('../components/shared/DashboardSwitcher', () => ({ DashboardSwitcher: () => null }));
@@ -34,6 +42,8 @@ vi.mock('../components/station/StationPassWorkspace', () => ({
 describe('StationPassRatePage customer filter', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    context.role = 'user';
+    context.stationConfig = { selectedStations: [], configured: false };
     vi.mocked(rtyApi.getFilterOptions).mockResolvedValue({
       productModels: [],
       bases: [],
@@ -44,6 +54,39 @@ describe('StationPassRatePage customer filter', () => {
     vi.mocked(rtyApi.getStationPassExport).mockResolvedValue({ orders: [], faults: [] });
   });
   afterEach(cleanup);
+
+  it('uses shared station selection for ordinary users and hides editing', async () => {
+    context.stationConfig = { selectedStations: ['OP10'], configured: true };
+    vi.mocked(rtyApi.getStationPassRates).mockResolvedValue([
+      { dimensionValue: 'M', stationCode: 'OP10', stationName: '装配',
+        inputCount: 10, defectCount: 1, passRate: 90, totalInputCount: 20, totalDefectCount: 1 },
+      { dimensionValue: 'M', stationCode: 'OP20', stationName: '测试',
+        inputCount: 10, defectCount: 0, passRate: 100, totalInputCount: 20, totalDefectCount: 1 },
+    ]);
+    render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+    expect(await screen.findByText('已选 1 / 2 个工站')).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '配置工站' })).toBeNull();
+    expect(context.updateSettings).not.toHaveBeenCalled();
+  });
+
+  it('allows administrators to persist station selection', async () => {
+    context.role = 'admin';
+    vi.mocked(rtyApi.getStationPassRates).mockResolvedValue([{
+      dimensionValue: 'M', stationCode: 'OP10', stationName: '装配',
+      inputCount: 10, defectCount: 1, passRate: 90, totalInputCount: 10, totalDefectCount: 1,
+    }]);
+    context.updateSettings.mockResolvedValue(undefined);
+    render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+    fireEvent.click(await screen.findByRole('button', { name: '配置工站' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'OP10' }));
+    fireEvent.click(screen.getByRole('button', { name: '完成' }));
+    await waitFor(() => expect(context.updateSettings).toHaveBeenCalledWith({
+      stationPassRateConfig: { selectedStations: [] },
+    }));
+    await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+  });
 
   it('passes the selected customer to the station query', async () => {
     render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);

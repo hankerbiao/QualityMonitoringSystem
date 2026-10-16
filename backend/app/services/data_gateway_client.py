@@ -154,7 +154,12 @@ class DataGatewayClient:
             )
         if task is not None and self.cache_ttl > 0:
             async with self._orders_cache_lock:
-                cache[cache_key] = (time.monotonic() + self.cache_ttl, items)
+                now = time.monotonic()
+                for expired in [key for key, (expires, _) in cache.items() if expires <= now]:
+                    cache.pop(expired, None)
+                cache[cache_key] = (now + self.cache_ttl, items)
+                while len(cache) > 64:
+                    cache.pop(next(iter(cache)))
         return copy.deepcopy(items)
 
     async def request_json(
@@ -494,7 +499,7 @@ class DataGatewayClient:
         )
 
     async def all_orders(
-        self, *, max_rows: int = 1_000_000, **filters: str
+        self, *, max_rows: int = 1_000_000, source_version: str | None = None, **filters: str
     ) -> list[dict[str, Any]]:
         # Several dashboards request the same order universe during one page
         # load. Reuse it briefly to avoid repeating a large Mongo query while
@@ -515,7 +520,7 @@ class DataGatewayClient:
             return rows
 
         return await self._cached_list(
-            self._orders_cache, ("orders", max_rows, cache_key), load, max_rows
+            self._orders_cache, ("orders", source_version, max_rows, cache_key), load, max_rows
         )
 
     async def fault_lookup(

@@ -8,6 +8,18 @@ from app.services.async_ttl_cache import AsyncTTLCache
 
 
 @pytest.mark.asyncio
+async def test_immutable_cache_reuses_values_without_copying():
+    cache = AsyncTTLCache(max_entries=2, copy_values=False)
+    value = frozenset({"1", "2"})
+
+    async def load():
+        return value
+
+    assert await cache.get_or_set("orders", load, ttl_seconds=60) is value
+    assert await cache.get_or_set("orders", load, ttl_seconds=60) is value
+
+
+@pytest.mark.asyncio
 async def test_cache_expiry_does_not_extend_on_access_and_results_are_isolated(monkeypatch):
     clock = [100.0]
     monkeypatch.setattr(async_ttl_cache, "time", SimpleNamespace(monotonic=lambda: clock[0]))

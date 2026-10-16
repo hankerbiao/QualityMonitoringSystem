@@ -8,6 +8,17 @@ from app.services.data_gateway_client import DataGatewayClient, DataGatewayError
 
 
 @pytest.mark.asyncio
+async def test_order_cache_isolates_sync_versions_without_forwarding_them():
+    client = DataGatewayClient("http://gateway.test")
+    client.all_pages = AsyncMock(side_effect=[[{"id": "old"}], [{"id": "new"}]])
+    assert await client.all_orders(source_version="v1", base="1000") == [{"id": "old"}]
+    assert await client.all_orders(source_version="v2", base="1000") == [{"id": "new"}]
+    assert await client.all_orders(source_version="v2", base="1000") == [{"id": "new"}]
+    assert client.all_pages.await_count == 2
+    assert client.all_pages.await_args.kwargs["filters"] == {"base": "1000"}
+
+
+@pytest.mark.asyncio
 async def test_export_rows_splits_oversized_batches_and_retains_every_repair():
     def handler(request):
         import json

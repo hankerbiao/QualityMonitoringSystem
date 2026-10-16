@@ -24,6 +24,7 @@ from app.schemas.process_records import (
     ProcessRecordSourceResult,
     SourceConnectionResult,
 )
+from app.services.async_ttl_cache import AsyncTTLCache
 from app.services.credential_crypto import decrypt_credential
 from app.services.image_access import image_grant
 
@@ -205,10 +206,12 @@ class ProcessRecordGateway:
         self._clients: dict[str, PhotoSourceClient] = {}
         self._credentials: tuple[str, str] | None = None
         self._config_lock = asyncio.Lock()
+        self._page_cache = AsyncTTLCache(max_entries=512)
 
     async def close(self) -> None:
         clients, self._clients = self._clients, {}
         self._credentials = None
+        self._page_cache = AsyncTTLCache(max_entries=512)
         await asyncio.gather(
             *(client.close() for client in clients.values()), return_exceptions=True
         )
@@ -218,6 +221,7 @@ class ProcessRecordGateway:
         async with self._config_lock:
             clients, self._clients = self._clients, {}
             self._credentials = None
+            self._page_cache = AsyncTTLCache(max_entries=512)
             await asyncio.gather(
                 *(client.close() for client in clients.values()), return_exceptions=True
             )
@@ -242,6 +246,7 @@ class ProcessRecordGateway:
                 for key, definition in SOURCE_DEFINITIONS.items()
             }
             self._credentials = credentials
+            self._page_cache = AsyncTTLCache(max_entries=512)
             if old_clients:
                 await asyncio.gather(
                     *(client.close() for client in old_clients.values()),
@@ -263,27 +268,63 @@ class ProcessRecordGateway:
             return ProcessRecordSourceResult(online=True)
         try:
             clients = await self._ensure_clients()
-            payload = await clients[source].fetch_page(
-                page,
-                page_size,
-                sn=sn,
-                base=source_base,
-                station=station,
+            client = clients[source]
+
+            async def load() -> ProcessRecordSourceResult:
+                payload = await client.fetch_page(
+                    page, page_size, sn=sn, base=source_base, station=station
+                )
+                rows = [normalize_record(source, row) for row in payload.get("rows", [])]
+                if base and any(canonical_base(row.base) != canonical_base(base) for row in rows):
+                    raise ValueError("影像数据源未正确应用基地筛选，请联系管理员")
+                return ProcessRecordSourceResult(
+                    online=True, total=int(payload.get("total") or len(rows)), rows=rows
+                )
+
+            result = await self._page_cache.get_or_set(
+                (client, source, page, page_size, sn, source_base, station),
+                load,
+                ttl_seconds=10,
             )
-            rows = [normalize_record(source, row) for row in payload.get("rows", [])]
-            if base and any(canonical_base(row.base) != canonical_base(base) for row in rows):
-                raise ValueError("影像数据源未正确应用基地筛选，请联系管理员")
             if current_base_permissions() is not None:
-                for row in rows:
+                for row in result.rows:
                     for photo in row.photos:
                         photo.accessToken = image_grant(source, photo.path, row.base)
-            return ProcessRecordSourceResult(
-                online=True,
-                total=int(payload.get("total") or len(rows)),
-                rows=rows,
-            )
+            return result
         except Exception as exc:
             return ProcessRecordSourceResult(online=False, error=str(exc))
+
+    async def _query_permitted_source(
+        self, source: str, page: int, page_size: int, sn: str, bases: list[str], station: str
+    ) -> ProcessRecordSourceResult:
+        bases = [base for base in bases if source in BASE_FILTER_VALUES[base]]
+        if not bases:
+            return ProcessRecordSourceResult(online=True)
+        if len(bases) == 1:
+            return await self._query_source(source, page, page_size, sn, bases[0], station)
+
+        async def prefix(base: str) -> ProcessRecordSourceResult:
+            first = await self._query_source(source, 1, page_size, sn, base, station)
+            if not first.online:
+                return first
+            rows = list(first.rows)
+            for number in range(2, min(page, (first.total + page_size - 1) // page_size) + 1):
+                part = await self._query_source(source, number, page_size, sn, base, station)
+                if not part.online:
+                    return part
+                rows.extend(part.rows)
+            return ProcessRecordSourceResult(online=True, total=first.total, rows=rows)
+
+        parts = await asyncio.gather(*(prefix(base) for base in bases))
+        combined = sorted(
+            (row for part in parts for row in part.rows), key=_record_sort_key, reverse=True
+        )
+        return ProcessRecordSourceResult(
+            online=all(part.online for part in parts),
+            total=sum(part.total for part in parts),
+            rows=combined[(page - 1) * page_size : page * page_size],
+            error="；".join(part.error for part in parts if part.error) or None,
+        )
 
     async def query(
         self,
@@ -308,35 +349,12 @@ class ProcessRecordGateway:
             )
         else:
             bases = [base] if base else [name for name in BASE_FILTER_VALUES if base_allowed(name)]
-            requests = [
-                (key, name) for key in selected for name in bases if key in BASE_FILTER_VALUES[name]
-            ]
-            batches = await asyncio.gather(
+            results = await asyncio.gather(
                 *(
-                    self._query_source(key, 1, source_page * page_size, sn, name, station)
-                    for key, name in requests
+                    self._query_permitted_source(key, source_page, page_size, sn, bases, station)
+                    for key in selected
                 )
             )
-            results = []
-            for key in selected:
-                parts = [
-                    result
-                    for (part_key, _), result in zip(requests, batches, strict=True)
-                    if part_key == key
-                ]
-                combined = sorted(
-                    (row for part in parts for row in part.rows),
-                    key=_record_sort_key,
-                    reverse=True,
-                )
-                results.append(
-                    ProcessRecordSourceResult(
-                        online=all(part.online for part in parts),
-                        total=sum(part.total for part in parts),
-                        rows=combined[(source_page - 1) * page_size : source_page * page_size],
-                        error="；".join(part.error for part in parts if part.error) or None,
-                    )
-                )
         sources = dict(zip(selected, results, strict=True))
         rows = [item for result in results for item in result.rows]
         rows.sort(key=_record_sort_key, reverse=True)

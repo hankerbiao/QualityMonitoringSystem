@@ -3,6 +3,7 @@
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
+from fastapi.responses import Response as HTTPResponse
 
 from app.auth_permissions import dashboard_dependency
 from app.core.logger import audit_log
@@ -184,7 +185,8 @@ async def get_station_pass_export(
     overseas: bool = False,
 ):
     del request
-    data = await rty_export.build_source_export(
+    data = await rty_export.build_export_response(
+        "source",
         _order_filters(
             serial_number=serialNumber,
             base=base,
@@ -195,9 +197,10 @@ async def get_station_pass_export(
             order_scope=orderScope,
             overseas="true" if overseas else "",
         ),
-        integrate=True,
     )
-    return Response(success=True, data=data)
+    return HTTPResponse(
+        data, media_type="application/json", headers={"Cache-Control": "private, no-store"}
+    )
 
 
 @router.get(
@@ -216,7 +219,8 @@ async def get_cycle_export(
     bases: Annotated[list[str] | None, Query()] = None,
 ):
     del request
-    data = await rty_export.build_source_export(
+    data = await rty_export.build_export_response(
+        "source",
         _order_filters(
             date_from=dateFrom,
             date_to=dateTo,
@@ -225,9 +229,10 @@ async def get_cycle_export(
         ),
         product_models=productModels,
         bases=bases,
-        integrate=True,
     )
-    return Response(success=True, data=data)
+    return HTTPResponse(
+        data, media_type="application/json", headers={"Cache-Control": "private, no-store"}
+    )
 
 
 @router.get(
@@ -252,7 +257,8 @@ async def get_rty_template_export(
     bases: Annotated[list[str] | None, Query()] = None,
 ):
     del request
-    data = await rty_export.build_template_export(
+    data = await rty_export.build_export_response(
+        "template",
         _order_filters(
             sales_order=salesOrder,
             production_order=productionOrder,
@@ -267,9 +273,10 @@ async def get_rty_template_export(
         ),
         product_models=productModels,
         bases=bases,
-        integrate=True,
     )
-    return Response(success=True, data=data)
+    return HTTPResponse(
+        data, media_type="application/json", headers={"Cache-Control": "private, no-store"}
+    )
 
 
 @router.get(

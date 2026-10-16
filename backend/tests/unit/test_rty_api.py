@@ -122,7 +122,8 @@ async def test_template_export_forwards_complete_filters_and_is_protected(monkey
         orderScope="l6",
     )
 
-    assert response.success
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "private, no-store"
     export.assert_awaited_once_with(
         {
             "salesOrder": "SO-1",
@@ -207,7 +208,7 @@ async def test_station_export_forwards_overseas_filter(monkeypatch):
         overseas=True,
     )
 
-    assert response.success
+    assert response.status_code == 200
     assert export.await_args.args[0]["overseas"] == "true"
 
 
@@ -265,6 +266,8 @@ async def test_station_export_uses_station_permission_and_applied_filters(
                 "orderScope": "l6",
                 "calculationMethod": "",
             },
+            product_models=None,
+            bases=None,
             integrate=True,
         )
     else:

@@ -12,6 +12,7 @@ vi.mock('./AuthContext', () => ({ useAuth: vi.fn() }));
 
 const sharedSettings = {
   modelTargets: { X1: 98.5 },
+  stationPassRateConfig: { selectedStations: ['OP10'], configured: true },
   emailAlert: {
     enabled: false, emails: 'quality@company.com', triggerCondition: 'existing-rule',
     weeklyProductionThreshold: 100,
@@ -39,6 +40,7 @@ describe('shared settings context', () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
     expect(result.current.settings.modelTargets).toEqual({ X1: 98.5 });
     expect(result.current.settings.emailAlert).toEqual(sharedSettings.emailAlert);
+    expect(result.current.settings.stationPassRateConfig).toEqual(sharedSettings.stationPassRateConfig);
     expect(result.current.settings.dashboardStatuses).toEqual({ doa: 'available' });
     expect(result.current.settings.processRecords.username).toBe('');
   });

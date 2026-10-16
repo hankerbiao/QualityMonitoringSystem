@@ -122,7 +122,11 @@ async def update_all_settings(
         success=True,
         data=data
         if is_admin
-        else QualitySettingsResponse(modelTargets=data.modelTargets, emailAlert=data.emailAlert),
+        else QualitySettingsResponse(
+            modelTargets=data.modelTargets,
+            emailAlert=data.emailAlert,
+            stationPassRateConfig=data.stationPassRateConfig,
+        ),
     )
 
 

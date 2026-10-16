@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as XLSX from 'xlsx';
 import { rtyApi, type CycleDataResult } from '../api/rtyApi';
@@ -42,6 +42,77 @@ describe('cycle query and export', () => {
     });
   });
   afterEach(cleanup);
+
+  it.each(['normal', 'l6'] as const)(
+    'applies model and base filters to both summaries and the %s overview',
+    async orderScope => {
+      vi.mocked(rtyApi.getCycleData).mockImplementation(async scope => ({
+        ...result,
+        data: scope === 'normal'
+          ? [
+            row,
+            { ...row, productModel: 'Model B', inputCount: 30, defectCount: 6 },
+            { ...row, base: 'D', inputCount: 90, defectCount: 9 },
+          ]
+          : [
+            { ...row, inputCount: 5, defectCount: 1 },
+            { ...row, productModel: 'Model B', inputCount: 15, defectCount: 3 },
+            { ...row, base: 'D', inputCount: 95, defectCount: 19 },
+          ],
+      }));
+      render(<AlertConfigModal embedded orderScope={orderScope} />);
+      await screen.findByRole('row', { name: /Model A/ });
+
+      fireEvent.click(screen.getByRole('button', { name: '选择机型' }));
+      fireEvent.click(screen.getByRole('checkbox', { name: 'Model A' }));
+      expect(within(screen.getByRole('row', { name: /普通订单汇总/ })).getByText('10/100')).toBeTruthy();
+      expect(within(screen.getByRole('row', { name: /L6 订单汇总/ })).getByText('20/100')).toBeTruthy();
+      expect(screen.queryByRole('row', { name: /Model B/ })).toBeNull();
+      expect(screen.getByText('周期内累计投入').parentElement?.textContent).toContain('100');
+
+      fireEvent.mouseDown(document.body);
+      fireEvent.click(screen.getByRole('button', { name: '选择基地' }));
+      fireEvent.click(screen.getByRole('checkbox', { name: 'B' }));
+      const normal = within(screen.getByRole('row', { name: /普通订单汇总/ }));
+      const l6 = within(screen.getByRole('row', { name: /L6 订单汇总/ }));
+      expect(normal.getByText('1/10')).toBeTruthy();
+      expect(normal.getByText('10 台')).toBeTruthy();
+      expect(l6.getByText('1/5')).toBeTruthy();
+      expect(l6.getByText('5 台')).toBeTruthy();
+      expect(screen.getByText('周期内累计投入').parentElement?.textContent)
+        .toContain(orderScope === 'normal' ? '10' : '5');
+      expect(screen.getByText('周期内总故障数').parentElement?.textContent).toContain('1');
+      expect(screen.getByText('综合平均直通率').parentElement?.textContent)
+        .toContain(orderScope === 'normal' ? '90.00%' : '80.00%');
+
+      fireEvent.mouseDown(document.body);
+      fireEvent.click(screen.getByRole('button', { name: '机型 (1)' }));
+      fireEvent.click(screen.getByRole('button', { name: '清空' }));
+      expect(normal.getByText('7/40')).toBeTruthy();
+      expect(l6.getByText('4/20')).toBeTruthy();
+      expect(screen.getByRole('row', { name: /Model B/ })).toBeTruthy();
+      expect(screen.getByText('周期内累计投入').parentElement?.textContent)
+        .toContain(orderScope === 'normal' ? '40' : '20');
+    },
+  );
+
+  it('shows an empty L6 summary when the selected model has no L6 orders', async () => {
+    vi.mocked(rtyApi.getCycleData).mockImplementation(async scope => ({
+      ...result,
+      data: scope === 'normal'
+        ? [row, { ...row, productModel: 'Model B' }]
+        : [{ ...row, productModel: 'Model B' }],
+    }));
+    render(<AlertConfigModal embedded />);
+    await screen.findByRole('row', { name: /Model A/ });
+    fireEvent.click(screen.getByRole('button', { name: '选择机型' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Model A' }));
+
+    expect(within(screen.getByRole('row', { name: /普通订单汇总/ })).getByText('1/10')).toBeTruthy();
+    const l6 = within(screen.getByRole('row', { name: /L6 订单汇总/ }));
+    expect(l6.queryByText('10 台')).toBeNull();
+    expect(l6.getAllByText('-')).toHaveLength(2);
+  });
 
   it('clears old results and blocks export after a new date range fails, then retries', async () => {
     render(<AlertConfigModal embedded />);

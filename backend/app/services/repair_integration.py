@@ -295,7 +295,7 @@ async def build_model_sheets(
         order_rows[order] = row
         by_model[model][order] = row
 
-    groups: dict[tuple[str, str, str], RepairGroup] = {}
+    groups: dict[str, dict[tuple[str, str], RepairGroup]] = defaultdict(dict)
     for raw, matches in faults:
         material = next(
             (
@@ -311,7 +311,7 @@ async def build_model_sheets(
         for model, sns in model_sns.items():
             if model not in by_model:
                 raise DataGatewayError(f"维修记录的机型 {model} 未关联到选定订单")
-            group = groups.setdefault((model, text(raw.get("ZWXWD3")), material), RepairGroup())
+            group = groups[model].setdefault((text(raw.get("ZWXWD3")), material), RepairGroup())
             # One repair is one occurrence, even when it maps to multiple head SNs.
             group.count += 1
             if symptom := text(raw.get("ZNGWD3")):
@@ -327,7 +327,11 @@ async def build_model_sheets(
 
     # Material denominators include every selected order for the model, not only
     # orders with a repair. Models without a material repair need no BOM reads.
-    needed_models = {model for model, _, material in groups if material}
+    needed_models = {
+        model
+        for model, model_groups in groups.items()
+        if any(material for _, material in model_groups)
+    }
     usage = await load_order_usage([order for model in needed_models for order in by_model[model]])
     sheets = []
     for model, model_orders in sorted(by_model.items()):
@@ -353,9 +357,7 @@ async def build_model_sheets(
                 descriptions.setdefault(material, {}).update(labels)
         production_value = "缺少整机数量" if production_missing else excel_number(production)
         rows = []
-        for (m, repair, material), group in sorted(groups.items()):
-            if m != model:
-                continue
+        for (repair, material), group in sorted(groups.get(model, {}).items()):
             labels = {**group.descriptions, **descriptions.get(material, {})}
             material_usage: int | float | str
             if not material:

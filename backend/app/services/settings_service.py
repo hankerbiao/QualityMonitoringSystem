@@ -81,9 +81,14 @@ class SettingsService:
     async def get_quality(self) -> QualitySettingsResponse:
         targets = await self.read_doc("model_targets")
         email = await self.read_doc("email_alert_config")
+        stations = await self.read_doc("station_pass_rate_config")
         return QualitySettingsResponse(
             modelTargets=(targets or {}).get("targets", {}),
             emailAlert=self.email_from_doc(email),
+            stationPassRateConfig=StationPassRateConfig(
+                selectedStations=(stations or {}).get("selectedStations", []),
+                configured=stations is not None,
+            ),
         )
 
     async def update_all(self, request: SettingsUpdateRequest) -> SettingsResponse:

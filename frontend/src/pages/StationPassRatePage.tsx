@@ -22,6 +22,7 @@ import { StationPassFindings, StationQueryLaunch } from '../components/station/S
 import { buildStationPassWorkbook } from '../components/station/exportData';
 import { combinedStationPassRate, rowMatchesBand, summarizeStationRates, type StationRateRow } from '../utils/stationPassRate';
 import { useSettings } from '../context/SettingsContext';
+import { useAuth } from '../context/AuthContext';
 
 const dimensionLabels: Record<StationGroupBy, string> = {
   salesOrder: '销售订单号',
@@ -165,6 +166,8 @@ function CalculationHelpDialog({ onClose }: { onClose: () => void }) {
 export default function StationPassRatePage() {
   const navigate = useNavigate();
   const { settings, updateSettings } = useSettings();
+  const { user } = useAuth();
+  const canConfigureStations = user?.role === 'admin';
   const [initialDateRange] = useState(defaultDateRange);
   const [dateFrom, setDateFrom] = useState(initialDateRange.from);
   const [dateTo, setDateTo] = useState(initialDateRange.to);
@@ -531,6 +534,7 @@ export default function StationPassRatePage() {
   const closeStationConfig = () => setStationConfigOpen(false);
 
   const saveStationConfig = async () => {
+    if (!canConfigureStations) return;
     setStationConfigSaving(true);
     setStationConfigError('');
     try {
@@ -648,7 +652,7 @@ export default function StationPassRatePage() {
             />
           )}
 
-          {hasSearched && matrix.stations.length > 0 && <div className="flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3"><div><div className="text-xs font-semibold text-slate-700">组合工站</div><div className="mt-0.5 text-xs text-slate-400">已选 {selectedStations.length} / {matrix.stations.length} 个工站</div></div><button type="button" onClick={() => setStationConfigOpen(true)} aria-haspopup="dialog" aria-expanded={stationConfigOpen} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700"><Settings2 className="size-4" />配置工站</button></div>}
+          {hasSearched && matrix.stations.length > 0 && <div className="flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3"><div><div className="text-xs font-semibold text-slate-700">组合工站</div><div className="mt-0.5 text-xs text-slate-400">已选 {selectedStations.length} / {matrix.stations.length} 个工站</div></div>{canConfigureStations && <button type="button" onClick={() => setStationConfigOpen(true)} aria-haspopup="dialog" aria-expanded={stationConfigOpen} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700"><Settings2 className="size-4" />配置工站</button>}</div>}
 
           {(loading || error || hasSearched) && <div className="overflow-auto">
             <table className="w-full min-w-max border-separate border-spacing-0 text-left">

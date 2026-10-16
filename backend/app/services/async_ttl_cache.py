@@ -12,8 +12,10 @@ from typing import Any
 class AsyncTTLCache:
     """Cache stable dashboard calculations without caching failed loads."""
 
-    def __init__(self, *, max_entries: int | None = None) -> None:
+    def __init__(self, *, max_entries: int | None = None, copy_values: bool = True) -> None:
         self.max_entries = max_entries
+        # Disable copying only when every cached value is immutable.
+        self.copy_values = copy_values
         self._values: dict[Hashable, tuple[float, Any]] = {}
         self._inflight: dict[Hashable, asyncio.Task[Any]] = {}
         self._lock = asyncio.Lock()
@@ -41,7 +43,7 @@ class AsyncTTLCache:
         async with self._lock:
             cached = self._values.get(key)
             if cached and cached[0] > now:
-                return copy.deepcopy(cached[1])
+                return copy.deepcopy(cached[1]) if self.copy_values else cached[1]
             if cached:
                 self._values.pop(key, None)
             task = self._inflight.get(key)
@@ -64,4 +66,4 @@ class AsyncTTLCache:
             if self.max_entries is not None:
                 while len(self._values) > self.max_entries:
                     self._values.pop(next(iter(self._values)))
-        return copy.deepcopy(value)
+        return copy.deepcopy(value) if self.copy_values else value

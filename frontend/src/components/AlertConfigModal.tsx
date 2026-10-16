@@ -334,10 +334,12 @@ function CycleTimeRangePicker({
 function filterCycleData(
   data: RTYData[],
   selectedBases: Set<string> | null,
+  selectedModels: Set<string> | null,
 ): RTYData[] {
-  return selectedBases && selectedBases.size > 0
-    ? data.filter(item => selectedBases.has(item.base))
-    : data;
+  return data.filter(item =>
+    (!selectedBases?.size || selectedBases.has(item.base))
+    && (selectedModels === null || selectedModels.has(item.productModel)),
+  );
 }
 
 export default function AlertConfigModal({
@@ -458,8 +460,8 @@ export default function AlertConfigModal({
   };
   
   const filteredData = useMemo(() => {
-    return filterCycleData(allRawData, selectedBases);
-  }, [allRawData, selectedBases]);
+    return filterCycleData(allRawData, selectedBases, selectedModels);
+  }, [allRawData, selectedBases, selectedModels]);
 
   const modelOptions = useMemo<CycleFilterOption[]>(
     () => Array.from(new Set(allRawData.map((item) => item.productModel).filter(Boolean)))
@@ -487,7 +489,6 @@ export default function AlertConfigModal({
     setExportError('');
     try {
       const summaryData = monthlyData
-        .filter(item => selectedModels === null || selectedModels.has(item.model))
         .map(item => ({
           月份: item.month,
           机型: item.model,
@@ -517,21 +518,13 @@ export default function AlertConfigModal({
     }
   };
 
-  // 根据筛选状态获取实际显示的机型列表
-  const displayModels = useMemo(() => {
-    if (selectedModels === null) {
-      return trendModels;
-    }
-    return trendModels.filter(m => selectedModels.has(m));
-  }, [trendModels, selectedModels]);
-
   const scopeSummaryRows = useMemo<ScopeSummaryRow[]>(() => (
     (['normal', 'l6'] as const).map(scope => {
       const months: Record<string, ScopeSummaryCell> = {};
       let totalInput = 0;
       let totalDefect = 0;
 
-      filterCycleData(scopeRawData[scope], selectedBases).forEach(item => {
+      filterCycleData(scopeRawData[scope], selectedBases, selectedModels).forEach(item => {
         const month = item.time.substring(0, 7);
         const current = months[month] || { inputCount: 0, defectCount: 0, rtyRate: 0 };
         current.inputCount += item.inputCount;
@@ -552,7 +545,7 @@ export default function AlertConfigModal({
         totalDefect,
       };
     })
-  ), [scopeRawData, selectedBases]);
+  ), [scopeRawData, selectedBases, selectedModels]);
 
   const heatmapMonths = useMemo(
     () => Array.from(new Set([
@@ -854,10 +847,10 @@ export default function AlertConfigModal({
                         formatter={(value, name) => name?.toString().includes('RTY') ? `${Number(value).toFixed(3)}%` : Number(value).toLocaleString()}
                       />
                       <Legend wrapperStyle={{ paddingTop: '8px', fontSize: '10px' }} />
-                      {displayModels.map((model, index) => (
+                      {trendModels.map((model, index) => (
                         <Bar key={`bar-${model}`} dataKey={`${model}_input`} name={`${model} 产量`} yAxisId="input" fill={COLORS[index % COLORS.length]} fillOpacity={0.55} radius={[2, 2, 0, 0]} maxBarSize={24} />
                       ))}
-                      {displayModels.map((model, index) => (
+                      {trendModels.map((model, index) => (
                         <Line key={`line-${model}`} type="monotone" dataKey={`${model}_rty`} name={`${model} RTY`} yAxisId="rty" stroke={COLORS[index % COLORS.length]} strokeWidth={2} dot={{ r: 3, strokeWidth: 1 }} activeDot={{ r: 5 }} connectNulls={true} />
                       ))}
                     </ComposedChart>
@@ -934,7 +927,6 @@ export default function AlertConfigModal({
                         );
                       })}
                       {tableData
-                        .filter(row => displayModels.includes(row.model))
                         .map((row, idx) => {
                         const totalRty = row.inputCount > 0
                           ? ((row.inputCount - row.defectCount) / row.inputCount) * 100

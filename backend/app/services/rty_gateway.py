@@ -9,11 +9,12 @@ from __future__ import annotations
 import asyncio
 from collections import defaultdict
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import Any, TypeVar
 
 from fastapi import HTTPException
 
-from app.base_access import base_allowed, current_base_permissions
+from app.base_access import base_allowed, canonical_base, current_base_permissions
 from app.schemas.rty import (
     DefectDetail,
     ExcludedOrder,
@@ -23,7 +24,7 @@ from app.schemas.rty import (
     StationPassRate,
 )
 from app.services.async_ttl_cache import AsyncTTLCache
-from app.services.data_gateway_client import data_gateway
+from app.services.data_gateway_client import DataGatewayError, data_gateway
 from app.services.lrr_normalization import compact_date
 from app.services.rty_shared import (
     COMPOSITE_MODEL_ITEMS,
@@ -48,6 +49,8 @@ RTY_CYCLE_CACHE_TTL_SECONDS = 60.0
 RTY_LIST_CACHE_TTL_SECONDS = 15.0
 _RTY_CYCLE_CACHE = AsyncTTLCache()
 _RTY_LIST_CACHE = AsyncTTLCache()
+_ORDER_OWNERSHIP_CACHE = AsyncTTLCache(max_entries=4, copy_values=False)
+_ORDER_SCOPE_CACHE = AsyncTTLCache(max_entries=64, copy_values=False)
 _GroupKey = TypeVar("_GroupKey")
 
 
@@ -1053,9 +1056,39 @@ async def details_by_orders(
     ]
 
 
-async def accessible_order_numbers() -> set[str]:
+async def accessible_order_numbers() -> frozenset[str]:
     """Use order ownership, including excluded and L6 orders, for detail authorization."""
-    return {normalize_order(row["aufnr"]) for row in await _order_rows({}) if row["aufnr"]}
+    scope = current_base_permissions()
+    if scope == ():
+        return frozenset()
+    try:
+        version = await data_gateway.export_version()
+    except DataGatewayError:
+        version = None
+    if not version:
+        return frozenset(
+            normalize_order(row["aufnr"]) for row in await _order_rows({}) if row["aufnr"]
+        )
+    order_version = version["orders"]
+    key = (data_gateway.base_url, order_version)
+
+    async def load_index():
+        by_base: dict[str, set[str]] = defaultdict(set)
+        for item in await data_gateway.all_orders(source_version=order_version):
+            row = normalize_order_row(item)
+            if row["aufnr"]:
+                by_base[canonical_base(row["data"].get("LGORT"))].add(normalize_order(row["aufnr"]))
+        latest = await data_gateway.export_version()
+        if not latest or latest["orders"] != order_version:
+            raise DataGatewayError("订单归属版本发生变化，请重新查询", retryable=True)
+        return MappingProxyType({base: frozenset(orders) for base, orders in by_base.items()})
+
+    async def load_scope():
+        index = await _ORDER_OWNERSHIP_CACHE.get_or_set(key, load_index, ttl_seconds=3600)
+        bases = index if scope is None else scope
+        return frozenset().union(*(index.get(base, frozenset()) for base in bases))
+
+    return await _ORDER_SCOPE_CACHE.get_or_set((key, scope), load_scope, ttl_seconds=3600)
 
 
 async def authorized_fault_rows(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
