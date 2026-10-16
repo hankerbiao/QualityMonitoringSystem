@@ -24,6 +24,11 @@ class RefreshRequest(BaseModel):
     refresh_token: str = Field(min_length=1)
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
 async def get_current_user(request: Request) -> dict:
     token = request.headers.get("Authorization", "")
     token = token[7:] if token.startswith("Bearer ") else None
@@ -50,6 +55,19 @@ async def local_login(payload: LocalLoginRequest):
 async def refresh_token(payload: RefreshRequest):
     result = await get_auth_service().refresh_access_token(payload.refresh_token)
     return {"ok": True, **result}
+
+
+@router.post("/auth/change-password")
+@audit_log("CHANGE_OWN_PASSWORD", "/auth/change-password", method="POST")
+async def change_password(
+    payload: ChangePasswordRequest,
+    current_user: Annotated[dict, Depends(get_current_user)],
+    request: Request,
+):
+    await get_auth_service().change_password(
+        current_user["username"], payload.current_password, payload.new_password
+    )
+    return {"ok": True}
 
 
 @router.get("/auth/me")

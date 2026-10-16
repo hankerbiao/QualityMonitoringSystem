@@ -32,6 +32,13 @@ describe('cycle query and export', () => {
     vi.mocked(rtyApi.getCycleExport).mockResolvedValue({
       orders: [{ AUFNR: '000000000001', POSNR: '000010', CPXH: 'Product A', WMENG: 0 }],
       faults: [{ PCODE: 'CHILD-SN', U_FIX: 'repairer' }, { PCODE: 'CHILD-SN' }],
+      modelSheets: [{
+        model: 'Model A',
+        rows: [{
+          sequence: 1, model: 'Model A', material: 'PN*2', materialCount: 2,
+          materialUsage: 20, serialCount: 1, productionQuantity: 10,
+        }],
+      }],
     });
   });
   afterEach(cleanup);
@@ -95,7 +102,9 @@ describe('cycle query and export', () => {
 
     await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalledTimes(1));
     const workbook = vi.mocked(XLSX.writeFile).mock.calls[0][0];
-    expect(workbook.SheetNames).toEqual(['趋势汇总', '销售订单', '维修故障明记录']);
+    expect(workbook.SheetNames).toEqual(['趋势汇总', '销售订单', '维修故障明记录', 'Model A']);
+    expect(workbook.Sheets['Model A'].E2.v).toBe('PN*2');
+    expect(workbook.Sheets['Model A'].I2.f).toBe('G2/H2');
     expect(XLSX.utils.sheet_to_json(workbook.Sheets['趋势汇总'])).toEqual([{
       月份: '2026-09', 机型: 'Model A', 产量: 10, 故障数: 1,
       直通率: '90.000%', 目标直通率: '95.000%', 状态: '未达标',

@@ -14,7 +14,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from app.schemas.rty import RTYTemplateExport, StationPassExport
-from app.services import rty_gateway
+from app.services import repair_integration, rty_gateway
 from app.services.async_ttl_cache import AsyncTTLCache
 from app.services.data_gateway_client import DataGatewayError, data_gateway
 from app.services.lrr_normalization import compact_date
@@ -384,6 +384,7 @@ async def build_template_export(
     *,
     product_models: list[str] | None = None,
     bases: list[str] | None = None,
+    integrate: bool = False,
 ) -> RTYTemplateExport:
     orders, faults = await _load_sources(filters, product_models=product_models, bases=bases)
     by_model: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -451,6 +452,9 @@ async def build_template_export(
         orders=[_columns(row, ORDER_FIELDS) for row in orders],
         faults=[raw for raw, _ in faults],
         topProblems=top_problems,
+        modelSheets=await repair_integration.build_model_sheets(orders, faults)
+        if integrate
+        else [],
     )
 
 
@@ -459,10 +463,14 @@ async def build_source_export(
     *,
     product_models: list[str] | None = None,
     bases: list[str] | None = None,
+    integrate: bool = False,
 ) -> StationPassExport:
-    """Load raw source sheets without computing template summary or TOP rows."""
+    """Load source sheets and optional model statistics without template summary."""
     orders, faults = await _load_sources(filters, product_models=product_models, bases=bases)
     return StationPassExport(
         orders=[_columns(row, ORDER_FIELDS) for row in orders],
         faults=[raw for raw, _ in faults],
+        modelSheets=await repair_integration.build_model_sheets(orders, faults)
+        if integrate
+        else [],
     )

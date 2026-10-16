@@ -67,13 +67,21 @@ class RTYListResponse(BaseModel):
     limit: int = 100
 
 
+class RepairModelSheet(BaseModel):
+    """One model's repair/material groups, with unavailable quantities kept explicit."""
+
+    model: str
+    rows: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class RTYTemplateExport(BaseModel):
-    """Data for the four fixed template sheets; absent values stay blank."""
+    """Summary, source sheets and optional per-model repair statistics."""
 
     summary: list[dict[str, Any]] = Field(default_factory=list)
     orders: list[dict[str, Any]] = Field(default_factory=list)
     faults: list[dict[str, Any]] = Field(default_factory=list)
     topProblems: list[dict[str, Any]] = Field(default_factory=list)
+    modelSheets: list[RepairModelSheet] = Field(default_factory=list)
 
 
 class StationPassExport(BaseModel):
@@ -81,6 +89,7 @@ class StationPassExport(BaseModel):
 
     orders: list[dict[str, Any]] = Field(default_factory=list)
     faults: list[dict[str, Any]] = Field(default_factory=list)
+    modelSheets: list[RepairModelSheet] = Field(default_factory=list)
 
 
 class StationPassRate(BaseModel):

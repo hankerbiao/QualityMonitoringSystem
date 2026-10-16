@@ -1,5 +1,5 @@
 import * as XLSX from 'xlsx';
-import type { RTYTemplateExport, StationPassExport } from '../../types/rty';
+import type { RepairModelSheet, RTYTemplateExport, StationPassExport } from '../../types/rty';
 
 type Column = readonly [key: string, label: string];
 
@@ -93,10 +93,62 @@ export const TOP_COLUMNS: readonly Column[] = [
   ['materialCount', '物料计数'],
   ['materialUsage', '物料使用量'],
   ['componentFaultRate', '部件故障率'],
-  ['serialCount', '整机SN去重计数'],
+  ['serialCount', '整机故障数'],
   ['productionQuantity', '整机生产量'],
   ['machineFaultRate', '整机故障率'],
 ];
+
+export const REPAIR_COLUMNS: readonly Column[] = TOP_COLUMNS.map(([key, label]) => [
+  key, key === 'materialCount' ? '部件故障计数' : label,
+]);
+
+function modelSheetName(workbook: XLSX.WorkBook, model: string): string {
+  const base = (model.replace(/[\\/*?:[\]]/g, '_').replace(/^'+|'+$/g, '') || '未填写机型').slice(0, 31);
+  const used = new Set(workbook.SheetNames.map(name => name.toLowerCase()));
+  let name = base;
+  for (let suffix = 2; used.has(name.toLowerCase()); suffix += 1) {
+    const ending = `_${suffix}`;
+    name = `${base.slice(0, 31 - ending.length)}${ending}`;
+  }
+  return name;
+}
+
+export function appendModelSheets(workbook: XLSX.WorkBook, models: RepairModelSheet[] = []): void {
+  for (const { model, rows: sourceRows } of models) {
+    const rows: RepairModelSheet['rows'] = [...sourceRows]
+      .sort((a, b) => Number(b.materialCount ?? 0) - Number(a.materialCount ?? 0))
+      .map((row, index) => ({
+        ...row,
+        sequence: row.repairAction === '无维修故障记录' ? null : index + 1,
+      }));
+    const sheet = XLSX.utils.aoa_to_sheet([
+      REPAIR_COLUMNS.map(([, label]) => label),
+      ...rows.map(row => REPAIR_COLUMNS.map(([key]) => row[key] ?? null)),
+    ]);
+    sheet['!cols'] = [7, 17, 65, 22, 30, 46, 18, 20, 16, 22, 20, 16].map(wch => ({ wch }));
+    sheet['!autofilter'] = { ref: sheet['!ref']! };
+    rows.forEach((row, index) => {
+      for (const [column, count, denominator] of [
+        ['I', row.materialCount, row.materialUsage],
+        ['L', row.serialCount, row.productionQuantity],
+      ] as const) {
+        if (column === 'I' && row.repairAction === '无维修故障记录') continue;
+        const address = `${column}${index + 2}`;
+        if (typeof count === 'number' && typeof denominator === 'number' && denominator > 0) {
+          sheet[address] = {
+            t: 'n',
+            v: count / denominator,
+            f: `${column === 'I' ? 'G' : 'J'}${index + 2}/${column === 'I' ? 'H' : 'K'}${index + 2}`,
+            z: '0.00%',
+          };
+        } else {
+          sheet[address] = { t: 's', v: 'n.a.' };
+        }
+      }
+    });
+    XLSX.utils.book_append_sheet(workbook, sheet, modelSheetName(workbook, model));
+  }
+}
 
 export function appendSourceSheets(workbook: XLSX.WorkBook, data: StationPassExport): void {
   const sources = [
@@ -114,10 +166,27 @@ export function appendSourceSheets(workbook: XLSX.WorkBook, data: StationPassExp
     sheet['!autofilter'] = { ref: sheet['!ref']! };
     XLSX.utils.book_append_sheet(workbook, sheet, name);
   }
+  appendModelSheets(workbook, data.modelSheets);
 }
 
 export function buildTemplateWorkbook(data: RTYTemplateExport): XLSX.WorkBook {
   const workbook = XLSX.utils.book_new();
+  if (data.modelSheets !== undefined) {
+    const summary = XLSX.utils.aoa_to_sheet([
+      SUMMARY_COLUMNS.map(([, label]) => label),
+      ...data.summary.map(row => SUMMARY_COLUMNS.map(([key]) => row[key] ?? null)),
+    ]);
+    SUMMARY_COLUMNS.forEach(([key], column) => {
+      if (!key.endsWith('Rate')) return;
+      data.summary.forEach((_, row) => {
+        const cell = summary[XLSX.utils.encode_cell({ r: row + 1, c: column })];
+        if (cell?.t === 'n') cell.z = '0.00%';
+      });
+    });
+    XLSX.utils.book_append_sheet(workbook, summary, '直通率');
+    appendSourceSheets(workbook, data);
+    return workbook;
+  }
   const sheets = [
     ['直通率', SUMMARY_COLUMNS, data.summary, false],
     ['销售订单-分母', ORDER_COLUMNS, data.orders, true],

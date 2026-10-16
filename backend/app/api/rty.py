@@ -194,7 +194,8 @@ async def get_station_pass_export(
             date_to=dateTo,
             order_scope=orderScope,
             overseas="true" if overseas else "",
-        )
+        ),
+        integrate=True,
     )
     return Response(success=True, data=data)
 
@@ -224,6 +225,7 @@ async def get_cycle_export(
         ),
         product_models=productModels,
         bases=bases,
+        integrate=True,
     )
     return Response(success=True, data=data)
 
@@ -265,6 +267,7 @@ async def get_rty_template_export(
         ),
         product_models=productModels,
         bases=bases,
+        integrate=True,
     )
     return Response(success=True, data=data)
 

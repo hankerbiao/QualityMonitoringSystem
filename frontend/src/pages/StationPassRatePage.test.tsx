@@ -77,6 +77,13 @@ describe('StationPassRatePage customer filter', () => {
     vi.mocked(rtyApi.getStationPassExport).mockResolvedValue({
       orders: [{ VBELN: '00001', WMENG: 20 }],
       faults: [{ PCODE: 'SN1', ZNGGZ: 'OP10' }, { PCODE: 'SN1', ZNGGZ: 'OP10' }],
+      modelSheets: [{
+        model: 'M',
+        rows: [{
+          model: 'M', material: 'PN*2', materialCount: 2,
+          materialUsage: 20, serialCount: 1, productionQuantity: 20,
+        }],
+      }],
     });
     render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
     const exportButton = screen.getByRole('button', { name: '导出透视表、销售订单及维修故障明记录' });
@@ -93,7 +100,9 @@ describe('StationPassRatePage customer filter', () => {
     );
     expect(rtyApi.getStationPassDetails).not.toHaveBeenCalled();
     const workbook = vi.mocked(XLSX.writeFile).mock.calls[0][0];
-    expect(workbook.SheetNames).toEqual(['工位直通率透视表', '销售订单', '维修故障明记录']);
+    expect(workbook.SheetNames).toEqual(['工位直通率透视表', '销售订单', '维修故障明记录', 'M']);
+    expect(workbook.Sheets.M.E2.v).toBe('PN*2');
+    expect(workbook.Sheets.M.L2.f).toBe('J2/K2');
     expect(XLSX.utils.sheet_to_json(workbook.Sheets['工位直通率透视表'])).toEqual([
       { 机型: 'M', Total: '90.00%', 工站直通率: '90.00%', OP10: '90.00%' },
     ]);

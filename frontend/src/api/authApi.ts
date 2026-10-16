@@ -262,3 +262,11 @@ export async function loginWithPassword(username: string, password: string): Pro
 
   return response.json();
 }
+
+export async function changePassword(currentPassword: string, newPassword: string): Promise<void> {
+  await requestJson<{ ok: boolean }>(`${API_BASE_URL}/auth/change-password`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+}

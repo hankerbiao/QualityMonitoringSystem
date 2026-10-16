@@ -7,10 +7,10 @@ from app.auth_permissions import ALL_DASHBOARD_PERMISSIONS
 
 
 @pytest.fixture
-def auth_service(_mock_db):
+def auth_service(db_clean):
     from app.auth_service import AuthService
 
-    return AuthService(_mock_db)
+    return AuthService(db_clean)
 
 
 @pytest.mark.asyncio
@@ -80,3 +80,36 @@ class TestLocalAuthentication:
         with pytest.raises(HTTPException) as exc_info:
             await auth_service.require_login(result["access_token"])
         assert exc_info.value.status_code == 403
+
+    async def test_configured_admin_password_does_not_overwrite_existing_hash(
+        self, auth_service, _mock_db
+    ):
+        await _mock_db.users.insert_one(
+            {
+                "username": "admin",
+                "role": "admin",
+                "isActive": True,
+                "passwordHash": auth_service.hash_password("changed-admin-password"),
+            }
+        )
+        with pytest.raises(HTTPException) as exc_info:
+            await auth_service.authenticate_local("admin", "admin123")
+        assert exc_info.value.status_code == 401
+        result = await auth_service.authenticate_local("admin", "changed-admin-password")
+        assert result["user"]["role"] == "admin"
+
+    async def test_password_change_rejects_a_concurrent_update(
+        self, auth_service, _mock_db, monkeypatch
+    ):
+        from tests.mock_motor import MockUpdateResult
+
+        await auth_service.authenticate_local("admin", "admin123")
+
+        async def no_match(*args, **kwargs):
+            return MockUpdateResult()
+
+        monkeypatch.setattr(_mock_db.users, "update_one", no_match)
+        with pytest.raises(HTTPException) as exc_info:
+            await auth_service.change_password("admin", "admin123", "NewPassword123")
+        assert exc_info.value.status_code == 409
+        assert await _mock_db.sessions.count_documents({"username": "admin"}) == 1

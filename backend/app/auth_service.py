@@ -9,6 +9,7 @@ from typing import Any
 from argon2 import PasswordHasher
 from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatchError
 from fastapi import HTTPException
+from pymongo.errors import DuplicateKeyError
 
 from app.auth_permissions import ALL_DASHBOARD_PERMISSIONS, normalize_dashboard_permissions
 from app.core.config import get_settings
@@ -58,29 +59,29 @@ class AuthService:
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid token payload") from None
 
-    def create_access_token(self, username: str) -> str:
+    def create_access_token(self, username: str, issued_at: datetime | None = None) -> str:
         settings = get_settings()
-        now = datetime.now(timezone.utc)
+        now = issued_at or datetime.now(timezone.utc)
         exp = now + timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES)
         return self._sign_jwt(
             {
                 "sub": username,
                 "type": "access",
-                "iat": int(now.timestamp()),
+                "iat": now.timestamp(),
                 "exp": int(exp.timestamp()),
             },
             settings.JWT_SECRET,
         )
 
-    def create_refresh_token(self, username: str) -> str:
+    def create_refresh_token(self, username: str, issued_at: datetime | None = None) -> str:
         settings = get_settings()
-        now = datetime.now(timezone.utc)
+        now = issued_at or datetime.now(timezone.utc)
         exp = now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
         return self._sign_jwt(
             {
                 "sub": username,
                 "type": "refresh",
-                "iat": int(now.timestamp()),
+                "iat": now.timestamp(),
                 "exp": int(exp.timestamp()),
             },
             settings.JWT_SECRET,
@@ -152,44 +153,49 @@ class AuthService:
             {"username": username, "displayName": "系统管理员", "role": "admin", "isActive": True},
             username,
         )
-        await self.db.users.update_one(
-            {"username": username},
-            {
-                "$set": {
-                    "username": username,
-                    "itcode": username,
-                    "displayName": "系统管理员",
-                    "role": "admin",
-                    "isActive": True,
-                    "dashboardPermissions": list(ALL_DASHBOARD_PERMISSIONS),
-                    "passwordHash": self.hash_password(password),
-                    "profile": profile,
-                    "updatedAt": now.isoformat(),
-                },
-                "$setOnInsert": {"createdAt": now.isoformat()},
-            },
-            upsert=True,
-        )
-        return profile
+        user = {
+            "username": username,
+            "itcode": username,
+            "displayName": "系统管理员",
+            "role": "admin",
+            "isActive": True,
+            "dashboardPermissions": list(ALL_DASHBOARD_PERMISSIONS),
+            "passwordHash": self.hash_password(password),
+            "profile": profile,
+            "updatedAt": now.isoformat(),
+            "createdAt": now.isoformat(),
+        }
+        try:
+            # Bootstrap only: concurrent logins must never overwrite a stored password.
+            await self.db.users.insert_one(user)
+        except DuplicateKeyError:
+            existing = await self.db.users.find_one({"username": username})
+            if existing is None:
+                raise HTTPException(status_code=409, detail="管理员账号初始化冲突") from None
+            return existing
+        return user
 
     async def authenticate_local(self, username: str, password: str) -> dict:
+        now = datetime.now(timezone.utc)
         settings = get_settings()
         username = username.strip()
         if not username or not password:
             raise HTTPException(status_code=401, detail="用户名或密码错误")
-        now = datetime.now(timezone.utc)
+        user = await self.db.users.find_one({"username": username})
         is_configured_admin = hmac.compare_digest(username, settings.DEFAULT_ADMIN_USERNAME)
-        if is_configured_admin and hmac.compare_digest(password, settings.DEFAULT_ADMIN_PASSWORD):
-            profile = await self._ensure_admin(username, password, now)
-        else:
-            user = await self.db.users.find_one({"username": username})
-            if user is None:
-                raise HTTPException(status_code=401, detail="用户名或密码错误")
-            profile = self._user_profile(user, username)
-            if not profile["isActive"]:
-                raise HTTPException(status_code=403, detail="用户已被禁用")
-            if not self.verify_password(password, user.get("passwordHash", "")):
-                raise HTTPException(status_code=401, detail="用户名或密码错误")
+        if (
+            user is None
+            and is_configured_admin
+            and hmac.compare_digest(password, settings.DEFAULT_ADMIN_PASSWORD)
+        ):
+            user = await self._ensure_admin(username, password, now)
+        if user is None:
+            raise HTTPException(status_code=401, detail="用户名或密码错误")
+        profile = self._user_profile(user, username)
+        if not profile["isActive"]:
+            raise HTTPException(status_code=403, detail="用户已被禁用")
+        if not self.verify_password(password, user.get("passwordHash", "")):
+            raise HTTPException(status_code=401, detail="用户名或密码错误")
 
         session_data = await self._create_session(username, now)
         return {
@@ -200,7 +206,45 @@ class AuthService:
             "expires_in": settings.ACCESS_TOKEN_EXPIRE_MINUTES * 60,
         }
 
+    async def change_password(
+        self, username: str, current_password: str, new_password: str
+    ) -> None:
+        user = await self.db.users.find_one({"username": username})
+        if user is None or not self._user_profile(user, username)["isActive"]:
+            raise HTTPException(status_code=403, detail="账号不可用")
+        password_hash = user.get("passwordHash", "")
+        if not self.verify_password(current_password, password_hash):
+            raise HTTPException(status_code=400, detail="当前密码错误")
+        if current_password == new_password:
+            raise HTTPException(status_code=400, detail="新密码不能与当前密码相同")
+        new_hash = self.hash_password(new_password)
+        now = datetime.now(timezone.utc).isoformat()
+        result = await self.db.users.update_one(
+            {"username": username, "passwordHash": password_hash},
+            {
+                "$set": {
+                    "passwordHash": new_hash,
+                    "passwordChangedAt": now,
+                    "updatedAt": now,
+                }
+            },
+        )
+        if result.matched_count != 1:
+            raise HTTPException(status_code=409, detail="密码已变更，请重新登录后重试")
+        await self.revoke_user_sessions(username)
+
+    @staticmethod
+    def _check_password_change(user: dict, payload: dict) -> None:
+        # Access tokens remain signed after sessions are removed; reject pre-change tokens too.
+        changed_at = user.get("passwordChangedAt")
+        if (
+            changed_at
+            and float(payload.get("iat", 0)) <= datetime.fromisoformat(changed_at).timestamp()
+        ):
+            raise HTTPException(status_code=401, detail="密码已修改，请重新登录")
+
     async def refresh_access_token(self, refresh_token: str) -> dict:
+        now = datetime.now(timezone.utc)
         payload = self.verify_refresh_token(refresh_token)
         username = payload.get("sub")
         session = await self.db.sessions.find_one({"refreshToken": refresh_token})
@@ -209,10 +253,10 @@ class AuthService:
         user = await self.db.users.find_one({"username": username})
         if user is None:
             raise HTTPException(status_code=401, detail="用户不存在")
+        self._check_password_change(user, payload)
         if not self._user_profile(user, username)["isActive"]:
             raise HTTPException(status_code=403, detail="用户已被禁用")
-        new_access_token = self.create_access_token(username)
-        now = datetime.now(timezone.utc)
+        new_access_token = self.create_access_token(username, now)
         await self.db.sessions.update_one(
             {"sessionId": session["sessionId"]},
             {"$set": {"accessToken": new_access_token, "updatedAt": now.isoformat()}},
@@ -225,8 +269,8 @@ class AuthService:
 
     async def _create_session(self, username: str, now: datetime) -> dict:
         settings = get_settings()
-        access_token = self.create_access_token(username)
-        refresh_token = self.create_refresh_token(username)
+        access_token = self.create_access_token(username, now)
+        refresh_token = self.create_refresh_token(username, now)
         session_id = f"sess_{int(time.time() * 1000)}_{username}"
         expires_at = now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
         await self.db.sessions.insert_one(
@@ -258,6 +302,7 @@ class AuthService:
         user = await self.db.users.find_one({"username": username})
         if user is None:
             raise HTTPException(status_code=401, detail="用户不存在")
+        self._check_password_change(user, payload)
         profile = self._user_profile(user, username)
         if not profile["isActive"]:
             raise HTTPException(status_code=403, detail="用户已被禁用")

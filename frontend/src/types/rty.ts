@@ -24,6 +24,12 @@ export interface RTYTemplateExport {
   orders: Record<string, string | number | boolean | null>[];
   faults: Record<string, string | number | boolean | null>[];
   topProblems: Record<string, string | number | boolean | null>[];
+  modelSheets?: RepairModelSheet[];
+}
+
+export interface RepairModelSheet {
+  model: string;
+  rows: Record<string, string | number | null>[];
 }
 
 export interface ExcludedOrder {
@@ -42,6 +48,7 @@ export interface ExcludedOrder {
 export interface StationPassExport {
   orders: Record<string, unknown>[];
   faults: Record<string, unknown>[];
+  modelSheets?: RepairModelSheet[];
 }
 
 export interface StationPassRate {

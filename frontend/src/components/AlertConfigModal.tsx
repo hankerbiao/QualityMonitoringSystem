@@ -644,7 +644,7 @@ export default function AlertConfigModal({
       onClick={() => void exportCycleData()}
       disabled={loading || exporting || loadedQueryKey !== queryKey || filteredData.length === 0}
       className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-medium text-slate-700 transition-colors hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-45 sm:px-3"
-      title="导出趋势汇总、销售订单及维修故障明记录"
+      title="导出趋势汇总、原始数据及各机型维修物料统计"
       aria-label={exporting ? '导出中...' : '导出'}
     >
       <Download className="size-4" />

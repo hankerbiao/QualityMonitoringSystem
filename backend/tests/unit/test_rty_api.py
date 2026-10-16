@@ -138,6 +138,7 @@ async def test_template_export_forwards_complete_filters_and_is_protected(monkey
         },
         product_models=None,
         bases=None,
+        integrate=True,
     )
     route = next(route for route in rty.router.routes if route.path == "/export")
     assert route.dependencies
@@ -180,10 +181,11 @@ async def test_cycle_export_passes_repeated_filters_and_requires_only_rty_permis
         )
     assert response.status_code == status
     if status == 200:
-        assert response.json()["data"] == {"orders": [], "faults": []}
+        assert response.json()["data"] == {"orders": [], "faults": [], "modelSheets": []}
         assert export.await_args.kwargs == {
             "product_models": ["M, A", "M B"],
             "bases": ["B", "D"],
+            "integrate": True,
         }
         assert export.await_args.args[0]["orderScope"] == "l6"
         assert export.await_args.args[0]["customer"] == "C"
@@ -245,7 +247,11 @@ async def test_station_export_uses_station_permission_and_applied_filters(
         )
     assert response.status_code == status
     if status == 200:
-        assert response.json()["data"] == {"orders": [{"AUFNR": "00001"}], "faults": []}
+        assert response.json()["data"] == {
+            "orders": [{"AUFNR": "00001"}],
+            "faults": [],
+            "modelSheets": [],
+        }
         export.assert_awaited_once_with(
             {
                 "salesOrder": "",
@@ -258,7 +264,8 @@ async def test_station_export_uses_station_permission_and_applied_filters(
                 "dateTo": "2026-10-11",
                 "orderScope": "l6",
                 "calculationMethod": "",
-            }
+            },
+            integrate=True,
         )
     else:
         export.assert_not_awaited()

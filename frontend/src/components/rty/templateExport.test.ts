@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import * as XLSX from 'xlsx';
 import type { RTYTemplateExport } from '../../types/rty';
-import { buildTemplateWorkbook } from './templateExport';
+import { appendModelSheets, buildTemplateWorkbook, REPAIR_COLUMNS } from './templateExport';
 
 const empty: RTYTemplateExport = { summary: [], orders: [], faults: [], topProblems: [] };
 
@@ -52,5 +52,94 @@ describe('RTY template workbook', () => {
     expect(result.Sheets['维修故障明记录-分子'].L3).toBeUndefined();
     expect(result.Sheets['TOP问题'].H2).toBeUndefined();
     expect(result.Sheets['TOP问题'].L2).toMatchObject({ t: 'n', v: 0, z: '0.00%' });
+  });
+});
+
+describe('integrated repair model sheets', () => {
+  it('writes Chinese headers, counted materials and cached Excel formulas', () => {
+    const workbook = buildTemplateWorkbook({
+      ...empty,
+      modelSheets: [{
+        model: '6210 C21',
+        rows: [{
+          sequence: 1, model: '6210 C21', problem: 'first\nsecond',
+          repairAction: '更换内存', material: 'B5000113*2',
+          materialDescription: '=literal-description', materialCount: 2,
+          materialUsage: 2400, serialCount: 1, productionQuantity: 1258,
+        }],
+      }],
+    });
+    expect(workbook.SheetNames).toEqual(['直通率', '销售订单', '维修故障明记录', '6210 C21']);
+    const result = XLSX.read(XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }), {
+      type: 'buffer', cellNF: true,
+    });
+    const sheet = result.Sheets['6210 C21'];
+    expect(XLSX.utils.sheet_to_json(sheet, { header: 1 })[0]).toEqual(
+      REPAIR_COLUMNS.map(([, label]) => label),
+    );
+    expect(sheet.E2.v).toBe('B5000113*2');
+    expect(sheet.G1.v).toBe('部件故障计数');
+    expect(sheet.G2.v).toBe(2);
+    expect(sheet.I2).toMatchObject({ t: 'n', f: 'G2/H2', v: 2 / 2400, z: '0.00%' });
+    expect(sheet.L2).toMatchObject({ t: 'n', f: 'J2/K2', v: 1 / 1258, z: '0.00%' });
+    expect(sheet.F2).toMatchObject({ t: 's', v: '=literal-description' });
+    expect(sheet.F2.f).toBeUndefined();
+  });
+
+  it('sorts each model by descending numeric fault count and renumbers rows without changing the source', () => {
+    const rows = [2, 10, 2].map((count, index) => ({
+      sequence: index + 1, material: `PN${index}*${count}`, materialCount: count,
+      materialUsage: 100, serialCount: index + 1, productionQuantity: 50,
+    }));
+    const workbook = XLSX.utils.book_new();
+    appendModelSheets(workbook, [
+      { model: 'M', rows },
+      { model: 'Other', rows: [rows[0], rows[1]] },
+    ]);
+    const result = XLSX.read(XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }), {
+      type: 'buffer',
+    });
+    const sheet = result.Sheets.M;
+    expect([sheet.G2.v, sheet.G3.v, sheet.G4.v]).toEqual([10, 2, 2]);
+    expect([sheet.E2.v, sheet.E3.v, sheet.E4.v]).toEqual(['PN1*10', 'PN0*2', 'PN2*2']);
+    expect([sheet.A2.v, sheet.A3.v, sheet.A4.v]).toEqual([1, 2, 3]);
+    expect(sheet.I2).toMatchObject({ f: 'G2/H2', v: 10 / 100 });
+    expect(sheet.L2).toMatchObject({ f: 'J2/K2', v: 2 / 50 });
+    expect([result.Sheets.Other.G2.v, result.Sheets.Other.G3.v]).toEqual([10, 2]);
+    expect(rows.map(row => row.materialCount)).toEqual([2, 10, 2]);
+    expect(rows.map(row => row.sequence)).toEqual([1, 2, 3]);
+  });
+
+  it('keeps unavailable and zero quantities distinct, and retains models without repairs', () => {
+    const workbook = XLSX.utils.book_new();
+    appendModelSheets(workbook, [{
+      model: 'M',
+      rows: [
+        { materialCount: 2, materialUsage: 0, serialCount: '缺少SN（1条）', productionQuantity: 10 },
+        { materialCount: 0, materialUsage: 10, serialCount: 0, productionQuantity: 10 },
+      ],
+    }, {
+      model: 'empty',
+      rows: [{ model: 'empty', repairAction: '无维修故障记录', materialCount: 0, serialCount: 0, productionQuantity: 8 }],
+    }]);
+    expect(workbook.Sheets.M.I2).toEqual({ t: 's', v: 'n.a.' });
+    expect(workbook.Sheets.M.L2).toEqual({ t: 's', v: 'n.a.' });
+    expect(workbook.Sheets.M.I3).toMatchObject({ v: 0, f: 'G3/H3' });
+    expect(workbook.Sheets.empty.I2).toBeUndefined();
+    expect(workbook.Sheets.empty.L2).toMatchObject({ v: 0, f: 'J2/K2' });
+  });
+
+  it('keeps model sheet names valid, unique and within the Excel limit', () => {
+    const workbook = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([['source']]), 'M_A');
+    appendModelSheets(workbook, [
+      { model: 'M/A', rows: [] },
+      { model: 'm:a', rows: [] },
+      { model: 'Long model '.repeat(8), rows: [] },
+      { model: 'Long model '.repeat(8) + '2', rows: [] },
+    ]);
+    expect(workbook.SheetNames.slice(0, 3)).toEqual(['M_A', 'M_A_2', 'm_a_3']);
+    expect(new Set(workbook.SheetNames.map(name => name.toLowerCase())).size).toBe(5);
+    expect(workbook.SheetNames.every(name => name.length <= 31)).toBe(true);
   });
 });

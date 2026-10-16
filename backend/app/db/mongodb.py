@@ -72,6 +72,8 @@ async def create_indexes() -> None:
     # does not run once per dashboard visit or backend restart.
     await mongodb.db.lrr_list_cache.create_index("expiresAt", expireAfterSeconds=0)
     await mongodb.db.lrr_list_cache_locks.create_index("expiresAt", expireAfterSeconds=0)
+    # Derived per-order material totals, shared by RTY and station exports.
+    await mongodb.db.repair_material_usage_cache.create_index("expiresAt", expireAfterSeconds=0)
 
     # The local-data fallback remains supported when no gateway is configured.
     await mongodb.db.order_bom_postings_sap.create_index(

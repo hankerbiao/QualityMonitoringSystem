@@ -116,6 +116,32 @@ async def test_template_retains_raw_repairs_but_deduplicates_machine_counts(monk
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "builder",
+    [
+        rty_export.build_source_export,
+        rty_export.build_template_export,
+    ],
+)
+async def test_integrated_export_passes_selected_orders_and_matched_faults(monkeypatch, builder):
+    source(monkeypatch, [order()], [fault()])
+    integration = AsyncMock(
+        return_value=[
+            {
+                "model": "M",
+                "rows": [{"material": "PN-1*1", "productionQuantity": 12}],
+            }
+        ]
+    )
+    monkeypatch.setattr(rty_export.repair_integration, "build_model_sheets", integration)
+    result = await builder(FILTERS, integrate=True)
+    assert result.modelSheets[0].rows[0]["material"] == "PN-1*1"
+    selected, matched = integration.await_args.args
+    assert [row["AUFNR"] for row in selected] == ["1"]
+    assert matched[0][1] == {("M", "SN-1")}
+
+
+@pytest.mark.asyncio
 async def test_export_applies_order_exclusions_scope_and_date_bounds(monkeypatch):
     loader = source(
         monkeypatch,
@@ -177,7 +203,7 @@ async def test_station_export_returns_only_raw_order_and_fault_columns(monkeypat
 
     result = await rty_export.build_source_export({**FILTERS, "orderScope": "l6"})
 
-    assert set(result.model_dump()) == {"orders", "faults"}
+    assert set(result.model_dump()) == {"orders", "faults", "modelSheets"}
     assert tuple(result.orders[0]) == rty_export.ORDER_FIELDS
     assert tuple(result.faults[0]) == rty_export.FAULT_FIELDS
     assert result.orders[0]["AUFNR"] == "000000000001"
@@ -193,7 +219,7 @@ async def test_station_export_returns_only_raw_order_and_fault_columns(monkeypat
 async def test_station_export_returns_empty_sources_when_no_orders_match(monkeypatch):
     loader = source(monkeypatch, [])
     result = await rty_export.build_source_export(FILTERS)
-    assert result.model_dump() == {"orders": [], "faults": []}
+    assert result.model_dump() == {"orders": [], "faults": [], "modelSheets": []}
     assert loader.await_count == 1
 
 
@@ -282,7 +308,13 @@ async def test_repairs_missing_sn_are_retained_and_counts_remain_unavailable(mon
 async def test_empty_export_does_not_query_faults(monkeypatch):
     loader = source(monkeypatch, [])
     result = await rty_export.build_template_export(FILTERS)
-    assert result.model_dump() == {"summary": [], "orders": [], "faults": [], "topProblems": []}
+    assert result.model_dump() == {
+        "summary": [],
+        "orders": [],
+        "faults": [],
+        "topProblems": [],
+        "modelSheets": [],
+    }
     assert loader.await_count == 1
 
 

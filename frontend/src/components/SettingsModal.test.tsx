@@ -40,12 +40,12 @@ describe('settings pages by role', () => {
   });
   afterEach(() => cleanup());
 
-  it('shows only model targets and email rules to ordinary users and saves only those sections', async () => {
+  it('shows business settings and own password to ordinary users and saves only business settings', async () => {
     const onSaved = vi.fn();
     render(<SettingsModal onClose={vi.fn()} onSaved={onSaved} />);
     const navigation = screen.getByRole('navigation');
     expect(within(navigation).getAllByRole('button').map(button => button.textContent))
-      .toEqual(['机型指标配置', '邮件预警规则']);
+      .toEqual(['机型指标配置', '邮件预警规则', '修改密码']);
     expect(screen.getByText('直通率标准配置')).toBeTruthy();
     fireEvent.change(screen.getByDisplayValue('98'), { target: { value: '99' } });
     fireEvent.click(within(navigation).getByRole('button', { name: '邮件预警规则' }));
@@ -64,7 +64,7 @@ describe('settings pages by role', () => {
     setRole('admin');
     render(<SettingsModal onClose={vi.fn()} onSaved={vi.fn()} />);
     expect(within(screen.getByRole('navigation')).getAllByRole('button').map(button => button.textContent))
-      .toEqual(['影像数据源', '机型指标配置', '邮件预警规则', '看板状态', '用户管理']);
+      .toEqual(['影像数据源', '机型指标配置', '邮件预警规则', '看板状态', '用户管理', '修改密码']);
     fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
     await waitFor(() => expect(updateSettings).toHaveBeenCalledWith({
       processRecords: { username: 'private-source', password: '' },
@@ -103,7 +103,7 @@ describe('settings pages by role', () => {
     });
     render(<SettingsModal onClose={vi.fn()} onSaved={vi.fn()} />);
     expect(screen.getByRole('alert').textContent).toContain('配置读取失败');
-    expect(screen.queryByRole('navigation')).toBeNull();
+    expect(screen.queryByDisplayValue('98')).toBeNull();
     const save = screen.getByRole('button', { name: '保存配置' }) as HTMLButtonElement;
     expect(save.disabled).toBe(true);
     fireEvent.click(save);
@@ -120,8 +120,27 @@ describe('settings pages by role', () => {
     render(<SettingsModal onClose={onClose} onSaved={vi.fn()} />);
     expect(screen.getByRole('status').textContent).toContain('加载配置中');
     expect((screen.getByRole('button', { name: '保存配置' }) as HTMLButtonElement).disabled).toBe(true);
-    expect(screen.queryByRole('navigation')).toBeNull();
+    expect(screen.queryByDisplayValue('98')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '关闭系统配置' }));
     expect(onClose).toHaveBeenCalledOnce();
+  });
+
+  it.each(['user', 'admin'] as const)('opens own password change for %s without the configuration save action', (role) => {
+    setRole(role);
+    render(<SettingsModal onClose={vi.fn()} onSaved={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '修改密码' }));
+    expect(screen.getByLabelText('当前密码', { exact: true })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: '保存配置' })).toBeNull();
+    expect(updateSettings).not.toHaveBeenCalled();
+  });
+
+  it('allows password changes even if business settings fail to load', () => {
+    vi.mocked(useSettings).mockReturnValue({
+      settings, loading: false, updateSettings, error: '配置读取失败', reloadSettings: vi.fn(),
+    });
+    render(<SettingsModal onClose={vi.fn()} onSaved={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: '修改密码' }));
+    expect(screen.getByLabelText('当前密码', { exact: true })).toBeTruthy();
+    expect(screen.queryByText('配置读取失败')).toBeNull();
   });
 });

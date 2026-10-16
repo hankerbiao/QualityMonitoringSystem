@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
-import { Settings, Save, BellRing, Target, X, CheckCircle, Loader2, Camera, Users, PanelsTopLeft, RefreshCw } from 'lucide-react';
+import { Settings, Save, BellRing, Target, X, CheckCircle, Loader2, Camera, Users, PanelsTopLeft, RefreshCw, KeyRound } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
-import { DashboardStatusTab, ModelTargetsTab, EmailAlertTab, ProcessRecordConfigTab, UserManagementTab } from './settings';
+import { ChangePasswordTab, DashboardStatusTab, ModelTargetsTab, EmailAlertTab, ProcessRecordConfigTab, UserManagementTab } from './settings';
 import { useAuth } from '../context/AuthContext';
 import type { ProcessRecordConfig } from '../types';
 import type { HomeModuleStatus } from '../config/homeModules';
@@ -11,7 +11,7 @@ interface SettingsModalProps {
   onSaved: () => void;
 }
 
-type TabKey = 'processRecords' | 'rty' | 'email' | 'dashboardStatuses' | 'users';
+type TabKey = 'processRecords' | 'rty' | 'email' | 'dashboardStatuses' | 'users' | 'password';
 
 const TABS: { key: TabKey; label: string; icon: typeof Save }[] = [
   { key: 'processRecords', label: '影像数据源', icon: Camera },
@@ -19,6 +19,7 @@ const TABS: { key: TabKey; label: string; icon: typeof Save }[] = [
   { key: 'email', label: '邮件预警规则', icon: BellRing },
   { key: 'dashboardStatuses', label: '看板状态', icon: PanelsTopLeft },
   { key: 'users', label: '用户管理', icon: Users },
+  { key: 'password', label: '修改密码', icon: KeyRound },
 ];
 
 export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) {
@@ -34,7 +35,7 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
   const { settings, updateSettings, loading: settingsLoading, error: loadError, reloadSettings } = useSettings();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
-  const visibleTabs = TABS.filter(({ key }) => isAdmin || key === 'rty' || key === 'email');
+  const visibleTabs = TABS.filter(({ key }) => isAdmin || key === 'rty' || key === 'email' || key === 'password');
   const selectedTab = visibleTabs.some(({ key }) => key === activeTab) ? activeTab : visibleTabs[0].key;
 
   const [processRecordConfig, setProcessRecordConfig] = useState<ProcessRecordConfig>({ ...settings.processRecords, password: '' });
@@ -92,14 +93,14 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-            <button
+            {selectedTab !== 'password' && selectedTab !== 'users' && <button
               onClick={handleSave}
               disabled={saving || settingsLoading || !!loadError}
               className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap shadow-sm sm:px-4"
             >
               {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
               {saving ? '保存中...' : '保存配置'}
-            </button>
+            </button>}
             <button
               onClick={onClose}
               aria-label="关闭系统配置"
@@ -111,34 +112,37 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
           </div>
         </header>
 
-        {settingsLoading ? (
-          <div className="flex flex-1 items-center justify-center gap-3 text-slate-500" role="status">
-            <Loader2 className="w-5 h-5 animate-spin" />
-            <span>加载配置中...</span>
-          </div>
-        ) : loadError ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6">
-            <p role="alert" className="text-sm text-red-700">{loadError}</p>
-            <button onClick={reloadSettings} className="flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
-              <RefreshCw className="h-4 w-4" />
-              重新加载
-            </button>
-          </div>
-        ) : (
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white sm:flex-row">
-            <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50 p-2 sm:w-56 sm:flex-col sm:border-b-0 sm:border-r sm:p-3">
-              {visibleTabs.map(({ key, label, icon: Icon }) => (
-                <button
-                  key={key}
-                  onClick={() => setActiveTab(key)}
-                  className={`flex shrink-0 items-center gap-2.5 whitespace-nowrap px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${selectedTab === key ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
-                >
-                  <Icon className={`w-4 h-4 ${selectedTab === key ? 'text-blue-600' : 'text-slate-400'}`} />
-                  {label}
-                </button>
-              ))}
-            </nav>
-
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-white sm:flex-row">
+          <nav className="flex shrink-0 gap-1 overflow-x-auto border-b border-slate-200 bg-slate-50 p-2 sm:w-56 sm:flex-col sm:border-b-0 sm:border-r sm:p-3">
+            {visibleTabs.map(({ key, label, icon: Icon }) => (
+              <button
+                key={key}
+                onClick={() => setActiveTab(key)}
+                className={`flex shrink-0 items-center gap-2.5 whitespace-nowrap px-3 py-2.5 rounded-md text-sm font-medium transition-colors ${selectedTab === key ? 'bg-blue-50 text-blue-700' : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'}`}
+              >
+                <Icon className={`w-4 h-4 ${selectedTab === key ? 'text-blue-600' : 'text-slate-400'}`} />
+                {label}
+              </button>
+            ))}
+          </nav>
+          {selectedTab === 'password' ? (
+            <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
+              <ChangePasswordTab />
+            </div>
+          ) : settingsLoading ? (
+            <div className="flex flex-1 items-center justify-center gap-3 text-slate-500" role="status">
+              <Loader2 className="w-5 h-5 animate-spin" />
+              <span>加载配置中...</span>
+            </div>
+          ) : loadError ? (
+            <div className="flex flex-1 flex-col items-center justify-center gap-4 p-6">
+              <p role="alert" className="text-sm text-red-700">{loadError}</p>
+              <button onClick={reloadSettings} className="flex items-center gap-2 rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50">
+                <RefreshCw className="h-4 w-4" />
+                重新加载
+              </button>
+            </div>
+          ) : (
             <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
               {error && <p role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
               {selectedTab === 'processRecords' && (
@@ -155,8 +159,8 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
               )}
               {selectedTab === 'users' && isAdmin && <UserManagementTab />}
             </div>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {saved && (
