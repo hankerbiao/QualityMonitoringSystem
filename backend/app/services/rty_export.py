@@ -139,7 +139,6 @@ async def _load_orders(
     *,
     product_models: list[str] | None = None,
     bases: list[str] | None = None,
-    order_version: str | None = None,
 ) -> list[dict[str, Any]]:
     if current_base_permissions() == ():
         return []
@@ -148,9 +147,7 @@ async def _load_orders(
         for key, value in filters.items()
         if value and key not in {"orderScope", "calculationMethod"}
     }
-    items = await data_gateway.all_orders(
-        max_rows=MAX_EXPORT_ORDERS, source_version=order_version, **gateway_filters
-    )
+    items = await data_gateway.all_orders(max_rows=MAX_EXPORT_ORDERS, **gateway_filters)
     start = compact_date(validate_date(filters["dateFrom"]))
     end = compact_date(validate_date(filters["dateTo"]))
     selected_models = set(product_models) if product_models else None
@@ -313,16 +310,9 @@ async def _load_sources(
     end = validate_date(filters["dateTo"])
     if start > end:
         raise HTTPException(status_code=422, detail="开始日期不能晚于结束日期")
-    try:
-        version = await data_gateway.export_version()
-    except DataGatewayError:
-        version = None
-    if version is None:
-        return await _load_sources_uncached(filters, product_models=product_models, bases=bases)
     key = (
         current_base_permissions(),
         data_gateway.base_url,
-        tuple(sorted(version.items())),
         tuple(sorted(filters.items())),
         tuple(sorted(set(product_models or []))),
         tuple(sorted(set(bases or []))),
@@ -330,10 +320,8 @@ async def _load_sources(
 
     async def load() -> bytes:
         orders, faults = await _load_sources_uncached(
-            filters, product_models=product_models, bases=bases, order_version=version["orders"]
+            filters, product_models=product_models, bases=bases
         )
-        if await data_gateway.export_version() != version:
-            raise DataGatewayError("导出期间生产数据版本发生变化，请重新导出", retryable=True)
         payload = [orders, [[row, sorted(matches)] for row, matches in faults]]
         return gzip.compress(json.dumps(payload, ensure_ascii=False).encode(), compresslevel=1)
 
@@ -347,15 +335,12 @@ async def _load_sources_uncached(
     *,
     product_models: list[str] | None = None,
     bases: list[str] | None = None,
-    order_version: str | None = None,
 ) -> tuple[list[dict[str, Any]], list[MatchedFault]]:
     start = validate_date(filters["dateFrom"])
     end = validate_date(filters["dateTo"])
     if start > end:
         raise HTTPException(status_code=422, detail="开始日期不能晚于结束日期")
-    orders = await _load_orders(
-        filters, product_models=product_models, bases=bases, order_version=order_version
-    )
+    orders = await _load_orders(filters, product_models=product_models, bases=bases)
     if not orders:
         return [], []
 
@@ -484,33 +469,18 @@ async def build_export_response(
     product_models: list[str] | None = None,
     bases: list[str] | None = None,
 ) -> bytes:
-    """Reuse immutable JSON after validating all source generations and access scope."""
-    try:
-        version = await data_gateway.export_version()
-    except DataGatewayError:
-        version = None
-    bom_version = await repair_integration._bom_version() if version else ""
+    """Reuse immutable export JSON briefly within the same filter and access scope."""
 
     async def load() -> bytes:
         builder = build_template_export if kind == "template" else build_source_export
         data = await builder(filters, product_models=product_models, bases=bases, integrate=True)
-        if version and bom_version:
-            latest, latest_bom = await asyncio.gather(
-                data_gateway.export_version(), repair_integration._bom_version()
-            )
-            if latest != version or latest_bom != bom_version:
-                raise DataGatewayError("导出期间数据版本发生变化，请重新导出", retryable=True)
         return Response(success=True, data=data).model_dump_json().encode()
 
-    if not version or not bom_version:
-        return await load()
     key = (
-        "export-response-v1",
+        "export-response-v2",
         kind,
         current_base_permissions(),
         data_gateway.base_url,
-        tuple(sorted(version.items())),
-        bom_version,
         tuple(sorted(filters.items())),
         tuple(sorted(set(product_models or []))),
         tuple(sorted(set(bases or []))),

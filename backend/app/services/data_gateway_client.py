@@ -397,7 +397,7 @@ class DataGatewayClient:
         """Read complete export fields; None means the gateway predates this API."""
         if not self.enabled:
             return None
-        if resource not in {"orders", "faults", "bindings"}:
+        if resource not in {"orders", "faults", "bindings", "bom"}:
             raise ValueError("Unknown export resource")
         values = list(dict.fromkeys(keys))
         rows = []
@@ -419,7 +419,7 @@ class DataGatewayClient:
                     if left is None or right is None:
                         return None
                     items = left + right
-                elif resource != "orders":
+                elif resource in {"faults", "bindings"}:
                     path, field = (
                         ("/api/faults", "productionOrders")
                         if resource == "faults"

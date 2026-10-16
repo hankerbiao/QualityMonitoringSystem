@@ -601,13 +601,12 @@ async def test_bulk_order_export_aborts_when_a_source_id_is_missing(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_export_cache_reuses_sources_invalidates_on_sync_and_isolates_filters(monkeypatch):
+async def test_export_cache_reuses_sources_without_sync_checks_and_isolates_filters(monkeypatch):
     source(monkeypatch, [])
-    version = {"orders": "v1", "faults": "v1", "bindings": "v1"}
     monkeypatch.setattr(
         rty_export.data_gateway,
         "export_version",
-        AsyncMock(side_effect=lambda: dict(version)),
+        AsyncMock(side_effect=AssertionError("export must not read sync status")),
         raising=False,
     )
     load = AsyncMock(
@@ -626,50 +625,13 @@ async def test_export_cache_reuses_sources_invalidates_on_sync_and_isolates_filt
     first.orders[0]["POSNR"] = "mutated"
     assert (await rty_export.build_source_export(FILTERS)).orders[0]["POSNR"] is None
     assert load.await_count == 1
-    version["faults"] = "v2"
-    await rty_export.build_source_export(FILTERS)
-    assert load.await_count == 2
     await rty_export.build_source_export({**FILTERS, "orderScope": "l6"})
     await rty_export.build_source_export(FILTERS, product_models=["Other"])
-    assert load.await_count == 4
+    assert load.await_count == 3
 
 
 @pytest.mark.asyncio
-async def test_export_bypasses_cache_when_source_version_is_unavailable(monkeypatch):
-    monkeypatch.setattr(
-        rty_export.data_gateway,
-        "export_version",
-        AsyncMock(side_effect=DataGatewayError("version offline")),
-    )
-    load = AsyncMock(return_value=([], []))
-    monkeypatch.setattr(rty_export, "_load_sources_uncached", load)
-    await rty_export.build_source_export(FILTERS)
-    await rty_export.build_source_export(FILTERS)
-    assert load.await_count == 2
-
-
-@pytest.mark.asyncio
-async def test_export_rejects_changed_source_version_and_does_not_cache_it(monkeypatch):
-    version = {"orders": "v1", "faults": "v1", "bindings": "v1"}
-    monkeypatch.setattr(
-        rty_export.data_gateway, "export_version", AsyncMock(side_effect=lambda: dict(version))
-    )
-
-    async def load(*_args, **kwargs):
-        assert kwargs["order_version"] == version["orders"]
-        version["orders"] = "v2"
-        return [], []
-
-    loader = AsyncMock(side_effect=load)
-    monkeypatch.setattr(rty_export, "_load_sources_uncached", loader)
-    with pytest.raises(DataGatewayError, match="版本"):
-        await rty_export._load_sources(FILTERS)
-    await rty_export._load_sources(FILTERS)
-    assert loader.await_count == 2
-
-
-@pytest.mark.asyncio
-async def test_new_export_generation_does_not_reuse_unversioned_order_list(monkeypatch):
+async def test_export_reuses_order_list_without_sync_generation(monkeypatch):
     orders = [order("1"), order("2")]
     source(monkeypatch, orders)
     client = DataGatewayClient("http://gateway.test")
@@ -686,24 +648,28 @@ async def test_new_export_generation_does_not_reuse_unversioned_order_list(monke
     monkeypatch.setattr(
         rty_export.data_gateway,
         "export_version",
-        AsyncMock(return_value={"orders": "v2", "faults": "v2", "bindings": "v2"}),
+        AsyncMock(side_effect=AssertionError("export must not read sync status")),
+        raising=False,
     )
-    assert len((await rty_export.build_source_export(FILTERS)).orders) == 2
-    assert len((await rty_export.build_source_export(FILTERS)).orders) == 2
-    assert client.all_pages.await_count == 2
+    assert len((await rty_export.build_source_export(FILTERS)).orders) == 1
+    assert len((await rty_export.build_source_export(FILTERS)).orders) == 1
+    assert client.all_pages.await_count == 1
 
 
 @pytest.mark.asyncio
-async def test_final_export_cache_reuses_json_and_isolates_versions_permissions_and_filters(
+async def test_final_export_cache_skips_sync_checks_and_isolates_permissions_and_filters(
     monkeypatch,
 ):
-    version = {"orders": "1", "faults": "1", "bindings": "1"}
-    bom = ["bom1"]
     monkeypatch.setattr(
-        rty_export.data_gateway, "export_version", AsyncMock(side_effect=lambda: dict(version))
+        rty_export.data_gateway,
+        "export_version",
+        AsyncMock(side_effect=AssertionError("export must not read sync status")),
+        raising=False,
     )
     monkeypatch.setattr(
-        rty_export.repair_integration, "_bom_version", AsyncMock(side_effect=lambda: bom[0])
+        rty_export.repair_integration.data_gateway,
+        "data_status",
+        AsyncMock(side_effect=AssertionError("export must not read BOM sync status")),
     )
     source_builder = AsyncMock(return_value=StationPassExport(orders=[{"AUFNR": "1"}]))
     template_builder = AsyncMock(return_value=RTYTemplateExport())
@@ -716,61 +682,27 @@ async def test_final_export_cache_reuses_json_and_isolates_versions_permissions_
     assert first is second
     assert json.loads(first)["data"]["orders"] == [{"AUFNR": "1"}]
     assert source_builder.await_count == 1
-    version["faults"] = "2"
-    await rty_export.build_export_response("source", FILTERS, product_models=["A", "B"])
-    bom[0] = "bom2"
-    await rty_export.build_export_response("source", FILTERS, product_models=["A", "B"])
     with base_access_scope(["1000"]):
         await rty_export.build_export_response("source", FILTERS, product_models=["A", "B"])
     await rty_export.build_export_response("source", {**FILTERS, "customer": "C"})
     await rty_export.build_export_response("source", FILTERS, bases=["3000"])
     await rty_export.build_export_response("template", FILTERS)
-    assert source_builder.await_count == 6
+    assert source_builder.await_count == 4
     assert template_builder.await_count == 1
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("changed", ["orders", "bom", "offline", "failure"])
-async def test_final_export_cache_never_publishes_failed_or_mixed_snapshots(monkeypatch, changed):
-    version = {"orders": "1", "faults": "1", "bindings": "1"}
-    bom = ["bom1"]
-    monkeypatch.setattr(
-        rty_export.data_gateway, "export_version", AsyncMock(side_effect=lambda: dict(version))
-    )
-    monkeypatch.setattr(
-        rty_export.repair_integration, "_bom_version", AsyncMock(side_effect=lambda: bom[0])
-    )
-
-    async def build(*_args, **_kwargs):
-        if changed == "failure":
-            raise DataGatewayError("offline")
-        if changed == "orders":
-            version["orders"] = "2"
-        else:
-            bom[0] = "bom2" if changed == "bom" else ""
-        return StationPassExport()
-
-    builder = AsyncMock(side_effect=build)
-    monkeypatch.setattr(rty_export, "build_source_export", builder)
-    with pytest.raises(DataGatewayError):
-        await rty_export.build_export_response("source", FILTERS)
-    builder.side_effect = None
-    builder.return_value = StationPassExport()
-    await rty_export.build_export_response("source", FILTERS)
-    assert builder.await_count == 2
-
-
-@pytest.mark.asyncio
-async def test_final_export_cache_bypasses_unversioned_bom(monkeypatch):
+async def test_final_export_cache_does_not_cache_failed_response(monkeypatch):
     monkeypatch.setattr(
         rty_export.data_gateway,
         "export_version",
-        AsyncMock(return_value={"orders": "1", "faults": "1", "bindings": "1"}),
+        AsyncMock(side_effect=AssertionError("export must not read sync status")),
+        raising=False,
     )
-    monkeypatch.setattr(rty_export.repair_integration, "_bom_version", AsyncMock(return_value=""))
-    builder = AsyncMock(return_value=StationPassExport())
+    builder = AsyncMock(side_effect=[DataGatewayError("offline"), StationPassExport()])
     monkeypatch.setattr(rty_export, "build_source_export", builder)
-    await rty_export.build_export_response("source", FILTERS)
+    with pytest.raises(DataGatewayError):
+        await rty_export.build_export_response("source", FILTERS)
     await rty_export.build_export_response("source", FILTERS)
     assert builder.await_count == 2
 

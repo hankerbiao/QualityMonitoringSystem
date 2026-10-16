@@ -1,4 +1,4 @@
-"""Repair export aggregation and shared, versioned per-order material usage."""
+"""Repair export aggregation and shared per-order material usage."""
 
 from __future__ import annotations
 
@@ -28,10 +28,7 @@ MATERIAL_CONCURRENCY = 16
 MAX_ORDER_POSTINGS = 250_000
 MAX_EXPORT_POSTINGS = 1_000_000
 MATERIAL_CACHE_SECONDS = 24 * 60 * 60
-UNVERSIONED_CACHE_SECONDS = 10
-_ORDER_CACHE = AsyncTTLCache(max_entries=2048)
-_source_loop: asyncio.AbstractEventLoop | None = None
-_source_semaphore: asyncio.Semaphore | None = None
+_ORDER_CACHE = AsyncTTLCache(max_entries=8)
 MATERIAL_CACHE_COLLECTION = "repair_material_usage_cache"
 MatchedFault = tuple[dict[str, Any], set[tuple[str, str]]]
 
@@ -89,19 +86,13 @@ class _CachedUsage(BaseModel):
     row_count: int = Field(ge=0, le=MAX_ORDER_POSTINGS)
 
 
-def _cache_id(order: str, version: str) -> str:
-    return hashlib.sha256(
-        json.dumps(["v1", data_gateway.base_url, version, order]).encode()
-    ).hexdigest()
+def _cache_id(order: str) -> str:
+    return hashlib.sha256(json.dumps(["v2", data_gateway.base_url, order]).encode()).hexdigest()
 
 
-async def _persistent_usage(order: str, version: str) -> OrderUsage | None:
-    if not version:
-        return None
+async def _persistent_usage(order: str) -> OrderUsage | None:
     try:
-        doc = await get_database()[MATERIAL_CACHE_COLLECTION].find_one(
-            {"_id": _cache_id(order, version)}
-        )
+        doc = await get_database()[MATERIAL_CACHE_COLLECTION].find_one({"_id": _cache_id(order)})
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         if not doc or not isinstance(doc.get("expiresAt"), datetime) or doc["expiresAt"] <= now:
             return None
@@ -129,9 +120,7 @@ async def _persistent_usage(order: str, version: str) -> OrderUsage | None:
         return None
 
 
-async def _store_usage(order: str, version: str, usage: OrderUsage) -> None:
-    if not version:
-        return
+async def _store_usage(order: str, usage: OrderUsage) -> None:
     payload = {
         "quantities": {key: str(value) for key, value in usage.quantities.items()},
         "descriptions": usage.descriptions,
@@ -141,7 +130,7 @@ async def _store_usage(order: str, version: str, usage: OrderUsage) -> None:
     try:
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         await get_database()[MATERIAL_CACHE_COLLECTION].update_one(
-            {"_id": _cache_id(order, version)},
+            {"_id": _cache_id(order)},
             {
                 "$set": {
                     "payload": gzip.compress(json.dumps(payload, ensure_ascii=False).encode()),
@@ -154,13 +143,17 @@ async def _store_usage(order: str, version: str, usage: OrderUsage) -> None:
         log_info("Repair export material cache unavailable; gateway result retained")
 
 
+def _posting_source(item: dict[str, Any]) -> dict[str, Any]:
+    raw = item.get("raw")
+    raw = raw if isinstance(raw, dict) else item
+    return raw["data"] if isinstance(raw.get("data"), dict) else raw
+
+
 def aggregate_postings(order: str, items: list[dict[str, Any]]) -> OrderUsage:
     result = OrderUsage()
     seen: dict[str, tuple[Any, ...]] = {}
     for item in items:
-        raw = item.get("raw")
-        raw = raw if isinstance(raw, dict) else item
-        raw = raw["data"] if isinstance(raw.get("data"), dict) else raw
+        raw = _posting_source(item)
         if identifier(raw.get("AUFNR_1")) != order:
             continue
         material = identifier(raw.get("MATNR"))
@@ -185,87 +178,59 @@ def aggregate_postings(order: str, items: list[dict[str, Any]]) -> OrderUsage:
     return result
 
 
-async def _bom_version() -> str:
-    try:
-        status = await data_gateway.data_status()
-    except DataGatewayError:
-        return ""
-    if not isinstance(status, dict):
-        return ""
-    # During a synchronization, the previous completion watermark is not a snapshot.
-    started, finished = text(status.get("startedAt")), text(status.get("finishedAt"))
-    if started and (not finished or started > finished):
-        return ""
-    return text(status.get("bomPostingsLastSyncedAt"))
-
-
-def _source_slots() -> asyncio.Semaphore:
-    global _source_loop, _source_semaphore
-    loop = asyncio.get_running_loop()
-    if _source_loop is not loop:
-        _source_loop = loop
-        _source_semaphore = asyncio.Semaphore(MATERIAL_CONCURRENCY)
-    assert _source_semaphore is not None
-    return _source_semaphore
-
-
 async def load_order_usage(orders: list[str]) -> dict[str, OrderUsage]:
-    """Cache only compact aggregates; all users share the same bounded source reads."""
+    """Load cached aggregates and fetch missing orders with one indexed BOM query."""
     if not orders:
         return {}
-    started = perf_counter()
-    version = await _bom_version()
-    ttl = MATERIAL_CACHE_SECONDS if version else UNVERSIONED_CACHE_SECONDS
-    fetched = 0
-
-    async def read_order(order: str) -> OrderUsage:
-        async def load() -> OrderUsage:
-            nonlocal fetched
-            cached = await _persistent_usage(order, version)
-            if cached is not None:
-                return cached
-            async with _source_slots():
-                # Deployed gateways can ignore exact view filters. Recall by keyword
-                # and enforce exact ownership before summing any posting.
-                items = await data_gateway.all_pages(
-                    "GET",
-                    "/api/views/ZSGV_ZSD124",
-                    filters={"keyword": order},
-                    max_rows=MAX_ORDER_POSTINGS,
-                )
-                result = aggregate_postings(order, items)
-                fetched += 1
-                await _store_usage(order, version, result)
-                return result
-
-        return await _ORDER_CACHE.get_or_set(
-            (data_gateway.base_url, version, order), load, ttl_seconds=ttl
-        )
-
     values = sorted(set(orders))
-    results: dict[str, OrderUsage] = {}
-    total = 0
-    # Bound waiting tasks as well as active HTTP queries.
-    for index in range(0, len(values), MATERIAL_CONCURRENCY):
-        window = values[index : index + MATERIAL_CONCURRENCY]
-        batches = await asyncio.gather(
-            *(read_order(order) for order in window), return_exceptions=True
+
+    async def load() -> dict[str, OrderUsage]:
+        started = perf_counter()
+        results: dict[str, OrderUsage] = {}
+        missing = []
+        for index in range(0, len(values), MATERIAL_CONCURRENCY):
+            window = values[index : index + MATERIAL_CONCURRENCY]
+            cached = await asyncio.gather(*(_persistent_usage(order) for order in window))
+            for order, usage in zip(window, cached, strict=True):
+                if usage is None:
+                    missing.append(order)
+                else:
+                    results[order] = usage
+
+        if missing:
+            items = await data_gateway.export_rows("bom", missing, max_rows=MAX_EXPORT_POSTINGS)
+            if items is None:
+                raise DataGatewayError("生产数据源不支持 BOM 批量导出")
+
+            missing_set = set(missing)
+            postings: dict[str, list[dict[str, Any]]] = defaultdict(list)
+            for item in items:
+                order = identifier(_posting_source(item).get("AUFNR_1"))
+                if order not in missing_set:
+                    raise DataGatewayError(f"BOM 批量查询返回未请求的生产订单 {order}")
+                postings[order].append(item)
+
+            for order in missing:
+                results[order] = aggregate_postings(order, postings.get(order, []))
+
+        total = sum(usage.row_count for usage in results.values())
+        if total > MAX_EXPORT_POSTINGS:
+            raise DataGatewayError("发料记录超过导出上限，请缩小筛选范围")
+
+        for index in range(0, len(missing), MATERIAL_CONCURRENCY):
+            window = missing[index : index + MATERIAL_CONCURRENCY]
+            await asyncio.gather(*(_store_usage(order, results[order]) for order in window))
+
+        log_info(
+            f"Repair export materials orders={len(values)} fetched={len(missing)} "
+            f"cached={len(values) - len(missing)} postings={total} "
+            f"elapsed_ms={(perf_counter() - started) * 1000:.1f}"
         )
-        for order, batch in zip(window, batches, strict=True):
-            if isinstance(batch, BaseException):
-                raise batch
-            total += batch.row_count
-            if total > MAX_EXPORT_POSTINGS:
-                raise DataGatewayError("发料记录超过导出上限，请缩小筛选范围")
-            results[order] = batch
-    if version and await _bom_version() != version:
-        raise DataGatewayError("导出期间发料同步版本发生变化，请重新导出")
-    log_info(
-        f"Repair export materials orders={len(values)} fetched={fetched} "
-        f"cached={len(values) - fetched} postings={total} "
-        f"elapsed_ms={(perf_counter() - started) * 1000:.1f}"
+        return results
+
+    return await _ORDER_CACHE.get_or_set(
+        (data_gateway.base_url, tuple(values)), load, ttl_seconds=MATERIAL_CACHE_SECONDS
     )
-    return results
 
 
 @dataclass

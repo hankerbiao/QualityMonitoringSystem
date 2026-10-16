@@ -49,6 +49,42 @@ async def test_export_rows_splits_oversized_batches_and_retains_every_repair():
 
 
 @pytest.mark.asyncio
+async def test_bom_export_rows_splits_batches_and_never_falls_back_to_paginated_views():
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json
+
+        body = json.loads(request.read())
+        assert body["resource"] == "bom"
+        if body["keys"] == ["TOO-LARGE"]:
+            return httpx.Response(413, json={"error": "single BOM limit"})
+        if len(body["keys"]) > 1:
+            return httpx.Response(413, json={"error": "split batch"})
+        order = body["keys"][0]
+        return httpx.Response(
+            200,
+            json={
+                "items": [{"_id": f"bom-{order}", "AUFNR_1": order}],
+                "total": 1,
+                "complete": True,
+            },
+        )
+
+    client = DataGatewayClient("http://gateway.test")
+    client._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url=client.base_url
+    )
+    client.all_pages = AsyncMock()
+    try:
+        rows = await client.export_rows("bom", ["1", "2"])
+        assert [row["AUFNR_1"] for row in rows] == ["1", "2"]
+        with pytest.raises(DataGatewayError, match="single BOM limit"):
+            await client.export_rows("bom", ["TOO-LARGE"])
+        client.all_pages.assert_not_awaited()
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "payload",
     [

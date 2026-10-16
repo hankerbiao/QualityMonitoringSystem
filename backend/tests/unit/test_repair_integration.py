@@ -37,7 +37,7 @@ def fault(**extra):
 
 @pytest.fixture(autouse=True)
 def isolated_cache(monkeypatch):
-    monkeypatch.setattr(repair, "_ORDER_CACHE", AsyncTTLCache(max_entries=2048))
+    monkeypatch.setattr(repair, "_ORDER_CACHE", AsyncTTLCache(max_entries=8))
     database = MockMotorClient()["repair_test"]
     monkeypatch.setattr(repair, "get_database", lambda: database)
     monkeypatch.setattr(
@@ -45,7 +45,7 @@ def isolated_cache(monkeypatch):
         "data_status",
         AsyncMock(return_value={"bomPostingsLastSyncedAt": "v1"}),
     )
-    monkeypatch.setattr(repair.data_gateway, "all_pages", AsyncMock(return_value=[]))
+    monkeypatch.setattr(repair.data_gateway, "export_rows", AsyncMock(return_value=[]))
     return database
 
 
@@ -86,6 +86,32 @@ def test_conflicting_duplicate_posting_aborts():
 
 
 @pytest.mark.asyncio
+async def test_order_usage_fetches_all_bom_orders_in_one_batch(monkeypatch):
+    loader = AsyncMock(
+        return_value=[
+            posting(order="1"),
+            posting(order="2", material="PN-2", identity="P2"),
+        ]
+    )
+    monkeypatch.setattr(repair.data_gateway, "export_rows", loader)
+
+    usages = await repair.load_order_usage(["2", "1", "1"])
+
+    assert usages["1"].quantities == {"PN": Decimal(10)}
+    assert usages["2"].quantities == {"PN-2": Decimal(10)}
+    loader.assert_awaited_once_with("bom", ["1", "2"], max_rows=repair.MAX_EXPORT_POSTINGS)
+
+
+@pytest.mark.asyncio
+async def test_order_usage_rejects_rows_for_unrequested_orders(monkeypatch):
+    monkeypatch.setattr(
+        repair.data_gateway, "export_rows", AsyncMock(return_value=[posting(order="3")])
+    )
+    with pytest.raises(DataGatewayError, match="未请求"):
+        await repair.load_order_usage(["1"])
+
+
+@pytest.mark.asyncio
 async def test_grouping_counts_repairs_not_sns_and_never_uses_repair_dates(monkeypatch):
     rows = [
         (fault(ZNGWD3="first", ZDATE_WX="20200101"), {("M", "S1")}),
@@ -95,7 +121,7 @@ async def test_grouping_counts_repairs_not_sns_and_never_uses_repair_dates(monke
     ]
     monkeypatch.setattr(
         repair.data_gateway,
-        "all_pages",
+        "export_rows",
         AsyncMock(
             return_value=[
                 posting(VBELN_EX="SO"),
@@ -122,8 +148,9 @@ async def test_grouping_counts_repairs_not_sns_and_never_uses_repair_dates(monke
     assert by_model["no-repair"][0]["materialCount"] == 0
     assert by_model["no-repair"][0]["productionQuantity"] == 8
     assert by_model["no-repair"][0]["machineFaultRate"] == 0
-    for call in repair.data_gateway.all_pages.await_args_list:
-        assert set(call.kwargs["filters"]) == {"keyword"}
+    repair.data_gateway.export_rows.assert_awaited_once_with(
+        "bom", ["1", "2"], max_rows=repair.MAX_EXPORT_POSTINGS
+    )
 
 
 @pytest.mark.asyncio
@@ -139,15 +166,15 @@ async def test_missing_material_sn_and_quantities_remain_explicit():
     assert row["productionQuantity"] == "缺少整机数量"
     assert row["componentFaultRate"] is None
     assert row["machineFaultRate"] is None
-    repair.data_gateway.all_pages.assert_not_awaited()
+    repair.data_gateway.export_rows.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 async def test_no_postings_for_one_order_invalidates_model_material_denominator(monkeypatch):
-    async def load(*args, filters, **kwargs):
-        return [posting()] if filters["keyword"] == "1" else []
+    async def load(resource, keys, **kwargs):
+        return [posting()] if "1" in keys else []
 
-    monkeypatch.setattr(repair.data_gateway, "all_pages", AsyncMock(side_effect=load))
+    monkeypatch.setattr(repair.data_gateway, "export_rows", AsyncMock(side_effect=load))
     sheets = await repair.build_model_sheets([order(), order("2")], [(fault(), {("M", "S1")})])
     assert sheets[0].rows[0]["materialUsage"] == "发料记录不完整"
     assert sheets[0].rows[0]["componentFaultRate"] is None
@@ -155,7 +182,7 @@ async def test_no_postings_for_one_order_invalidates_model_material_denominator(
 
 @pytest.mark.asyncio
 async def test_composite_repairs_count_once_and_use_bound_head_sns(monkeypatch):
-    monkeypatch.setattr(repair.data_gateway, "all_pages", AsyncMock(return_value=[posting()]))
+    monkeypatch.setattr(repair.data_gateway, "export_rows", AsyncMock(return_value=[posting()]))
     sheets = await repair.build_model_sheets(
         [order()],
         [
@@ -168,100 +195,65 @@ async def test_composite_repairs_count_once_and_use_bound_head_sns(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_shared_cache_survives_memory_reset_and_sync_invalidates_it(monkeypatch):
-    version = {"bomPostingsLastSyncedAt": "v1"}
+async def test_shared_cache_survives_memory_reset_without_sync_status(monkeypatch):
     monkeypatch.setattr(
-        repair.data_gateway, "data_status", AsyncMock(side_effect=lambda: version.copy())
+        repair.data_gateway,
+        "data_status",
+        AsyncMock(side_effect=AssertionError("material cache must not read sync status")),
     )
     loader = AsyncMock(return_value=[posting()])
-    monkeypatch.setattr(repair.data_gateway, "all_pages", loader)
+    monkeypatch.setattr(repair.data_gateway, "export_rows", loader)
     first, second = await asyncio.gather(
         repair.load_order_usage(["1"]), repair.load_order_usage(["1"])
     )
     assert first["1"].quantities == second["1"].quantities == {"PN": Decimal(10)}
     assert loader.await_count == 1
     first["1"].quantities["PN"] = Decimal(999)
-    monkeypatch.setattr(repair, "_ORDER_CACHE", AsyncTTLCache(max_entries=2048))
+    monkeypatch.setattr(repair, "_ORDER_CACHE", AsyncTTLCache(max_entries=8))
     assert (await repair.load_order_usage(["1"]))["1"].quantities == {"PN": Decimal(10)}
     assert loader.await_count == 1
-    version["bomPostingsLastSyncedAt"] = "v2"
-    await repair.load_order_usage(["1"])
-    assert loader.await_count == 2
 
 
 @pytest.mark.asyncio
-async def test_overlapping_exports_reuse_orders_and_keep_global_concurrency_bounded(monkeypatch):
-    active = peak = 0
-    counts = {}
+async def test_concurrent_identical_exports_share_one_bom_query(monkeypatch):
+    async def load(resource, keys, **kwargs):
+        await asyncio.sleep(0.001)
+        return [posting(order=value, identity=f"P{value}") for value in keys]
 
-    async def load(*args, filters, **kwargs):
-        nonlocal active, peak
-        value = filters["keyword"]
-        counts[value] = counts.get(value, 0) + 1
-        active += 1
-        peak = max(peak, active)
-        try:
-            await asyncio.sleep(0.001)
-            return [posting(order=value)]
-        finally:
-            active -= 1
-
-    monkeypatch.setattr(repair.data_gateway, "all_pages", AsyncMock(side_effect=load))
+    loader = AsyncMock(side_effect=load)
+    monkeypatch.setattr(repair.data_gateway, "export_rows", loader)
+    orders = [str(i) for i in range(1, 25)]
     await asyncio.gather(
-        repair.load_order_usage([str(i) for i in range(1, 25)]),
-        repair.load_order_usage([str(i) for i in range(12, 35)]),
+        repair.load_order_usage(orders),
+        repair.load_order_usage(orders),
     )
-    assert 1 < peak <= repair.MATERIAL_CONCURRENCY
-    assert set(counts) == {str(i) for i in range(1, 35)}
-    assert set(counts.values()) == {1}
+    loader.assert_awaited_once_with("bom", sorted(orders), max_rows=repair.MAX_EXPORT_POSTINGS)
 
 
 @pytest.mark.asyncio
 async def test_failure_is_not_cached_and_started_reads_finish_before_return(monkeypatch):
-    active = 0
-    fail = True
-
-    async def load(*args, filters, **kwargs):
-        nonlocal active
-        active += 1
-        try:
-            await asyncio.sleep(0)
-            if fail and filters["keyword"] == "1":
-                raise DataGatewayError("failed")
-            return [posting(order=filters["keyword"])]
-        finally:
-            active -= 1
-
-    loader = AsyncMock(side_effect=load)
-    monkeypatch.setattr(repair.data_gateway, "all_pages", loader)
+    loader = AsyncMock(side_effect=[DataGatewayError("failed"), [posting(), posting(order="2")]])
+    monkeypatch.setattr(repair.data_gateway, "export_rows", loader)
     with pytest.raises(DataGatewayError, match="failed"):
         await repair.load_order_usage(["1", "2"])
-    assert active == 0
-    fail = False
     await repair.load_order_usage(["1", "2"])
-    assert loader.await_count == 3
+    assert loader.await_count == 2
 
 
 @pytest.mark.asyncio
-async def test_sync_change_during_fetch_aborts_export(monkeypatch):
+async def test_material_export_does_not_check_sync_status(monkeypatch):
     monkeypatch.setattr(
         repair.data_gateway,
         "data_status",
-        AsyncMock(
-            side_effect=[
-                {"bomPostingsLastSyncedAt": "v1"},
-                {"bomPostingsLastSyncedAt": "v2"},
-            ]
-        ),
+        AsyncMock(side_effect=AssertionError("material export must not read sync status")),
     )
-    monkeypatch.setattr(repair.data_gateway, "all_pages", AsyncMock(return_value=[posting()]))
-    with pytest.raises(DataGatewayError, match="版本发生变化"):
-        await repair.load_order_usage(["1"])
+    monkeypatch.setattr(repair.data_gateway, "export_rows", AsyncMock(return_value=[posting()]))
+    assert (await repair.load_order_usage(["1"]))["1"].quantities == {"PN": Decimal(10)}
 
 
 @pytest.mark.asyncio
 async def test_duplicate_orders_count_production_once_and_conflicts_abort(monkeypatch):
-    monkeypatch.setattr(repair.data_gateway, "all_pages", AsyncMock(return_value=[posting()]))
+    monkeypatch.setattr(repair.data_gateway, "export_rows", AsyncMock(return_value=[posting()]))
     sheets = await repair.build_model_sheets([order(), order("00001")], [(fault(), {("M", "S")})])
     assert sheets[0].rows[0]["productionQuantity"] == 20
     with pytest.raises(DataGatewayError, match="冲突"):
@@ -269,26 +261,19 @@ async def test_duplicate_orders_count_production_once_and_conflicts_abort(monkey
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "status",
-    [
-        {},
-        {"bomPostingsLastSyncedAt": "v1", "startedAt": "2026-10-16T02:00:00Z"},
-        {
-            "bomPostingsLastSyncedAt": "v1",
-            "startedAt": "2026-10-16T02:00:00Z",
-            "finishedAt": "2026-10-16T01:00:00Z",
-        },
-    ],
-)
-async def test_unversioned_reads_skip_persistent_cache(monkeypatch, status):
-    monkeypatch.setattr(repair.data_gateway, "data_status", AsyncMock(return_value=status))
-    monkeypatch.setattr(repair, "get_database", lambda: pytest.fail("unexpected persistent cache"))
+async def test_material_cache_is_persisted_without_sync_version(monkeypatch, isolated_cache):
+    monkeypatch.setattr(
+        repair.data_gateway,
+        "data_status",
+        AsyncMock(side_effect=AssertionError("material cache must not read sync status")),
+    )
     loader = AsyncMock(return_value=[posting()])
-    monkeypatch.setattr(repair.data_gateway, "all_pages", loader)
+    monkeypatch.setattr(repair.data_gateway, "export_rows", loader)
     assert (await repair.load_order_usage(["1"]))["1"].quantities == {"PN": Decimal(10)}
+    monkeypatch.setattr(repair, "_ORDER_CACHE", AsyncTTLCache(max_entries=8))
     await repair.load_order_usage(["1"])
     loader.assert_awaited_once()
+    assert await isolated_cache[repair.MATERIAL_CACHE_COLLECTION].count_documents({}) == 1
 
 
 @pytest.mark.asyncio
@@ -302,7 +287,7 @@ async def test_unversioned_reads_skip_persistent_cache(monkeypatch, status):
 )
 async def test_corrupt_persistent_cache_falls_back_to_gateway(monkeypatch, isolated_cache, payload):
     await isolated_cache[repair.MATERIAL_CACHE_COLLECTION].update_one(
-        {"_id": repair._cache_id("1", "v1")},
+        {"_id": repair._cache_id("1")},
         {
             "$set": {
                 "expiresAt": datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=1),
@@ -312,7 +297,7 @@ async def test_corrupt_persistent_cache_falls_back_to_gateway(monkeypatch, isola
         upsert=True,
     )
     loader = AsyncMock(return_value=[posting()])
-    monkeypatch.setattr(repair.data_gateway, "all_pages", loader)
+    monkeypatch.setattr(repair.data_gateway, "export_rows", loader)
     assert (await repair.load_order_usage(["1"]))["1"].quantities == {"PN": Decimal(10)}
     loader.assert_awaited_once()
 
@@ -323,14 +308,14 @@ async def test_persistent_cache_outage_does_not_prevent_export(monkeypatch):
         raise PyMongoError("cache unavailable")
 
     monkeypatch.setattr(repair, "get_database", unavailable)
-    monkeypatch.setattr(repair.data_gateway, "all_pages", AsyncMock(return_value=[posting()]))
+    monkeypatch.setattr(repair.data_gateway, "export_rows", AsyncMock(return_value=[posting()]))
     assert (await repair.load_order_usage(["1"]))["1"].quantities == {"PN": Decimal(10)}
 
 
 @pytest.mark.asyncio
 async def test_truncated_compressed_cache_falls_back_to_gateway(monkeypatch, isolated_cache):
     await isolated_cache[repair.MATERIAL_CACHE_COLLECTION].update_one(
-        {"_id": repair._cache_id("1", "v1")},
+        {"_id": repair._cache_id("1")},
         {
             "$set": {
                 "expiresAt": datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=1),
@@ -340,6 +325,6 @@ async def test_truncated_compressed_cache_falls_back_to_gateway(monkeypatch, iso
         upsert=True,
     )
     loader = AsyncMock(return_value=[posting()])
-    monkeypatch.setattr(repair.data_gateway, "all_pages", loader)
+    monkeypatch.setattr(repair.data_gateway, "export_rows", loader)
     assert (await repair.load_order_usage(["1"]))["1"].quantities == {"PN": Decimal(10)}
     loader.assert_awaited_once()
