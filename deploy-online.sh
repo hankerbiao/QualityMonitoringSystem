@@ -26,12 +26,7 @@ info "Pushing branch ${branch} to origin"
 deploy_commit="$(git rev-parse HEAD)"
 git push origin "$deploy_commit:refs/heads/$branch"
 
-if [[ -z "${DEPLOY_SSH_PASSWORD:-}" ]]; then
-  read -r -s -p "SSH password for ${REMOTE_USER}@${REMOTE_HOST}: " DEPLOY_SSH_PASSWORD
-  printf '\n'
-fi
-[[ -n "${DEPLOY_SSH_PASSWORD:-}" ]] || fail "SSH password is required"
-export SSHPASS="$DEPLOY_SSH_PASSWORD"
+export SSHPASS="${DEPLOY_SSH_PASSWORD:-test123}"
 unset DEPLOY_SSH_PASSWORD
 
 printf -v remote_command 'APP_DIR=%q HTTP_PROXY_URL=%q SOCKS_PROXY_URL=%q DEPLOY_BRANCH=%q DEPLOY_COMMIT=%q bash -s' \
