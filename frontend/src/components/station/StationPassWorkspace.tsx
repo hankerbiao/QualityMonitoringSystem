@@ -150,9 +150,6 @@ export function StationQueryLaunch({
           <p className="mt-1 text-xs leading-5 text-slate-500">
             统计周期：2026-01-01 至 2026-12-31，按订单计划开始时间（GSTRS）归属年度。
           </p>
-          <p className="text-xs leading-5 text-slate-500">
-            订单实际开始时间（ZDATE_STARTED）不参与本项周期统计；年度产量不随查询日期变化。
-          </p>
         </div>
         <div className="flex flex-wrap gap-1">
           {datePresets.map((preset) => {
