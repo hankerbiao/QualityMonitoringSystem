@@ -329,11 +329,18 @@ class DataGatewayClient:
     ) -> list[dict[str, Any]]:
         """Read a bounded complete result set from a gateway list endpoint."""
 
-        async def fetch_page(page: int) -> tuple[list[dict[str, Any]], int]:
+        async def fetch_page(
+            page: int, *, expected_total: int | None = None
+        ) -> tuple[list[dict[str, Any]], int]:
+            params = {**(filters or {}), "page": page, "pageSize": 100}
+            if expected_total is not None:
+                # Bulk pagination already established the total on page 1.
+                # Avoid repeating CountDocuments for every subsequent page.
+                params["includeTotal"] = "false"
             payload = await self.request_json(
                 method,
                 path,
-                params={**(filters or {}), "page": page, "pageSize": 100},
+                params=params,
             )
             if not isinstance(payload, dict):
                 raise DataGatewayError(
@@ -354,18 +361,25 @@ class DataGatewayClient:
                     "生产数据源返回了无效列表数据，请联系管理员",
                     code="DATA_GATEWAY_BAD_RESPONSE",
                 )
-            if total > max_rows:
+            if expected_total is None and total > max_rows:
                 raise DataGatewayError(
                     f"当前查询结果约 {total} 条，超过本系统单次处理上限 {max_rows} 条；请缩小日期或增加筛选条件",
                     code="QUERY_TOO_LARGE",
                 )
-            if len(items) != min(100, max(0, total - (page - 1) * 100)):
+            page_total = total if expected_total is None else expected_total
+            if expected_total is not None and total not in {0, expected_total}:
+                raise DataGatewayError(
+                    "生产数据源分页期间记录总数发生变化，请重新查询",
+                    code="DATA_GATEWAY_BAD_RESPONSE",
+                    retryable=True,
+                )
+            if len(items) != min(100, max(0, page_total - (page - 1) * 100)):
                 raise DataGatewayError(
                     "生产数据源分页结果不完整，请稍后重试",
                     code="DATA_GATEWAY_BAD_RESPONSE",
                     retryable=True,
                 )
-            return items, total
+            return items, page_total
 
         first_page, total = await fetch_page(1)
         page_count = math.ceil(total / 100)
@@ -373,7 +387,7 @@ class DataGatewayClient:
 
         async def fetch_bounded(page: int) -> list[dict[str, Any]]:
             async with semaphore:
-                items, page_total = await fetch_page(page)
+                items, page_total = await fetch_page(page, expected_total=total)
             if page_total != total:
                 raise DataGatewayError(
                     "生产数据源分页期间记录总数发生变化，请重新查询",

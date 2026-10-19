@@ -46,6 +46,10 @@ async def create_indexes() -> None:
     await mongodb.db.machine_info.create_index([("sale_no", 1)])
     await mongodb.db.machine_info.create_index([("mfg_order", 1)])
     await mongodb.db.machine_info.create_index([("customer_id", 1)])
+    await mongodb.db.machine_info.create_index([("actual_start_time", 1)])
+    await mongodb.db.machine_info.create_index([("actual_start_time", 1), ("product_family", 1)])
+    await mongodb.db.machine_info.create_index([("actual_start_time", 1), ("factory", 1)])
+    await mongodb.db.machine_info.create_index([("factory", 1)])
 
     # 故障明细索引 (fault_info 为故障数据唯一真源，按 sn 批量查询、按分类聚合)
     await mongodb.db.fault_info.create_index([("sn", 1)])

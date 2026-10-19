@@ -363,8 +363,29 @@ async def test_all_orders_reads_beyond_the_bulk_endpoint_cap():
     assert len(requests) == 101
     assert all(path == "/api/orders" for _, path, _ in requests)
     assert all(params["dateFrom"] == "2026-01-01" for _, _, params in requests)
+    assert requests[0][2].get("includeTotal") is None
+    assert all(params.get("includeTotal") == "false" for _, _, params in requests[1:])
     assert await client.all_orders(dateFrom="2026-01-01") == result
     assert len(requests) == 101
+
+
+@pytest.mark.asyncio
+async def test_all_pages_uses_first_total_when_followup_pages_skip_count():
+    client = DataGatewayClient("http://gateway.test")
+    requests = []
+
+    async def request_json(method, path, *, params):
+        requests.append((method, path, params))
+        if params["page"] == 1:
+            return {"items": [{"id": f"row-{index}"} for index in range(100)], "total": 101}
+        return {"items": [{"id": "row-100"}], "total": 0}
+
+    client.request_json = request_json
+    rows = await client.all_pages("GET", "/api/orders")
+
+    assert len(rows) == 101
+    assert requests[0][2].get("includeTotal") is None
+    assert requests[1][2]["includeTotal"] == "false"
 
 
 @pytest.mark.asyncio
