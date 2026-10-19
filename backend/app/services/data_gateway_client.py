@@ -48,7 +48,7 @@ def _repair_row_has_planned_field(row: dict[str, Any]) -> bool:
 # A full year of station passes is already above one million rows (about 1.67
 # million in 2026). Keep a hard ceiling so an unbounded stream cannot exhaust
 # the API process, but leave room for the rest of this year.
-STATION_STREAM_MAX_ROWS = 5_000_000
+STATION_STREAM_MAX_ROWS = 500_000
 # shortcut: 10,000 rows, update if the gateway stream cap changes.
 BOM_STREAM_MAX_ROWS = 10_000
 BOM_UNBOUNDED_QUERY_MESSAGE = "BOM 查询必须包含日期、物料号或订单筛选条件，未限定范围的查询已禁用"
@@ -487,6 +487,34 @@ class DataGatewayClient:
                 code="DATA_GATEWAY_BAD_RESPONSE",
             )
         return sorted({item.strip() for item in payload["items"] if item.strip()})
+
+    async def order_options(self, *, base: str = "") -> dict[str, list[str]]:
+        payload = await self.request_json(
+            "GET",
+            "/api/orders/options",
+            params={"base": base} if base else None,
+        )
+        fields = (
+            "productionOrders",
+            "salesOrders",
+            "materialNumbers",
+            "productModels",
+            "bases",
+            "customerIds",
+        )
+        if not isinstance(payload, dict) or any(
+            not isinstance(payload.get(field), list)
+            or any(not isinstance(item, str) for item in payload[field])
+            for field in fields
+        ):
+            raise DataGatewayError(
+                "生产数据源返回了无效订单筛选选项，请联系管理员",
+                code="DATA_GATEWAY_BAD_RESPONSE",
+            )
+        return {
+            field: sorted({item.strip() for item in payload[field] if item.strip()})
+            for field in fields
+        }
 
     async def data_status(self) -> dict[str, Any]:
         return await self.request_json("GET", "/api/data-status")

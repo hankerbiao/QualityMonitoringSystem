@@ -59,6 +59,21 @@ async def base_users(client, app, monkeypatch):
         },
     ]
     monkeypatch.setattr(data_gateway, "all_orders", AsyncMock(return_value=orders))
+
+    async def order_options(*, base: str = ""):
+        scoped_orders = [
+            row for row in orders if not base or row["inventoryLocation"] == base
+        ]
+        return {
+            "productionOrders": [row["aufnr"] for row in scoped_orders],
+            "salesOrders": [row["salesOrder"] for row in scoped_orders],
+            "materialNumbers": [],
+            "productModels": [row["productionModel"] for row in scoped_orders],
+            "bases": [row["inventoryLocation"] for row in scoped_orders],
+            "customerIds": [row["customerId"] for row in scoped_orders],
+        }
+
+    monkeypatch.setattr(data_gateway, "order_options", order_options)
     return admin, scoped
 
 

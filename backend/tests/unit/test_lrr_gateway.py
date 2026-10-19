@@ -570,22 +570,20 @@ async def test_load_faults_combines_production_and_normalized_sales_order_links(
 
 @pytest.mark.asyncio
 async def test_options_uses_orders_without_loading_entire_bom(monkeypatch):
-    async def all_orders(**_filters: str):
-        return [
-            {
-                "aufnr": "1",
-                "salesOrder": "0009",
-                "productionModel": "MODEL-1",
-                "inventoryLocation": "BASE-A",
-                "customerId": "C-1",
-                "raw": {"data": {"MATNR": "MAT-1", "KID": "C-1"}},
-            }
-        ]
+    async def order_options(**_filters: str):
+        return {
+            "productionOrders": ["1"],
+            "salesOrders": ["0009"],
+            "materialNumbers": ["MAT-1"],
+            "productModels": ["MODEL-1"],
+            "bases": ["BASE-A"],
+            "customerIds": ["C-1"],
+        }
 
     async def fail_all_view(*_args, **_kwargs):
         raise AssertionError("options must not load the full BOM view")
 
-    monkeypatch.setattr(lrr_gateway.data_gateway, "all_orders", all_orders)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "order_options", order_options)
     monkeypatch.setattr(lrr_gateway.data_gateway, "all_view", fail_all_view)
     result = await lrr_gateway.options()
     assert result["productionOrders"] == ["000000000001"]

@@ -246,10 +246,7 @@ async def load_bom(
     # order metadata only when the caller or base permissions require it, and
     # keep that lookup within the same date/scope whenever possible.
     needs_metadata = bool(
-        base
-        or customer_ids
-        or product_model
-        or current_base_permissions() is not None
+        base or customer_ids or product_model or current_base_permissions() is not None
     )
     metadata_started_at = perf_counter()
     if needs_metadata:
@@ -510,7 +507,8 @@ async def load_faults(
 
 
 async def options() -> dict[str, list[str]]:
-    if current_base_permissions() == ():
+    scope = current_base_permissions()
+    if scope == ():
         return {
             key: []
             for key in (
@@ -522,23 +520,27 @@ async def options() -> dict[str, list[str]]:
                 "customerIds",
             )
         }
-    orders = [
-        item
-        for item in await data_gateway.all_orders()
-        if base_allowed(item.get("inventoryLocation") or source_data(item).get("LGORT"))
-    ]
-    production = {normalize_production_order(item.get("aufnr")) for item in orders}
-    sales = {normalize_sales_order(item.get("salesOrder")) for item in orders}
-    bases = set()
-    customers = set()
-    materials = set()
-    models = set()
-    for item in orders:
-        data = source_data(item)
-        materials.add(str(data.get("MATNR", "")).strip())
-        models.add(str(item.get("productionModel", "")).strip())
-        bases.add(str(item.get("inventoryLocation", "")).strip())
-        customers.add(str(item.get("customerId", "")).strip())
+    if scope is None:
+        option_sets = [await data_gateway.order_options()]
+    else:
+        option_sets = await asyncio.gather(
+            *(data_gateway.order_options(base=base) for base in scope)
+        )
+    production: set[str] = set()
+    sales: set[str] = set()
+    materials: set[str] = set()
+    models: set[str] = set()
+    bases: set[str] = set()
+    customers: set[str] = set()
+    for options_data in option_sets:
+        production.update(
+            normalize_production_order(value) for value in options_data["productionOrders"]
+        )
+        sales.update(normalize_sales_order(value) for value in options_data["salesOrders"])
+        materials.update(options_data["materialNumbers"])
+        models.update(options_data["productModels"])
+        bases.update(options_data["bases"])
+        customers.update(options_data["customerIds"])
     return {
         "productionOrders": sorted(value for value in production if value),
         "salesOrders": sorted(value for value in sales if value),

@@ -56,6 +56,27 @@ async def test_orders_and_options_filter_missing_and_unauthorized_bases(monkeypa
         {"aufnr": "3", "productionModel": "unknown-model"},
     ]
     monkeypatch.setattr(rty_gateway.data_gateway, "all_orders", AsyncMock(return_value=rows))
+
+    async def order_options(*, base: str = ""):
+        scoped = [
+            row
+            for row in rows
+            if not base or row.get("inventoryLocation") == base
+        ]
+        return {
+            "productionOrders": [row["aufnr"] for row in scoped],
+            "salesOrders": [row.get("salesOrder", "") for row in scoped if row.get("salesOrder")],
+            "materialNumbers": [],
+            "productModels": [
+                row["productionModel"] for row in scoped if row.get("productionModel")
+            ],
+            "bases": [
+                row["inventoryLocation"] for row in scoped if row.get("inventoryLocation")
+            ],
+            "customerIds": [],
+        }
+
+    monkeypatch.setattr(rty_gateway.data_gateway, "order_options", order_options)
     with base_access_scope(["1000"]):
         assert [row["aufnr"] for row in await rty_gateway._order_rows({})] == ["1"]
         options = await lrr_gateway.options()

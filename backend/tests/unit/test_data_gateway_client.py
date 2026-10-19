@@ -166,6 +166,36 @@ async def test_order_models_reads_distinct_endpoint_without_dashboard_filters():
 
 
 @pytest.mark.asyncio
+async def test_order_options_reads_scoped_endpoint_and_normalizes_values():
+    captured = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured.append((request.method, request.url.path, dict(request.url.params)))
+        return httpx.Response(
+            200,
+            json={
+                "productionOrders": [" PO-2 ", "PO-1", "PO-1"],
+                "salesOrders": ["SO-2"],
+                "materialNumbers": ["MAT-1"],
+                "productModels": ["Model-1"],
+                "bases": ["1000"],
+                "customerIds": ["C-1"],
+            },
+        )
+
+    client = DataGatewayClient("http://gateway.test")
+    client._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url=client.base_url
+    )
+    try:
+        result = await client.order_options(base="1000")
+    finally:
+        await client.close()
+    assert result["productionOrders"] == ["PO-1", "PO-2"]
+    assert captured == [("GET", "/api/orders/options", {"base": "1000"})]
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "payload",
     [None, [], {}, {"items": None}, {"items": "M"}, {"items": ["M", None]}, {"items": [1]}],
