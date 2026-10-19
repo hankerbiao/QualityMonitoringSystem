@@ -168,29 +168,6 @@ async def test_lrr_list_cache_renews_lease_for_slow_cross_instance_loader(db_cle
 
 
 @pytest.mark.asyncio
-async def test_lrr_default_prewarm_uses_canonical_query(monkeypatch):
-    captured: dict[str, object] = {}
-
-    class Cache:
-        async def get_or_load(self, query, loader, *, refresh=False):
-            captured["query"] = query
-            captured["refresh"] = refresh
-            return _response(), "miss"
-
-    monkeypatch.setattr(lrr_api, "lrr_list_cache", Cache())
-
-    await lrr_api.warm_default_lrr_list_cache()
-
-    assert captured["query"] == LRRListQuery(
-        page=1,
-        limit=0,
-        sort_by="month",
-        sort_dir="asc",
-    )
-    assert captured["refresh"] is True
-
-
-@pytest.mark.asyncio
 async def test_lrr_list_pages_reuse_one_canonical_load(monkeypatch):
     calls = 0
 
@@ -227,8 +204,20 @@ async def test_lrr_list_pages_reuse_one_canonical_load(monkeypatch):
         {"type": "http", "headers": [], "client": ("test", 1)},
         receive=receive,
     )
-    first = await lrr_api.get_lrr_list(request=request, page=1, limit=2)
-    second = await lrr_api.get_lrr_list(request=request, page=2, limit=2)
+    first = await lrr_api.get_lrr_list(
+        request=request,
+        page=1,
+        limit=2,
+        plannedDateFrom="2026-01-01",
+        plannedDateTo="2026-01-31",
+    )
+    second = await lrr_api.get_lrr_list(
+        request=request,
+        page=2,
+        limit=2,
+        plannedDateFrom="2026-01-01",
+        plannedDateTo="2026-01-31",
+    )
 
     assert [item.id for item in first.items] == ["1", "2"]
     assert [item.id for item in second.items] == ["3"]

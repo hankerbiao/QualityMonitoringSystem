@@ -566,30 +566,43 @@ async def test_bom_stream_falls_back_to_paginated_view_when_gstrs_is_missing():
 
 
 @pytest.mark.asyncio
-async def test_bom_stream_falls_back_when_gateway_stream_hits_its_row_cap():
+async def test_bom_stream_rejects_an_unbounded_gateway_stream_at_its_row_cap():
     client = DataGatewayClient("http://gateway.test", timeout=2)
-    calls: list[str] = []
     rows = [{"id": f"bom-{index}", "GSTRS": "2026-01-01"} for index in range(10_000)]
-
-    async def all_pages(method: str, path: str, **kwargs: object):
-        del method
-        calls.append(path)
-        assert kwargs["filters"] == {"timeField": "planned"}
-        return [{"id": "complete", "GSTRS": "2026-02-01"}]
-
-    client.all_pages = all_pages  # type: ignore[method-assign]
+    client.all_pages = AsyncMock()  # type: ignore[method-assign]
     stream_text = "id\tGSTRS\n" + "\n".join(f"{row['id']}\t{row['GSTRS']}" for row in rows) + "\n"
     client._client = httpx.AsyncClient(
         transport=httpx.MockTransport(lambda _request: httpx.Response(200, text=stream_text)),
         base_url=client.base_url,
     )
     try:
-        result = await client.all_bom_rows()
+        with pytest.raises(DataGatewayError, match="缩小日期或增加筛选条件") as error:
+            await client.all_bom_rows(dateFrom="2026-01-01", dateTo="2026-01-01")
     finally:
         await client.close()
 
-    assert result == [{"id": "complete", "GSTRS": "2026-02-01"}]
-    assert calls == ["/api/views/ZSGV_ZSD124"]
+    assert error.value.code == "QUERY_TOO_LARGE"
+    client.all_pages.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_bom_stream_rejects_an_unbounded_query_before_network():
+    client = DataGatewayClient("http://gateway.test", timeout=2)
+    client.all_pages = AsyncMock()  # type: ignore[method-assign]
+    client._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _request: pytest.fail("unbounded BOM query reached the gateway")
+        ),
+        base_url=client.base_url,
+    )
+    try:
+        with pytest.raises(DataGatewayError, match="未限定范围的查询已禁用") as error:
+            await client.all_bom_rows()
+    finally:
+        await client.close()
+
+    assert error.value.code == "QUERY_TOO_LARGE"
+    client.all_pages.assert_not_awaited()
 
 
 @pytest.mark.asyncio

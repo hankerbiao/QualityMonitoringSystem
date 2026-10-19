@@ -243,13 +243,30 @@ async def load_bom(
     if not rows:
         return []
     # BOM does not consistently carry customer/base in the source view. Join
-    # the gateway's order summaries by normalized production order.
-    # The gateway accepts batch order filters, but a full BOM page can contain
-    # hundreds of orders and their zero-padded variants. Reading the small
-    # order master once avoids exceeding proxy URL limits and keeps the join
-    # deterministic across gateway versions.
+    # order metadata only when the caller or base permissions require it, and
+    # keep that lookup within the same date/scope whenever possible.
+    needs_metadata = bool(
+        base
+        or customer_ids
+        or product_model
+        or current_base_permissions() is not None
+    )
     metadata_started_at = perf_counter()
-    orders = await data_gateway.all_orders()
+    if needs_metadata:
+        metadata_filters: dict[str, str] = {}
+        if date_start:
+            metadata_filters["dateFrom"] = date_start
+        if date_end:
+            metadata_filters["dateTo"] = date_end
+        if base:
+            metadata_filters["base"] = base
+        if product_model:
+            metadata_filters["productModel"] = product_model
+        if customer_ids:
+            metadata_filters["customer"] = ",".join(customer_ids)
+        orders = await data_gateway.all_orders(**metadata_filters)
+    else:
+        orders = []
     metadata_load_ms = (perf_counter() - metadata_started_at) * 1000
     metadata: dict[str, tuple[str, str, str]] = {}
     for item in orders:

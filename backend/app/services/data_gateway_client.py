@@ -51,6 +51,24 @@ def _repair_row_has_planned_field(row: dict[str, Any]) -> bool:
 STATION_STREAM_MAX_ROWS = 5_000_000
 # shortcut: 10,000 rows, update if the gateway stream cap changes.
 BOM_STREAM_MAX_ROWS = 10_000
+BOM_UNBOUNDED_QUERY_MESSAGE = "BOM 查询必须包含日期、物料号或订单筛选条件，未限定范围的查询已禁用"
+
+
+def _has_bom_filter(filters: dict[str, Any]) -> bool:
+    return any(
+        str(filters.get(key) or "").strip()
+        for key in (
+            "dateFrom",
+            "dateTo",
+            "from",
+            "to",
+            "keyword",
+            "materialCode",
+            "productionOrder",
+            "salesOrder",
+            "base",
+        )
+    )
 
 
 class DataGatewayClient:
@@ -682,6 +700,11 @@ class DataGatewayClient:
         self, *, max_rows: int = 1_000_000, **filters: str
     ) -> list[dict[str, Any]]:
         """Read the BOM source projection through the low-overhead CSV stream."""
+        if not _has_bom_filter(filters):
+            raise DataGatewayError(
+                BOM_UNBOUNDED_QUERY_MESSAGE,
+                code="QUERY_TOO_LARGE",
+            )
         cache_key = (
             "/api/views/ZSGV_ZSD124/stream",
             tuple(sorted((str(key), str(value)) for key, value in filters.items() if value)),
@@ -777,11 +800,9 @@ class DataGatewayClient:
                         code="QUERY_TOO_LARGE",
                     )
             else:
-                return await self.all_pages(
-                    "GET",
-                    "/api/views/ZSGV_ZSD124",
-                    filters={**filters, "timeField": "planned"},
-                    max_rows=max_rows,
+                raise DataGatewayError(
+                    "BOM 查询结果达到网关单次上限，请缩小日期或增加筛选条件",
+                    code="QUERY_TOO_LARGE",
                 )
         if len(rows) > max_rows:
             raise DataGatewayError(

@@ -138,6 +138,12 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
     || draft.base?.trim()
     || draft.customerIds?.some((value) => value.trim()),
   );
+  const bomScopeWarning = hasActive
+    && !draft.materialNumber?.trim()
+    && !draft.plannedDateFrom
+    && !draft.plannedDateTo
+    ? '请至少选择计划日期范围或物料 PN'
+    : '';
   const scopeFilterWarning = exceedsTwoCalendarMonths(draft.plannedDateFrom, draft.plannedDateTo)
     && !hasScopeFilter
     ? '查询周期超过 2 个月，请至少增加物料号、机型、基地或客户 ID 筛选条件'
@@ -146,7 +152,7 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
   const setFilter = <K extends keyof LRRFilters>(key: K, value: LRRFilters[K]) => setDraft((current) => ({ ...current, [key]: value }));
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (scopeFilterWarning) return;
+    if (scopeFilterWarning || bomScopeWarning) return;
     onSearch({ ...draft, materialNumber: draft.materialNumber?.trim() || null });
   };
   const reset = () => {
@@ -157,6 +163,7 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
   return (
     <section className="bg-slate-50/70 px-4 py-4 sm:px-5 lg:px-6">
       {optionsError && <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-2 border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"><span>{optionsError.message || '筛选选项加载失败，请重试'}</span><button type="button" onClick={() => void loadOptions()} className="inline-flex items-center gap-1 font-medium hover:underline"><RotateCcw className="size-3.5" />重试</button></div>}
+      {(scopeFilterWarning || bomScopeWarning) && <p role="alert" className="mb-4 border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">{scopeFilterWarning || bomScopeWarning}</p>}
       <form onSubmit={submit} className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-x-5 lg:gap-y-4">
         <div className="flex min-h-5 items-center justify-between gap-3 lg:col-span-12">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-800"><SlidersHorizontal className="size-4 text-cyan-700" />筛选条件</div>

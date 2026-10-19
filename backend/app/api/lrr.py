@@ -40,6 +40,7 @@ router = APIRouter(dependencies=[Depends(dashboard_dependency("lrr"))])
 MAX_LRR_DATE_RANGE_DAYS = 366
 MAX_LRR_UNFILTERED_MONTHS = 2
 LRR_SCOPE_FILTER_MESSAGE = "查询周期超过 2 个月，请至少增加物料号、机型、基地或客户 ID 筛选条件"
+LRR_BOM_SCOPE_MESSAGE = "LRR 查询必须包含计划日期范围或物料 PN，未限定范围的查询已禁用"
 
 
 def _validate_lrr_date_range(
@@ -116,6 +117,36 @@ def _has_lrr_scope_filter(
             str(base or "").strip(),
             any(str(value or "").strip() for value in customer_ids or []),
         )
+    )
+
+
+def _has_bounded_bom_scope(
+    material_number: str | None,
+    planned_date_from: str | None,
+    planned_date_to: str | None,
+) -> bool:
+    """Require a predicate that the BOM source can apply before reading rows."""
+    return any(
+        str(value or "").strip()
+        for value in (material_number, planned_date_from, planned_date_to)
+    )
+
+
+def _require_bounded_bom_scope(
+    material_number: str | None,
+    planned_date_from: str | None,
+    planned_date_to: str | None,
+) -> None:
+    if _has_bounded_bom_scope(material_number, planned_date_from, planned_date_to):
+        return
+    raise HTTPException(
+        status_code=422,
+        detail={
+            "code": "QUERY_TOO_LARGE",
+            "error": LRR_BOM_SCOPE_MESSAGE,
+            "message": LRR_BOM_SCOPE_MESSAGE,
+            "retryable": False,
+        },
     )
 
 
@@ -470,14 +501,6 @@ async def _load(query: LRRListQuery) -> LRRListResponse:
     return response
 
 
-async def warm_default_lrr_list_cache() -> None:
-    query = _canonical_lrr_cache_query(LRRListQuery())
-    try:
-        await lrr_list_cache.get_or_load(query, lambda: _load(query), refresh=True)
-    except Exception:
-        log_info("LRR 默认缓存预热跳过（网关超时或异常）")
-
-
 async def _wait_for_request_disconnect(request: Request) -> None:
     while not await request.is_disconnected():
         await asyncio.sleep(0.2)
@@ -529,6 +552,7 @@ async def get_lrr_list(
     sortBy: str = "month",
     sortDir: str = "asc",
 ):
+    _require_bounded_bom_scope(materialNumber, plannedDateFrom, plannedDateTo)
     has_scope_filter = _has_lrr_scope_filter(materialNumber, productModel, base, customerId)
     _validate_lrr_date_range(
         plannedDateFrom,
@@ -587,6 +611,7 @@ async def get_lrr_fault_details(
     limit: int = Query(50000, ge=1, le=50000),
 ):
     del request
+    _require_bounded_bom_scope(materialNumber, plannedDateFrom, plannedDateTo)
     has_scope_filter = _has_lrr_scope_filter(materialNumber, productModel, base, customerId)
     _validate_lrr_date_range(
         plannedDateFrom,

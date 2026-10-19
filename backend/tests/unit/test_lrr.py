@@ -4,6 +4,7 @@ from fastapi import HTTPException
 from app.api import lrr as lrr_api
 from app.api.lrr import (
     _has_filter_criteria,
+    _require_bounded_bom_scope,
     _requires_full_fault_sort,
     _response,
     _usage_response,
@@ -171,6 +172,18 @@ def test_lrr_filtered_list_requires_fault_loading_even_with_month_sort():
     assert _has_filter_criteria(LRRListQuery(customer_ids=("C-1", "C-2")))
     assert _has_filter_criteria(LRRListQuery(planned_date_from="2026-01-01"))
     assert not _has_filter_criteria(LRRListQuery())
+
+
+def test_lrr_rejects_unbounded_bom_scope():
+    with pytest.raises(HTTPException) as error:
+        _require_bounded_bom_scope(None, None, None)
+
+    assert error.value.status_code == 422
+    assert error.value.detail["code"] == "QUERY_TOO_LARGE"
+
+
+def test_lrr_accepts_material_scope_without_date_range():
+    _require_bounded_bom_scope("PN-1", None, None)
 
 
 def test_lrr_accepts_a_full_year_date_range_when_scope_is_filtered():

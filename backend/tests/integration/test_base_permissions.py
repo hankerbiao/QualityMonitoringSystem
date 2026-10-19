@@ -292,7 +292,11 @@ async def test_station_details_and_lrr_list_cache_keep_the_authenticated_scope(
         return LRRListResponse(items=[], total=0, page=1, limit=50, has_more=False), "miss"
 
     monkeypatch.setattr(lrr, "_load_lrr_list_for_request", loader)
-    assert (await client.get("/api/lrr/list", headers=scoped)).status_code == 200
+    response = await client.get(
+        "/api/lrr/list?plannedDateFrom=2026-10-01&plannedDateTo=2026-10-31",
+        headers=scoped,
+    )
+    assert response.status_code == 200
     assert queries[0].base_permissions == ("1000",)
 
 
