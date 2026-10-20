@@ -91,12 +91,11 @@ describe('StationPassRatePage customer filter', () => {
   it('passes the selected customer to the station query', async () => {
     render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
 
-    await screen.findByRole('option', { name: 'CUST-A' });
-    fireEvent.change(screen.getByLabelText('客户 ID'), { target: { value: 'CUST-A' } });
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'CUST-A' }));
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
 
     await waitFor(() => expect(rtyApi.getStationPassRates).toHaveBeenCalledWith(
-      expect.objectContaining({ customer: 'CUST-A' }),
+      expect.objectContaining({ customers: ['CUST-A'] }),
     ));
   });
 
@@ -131,8 +130,7 @@ describe('StationPassRatePage customer filter', () => {
     render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
     const exportButton = screen.getByRole('button', { name: '导出透视表、销售订单及维修故障明记录' });
     expect((exportButton as HTMLButtonElement).disabled).toBe(true);
-    await screen.findByRole('option', { name: 'CUST-A' });
-    fireEvent.change(screen.getByLabelText('客户 ID'), { target: { value: 'CUST-A' } });
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'CUST-A' }));
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
     await waitFor(() => expect((exportButton as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(exportButton);
@@ -147,7 +145,7 @@ describe('StationPassRatePage customer filter', () => {
     expect(workbook.Sheets.M.E2.v).toBe('PN*2');
     expect(workbook.Sheets.M.L2.f).toBe('J2/K2');
     expect(XLSX.utils.sheet_to_json(workbook.Sheets['工位直通率透视表'])).toEqual([
-      { 机型: 'M', Total: '90.00%', 工站直通率: '90.00%', OP10: '90.00%' },
+      { 机型: 'M', Total: '90.00%', 产量: 20, 故障数: 2, 工站直通率: '90.00%', OP10: '90.00%' },
     ]);
     expect(XLSX.utils.sheet_to_json(workbook.Sheets['维修故障明记录'])).toHaveLength(2);
   });
@@ -162,7 +160,7 @@ describe('StationPassRatePage customer filter', () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
-      await screen.findByRole('option', { name: 'CUST-A' });
+      await screen.findByRole('checkbox', { name: 'CUST-A' });
       fireEvent.click(screen.getByRole('button', { name: '查询' }));
       const button = screen.getByRole('button', { name: '导出透视表、销售订单及维修故障明记录' });
       await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));

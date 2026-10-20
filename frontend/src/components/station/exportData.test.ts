@@ -16,15 +16,16 @@ describe('station pass workbook', () => {
     expect(orders).toEqual([ORDER_COLUMNS.map(([, label]) => label)]);
     expect(faults).toEqual([FAULT_COLUMNS.map(([, label]) => label)]);
     expect(orders[0]).toHaveLength(18);
-    expect(faults[0]).toHaveLength(34);
+    expect(faults[0]).toHaveLength(36);
+    expect(XLSX.utils.sheet_to_json<string[]>(workbook.Sheets['维修故障明记录'], { header: 1 })[0]?.[35]).toBe('订单类型');
   });
 
   it('round trips raw values, blank fields, leading zeros and repeated SN repairs', () => {
     const workbook = buildStationPassWorkbook(XLSX.utils.aoa_to_sheet([['机型']]), {
       orders: [{ VBELN: '0000123', AUFNR: '000000000001', IF_L6: 'X', WMENG: 0 }],
       faults: [
-        { PCODE: '00001', U_FIX: '甲', ZWXDT: null, ZUSER: '不替代维修人员' },
-        { PCODE: '00001', U_FIX: '乙', ZWXDT: '2027-01-01', ERROR_MSG: '=literal' },
+        { PCODE: '00001', ZNGWD3: '风扇故障', AUART: 'C001', U_FIX: '甲', ZWXDT: null, ZUSER: '不替代维修人员' },
+        { PCODE: '00001', ZNGWD3: '风扇故障', AUART: 'C002', U_FIX: '乙', ZWXDT: '2027-01-01', ERROR_MSG: '=literal' },
       ],
     });
     const result = XLSX.read(XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }), {
@@ -39,10 +40,14 @@ describe('station pass workbook', () => {
     expect(orders.B2).toBeUndefined();
     expect(faults.E2).toMatchObject({ t: 's', v: '00001' });
     expect(faults.E3).toMatchObject({ t: 's', v: '00001' });
-    expect(faults.K2.v).toBe('甲');
-    expect(faults.L2).toBeUndefined();
-    expect(faults.L3.v).toBe('2027-01-01');
-    expect(faults.AB3).toMatchObject({ t: 's', v: '=literal' });
-    expect(faults.AB3.f).toBeUndefined();
+    expect(faults.L2.v).toBe('甲');
+    expect(faults.M2).toBeUndefined();
+    expect(faults.M3.v).toBe('2027-01-01');
+    expect(faults.AC3).toMatchObject({ t: 's', v: '=literal' });
+    expect(faults.AC3.f).toBeUndefined();
+    expect(faults.J2.v).toBe(2);
+    expect(faults.J3.v).toBe(2);
+    expect(faults.AJ2.v).toBe('C001');
+    expect(faults.AJ3.v).toBe('C002');
   });
 });

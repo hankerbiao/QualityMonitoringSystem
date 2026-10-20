@@ -7,6 +7,7 @@ quantities, fault matching, grouping and rates remain in ``api.lrr``.
 from __future__ import annotations
 
 import asyncio
+import calendar
 from datetime import date, timedelta
 from time import perf_counter
 from typing import Any
@@ -113,6 +114,8 @@ async def load_bom(
     date_from: str | None = None,
     date_to: str | None = None,
     material_number: str | None = None,
+    product_models: list[str] | None = None,
+    bases: list[str] | None = None,
     product_model: str | None = None,
     base: str | None = None,
     customer_ids: tuple[str, ...] = (),
@@ -174,6 +177,45 @@ async def load_bom(
                 )
 
         requests = [read_day(day, term) for term in terms for day in daily_dates]
+    elif date_start and date_end:
+        try:
+            start = date.fromisoformat(date_start)
+            end = date.fromisoformat(date_end)
+        except ValueError:
+            start = end = None
+        if start and end and (end - start).days + 1 > MATERIAL_DAILY_SPLIT_MAX_DAYS:
+            month_windows: list[tuple[date, date]] = []
+            cursor = start.replace(day=1)
+            while cursor <= end:
+                month_end = cursor.replace(day=calendar.monthrange(cursor.year, cursor.month)[1])
+                month_windows.append((max(start, cursor), min(end, month_end)))
+                cursor = (month_end + timedelta(days=1)).replace(day=1)
+
+            semaphore = asyncio.Semaphore(4)
+
+            async def read_month(window_start: date, window_end: date, term: str) -> list[dict[str, Any]]:
+                async with semaphore:
+                    return await data_gateway.all_bom_rows(
+                        **{
+                            **base_filters,
+                            "dateFrom": window_start.isoformat(),
+                            "dateTo": window_end.isoformat(),
+                            "keyword": term,
+                        }
+                    )
+
+            requests = [
+                read_month(window_start, window_end, term)
+                for term in terms
+                for window_start, window_end in month_windows
+            ]
+        else:
+            requests = [
+                data_gateway.all_bom_rows(
+                    **{**base_filters, "dateFrom": date_start, "dateTo": date_end, "keyword": term},
+                )
+                for term in terms
+            ]
     else:
         requests = [
             data_gateway.all_bom_rows(
@@ -245,9 +287,9 @@ async def load_bom(
     # BOM does not consistently carry customer/base in the source view. Join
     # order metadata only when the caller or base permissions require it, and
     # keep that lookup within the same date/scope whenever possible.
-    needs_metadata = bool(
-        base or customer_ids or product_model or current_base_permissions() is not None
-    )
+    product_models = [*(product_models or []), *([product_model] if product_model else [])]
+    bases = [*(bases or []), *([base] if base else [])]
+    needs_metadata = bool(bases or customer_ids or product_models or current_base_permissions() is not None)
     metadata_started_at = perf_counter()
     if needs_metadata:
         metadata_filters: dict[str, str] = {}
@@ -255,10 +297,6 @@ async def load_bom(
             metadata_filters["dateFrom"] = date_start
         if date_end:
             metadata_filters["dateTo"] = date_end
-        if base:
-            metadata_filters["base"] = base
-        if product_model:
-            metadata_filters["productModel"] = product_model
         if customer_ids:
             metadata_filters["customer"] = ",".join(customer_ids)
         orders = await data_gateway.all_orders(**metadata_filters)
@@ -266,6 +304,8 @@ async def load_bom(
         orders = []
     metadata_load_ms = (perf_counter() - metadata_started_at) * 1000
     metadata: dict[str, tuple[str, str, str]] = {}
+    allowed_bases = set(bases or [])
+    allowed_models = set(product_models or [])
     for item in orders:
         key = normalize_production_order(item.get("aufnr"))
         if key:
@@ -283,11 +323,11 @@ async def load_bom(
             base_value, customer, model = metadata_values
         if not base_allowed(base_value or row.get("LGORT")):
             continue
-        if base and base.strip() not in {str(row.get("LGORT") or "").strip(), base_value}:
+        if allowed_bases and not ({str(row.get("LGORT") or "").strip(), base_value} & allowed_bases):
             continue
         if customer_ids and customer not in customer_ids:
             continue
-        if product_model and product_model.strip() != model:
+        if allowed_models and model not in allowed_models:
             continue
         row["_base"] = str(row.get("LGORT") or base_value).strip()
         row["_customer_id"] = customer

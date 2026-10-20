@@ -85,9 +85,9 @@ async def test_station_pass_endpoints_forward_customer_filter(monkeypatch):
     )
 
     assert rates_response.success
-    assert station_rates.await_args.kwargs["customer"] == "customer-1"
+    assert station_rates.await_args.kwargs["customers"] == ["customer-1"]
     assert details_response.success
-    assert station_details.await_args.kwargs["customer"] == "customer-1"
+    assert station_details.await_args.kwargs["customers"] == ["customer-1"]
 
 
 @pytest.mark.asyncio
@@ -186,6 +186,7 @@ async def test_cycle_export_passes_repeated_filters_and_requires_only_rty_permis
         assert export.await_args.kwargs == {
             "product_models": ["M, A", "M B"],
             "bases": ["B", "D"],
+            "customers": None,
             "integrate": True,
         }
         assert export.await_args.args[0]["orderScope"] == "l6"
@@ -268,6 +269,7 @@ async def test_station_export_uses_station_permission_and_applied_filters(
             },
             product_models=None,
             bases=None,
+            customers=None,
             integrate=True,
         )
     else:

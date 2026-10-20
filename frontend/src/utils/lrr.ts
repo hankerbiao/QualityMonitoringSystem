@@ -13,7 +13,9 @@ function formatDateInput(date: Date): string {
 
 export function recentPlannedRange(monthCount: number, today = new Date()): PlannedDateRange {
   const end = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-  const start = new Date(end.getFullYear(), end.getMonth() - monthCount + 1, 1);
+  const start = monthCount === 12
+    ? new Date(end.getFullYear(), end.getMonth() - 11, 1)
+    : new Date(end.getFullYear(), end.getMonth() - monthCount + 1, 1);
   return { plannedDateFrom: formatDateInput(start), plannedDateTo: formatDateInput(end) };
 }
 

@@ -60,9 +60,9 @@ type StationQueryState = {
   dateFrom: string;
   dateTo: string;
   serialNumber: string;
-  productModel: string;
-  customer: string;
-  base: string;
+  productModels: string[];
+  customers: string[];
+  bases: string[];
   groupBy: StationGroupBy;
   orderScope: 'normal' | 'l6';
   overseas: boolean;
@@ -173,18 +173,19 @@ export default function StationPassRatePage() {
   const [dateTo, setDateTo] = useState(initialDateRange.to);
   const [serialNumber, setSerialNumber] = useState('');
   const [productModel, setProductModel] = useState('');
-  const [customer, setCustomer] = useState('');
   const [base, setBase] = useState('');
+  const [selectedProductModels, setSelectedProductModels] = useState<string[]>([]);
+  const [selectedCustomers, setSelectedCustomers] = useState<string[]>([]);
+  const [selectedBases, setSelectedBases] = useState<string[]>([]);
   const [productModels, setProductModels] = useState<{ model: string; count: number }[]>([]);
   const [customers, setCustomers] = useState<string[]>([]);
   const [bases, setBases] = useState<{ base: string; count: number }[]>([]);
-  const [showProductModelSuggestions, setShowProductModelSuggestions] = useState(false);
-  const [showBaseSuggestions, setShowBaseSuggestions] = useState(false);
   const [groupBy, setGroupBy] = useState<StationGroupBy>('productModel');
   const [orderScope, setOrderScope] = useState<'normal' | 'l6'>('normal');
   const [overseas, setOverseas] = useState(false);
   const [rows, setRows] = useState<StationPassRate[]>([]);
   const [selectedStations, setSelectedStations] = useState<string[]>([]);
+  const [onlyAvailableStations, setOnlyAvailableStations] = useState(true);
   const [stationConfigOpen, setStationConfigOpen] = useState(false);
   const [calculationHelpOpen, setCalculationHelpOpen] = useState(false);
   const [stationConfigSaving, setStationConfigSaving] = useState(false);
@@ -211,9 +212,9 @@ export default function StationPassRatePage() {
     dateFrom: initialDateRange.from,
     dateTo: initialDateRange.to,
     serialNumber: '',
-    productModel: '',
-    customer: '',
-    base: '',
+    productModels: [],
+    customers: [],
+    bases: [],
     groupBy: 'productModel',
     orderScope: 'normal',
     overseas: false,
@@ -250,9 +251,9 @@ export default function StationPassRatePage() {
       dateFrom: next.dateFrom,
       dateTo: next.dateTo,
       serialNumber: next.serialNumber.trim() || undefined,
-      productModel: next.productModel.trim() || undefined,
-      customer: next.customer.trim() || undefined,
-      base: next.base.trim() || undefined,
+      productModels: next.productModels,
+      customers: next.customers,
+      bases: next.bases,
       groupBy: next.groupBy,
       orderScope: next.orderScope,
       overseas: next.overseas,
@@ -307,10 +308,6 @@ export default function StationPassRatePage() {
         setProductModels(options.productModels);
         setCustomers(options.customers);
         setBases(options.bases);
-        if (queryRef.current.customer && !options.customers.includes(queryRef.current.customer)) {
-          setCustomer('');
-          queryRef.current = { ...queryRef.current, customer: '' };
-        }
       } catch (err) {
         console.error('Failed to fetch station filter options', err);
         if (!cancelled) {
@@ -373,8 +370,10 @@ export default function StationPassRatePage() {
     setDateTo(initialDateRange.to);
     setSerialNumber('');
     setProductModel('');
-    setCustomer('');
     setBase('');
+    setSelectedProductModels([]);
+    setSelectedCustomers([]);
+    setSelectedBases([]);
     setGroupBy('productModel');
     setOrderScope('normal');
     setOverseas(false);
@@ -383,9 +382,9 @@ export default function StationPassRatePage() {
       dateFrom: initialDateRange.from,
       dateTo: initialDateRange.to,
       serialNumber: '',
-      productModel: '',
-      customer: '',
-      base: '',
+      productModels: [],
+      customers: [],
+      bases: [],
       groupBy: 'productModel',
       orderScope: 'normal',
       overseas: false,
@@ -474,8 +473,10 @@ export default function StationPassRatePage() {
       const data = matrix.rows.map((row) => ({
         [dimensionLabels[appliedQuery.groupBy]]: row.dimensionValue,
         Total: formatRate(row.total.inputCount, row.total.defectCount),
+        产量: row.total.inputCount,
+        故障数: row.total.defectCount,
         工站直通率: (() => {
-          const rate = combinedStationPassRate(row.stationRows, selectedStations);
+          const rate = combinedStationPassRate(row.stationRows, selectedStations, onlyAvailableStations);
           return rate === null ? '-' : `${rate.toFixed(2)}%`;
         })(),
         ...Object.fromEntries(matrix.stations.map((station) => [station, row.stationRows.has(station) ? `${row.stationRows.get(station)!.passRate.toFixed(2)}%` : '-'])),
@@ -508,9 +509,15 @@ export default function StationPassRatePage() {
     if (overrides.dateFrom !== undefined) setDateFrom(overrides.dateFrom);
     if (overrides.dateTo !== undefined) setDateTo(overrides.dateTo);
     if (overrides.serialNumber !== undefined) setSerialNumber(overrides.serialNumber);
-    if (overrides.productModel !== undefined) setProductModel(overrides.productModel);
-    if (overrides.customer !== undefined) setCustomer(overrides.customer);
-    if (overrides.base !== undefined) setBase(overrides.base);
+    if (overrides.productModels !== undefined) {
+      setSelectedProductModels(overrides.productModels);
+      setProductModel(overrides.productModels.join(', '));
+    }
+    if (overrides.customers !== undefined) setSelectedCustomers(overrides.customers);
+    if (overrides.bases !== undefined) {
+      setSelectedBases(overrides.bases);
+      setBase(overrides.bases.join(', '));
+    }
     if (overrides.groupBy !== undefined) setGroupBy(overrides.groupBy);
     if (overrides.orderScope !== undefined) setOrderScope(overrides.orderScope);
     if (overrides.overseas !== undefined) setOverseas(overrides.overseas);
@@ -520,8 +527,6 @@ export default function StationPassRatePage() {
   const dimensionLabel = dimensionLabels[groupBy];
   const colSpan = matrix.stations.length + 3;
   const updatedAt = formatUpdatedAt(dataUpdatedAt);
-  const filteredProductModels = productModels.filter((item) => !productModel || item.model.toLowerCase().includes(productModel.toLowerCase()));
-  const filteredBases = bases.filter((item) => !base || item.base.toLowerCase().includes(base.toLowerCase()));
   const findings = useMemo(() => summarizeStationRates(rows), [rows]);
   const tableRows = useMemo(() => (
     rowFocus === 'all' ? matrix.rows : matrix.rows.filter((row) => rowMatchesBand(row.stationRows.values(), rowFocus))
@@ -610,17 +615,15 @@ export default function StationPassRatePage() {
               <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-44">统计维度<select value={groupBy} onChange={(event) => updateField('groupBy', setGroupBy, event.target.value as StationGroupBy)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none transition-colors focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"><option value="salesOrder">销售订单号</option><option value="productionOrder">生产订单号</option><option value="productModel">机型</option></select></label>
               <div className="flex min-w-36 flex-col gap-1 text-xs font-medium text-slate-600"><span>订单范围</span><div className="inline-flex h-9 overflow-hidden rounded-md border border-slate-300 bg-white"><button type="button" onClick={() => updateField('orderScope', setOrderScope, 'normal')} className={`px-3 text-xs ${orderScope === 'normal' ? 'bg-cyan-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>普通订单</button><button type="button" onClick={() => updateField('orderScope', setOrderScope, 'l6')} className={`border-l border-slate-300 px-3 text-xs ${orderScope === 'l6' ? 'bg-cyan-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>L6 订单</button></div></div>
               <label className="inline-flex h-9 min-w-24 items-center gap-2 self-end rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700"><input type="checkbox" checked={overseas} onChange={(event) => updateField('overseas', setOverseas, event.target.checked)} className="size-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />海外</label>
-            <label className="flex min-w-40 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-52">客户 ID<select value={customer} onChange={(event) => updateField('customer', setCustomer, event.target.value)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none transition-colors focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"><option value="">全部客户</option>{customers.map((item) => <option key={item} value={item}>{item}</option>)}</select></label>
+            <fieldset className="flex min-w-40 flex-col gap-1 text-xs font-medium text-slate-600"><legend>客户 ID（多选）</legend><div className="flex max-h-20 flex-wrap gap-x-2 overflow-auto rounded-md border border-slate-300 bg-white p-2">{customers.map((item) => <label key={item} className="inline-flex items-center gap-1.5"><input type="checkbox" checked={selectedCustomers.includes(item)} onChange={() => { const values = selectedCustomers.includes(item) ? selectedCustomers.filter((value) => value !== item) : [...selectedCustomers, item]; setSelectedCustomers(values); updateField('customers', () => {}, values); }} className="size-3.5 rounded border-slate-300 text-cyan-600" />{item}</label>)}</div></fieldset>
             <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-44">服务器 SN<input value={serialNumber} onChange={(event) => updateField('serialNumber', setSerialNumber, event.target.value)} placeholder="精确输入 SN" className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" /></label>
             <div className="relative z-0 flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 focus-within:z-30 xl:max-w-48">
-              <label htmlFor="station-product-model">机型</label>
-              <input id="station-product-model" value={productModel} onChange={(event) => { updateField('productModel', setProductModel, event.target.value); setShowProductModelSuggestions(true); }} onFocus={() => setShowProductModelSuggestions(true)} onBlur={() => setTimeout(() => setShowProductModelSuggestions(false), 200)} placeholder="输入机型名称搜索..." className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" />
-              {showProductModelSuggestions && <div className="absolute top-full z-50 mt-1 max-h-48 w-full overflow-auto rounded-sm border border-slate-200 bg-white shadow-lg"><button type="button" onMouseDown={() => { updateField('productModel', setProductModel, ''); setShowProductModelSuggestions(false); }} className={`w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-blue-50 ${!productModel ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}>全部机型</button>{filteredProductModels.length > 0 ? filteredProductModels.map((item) => <button key={item.model} type="button" onMouseDown={() => { updateField('productModel', setProductModel, item.model); setShowProductModelSuggestions(false); }} className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition-colors hover:bg-blue-50 ${productModel === item.model ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}><span className="truncate" title={item.model}>{item.model}</span><span className="ml-2 shrink-0 text-[10px] text-slate-400">{item.count}</span></button>) : <div className="px-3 py-2 text-xs text-slate-400">无匹配机型</div>}</div>}
+              <label htmlFor="station-product-model">机型（多选）</label>
+              <select id="station-product-model" multiple value={selectedProductModels} onChange={(event) => { const values = Array.from(event.target.selectedOptions, (option) => option.value); setProductModel(values.join(', ')); updateField('productModels', setSelectedProductModels, values); }} className="h-20 w-full rounded-md border border-slate-300 bg-white px-2.5 py-1 text-sm text-slate-800 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100">{productModels.map((item) => <option key={item.model} value={item.model}>{item.model} ({item.count})</option>)}</select>
             </div>
             <div className="relative z-0 flex min-w-32 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 focus-within:z-30 xl:max-w-44">
-              <label htmlFor="station-base">工厂地点</label>
-              <input id="station-base" value={base} onChange={(event) => { updateField('base', setBase, event.target.value); setShowBaseSuggestions(true); }} onFocus={() => setShowBaseSuggestions(true)} onBlur={() => setTimeout(() => setShowBaseSuggestions(false), 200)} placeholder="输入工厂地点搜索..." className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" />
-              {showBaseSuggestions && <div className="absolute top-full z-50 mt-1 max-h-48 w-full overflow-auto rounded-sm border border-slate-200 bg-white shadow-lg"><button type="button" onMouseDown={() => { updateField('base', setBase, ''); setShowBaseSuggestions(false); }} className={`w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-blue-50 ${!base ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}>全部工厂地点</button>{filteredBases.length > 0 ? filteredBases.map((item) => <button key={item.base} type="button" onMouseDown={() => { updateField('base', setBase, item.base); setShowBaseSuggestions(false); }} className={`flex w-full items-center justify-between px-3 py-1.5 text-left text-xs transition-colors hover:bg-blue-50 ${base === item.base ? 'bg-blue-50 font-medium text-blue-700' : 'text-slate-600'}`}><span className="truncate" title={item.base}>{item.base}</span><span className="ml-2 shrink-0 text-[10px] text-slate-400">{item.count}</span></button>) : <div className="px-3 py-2 text-xs text-slate-400">无匹配工厂地点</div>}</div>}
+              <label htmlFor="station-base">工厂地点（多选）</label>
+              <select id="station-base" multiple value={selectedBases} onChange={(event) => { const values = Array.from(event.target.selectedOptions, (option) => option.value); setBase(values.join(', ')); updateField('bases', setSelectedBases, values); }} className="h-20 w-full rounded-md border border-slate-300 bg-white px-2.5 py-1 text-sm text-slate-800 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100">{bases.map((item) => <option key={item.base} value={item.base}>{item.base} ({item.count})</option>)}</select>
             </div>
             <div className="flex items-center gap-1.5"><button type="button" onClick={reset} className="inline-flex size-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 transition-colors hover:border-slate-400 hover:bg-slate-100" title="重置条件" aria-label="重置条件"><RotateCcw className="size-4" /></button><button type="submit" disabled={loading} className="inline-flex h-9 items-center gap-1.5 rounded-md bg-cyan-600 px-3 text-sm font-medium text-white transition-colors hover:bg-cyan-700 disabled:cursor-wait disabled:opacity-60">{loading ? <RefreshCw className="size-4 animate-spin" /> : <Search className="size-4" />}{loading ? '正在计算' : '查询'}</button></div>
           </form>
@@ -637,8 +640,8 @@ export default function StationPassRatePage() {
               dateTo={dateTo}
               stations={settings.stationPassRateConfig.selectedStations}
               stationsConfigured={settings.stationPassRateConfig.configured}
-              onPickModel={(model) => applyAndLoad({ productModel: model })}
-              onPickBase={(nextBase) => applyAndLoad({ base: nextBase })}
+              onPickModel={(model) => applyAndLoad({ productModels: [model] })}
+              onPickBase={(nextBase) => applyAndLoad({ bases: [nextBase] })}
               onPickRange={(from, to) => applyAndLoad({ dateFrom: from, dateTo: to })}
             />
           )}
@@ -652,13 +655,13 @@ export default function StationPassRatePage() {
             />
           )}
 
-          {hasSearched && matrix.stations.length > 0 && <div className="flex items-center justify-between border-b border-slate-100 bg-white px-4 py-3"><div><div className="text-xs font-semibold text-slate-700">组合工站</div><div className="mt-0.5 text-xs text-slate-400">已选 {selectedStations.length} / {matrix.stations.length} 个工站</div></div>{canConfigureStations && <button type="button" onClick={() => setStationConfigOpen(true)} aria-haspopup="dialog" aria-expanded={stationConfigOpen} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700"><Settings2 className="size-4" />配置工站</button>}</div>}
+          {hasSearched && matrix.stations.length > 0 && <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3"><div><div className="text-xs font-semibold text-slate-700">组合工站</div><div className="mt-0.5 text-xs text-slate-400">已选 {selectedStations.length} / {matrix.stations.length} 个工站</div></div><div className="flex items-center gap-3"><label className="inline-flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" checked={onlyAvailableStations} onChange={(event) => setOnlyAvailableStations(event.target.checked)} className="size-4 rounded border-slate-300 text-cyan-600" />仅计算当前有值工站</label>{canConfigureStations && <button type="button" onClick={() => setStationConfigOpen(true)} aria-haspopup="dialog" aria-expanded={stationConfigOpen} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700"><Settings2 className="size-4" />配置工站</button>}</div></div>}
 
           {(loading || error || hasSearched) && <div className="overflow-auto">
             <table className="w-full min-w-max border-separate border-spacing-0 text-left">
           <thead className="text-xs font-semibold text-slate-600"><tr><th className="sticky left-0 top-0 z-20 min-w-52 border-b border-r border-slate-200 bg-slate-50 px-4 py-3 text-left shadow-[1px_0_0_0_rgb(226_232_240)]">{dimensionLabel}</th><th className="sticky left-52 top-0 z-20 min-w-30 border-b border-r border-slate-200 bg-slate-100 px-3 py-3 text-center shadow-[1px_0_0_0_rgb(226_232_240)]">RTY直通率</th><th className="sticky left-[20.5rem] top-0 z-20 min-w-32 border-b border-r border-slate-200 bg-cyan-50 px-3 py-3 text-center"><span className="inline-flex items-center justify-center gap-1">组合工站直通率<button type="button" onClick={() => setCalculationHelpOpen(true)} className="inline-flex size-5 items-center justify-center rounded-full text-cyan-700 transition-colors hover:bg-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600" title="查看组合工站直通率计算方法" aria-label="查看组合工站直通率计算方法"><CircleHelp className="size-3.5" /></button></span></th>{matrix.stations.map((station) => { const sourceName = rows.find((row) => row.stationCode === station)?.stationName; const description = stationDescription(station, sourceName !== station ? sourceName : ''); return <th key={station} className="sticky top-0 z-10 min-w-32 border-b border-r border-slate-200 bg-slate-50 px-3 py-3 text-center font-mono" title={description}><span className="block text-slate-700">{station}</span><span className="mt-0.5 block max-w-28 truncate font-sans text-[10px] font-medium text-slate-400">{description}</span></th>; })}</tr></thead>
               <tbody className="text-xs">
-                {loading ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-slate-500"><span className="inline-flex items-center gap-2"><RefreshCw className="size-4 animate-spin text-cyan-600" />正在计算工位过站量与维修记录匹配关系... {formatDuration(loadingElapsedMs)}</span></td></tr> : error ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-red-600">{error}</td></tr> : matrix.rows.length === 0 ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-slate-500">当前条件下暂无工位过站数据</td></tr> : tableRows.length === 0 ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-slate-500">没有落在该区间的记录</td></tr> : tableRows.map((row) => { const combinedRate = combinedStationPassRate(row.stationRows, selectedStations); return <tr key={row.dimensionValue} className="group"><th className="sticky left-0 z-10 max-w-52 truncate border-b border-r border-slate-200 bg-white px-4 py-3.5 text-left font-mono font-semibold text-slate-800 shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-slate-50" title={row.dimensionValue}>{row.dimensionValue}</th><td className="sticky left-52 z-10 border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-center shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-slate-100/70"><div className="font-mono text-sm font-semibold text-slate-800">{formatRate(row.total.inputCount, row.total.defectCount)}</div><div className="mt-0.5 font-mono text-[11px] text-slate-500">{row.total.defectCount}/{row.total.inputCount}</div></td><td className="sticky left-[20.5rem] z-10 border-b border-r border-slate-200 bg-cyan-50 px-3 py-2 text-center shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-cyan-100/70"><div className="font-mono text-sm font-semibold text-cyan-900">{combinedRate === null ? '-' : `${combinedRate.toFixed(2)}%`}</div><div className="mt-0.5 text-[11px] text-cyan-700">{selectedStations.length ? `${selectedStations.length} 个工站` : '未选择工站'}</div></td>{matrix.stations.map((station) => { const rate = row.stationRows.get(station); return !rate ? <td key={station} className="border-b border-r border-slate-100 bg-slate-50/40 px-3 py-2 text-center text-slate-300">-</td> : <td key={station} className="border-b border-r border-slate-100 p-1.5 text-center"><button type="button" onClick={() => void openDetail(rate)} className={`flex min-h-13 w-full flex-col items-center justify-center rounded-sm px-2 py-1.5 font-mono transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${rateTone(rate.passRate)}`} title={`过站量 ${rate.inputCount}，维修记录 ${rate.defectCount} 条；点击查看明细`}><span className="text-sm font-semibold">{rate.passRate.toFixed(2)}%</span><span className="mt-0.5 text-[11px] font-medium opacity-75">{rate.defectCount}/{rate.inputCount}</span></button></td>; })}</tr>; })}
+                {loading ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-slate-500"><span className="inline-flex items-center gap-2"><RefreshCw className="size-4 animate-spin text-cyan-600" />正在计算工位过站量与维修记录匹配关系... {formatDuration(loadingElapsedMs)}</span></td></tr> : error ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-red-600">{error}</td></tr> : matrix.rows.length === 0 ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-slate-500">当前条件下暂无工位过站数据</td></tr> : tableRows.length === 0 ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-slate-500">没有落在该区间的记录</td></tr> : tableRows.map((row) => { const combinedRate = combinedStationPassRate(row.stationRows, selectedStations, onlyAvailableStations); return <tr key={row.dimensionValue} className="group"><th className="sticky left-0 z-10 max-w-52 truncate border-b border-r border-slate-200 bg-white px-4 py-3.5 text-left font-mono font-semibold text-slate-800 shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-slate-50" title={row.dimensionValue}>{row.dimensionValue}</th><td className="sticky left-52 z-10 border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-center shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-slate-100/70"><div className="font-mono text-sm font-semibold text-slate-800">{formatRate(row.total.inputCount, row.total.defectCount)}</div><div className="mt-0.5 font-mono text-[11px] text-slate-500">{row.total.defectCount}/{row.total.inputCount}</div></td><td className="sticky left-[20.5rem] z-10 border-b border-r border-slate-200 bg-cyan-50 px-3 py-2 text-center shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-cyan-100/70"><div className="font-mono text-sm font-semibold text-cyan-900">{combinedRate === null ? '-' : `${combinedRate.toFixed(2)}%`}</div><div className="mt-0.5 text-[11px] text-cyan-700">{selectedStations.length ? `${selectedStations.length} 个工站` : '未选择工站'}</div></td>{matrix.stations.map((station) => { const rate = row.stationRows.get(station); return !rate ? <td key={station} className="border-b border-r border-slate-100 bg-slate-50/40 px-3 py-2 text-center text-slate-300">-</td> : <td key={station} className="border-b border-r border-slate-100 p-1.5 text-center"><button type="button" onClick={() => void openDetail(rate)} className={`flex min-h-13 w-full flex-col items-center justify-center rounded-sm px-2 py-1.5 font-mono transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${rateTone(rate.passRate)}`} title={`过站量 ${rate.inputCount}，维修记录 ${rate.defectCount} 条；点击查看明细`}><span className="text-sm font-semibold">{rate.passRate.toFixed(2)}%</span><span className="mt-0.5 text-[11px] font-medium opacity-75">{rate.defectCount}/{rate.inputCount}</span></button></td>; })}</tr>; })}
               </tbody>
             </table>
           </div>}

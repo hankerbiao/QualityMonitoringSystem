@@ -120,6 +120,9 @@ function buildStationPassQuery(params: StationPassQuery): URLSearchParams {
   if (params.dateFrom) qs.set('dateFrom', params.dateFrom);
   if (params.dateTo) qs.set('dateTo', params.dateTo);
   if (params.serialNumber) qs.set('serialNumber', params.serialNumber);
+  params.productModels?.forEach((value) => qs.append('productModels', value));
+  params.customers?.forEach((value) => qs.append('customers', value));
+  params.bases?.forEach((value) => qs.append('bases', value));
   if (params.productModel) qs.set('productModel', params.productModel);
   if (params.customer) qs.set('customer', params.customer);
   if (params.base) qs.set('base', params.base);

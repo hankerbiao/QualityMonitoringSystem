@@ -106,15 +106,15 @@ def _validate_lrr_date_range(
 
 def _has_lrr_scope_filter(
     material_number: str | None,
-    product_model: str | None,
-    base: str | None,
+    product_models: list[str] | None,
+    bases: list[str] | None,
     customer_ids: list[str] | None,
 ) -> bool:
     return any(
         (
             str(material_number or "").strip(),
-            str(product_model or "").strip(),
-            str(base or "").strip(),
+            any(str(value).strip() for value in product_models or []),
+            any(str(value).strip() for value in bases or []),
             any(str(value or "").strip() for value in customer_ids or []),
         )
     )
@@ -446,6 +446,8 @@ def _has_filter_criteria(query: LRRListQuery) -> bool:
             query.ng_date_from,
             query.ng_date_to,
             query.material_number,
+            query.product_models,
+            query.bases,
             query.product_model,
             query.base,
             query.customer_ids,
@@ -457,8 +459,8 @@ async def _load(query: LRRListQuery) -> LRRListResponse:
     started = perf_counter()
     bom = await lrr_gateway.load_bom(
         material_number=query.material_number,
-        product_model=query.product_model,
-        base=query.base,
+        product_models=[*query.product_models, *([query.product_model] if query.product_model else [])],
+        bases=[*query.bases, *([query.base] if query.base else [])],
         customer_ids=query.customer_ids,
         planned_date_from=query.planned_date_from,
         planned_date_to=query.planned_date_to,
@@ -546,8 +548,8 @@ async def get_lrr_list(
     ngDateFrom: str | None = None,
     ngDateTo: str | None = None,
     materialNumber: str | None = None,
-    productModel: str | None = None,
-    base: str | None = None,
+    productModel: Annotated[list[str] | None, Query()] = None,
+    base: Annotated[list[str] | None, Query()] = None,
     customerId: Annotated[list[str] | None, Query()] = None,
     sortBy: str = "month",
     sortDir: str = "asc",
@@ -574,8 +576,8 @@ async def get_lrr_list(
         ng_date_from=ngDateFrom,
         ng_date_to=ngDateTo,
         material_number=materialNumber,
-        product_model=productModel,
-        base=base,
+        product_models=tuple(sorted(set(productModel or []))),
+        bases=tuple(sorted(set(base or []))),
         base_permissions=current_base_permissions(),
         customer_ids=tuple(sorted(set(customerId or []))),
         sort_by=sortBy,
@@ -604,8 +606,8 @@ async def get_lrr_fault_details(
     ngDateFrom: str | None = None,
     ngDateTo: str | None = None,
     materialNumber: str | None = None,
-    productModel: str | None = None,
-    base: str | None = None,
+    productModel: Annotated[list[str] | None, Query()] = None,
+    base: Annotated[list[str] | None, Query()] = None,
     customerId: Annotated[list[str] | None, Query()] = None,
     month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
     limit: int = Query(50000, ge=1, le=50000),
@@ -627,8 +629,8 @@ async def get_lrr_fault_details(
     )
     bom = await lrr_gateway.load_bom(
         material_number=materialNumber,
-        product_model=productModel,
-        base=base,
+        product_models=productModel,
+        bases=base,
         customer_ids=tuple(sorted(set(customerId or []))),
         month=month,
         planned_date_from=plannedDateFrom,

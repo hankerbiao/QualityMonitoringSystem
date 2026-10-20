@@ -83,7 +83,7 @@ def source(monkeypatch, orders, faults=(), bindings=()):
 async def test_template_retains_raw_repairs_but_deduplicates_machine_counts(monkeypatch):
     loader = source(
         monkeypatch,
-        [order(), order("2", GAMNG="8", WMENG="10")],
+        [order(AUART="Z001"), order("2", GAMNG="8", WMENG="10", AUART="Z002")],
         [
             fault(),
             fault("F2", ERROR_MSG="second repair of same SN"),
@@ -98,6 +98,7 @@ async def test_template_retains_raw_repairs_but_deduplicates_machine_counts(monk
     assert result.faults[0]["U_FIX"] == "repairer"
     assert result.faults[0]["ZWXDT"] is None
     assert result.faults[0]["FACTORY"] is None
+    assert result.faults[0]["AUART"] == "Z001"
     assert result.summary == [
         {
             "model": "M",

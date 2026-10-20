@@ -659,7 +659,9 @@ async def test_station_rates_filter_input_by_gstrs_not_actual_pass_time(monkeypa
         ("M-1", "OP205", 1)
     ]
     assert station_rows.await_args.kwargs["timeField"] == "planned"
-    assert station_rows.await_args.kwargs["productModel"] == "M-1"
+    assert station_rows.await_args.kwargs["dateFrom"] == "2026-05-01"
+    assert station_rows.await_args.kwargs["dateTo"] == "2026-05-31"
+    assert "productModel" not in station_rows.await_args.kwargs
 
 
 @pytest.mark.asyncio
@@ -736,7 +738,7 @@ async def test_station_rates_excludes_rows_without_gstrs(monkeypatch):
     )
 
     assert rows == []
-    assert station_rows.await_args.kwargs["productModel"] == "M-1"
+    assert station_rows.await_args.kwargs["dateFrom"] == "2026-05-01"
 
 
 @pytest.mark.asyncio
@@ -1195,13 +1197,45 @@ async def test_station_rates_customer_filter_scopes_station_and_rty_counts(monke
         customer="CUST-A",
     )
 
-    assert queried_filters["customer"] == "CUST-A"
+    assert "customer" not in queried_filters
     assert faults.await_args.args[0] == {"ORDER-A"}
     assert repairs.await_args.args[0] == {"SN-A"}
     assert len(rows) == 1
     assert rows[0].inputCount == 1
     assert rows[0].totalInputCount == 10
     assert rows[0].totalDefectCount == 1
+
+
+@pytest.mark.asyncio
+async def test_station_rates_splits_full_year_into_month_windows(monkeypatch):
+    gateway = rty_gateway.data_gateway
+    calls: list[dict[str, str]] = []
+
+    async def all_station_rows(**filters):
+        calls.append(filters)
+        return [
+            {
+                "PCODE": f"SN-{filters['dateFrom']}",
+                "AUFNR": f"ORDER-{filters['dateFrom']}",
+                "SPEC": "Line-OP10:Assembly",
+                "MAKTX_TH": "M-1",
+                "GSTRS": filters["dateFrom"].replace("-", "") + "15",
+                "IF_L6": "",
+            }
+        ]
+
+    monkeypatch.setattr(gateway, "all_station_rows", all_station_rows)
+    monkeypatch.setattr(gateway, "all_orders", AsyncMock(return_value=[]))
+    monkeypatch.setattr(rty_gateway, "_faults_for_sns", AsyncMock(return_value=[]))
+    rows = await rty_gateway.station_rates(
+        "2025-01-01", "2025-12-31", group_by="productModel"
+    )
+
+    assert len(calls) == 12
+    assert calls[0]["dateFrom"] == "2025-01-01"
+    assert calls[-1]["dateTo"] == "2025-12-31"
+    assert len(rows) == 1
+    assert rows[0].inputCount == 12
 
 
 @pytest.mark.asyncio

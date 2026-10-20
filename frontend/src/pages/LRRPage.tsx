@@ -19,15 +19,20 @@ const FILTER_KEYS: Array<keyof LRRFilters> = [
   'ngDateFrom',
   'ngDateTo',
   'materialNumber',
-  'productModel',
-  'base',
+  'productModels',
+  'bases',
   'customerIds',
   'month',
 ];
-const hasSearchCriteria = (candidate: LRRFilters) => FILTER_KEYS.some((key) => Boolean(candidate[key]));
+const hasSearchCriteria = (candidate: LRRFilters) => FILTER_KEYS.some((key) => {
+  const value = candidate[key];
+  return Array.isArray(value) ? value.some((item) => Boolean(item?.trim())) : Boolean(value);
+});
 const filtersKey = (candidate: LRRFilters) => JSON.stringify({
   ...candidate,
   customerIds: [...(candidate.customerIds ?? [])].sort(),
+  productModels: [...(candidate.productModels ?? [])].sort(),
+  bases: [...(candidate.bases ?? [])].sort(),
 });
 
 function plannedMonthBounds(month: string): { from: string; to: string } | null {

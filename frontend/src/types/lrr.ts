@@ -7,8 +7,8 @@ export interface LRRFilters {
   ngDateFrom?: string | null;
   ngDateTo?: string | null;
   materialNumber?: string | null;
-  productModel?: string | null;
-  base?: string | null;
+  productModels?: string[] | null;
+  bases?: string[] | null;
   customerIds?: string[] | null;
   month?: string | null;
   sortBy?: LRRSortField;

@@ -22,6 +22,11 @@ describe('combinedStationPassRate', () => {
     expect(combinedStationPassRate(rows, [])).toBeNull();
     expect(combinedStationPassRate(rows, ['OP10', 'OP30'])).toBeNull();
   });
+
+  it('can calculate from only stations with values for the current row', () => {
+    expect(combinedStationPassRate(rows, ['OP10', 'OP30'], true)).toBe(98);
+    expect(combinedStationPassRate(new Map(), ['OP10', 'OP30'], true)).toBeNull();
+  });
 });
 
 describe('rankVolumes', () => {

@@ -7,8 +7,10 @@ composite-model rules live here so the public RTY API remains unchanged.
 from __future__ import annotations
 
 import asyncio
+import calendar
 from collections import defaultdict
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 from types import MappingProxyType
 from typing import Any, TypeVar
 
@@ -691,8 +693,9 @@ def _matches_station_filters(
     raw: dict[str, Any],
     *,
     serial_number: str | None,
-    product_model: str | None,
-    base: str | None,
+    product_models: list[str] | None,
+    bases: list[str] | None,
+    customers: list[str] | None,
     group_by: str,
     order_scope: str = "normal",
     dimension_value: str | None = None,
@@ -702,9 +705,11 @@ def _matches_station_filters(
         return False
     if serial_number and str(raw.get("PCODE") or "").strip() != serial_number.strip():
         return False
-    if product_model and str(raw.get("MAKTX_TH") or "").strip() != product_model.strip():
+    if product_models and str(raw.get("MAKTX_TH") or "").strip() not in product_models:
         return False
-    if base and str(raw.get("LGORT") or "").strip() != base.strip():
+    if bases and str(raw.get("LGORT") or "").strip() not in bases:
+        return False
+    if customers and scope_orders is None and str(raw.get("KID") or "").strip() not in customers:
         return False
     if scope_orders is not None:
         order = normalize_order(raw.get("AUFNR"))
@@ -733,16 +738,49 @@ def _station_gstrs_date(item: dict[str, Any]) -> str:
     return str(nested.get("GSTRS") or raw.get("GSTRS") or "").strip()
 
 
+async def _station_records_in_range(
+    start: str, end: str, *, serial_number: str | None
+) -> list[dict[str, Any]]:
+    """Read long station ranges in calendar-month windows below the stream cap."""
+    start_date = datetime.strptime(start, "%Y%m%d").date()
+    end_date = datetime.strptime(end, "%Y%m%d").date()
+    months: list[tuple[str, str]] = []
+    cursor = start_date.replace(day=1)
+    while cursor <= end_date:
+        month_end = cursor.replace(day=calendar.monthrange(cursor.year, cursor.month)[1])
+        window_start = max(start_date, cursor)
+        window_end = min(end_date, month_end)
+        months.append((window_start.isoformat(), window_end.isoformat()))
+        cursor = (month_end + timedelta(days=1)).replace(day=1)
+
+    semaphore = asyncio.Semaphore(4)
+
+    async def read_month(month_start: str, month_end: str) -> list[dict[str, Any]]:
+        async with semaphore:
+            return await data_gateway.all_station_rows(
+                dateFrom=month_start,
+                dateTo=month_end,
+                timeField="planned",
+                sn=serial_number or "",
+            )
+
+    batches = await asyncio.gather(*(read_month(*window) for window in months))
+    return [row for batch in batches for row in batch]
+
+
 async def station_rates(
     date_from: str | None,
     date_to: str | None,
     serial_number: str | None = None,
-    product_model: str | None = None,
-    base: str | None = None,
+    product_models: list[str] | None = None,
+    bases: list[str] | None = None,
     group_by: str = "salesOrder",
     order_scope: str = "normal",
-    customer: str | None = None,
+    customers: list[str] | None = None,
     overseas: bool = False,
+    product_model: str | None = None,
+    base: str | None = None,
+    customer: str | None = None,
 ) -> list[StationPassRate]:
     if current_base_permissions() == ():
         return []
@@ -751,40 +789,38 @@ async def station_rates(
     date_to_iso = f"{end[:4]}-{end[4:6]}-{end[6:]}"
     # Station rows and orders are independent. The summary faults only need
     # orders, while station defects only need the serial numbers below.
+    selected_models = {value.strip() for value in [*(product_models or []), product_model] if value and value.strip()}
+    selected_bases = {value.strip() for value in [*(bases or []), base] if value and value.strip()}
+    selected_customers = {value.strip() for value in [*(customers or []), customer] if value and value.strip()}
     records, orders = await asyncio.gather(
-        data_gateway.all_station_rows(
-            dateFrom=date_from_iso,
-            dateTo=date_to_iso,
-            timeField="planned",
-            sn=serial_number or "",
-            productModel=product_model or "",
-            base=base or "",
-        ),
+        _station_records_in_range(start, end, serial_number=serial_number),
         # Reuse cycle RTY grouping below; individual station metrics stay separate.
         _orders(
             {
                 "dateFrom": date_from_iso,
                 "dateTo": date_to_iso,
                 "serialNumber": serial_number or "",
-                "productModel": product_model or "",
-                "base": base or "",
-                "customer": customer or "",
                 "orderScope": order_scope,
                 "overseas": "true" if overseas else "",
             }
         ),
     )
-    if customer:
-        customer_id = customer.strip()
+    orders = [
+        row for row in orders
+        if (not selected_models or str(row["data"].get("MAKTX_TH") or "").strip() in selected_models)
+        and (not selected_bases or str(row["data"].get("LGORT") or "").strip() in selected_bases)
+        and (not selected_customers or str(row["data"].get("KID") or "").strip() in selected_customers)
+    ]
+    if selected_customers:
         orders = [
             row
             for row in orders
-            if str(row["data"].get("KID") or "").strip() == customer_id
+            if str(row["data"].get("KID") or "").strip() in selected_customers
         ]
     records = _station_rows_in_planned_range(records, start, end)
     scope_orders = (
         {normalize_order(row["aufnr"]) for row in orders if normalize_order(row["aufnr"])}
-        if order_scope == "l6" or customer or overseas
+        if order_scope == "l6" or selected_customers or overseas
         else None
     )
 
@@ -807,8 +843,9 @@ async def station_rates(
             and _matches_station_filters(
                 raw,
                 serial_number=serial_number,
-                product_model=product_model,
-                base=base,
+                product_models=list(selected_models),
+                bases=list(selected_bases),
+                customers=list(selected_customers),
                 group_by=group_by,
                 order_scope=order_scope,
                 scope_orders=scope_orders,
@@ -879,47 +916,42 @@ async def station_details(
     date_to: str | None,
     detail_type: str,
     serial_number: str | None = None,
-    product_model: str | None = None,
-    base: str | None = None,
+    product_models: list[str] | None = None,
+    bases: list[str] | None = None,
+    customers: list[str] | None = None,
     group_by: str = "salesOrder",
     dimension_value: str | None = None,
     order_scope: str = "normal",
-    customer: str | None = None,
     overseas: bool = False,
+    product_model: str | None = None,
+    base: str | None = None,
+    customer: str | None = None,
 ) -> list[StationPassDetail]:
     if current_base_permissions() == ():
         return []
     start, end = _date_range(date_from, date_to)
-    records = await data_gateway.all_station_rows(
-        dateFrom=f"{start[:4]}-{start[4:6]}-{start[6:]}",
-        dateTo=f"{end[:4]}-{end[4:6]}-{end[6:]}",
-        timeField="planned",
-        sn=serial_number or "",
-        productModel=product_model or "",
-        base=base or "",
-    )
+    selected_models = {value.strip() for value in [*(product_models or []), product_model] if value and value.strip()}
+    selected_bases = {value.strip() for value in [*(bases or []), base] if value and value.strip()}
+    selected_customers = {value.strip() for value in [*(customers or []), customer] if value and value.strip()}
+    records = await _station_records_in_range(start, end, serial_number=serial_number)
     records = _station_rows_in_planned_range(records, start, end)
     scope_orders = None
-    if order_scope == "l6" or customer or overseas:
+    if order_scope == "l6" or selected_customers or overseas:
         orders = await _orders(
             {
                 "dateFrom": f"{start[:4]}-{start[4:6]}-{start[6:]}",
                 "dateTo": f"{end[:4]}-{end[4:6]}-{end[6:]}",
                 "serialNumber": serial_number or "",
-                "productModel": product_model or "",
-                "base": base or "",
-                "customer": customer or "",
                 "orderScope": order_scope,
                 "overseas": "true" if overseas else "",
             }
         )
-        if customer:
-            customer_id = customer.strip()
-            orders = [
-                row
-                for row in orders
-                if str(row["data"].get("KID") or "").strip() == customer_id
-            ]
+        orders = [
+            row for row in orders
+            if (not selected_models or str(row["data"].get("MAKTX_TH") or "").strip() in selected_models)
+            and (not selected_bases or str(row["data"].get("LGORT") or "").strip() in selected_bases)
+            and (not selected_customers or str(row["data"].get("KID") or "").strip() in selected_customers)
+        ]
         scope_orders = {
             normalize_order(row["aufnr"]) for row in orders if normalize_order(row["aufnr"])
         }
@@ -936,8 +968,9 @@ async def station_details(
             and _matches_station_filters(
                 raw,
                 serial_number=serial_number,
-                product_model=product_model,
-                base=base,
+                product_models=list(selected_models),
+                bases=list(selected_bases),
+                customers=list(selected_customers),
                 group_by=group_by,
                 order_scope=order_scope,
                 dimension_value=dimension_value,

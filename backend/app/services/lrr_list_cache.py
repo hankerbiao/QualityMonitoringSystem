@@ -43,6 +43,8 @@ class LRRListQuery:
     ng_date_from: str | None = None
     ng_date_to: str | None = None
     material_number: str | None = None
+    product_models: tuple[str, ...] = ()
+    bases: tuple[str, ...] = ()
     product_model: str | None = None
     base: str | None = None
     base_permissions: tuple[str, ...] | None = None

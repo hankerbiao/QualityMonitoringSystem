@@ -5,16 +5,22 @@ export interface StationRateValue {
 export function combinedStationPassRate(
   stationRows: ReadonlyMap<string, StationRateValue>,
   stationCodes: readonly string[],
+  onlyAvailable = false,
 ): number | null {
   if (!stationCodes.length) return null;
 
   let rate = 1;
+  let included = 0;
   for (const stationCode of stationCodes) {
     const station = stationRows.get(stationCode);
-    if (!station) return null;
+    if (!station) {
+      if (onlyAvailable) continue;
+      return null;
+    }
     rate *= station.passRate / 100;
+    included += 1;
   }
-  return rate * 100;
+  return included ? rate * 100 : null;
 }
 
 export interface VolumeItem {

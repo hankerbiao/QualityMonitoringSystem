@@ -13,7 +13,7 @@ interface Props {
 }
 
 const EMPTY_DRAFT: LRRFilters = { sortBy: 'month', sortDir: 'asc' };
-const FILTER_FIELDS = ['materialNumber', 'productModel', 'base', 'customerIds', 'plannedDateFrom', 'plannedDateTo'] as const;
+const FILTER_FIELDS = ['materialNumber', 'productModels', 'bases', 'customerIds', 'plannedDateFrom', 'plannedDateTo'] as const;
 
 interface SearchableSelectProps {
   value: string | string[] | null | undefined;
@@ -32,7 +32,7 @@ function SearchableSelect({ value, options, allLabel, onChange, multiple = false
   const buttonLabel = selectedValues.length === 0
     ? allLabel
     : multiple && selectedValues.length > 1
-      ? `已选 ${selectedValues.length} 个客户`
+    ? `已选 ${selectedValues.length} 个`
       : selectedValues[0];
 
   useEffect(() => {
@@ -129,13 +129,13 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
   useEffect(() => setDraft(filters), [filters]);
 
   const normalizedValue = (value: LRRFilters[typeof FILTER_FIELDS[number]]) => Array.isArray(value) ? value.join('\u0000') : value || '';
-  const hasActive = FILTER_FIELDS.some((key) => Boolean(draft[key]));
-  const activeCount = FILTER_FIELDS.filter((key) => Boolean(draft[key])).length;
+  const hasActive = FILTER_FIELDS.some((key) => Boolean(normalizedValue(draft[key])));
+  const activeCount = FILTER_FIELDS.filter((key) => Boolean(normalizedValue(draft[key]))).length;
   const hasPendingChanges = FILTER_FIELDS.some((key) => normalizedValue(draft[key]) !== normalizedValue(filters[key]));
   const hasScopeFilter = Boolean(
     draft.materialNumber?.trim()
-    || draft.productModel?.trim()
-    || draft.base?.trim()
+    || draft.productModels?.some((value) => value.trim())
+    || draft.bases?.some((value) => value.trim())
     || draft.customerIds?.some((value) => value.trim()),
   );
   const bomScopeWarning = hasActive
@@ -217,7 +217,7 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 border-t border-slate-200 pt-4 sm:grid-cols-3 lg:col-span-12 lg:gap-5"><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">机型</span><SearchableSelect value={draft.productModel} options={options.productModels} allLabel="全部机型" onChange={(value) => setFilter('productModel', value as string | null)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">基地</span><SearchableSelect value={draft.base} options={options.bases} allLabel="全部基地" onChange={(value) => setFilter('base', value as string | null)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">客户 ID</span><SearchableSelect value={draft.customerIds} options={options.customerIds} allLabel="全部客户" multiple onChange={(value) => setFilter('customerIds', (value as string[] | null) ?? undefined)} /></div></div>
+        <div className="grid grid-cols-1 gap-4 border-t border-slate-200 pt-4 sm:grid-cols-3 lg:col-span-12 lg:gap-5"><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">机型</span><SearchableSelect value={draft.productModels} options={options.productModels} allLabel="全部机型" multiple onChange={(value) => setFilter('productModels', (value as string[] | null) ?? undefined)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">基地</span><SearchableSelect value={draft.bases} options={options.bases} allLabel="全部基地" multiple onChange={(value) => setFilter('bases', (value as string[] | null) ?? undefined)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">客户 ID</span><SearchableSelect value={draft.customerIds} options={options.customerIds} allLabel="全部客户" multiple onChange={(value) => setFilter('customerIds', (value as string[] | null) ?? undefined)} /></div></div>
       </form>
       {scopeFilterWarning && <div role="alert" className="border-t border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800 sm:px-5 lg:px-6">{scopeFilterWarning}</div>}
     </section>

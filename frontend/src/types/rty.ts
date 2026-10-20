@@ -68,6 +68,9 @@ export interface StationPassQuery {
   dateFrom?: string;
   dateTo?: string;
   serialNumber?: string;
+  productModels?: string[];
+  customers?: string[];
+  bases?: string[];
   productModel?: string;
   customer?: string;
   base?: string;

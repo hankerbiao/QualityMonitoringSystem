@@ -92,6 +92,7 @@ FAULT_FIELDS = (
     "RNOTE",
     "U_RMA_NAM",
     "RMA_RESULT",
+    "AUART",
 )
 
 
@@ -139,6 +140,7 @@ async def _load_orders(
     *,
     product_models: list[str] | None = None,
     bases: list[str] | None = None,
+    customers: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     if current_base_permissions() == ():
         return []
@@ -152,6 +154,7 @@ async def _load_orders(
     end = compact_date(validate_date(filters["dateTo"]))
     selected_models = set(product_models) if product_models else None
     selected_bases = set(bases) if bases else None
+    selected_customers = set(customers) if customers else None
     candidates = []
     for item in items:
         normalized = rty_gateway.normalize_order_row(item)
@@ -162,6 +165,7 @@ async def _load_orders(
             and start <= planned_date <= end
             and (selected_models is None or normalized["data"].get("MAKTX_TH") in selected_models)
             and (selected_bases is None or normalized["data"].get("LGORT") in selected_bases)
+            and (selected_customers is None or normalized["data"].get("KID") in selected_customers)
         ):
             candidates.append(item)
 
@@ -181,6 +185,9 @@ async def _load_orders(
                 and base_allowed(data.get("LGORT") or normalized["data"].get("LGORT"))
                 and start <= planned_date <= end
                 and rty_gateway._eligible(normalized, filters.get("orderScope", "normal"))
+                and (selected_models is None or data.get("MAKTX_TH") in selected_models)
+                and (selected_bases is None or data.get("LGORT") in selected_bases)
+                and (selected_customers is None or data.get("KID") in selected_customers)
             ):
                 if not str(data.get("AUFNR") or "").strip():
                     data["AUFNR"] = normalized["aufnr"]
@@ -305,6 +312,7 @@ async def _load_sources(
     *,
     product_models: list[str] | None = None,
     bases: list[str] | None = None,
+    customers: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[MatchedFault]]:
     start = validate_date(filters["dateFrom"])
     end = validate_date(filters["dateTo"])
@@ -316,11 +324,12 @@ async def _load_sources(
         tuple(sorted(filters.items())),
         tuple(sorted(set(product_models or []))),
         tuple(sorted(set(bases or []))),
+        tuple(sorted(set(customers or []))),
     )
 
     async def load() -> bytes:
         orders, faults = await _load_sources_uncached(
-            filters, product_models=product_models, bases=bases
+            filters, product_models=product_models, bases=bases, customers=customers
         )
         payload = [orders, [[row, sorted(matches)] for row, matches in faults]]
         return gzip.compress(json.dumps(payload, ensure_ascii=False).encode(), compresslevel=1)
@@ -335,19 +344,23 @@ async def _load_sources_uncached(
     *,
     product_models: list[str] | None = None,
     bases: list[str] | None = None,
+    customers: list[str] | None = None,
 ) -> tuple[list[dict[str, Any]], list[MatchedFault]]:
     start = validate_date(filters["dateFrom"])
     end = validate_date(filters["dateTo"])
     if start > end:
         raise HTTPException(status_code=422, detail="开始日期不能晚于结束日期")
-    orders = await _load_orders(filters, product_models=product_models, bases=bases)
+    orders = await _load_orders(filters, product_models=product_models, bases=bases, customers=customers)
     if not orders:
         return [], []
 
     order_models: dict[str, set[str]] = defaultdict(set)
+    order_types: dict[str, str] = {}
     for row in orders:
         model = str(row.get("MAKTX_TH") or "")
-        order_models[normalize_order(row["AUFNR"])].add(model)
+        order = normalize_order(row["AUFNR"])
+        order_models[order].add(model)
+        order_types.setdefault(order, str(row.get("AUART") or ""))
     children = await _child_bindings(orders)
     lookup_orders = sorted(set(order_models) | {order for order, _ in children})
     faults: list[MatchedFault] = []
@@ -374,6 +387,7 @@ async def _load_sources_uncached(
                 continue
             if identity:
                 seen_ids.add(identity)
+            raw = {**raw, "AUART": raw.get("AUART") or order_types.get(order, "")}
             faults.append((_columns(raw, FAULT_FIELDS), matches))
             if len(faults) > MAX_EXPORT_FAULTS:
                 raise HTTPException(status_code=413, detail="维修明细超过导出上限，请缩小筛选范围")
@@ -468,12 +482,19 @@ async def build_export_response(
     *,
     product_models: list[str] | None = None,
     bases: list[str] | None = None,
+    customers: list[str] | None = None,
 ) -> bytes:
     """Reuse immutable export JSON briefly within the same filter and access scope."""
 
     async def load() -> bytes:
         builder = build_template_export if kind == "template" else build_source_export
-        data = await builder(filters, product_models=product_models, bases=bases, integrate=True)
+        data = await builder(
+            filters,
+            product_models=product_models,
+            bases=bases,
+            **({"customers": customers} if kind == "source" else {}),
+            integrate=True,
+        )
         return Response(success=True, data=data).model_dump_json().encode()
 
     key = (
@@ -484,6 +505,7 @@ async def build_export_response(
         tuple(sorted(filters.items())),
         tuple(sorted(set(product_models or []))),
         tuple(sorted(set(bases or []))),
+        tuple(sorted(set(customers or []))),
     )
     return await _RESPONSE_CACHE.get_or_set(key, load, ttl_seconds=EXPORT_SOURCE_CACHE_TTL_SECONDS)
 
@@ -493,10 +515,11 @@ async def build_source_export(
     *,
     product_models: list[str] | None = None,
     bases: list[str] | None = None,
+    customers: list[str] | None = None,
     integrate: bool = False,
 ) -> StationPassExport:
     """Load source sheets and optional model statistics without template summary."""
-    orders, faults = await _load_sources(filters, product_models=product_models, bases=bases)
+    orders, faults = await _load_sources(filters, product_models=product_models, bases=bases, customers=customers)
     return StationPassExport(
         orders=[_columns(row, ORDER_FIELDS) for row in orders],
         faults=[raw for raw, _ in faults],

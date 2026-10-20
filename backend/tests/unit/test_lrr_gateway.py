@@ -105,6 +105,35 @@ async def test_load_bom_normalizes_gateway_rows_and_applies_exact_filters(monkey
 
 
 @pytest.mark.asyncio
+async def test_load_bom_splits_year_range_into_monthly_gateway_reads(monkeypatch):
+    calls: list[dict[str, str]] = []
+
+    async def all_bom_rows(**filters: str):
+        calls.append(filters)
+        return [
+            {
+                "id": filters["dateFrom"],
+                "AUFNR_1": filters["dateFrom"],
+                "MATNR": "PN-1",
+                "MENGE_A": "1",
+                "GSTRS": filters["dateFrom"],
+            }
+        ]
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
+
+    rows = await lrr_gateway.load_bom(
+        planned_date_from="2025-01-01",
+        planned_date_to="2025-12-31",
+    )
+
+    assert len(calls) == 12
+    assert calls[0]["dateFrom"] == "2025-01-01"
+    assert calls[-1]["dateTo"] == "2025-12-31"
+    assert len(rows) == 12
+
+
+@pytest.mark.asyncio
 async def test_load_bom_filters_by_production_model_from_order_metadata(monkeypatch):
     async def all_bom_rows(**_filters: str):
         return [

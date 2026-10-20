@@ -216,7 +216,8 @@ describe('cycle query and export', () => {
     expect(workbook.Sheets['销售订单'].E2.v).toBe('Product A');
     expect(workbook.Sheets['销售订单'].J2).toMatchObject({ t: 'n', v: 0 });
     expect(workbook.Sheets['销售订单'].R1.v).toBe('最终用户');
-    expect(workbook.Sheets['维修故障明记录'].AH1.v).toBe('RMA复判结论');
+    expect(workbook.Sheets['维修故障明记录'].AI1.v).toBe('RMA复判结论');
+    expect(workbook.Sheets['维修故障明记录'].AJ1.v).toBe('订单类型');
     expect(workbook.Sheets['维修故障明记录'].E2.v).toBe('CHILD-SN');
     expect(workbook.Sheets['维修故障明记录'].E3.v).toBe('CHILD-SN');
   });
@@ -271,6 +272,6 @@ describe('cycle query and export', () => {
     await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalledTimes(1));
     const workbook = vi.mocked(XLSX.writeFile).mock.calls[0][0];
     expect(workbook.Sheets['销售订单']['!ref']).toBe('A1:R1');
-    expect(workbook.Sheets['维修故障明记录']['!ref']).toBe('A1:AH1');
+    expect(workbook.Sheets['维修故障明记录']['!ref']).toBe('A1:AJ1');
   });
 });

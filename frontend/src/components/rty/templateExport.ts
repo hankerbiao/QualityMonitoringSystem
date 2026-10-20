@@ -56,6 +56,7 @@ export const FAULT_COLUMNS: readonly Column[] = [
   ['U_FIND', 'NG报工人员'],
   ['T_FIND', 'NG时间'],
   ['ZNGWD3', '不良现象维度3'],
+  ['ZNGWD3_COUNT', '不良现象维度3数量'],
   ['ZNGWD', '不良现象维度2'],
   ['U_FIX', '维修人员'],
   ['ZWXDT', '维修日期时间'],
@@ -81,6 +82,7 @@ export const FAULT_COLUMNS: readonly Column[] = [
   ['RNOTE', '复判备注'],
   ['U_RMA_NAM', 'RMA复判人员'],
   ['RMA_RESULT', 'RMA复判结论'],
+  ['AUART', '订单类型'],
 ];
 
 export const TOP_COLUMNS: readonly Column[] = [
@@ -151,9 +153,18 @@ export function appendModelSheets(workbook: XLSX.WorkBook, models: RepairModelSh
 }
 
 export function appendSourceSheets(workbook: XLSX.WorkBook, data: StationPassExport): void {
+  const phenomenonCounts = new Map<string, number>();
+  for (const row of data.faults) {
+    const phenomenon = String(row.ZNGWD3 ?? '').trim();
+    if (phenomenon) phenomenonCounts.set(phenomenon, (phenomenonCounts.get(phenomenon) ?? 0) + 1);
+  }
+  const faults: Record<string, unknown>[] = data.faults.map((row) => ({
+    ...row,
+    ZNGWD3_COUNT: phenomenonCounts.get(String(row.ZNGWD3 ?? '').trim()) ?? null,
+  }));
   const sources = [
     ['销售订单', ORDER_COLUMNS, data.orders],
-    ['维修故障明记录', FAULT_COLUMNS, data.faults],
+    ['维修故障明记录', FAULT_COLUMNS, faults],
   ] as const;
   for (const [name, columns, rows] of sources) {
     const sheet = XLSX.utils.aoa_to_sheet([

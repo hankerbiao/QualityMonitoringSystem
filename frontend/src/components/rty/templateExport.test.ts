@@ -22,7 +22,8 @@ describe('RTY template workbook', () => {
     expect(orders.R2.v).toBe('最终用户');
     const faults = workbook.Sheets['维修故障明记录-分子'];
     expect(faults.A2.v).toBe('生产基地');
-    expect(faults.AH2.v).toBe('RMA复判结论');
+    expect(faults.AI2.v).toBe('RMA复判结论');
+    expect(faults.AJ2.v).toBe('订单类型');
     const top = workbook.Sheets['TOP问题'];
     expect(top.A1.v).toBe('序号');
     expect(top.L1.v).toBe('整机故障率');
@@ -48,8 +49,8 @@ describe('RTY template workbook', () => {
     expect(result.Sheets['销售订单-分母'].J3).toMatchObject({ t: 'n', v: 0 });
     expect(result.Sheets['维修故障明记录-分子'].E3).toMatchObject({ t: 's', v: '=literal-sn' });
     expect(result.Sheets['维修故障明记录-分子'].E3.f).toBeUndefined();
-    expect(result.Sheets['维修故障明记录-分子'].K3.v).toBe('张三');
-    expect(result.Sheets['维修故障明记录-分子'].L3).toBeUndefined();
+    expect(result.Sheets['维修故障明记录-分子'].L3.v).toBe('张三');
+    expect(result.Sheets['维修故障明记录-分子'].M3).toBeUndefined();
     expect(result.Sheets['TOP问题'].H2).toBeUndefined();
     expect(result.Sheets['TOP问题'].L2).toMatchObject({ t: 'n', v: 0, z: '0.00%' });
   });
