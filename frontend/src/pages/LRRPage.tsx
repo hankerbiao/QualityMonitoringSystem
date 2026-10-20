@@ -414,6 +414,11 @@ export default function LRRPage() {
           {error && <ErrorBanner error={error} onRetry={() => void load(page, filters)} />}
           {exportError && <ErrorBanner error={exportError} onRetry={() => void handleExport()} />}
         </section>
+        <section className="border-l-4 border-cyan-500 bg-cyan-50 px-4 py-3 text-xs leading-5 text-slate-600 sm:px-5">
+          <span className="font-semibold text-slate-800">计算规则：</span>
+          使用总数 = BWART 为 261 的 MENGE_A 合计 - BWART 为 262 的 MENGE_A 合计；
+          BWART 为 601、602、Z35、Z37 的记录不参与计算。LRR = 故障总数 ÷ 使用总数 × 100%。
+        </section>
 
         {loading && !response && (
           <section className="flex min-h-36 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white text-sm text-slate-500 shadow-sm">
