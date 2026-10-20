@@ -70,6 +70,38 @@ describe('StationPassRatePage customer filter', () => {
     expect(context.updateSettings).not.toHaveBeenCalled();
   });
 
+  it('shows the supplied Chinese station names in table headers', async () => {
+    const descriptions = [
+      ['OP10', '组装'], ['OP150', '组装'], ['OP170', '组装'],
+      ['OP180', 'PQC'], ['OP181', 'L11三总线检测'],
+      ['OP190', '保压'], ['OP191', 'L11冷板保压'], ['OP192', 'L11整机柜保压'],
+      ['OP195', 'L11注液冲洗'], ['OP200', '初检'], ['OP205', '前测'],
+      ['OP210', '压测'], ['OP215', '后测'], ['OP220', '综检'],
+      ['OP221', '冲洗'], ['OP222', '排液烘干充氮'], ['OP223', '湿度检测'],
+      ['OP228', 'L11排液冲洗'], ['OP229A', 'L11 排液烘干'],
+      ['OP229B', 'L11 机柜保压'], ['OP229C', 'L11 注氮'],
+      ['OP230', 'CCC安规测试'], ['OP240', 'FQC'], ['OP250', '维修'],
+      ['OP300', '外箱贴标'], ['OP310', '附件装箱'], ['OP320', '包装'],
+    ] as const;
+    vi.mocked(rtyApi.getStationPassRates).mockResolvedValue(descriptions.map(([stationCode]) => ({
+      dimensionValue: 'M',
+      stationCode,
+      stationName: stationCode,
+      inputCount: 10,
+      defectCount: 1,
+      passRate: 90,
+      totalInputCount: 10,
+      totalDefectCount: 1,
+    })));
+    render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
+
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+
+    for (const [code, name] of descriptions) {
+      expect(await screen.findByRole('columnheader', { name: new RegExp(`${code}.*${name}`) })).toBeTruthy();
+    }
+  });
+
   it('allows administrators to persist station selection', async () => {
     context.role = 'admin';
     vi.mocked(rtyApi.getStationPassRates).mockResolvedValue([{
