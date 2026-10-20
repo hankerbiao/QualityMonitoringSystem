@@ -739,7 +739,7 @@ class DataGatewayClient:
         return await self._cached_list(self._views_cache, ("view", cache_key), load, max_rows)
 
     async def all_bom_rows(
-        self, *, max_rows: int = 1_000_000, **filters: str
+        self, *, max_rows: int = 1_000_000, require_bwart: bool = False, **filters: str
     ) -> list[dict[str, Any]]:
         """Read the BOM source projection through the low-overhead CSV stream."""
         if not _has_bom_filter(filters):
@@ -805,6 +805,13 @@ class DataGatewayClient:
         # view until the stream deployment is upgraded. Keep the date meaning
         # explicit because the paginated view has more than one date column.
         if "GSTRS" not in fields:
+            return await self.all_pages(
+                "GET",
+                "/api/views/ZSGV_ZSD124",
+                filters={**filters, "timeField": "planned"},
+                max_rows=max_rows,
+            )
+        if require_bwart and not any(str(row.get("BWART") or "").strip() for row in rows):
             return await self.all_pages(
                 "GET",
                 "/api/views/ZSGV_ZSD124",

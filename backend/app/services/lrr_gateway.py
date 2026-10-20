@@ -169,6 +169,7 @@ async def load_bom(
         async def read_day(day: date, term: str) -> list[dict[str, Any]]:
             async with semaphore:
                 return await data_gateway.all_bom_rows(
+                    require_bwart=True,
                     **{
                         **base_filters,
                         "dateFrom": day.isoformat(),
@@ -197,6 +198,7 @@ async def load_bom(
             async def read_month(window_start: date, window_end: date, term: str) -> list[dict[str, Any]]:
                 async with semaphore:
                     return await data_gateway.all_bom_rows(
+                        require_bwart=True,
                         **{
                             **base_filters,
                             "dateFrom": window_start.isoformat(),
@@ -213,6 +215,7 @@ async def load_bom(
         else:
             requests = [
                 data_gateway.all_bom_rows(
+                    require_bwart=True,
                     **{**base_filters, "dateFrom": date_start, "dateTo": date_end, "keyword": term},
                 )
                 for term in terms
@@ -220,6 +223,7 @@ async def load_bom(
     else:
         requests = [
             data_gateway.all_bom_rows(
+                require_bwart=True,
                 **{**base_filters, "dateFrom": date_start, "dateTo": date_end, "keyword": term},
             )
             for term in terms

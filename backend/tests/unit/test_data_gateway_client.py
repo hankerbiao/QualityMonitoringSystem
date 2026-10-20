@@ -617,6 +617,48 @@ async def test_bom_stream_falls_back_to_paginated_view_when_gstrs_is_missing():
 
 
 @pytest.mark.asyncio
+async def test_bom_stream_falls_back_when_required_bwart_values_are_empty():
+    client = DataGatewayClient("http://gateway.test", timeout=2)
+    captured: dict[str, object] = {}
+
+    async def all_pages(method: str, path: str, **kwargs: object):
+        captured.update({"method": method, "path": path, **kwargs})
+        return [{"id": "bom-1", "GSTRS": "2026-10-10", "BWART": "261", "MENGE_A": "607"}]
+
+    client.all_pages = all_pages  # type: ignore[method-assign]
+    client._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _request: httpx.Response(
+                200, text="id\tGSTRS\tBWART\nstream-1\t20261010\t\n"
+            )
+        ),
+        base_url=client.base_url,
+    )
+    try:
+        rows = await client.all_bom_rows(
+            materialCode="PN-1",
+            dateFrom="2026-10-10",
+            dateTo="2026-10-16",
+            require_bwart=True,
+        )
+    finally:
+        await client.close()
+
+    assert rows[0]["BWART"] == "261"
+    assert captured == {
+        "method": "GET",
+        "path": "/api/views/ZSGV_ZSD124",
+        "filters": {
+            "materialCode": "PN-1",
+            "dateFrom": "2026-10-10",
+            "dateTo": "2026-10-16",
+            "timeField": "planned",
+        },
+        "max_rows": 1_000_000,
+    }
+
+
+@pytest.mark.asyncio
 async def test_bom_stream_rejects_an_unbounded_gateway_stream_at_its_row_cap():
     client = DataGatewayClient("http://gateway.test", timeout=2)
     rows = [{"id": f"bom-{index}", "GSTRS": "2026-01-01"} for index in range(10_000)]

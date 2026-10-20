@@ -97,6 +97,7 @@ async def test_load_bom_normalizes_gateway_rows_and_applies_exact_filters(monkey
     assert rows[0]["MENGE_A"] == "3"
     assert calls == [
         {
+            "require_bwart": True,
             "dateFrom": "2026-08-01",
             "dateTo": "2026-08-31",
             "timeField": "planned",
