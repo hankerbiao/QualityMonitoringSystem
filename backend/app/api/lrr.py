@@ -182,17 +182,37 @@ def aggregate_lrr(
                 "match_description": str(
                     bom.get("_match_description", bom.get("MAKTX")) or ""
                 ).strip(),
-                "quantity": Decimal(0),
+                "quantity_261": Decimal(0),
+                "quantity_262": Decimal(0),
+                "legacy_quantity": Decimal(0),
+                "has_movement_type": False,
                 "orders": set(),
                 "sales": set(),
             },
         )
-        group["quantity"] += _quantity(bom.get("MENGE_A"))
+        movement_type = str(bom.get("BWART") or "").strip().upper()
+        quantity = _quantity(bom.get("MENGE_A"))
+        if movement_type:
+            group["has_movement_type"] = True
+            if movement_type == "261":
+                group["quantity_261"] += quantity
+            elif movement_type == "262":
+                group["quantity_262"] += quantity
+        else:
+            group["legacy_quantity"] += quantity
         if order := normalize_production_order(bom.get("AUFNR_1")):
             group["orders"].add(order)
         if sale := normalize_sales_order(bom.get("VBELN_EX")):
             group["sales"].add(sale)
 
+    for group in groups.values():
+        # Older gateway projections may omit BWART entirely. Keep their
+        # historical quantity behavior until the source exposes the field.
+        group["quantity"] = (
+            group["quantity_261"] - group["quantity_262"]
+            if group["has_movement_type"]
+            else group["legacy_quantity"]
+        )
     active = {key: value for key, value in groups.items() if value["quantity"] > 0}
     counts: dict[str, int] = defaultdict(int)
     details: list[LRRFaultDetail] = []

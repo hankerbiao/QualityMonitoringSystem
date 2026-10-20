@@ -299,6 +299,44 @@ def test_lrr_groups_usage_by_material_and_month_and_matches_fault_description():
     assert details[0].ngTime == ""
 
 
+def test_lrr_denominator_uses_261_minus_262_and_ignores_other_movement_types():
+    rows, _ = aggregate_lrr(
+        [
+            {
+                "AUFNR_1": "1",
+                "MATNR": "PN-1",
+                "MAKTX": "CPU A",
+                "GSTRS": "20260105",
+                "BWART": "261",
+                "MENGE_A": 10,
+            },
+            {
+                "AUFNR_1": "1",
+                "MATNR": "PN-1",
+                "MAKTX": "CPU A",
+                "GSTRS": "20260105",
+                "BWART": "262",
+                "MENGE_A": 3,
+            },
+            *[
+                {
+                    "AUFNR_1": "1",
+                    "MATNR": "PN-1",
+                    "MAKTX": "CPU A",
+                    "GSTRS": "20260105",
+                    "BWART": movement_type,
+                    "MENGE_A": 100,
+                }
+                for movement_type in ("601", "602", "Z35", "Z37", "101")
+            ],
+        ],
+        [],
+    )
+
+    assert len(rows) == 1
+    assert rows[0].issuedQuantity == 7
+
+
 def test_lrr_matches_repair_material_to_zero_padded_bom_material():
     rows, details = aggregate_lrr(
         [

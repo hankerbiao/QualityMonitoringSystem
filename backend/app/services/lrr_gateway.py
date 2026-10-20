@@ -49,6 +49,7 @@ def normalize_bom(item: dict[str, Any]) -> dict[str, Any]:
         "AUFNR_1": data.get("AUFNR_1", ""),
         "VBELN_EX": data.get("VBELN_EX", ""),
         "MENGE_A": data.get("MENGE_A", 0),
+        "BWART": str(data.get("BWART", "") or "").strip(),
         "MATNR": data.get("MATNR", ""),
         "MAKTX": data.get("MAKTX", ""),
         "LGORT": data.get("LGORT", ""),

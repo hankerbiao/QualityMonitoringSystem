@@ -12,6 +12,7 @@ def test_lrr_normalizers_ignore_non_sap_alias_fields():
             "AUFNR": "legacy-order",
             "materialDescription": "legacy-description",
             "plannedStartDate": "2026-08-01",
+            "BWART": " 261 ",
         }
     )
     fault = lrr_gateway.normalize_fault(
@@ -25,6 +26,7 @@ def test_lrr_normalizers_ignore_non_sap_alias_fields():
     assert bom["AUFNR_1"] == ""
     assert bom["MAKTX"] == ""
     assert bom["GSTRS"] == ""
+    assert bom["BWART"] == "261"
     assert fault["AUFNR"] == ""
     assert fault["PCODE"] == ""
     assert fault["ZNGWD"] == ""
