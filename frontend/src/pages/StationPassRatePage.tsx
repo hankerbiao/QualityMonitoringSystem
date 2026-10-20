@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
+  ChevronDown,
   CircleHelp,
   Download,
   Factory,
@@ -103,6 +104,109 @@ function exportCell(value: unknown): string | number | boolean {
   if (value === null || value === undefined) return '';
   if (typeof value === 'object') return JSON.stringify(value);
   return value as string | number | boolean;
+}
+
+type StationFilterOption = { value: string; count?: number };
+
+function StationFilterMultiSelect({
+  label,
+  selected,
+  options,
+  onChange,
+}: {
+  label: string;
+  selected: string[];
+  options: StationFilterOption[];
+  onChange: (values: string[]) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState('');
+  const containerRef = useRef<HTMLDivElement>(null);
+  const filteredOptions = options.filter((option) => option.value.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
+  const selectedLabel = selected.length === 0
+    ? `全部${label}`
+    : selected.length === 1
+      ? selected[0]
+      : `${selected[0]} 等 ${selected.length} 项`;
+
+  useEffect(() => {
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  return (
+    <div ref={containerRef} className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-48">
+      <span>{label}（多选）</span>
+      <div className="relative">
+        <button
+          type="button"
+          aria-label={`${label}（多选）`}
+          aria-expanded={open}
+          aria-haspopup="dialog"
+          title={selected.length ? selected.join('、') : undefined}
+          onClick={() => {
+            setOpen((current) => !current);
+            setSearch('');
+          }}
+          className={`flex h-9 w-full items-center justify-between gap-2 rounded-md border bg-white px-2.5 text-sm font-normal outline-none transition-colors focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100 ${
+            selected.length ? 'border-cyan-300 text-slate-800' : 'border-slate-300 text-slate-500'
+          }`}
+        >
+          <span className="truncate">{selectedLabel}</span>
+          <span className="flex shrink-0 items-center gap-1 text-xs text-slate-400">
+            {selected.length > 0 && <span>{selected.length}</span>}
+            <ChevronDown className={`size-4 transition-transform ${open ? 'rotate-180' : ''}`} />
+          </span>
+        </button>
+        {open && (
+          <div role="dialog" aria-label={`选择${label}`} className="absolute left-0 top-full z-50 mt-1 w-full min-w-56 overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg">
+            <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-3 py-2">
+              <span className="text-xs text-slate-500">已选 {selected.length} 项</span>
+              <div className="flex items-center gap-3 text-xs">
+                <button type="button" onClick={() => onChange(filteredOptions.map((option) => option.value))} className="font-medium text-cyan-700 hover:text-cyan-800">全选</button>
+                <button type="button" onClick={() => onChange([])} className="font-medium text-slate-500 hover:text-slate-700">清空</button>
+              </div>
+            </div>
+            <div className="border-b border-slate-100 p-2">
+              <input
+                type="search"
+                aria-label={`搜索${label}`}
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder={`搜索${label}`}
+                className="h-8 w-full rounded-md border border-slate-200 bg-slate-50 px-2.5 text-xs text-slate-700 outline-none placeholder:text-slate-400 focus:border-cyan-400 focus:bg-white"
+              />
+            </div>
+            <div className="max-h-56 overflow-y-auto py-1">
+              {options.length === 0 ? (
+                <p className="px-3 py-4 text-center text-xs text-slate-400">暂无可选项目</p>
+              ) : filteredOptions.length === 0 ? (
+                <p className="px-3 py-4 text-center text-xs text-slate-400">没有匹配项</p>
+              ) : filteredOptions.map((option) => (
+                <label key={option.value} className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-xs text-slate-700 hover:bg-cyan-50">
+                  <input
+                    type="checkbox"
+                    checked={selected.includes(option.value)}
+                    onChange={() => onChange(
+                      selected.includes(option.value)
+                        ? selected.filter((value) => value !== option.value)
+                        : [...selected, option.value],
+                    )}
+                    className="size-3.5 rounded border-slate-300 accent-cyan-600"
+                  />
+                  <span className="min-w-0 flex-1 truncate">{option.value}</span>
+                  {option.count !== undefined && <span className="font-mono text-[10px] text-slate-400">{option.count}</span>}
+                </label>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 function rawFaultFields(raw: Record<string, unknown> | undefined): Record<string, string | number | boolean> {
@@ -615,16 +719,34 @@ export default function StationPassRatePage() {
               <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-44">统计维度<select value={groupBy} onChange={(event) => updateField('groupBy', setGroupBy, event.target.value as StationGroupBy)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none transition-colors focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"><option value="salesOrder">销售订单号</option><option value="productionOrder">生产订单号</option><option value="productModel">机型</option></select></label>
               <div className="flex min-w-36 flex-col gap-1 text-xs font-medium text-slate-600"><span>订单范围</span><div className="inline-flex h-9 overflow-hidden rounded-md border border-slate-300 bg-white"><button type="button" onClick={() => updateField('orderScope', setOrderScope, 'normal')} className={`px-3 text-xs ${orderScope === 'normal' ? 'bg-cyan-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>普通订单</button><button type="button" onClick={() => updateField('orderScope', setOrderScope, 'l6')} className={`border-l border-slate-300 px-3 text-xs ${orderScope === 'l6' ? 'bg-cyan-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>L6 订单</button></div></div>
               <label className="inline-flex h-9 min-w-24 items-center gap-2 self-end rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700"><input type="checkbox" checked={overseas} onChange={(event) => updateField('overseas', setOverseas, event.target.checked)} className="size-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />海外</label>
-            <fieldset className="flex min-w-40 flex-col gap-1 text-xs font-medium text-slate-600"><legend>客户 ID（多选）</legend><div className="flex max-h-20 flex-wrap gap-x-2 overflow-auto rounded-md border border-slate-300 bg-white p-2">{customers.map((item) => <label key={item} className="inline-flex items-center gap-1.5"><input type="checkbox" checked={selectedCustomers.includes(item)} onChange={() => { const values = selectedCustomers.includes(item) ? selectedCustomers.filter((value) => value !== item) : [...selectedCustomers, item]; setSelectedCustomers(values); updateField('customers', () => {}, values); }} className="size-3.5 rounded border-slate-300 text-cyan-600" />{item}</label>)}</div></fieldset>
+            <StationFilterMultiSelect
+              label="客户 ID"
+              selected={selectedCustomers}
+              options={customers.map((value) => ({ value }))}
+              onChange={(values) => {
+                setSelectedCustomers(values);
+                updateField('customers', () => {}, values);
+              }}
+            />
             <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-44">服务器 SN<input value={serialNumber} onChange={(event) => updateField('serialNumber', setSerialNumber, event.target.value)} placeholder="精确输入 SN" className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" /></label>
-            <div className="relative z-0 flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 focus-within:z-30 xl:max-w-48">
-              <label htmlFor="station-product-model">机型（多选）</label>
-              <select id="station-product-model" multiple value={selectedProductModels} onChange={(event) => { const values = Array.from(event.target.selectedOptions, (option) => option.value); setProductModel(values.join(', ')); updateField('productModels', setSelectedProductModels, values); }} className="h-20 w-full rounded-md border border-slate-300 bg-white px-2.5 py-1 text-sm text-slate-800 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100">{productModels.map((item) => <option key={item.model} value={item.model}>{item.model} ({item.count})</option>)}</select>
-            </div>
-            <div className="relative z-0 flex min-w-32 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 focus-within:z-30 xl:max-w-44">
-              <label htmlFor="station-base">工厂地点（多选）</label>
-              <select id="station-base" multiple value={selectedBases} onChange={(event) => { const values = Array.from(event.target.selectedOptions, (option) => option.value); setBase(values.join(', ')); updateField('bases', setSelectedBases, values); }} className="h-20 w-full rounded-md border border-slate-300 bg-white px-2.5 py-1 text-sm text-slate-800 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100">{bases.map((item) => <option key={item.base} value={item.base}>{item.base} ({item.count})</option>)}</select>
-            </div>
+            <StationFilterMultiSelect
+              label="机型"
+              selected={selectedProductModels}
+              options={productModels.map((item) => ({ value: item.model, count: item.count }))}
+              onChange={(values) => {
+                setProductModel(values.length === 1 ? values[0] : '');
+                updateField('productModels', setSelectedProductModels, values);
+              }}
+            />
+            <StationFilterMultiSelect
+              label="工厂地点"
+              selected={selectedBases}
+              options={bases.map((item) => ({ value: item.base, count: item.count }))}
+              onChange={(values) => {
+                setBase(values.length === 1 ? values[0] : '');
+                updateField('bases', setSelectedBases, values);
+              }}
+            />
             <div className="flex items-center gap-1.5"><button type="button" onClick={reset} className="inline-flex size-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 transition-colors hover:border-slate-400 hover:bg-slate-100" title="重置条件" aria-label="重置条件"><RotateCcw className="size-4" /></button><button type="submit" disabled={loading} className="inline-flex h-9 items-center gap-1.5 rounded-md bg-cyan-600 px-3 text-sm font-medium text-white transition-colors hover:bg-cyan-700 disabled:cursor-wait disabled:opacity-60">{loading ? <RefreshCw className="size-4 animate-spin" /> : <Search className="size-4" />}{loading ? '正在计算' : '查询'}</button></div>
           </form>
 
