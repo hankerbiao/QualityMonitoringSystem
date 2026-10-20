@@ -74,6 +74,28 @@ describe('cycle query and export', () => {
     expect(within(modelRow).getAllByRole('cell').at(-1)!.className).toContain('text-red-600');
   });
 
+  it('places order controls immediately after the order summary toggle', async () => {
+    const onOrderScopeChange = vi.fn();
+    const onExcludedOrdersOpen = vi.fn();
+    render(
+      <AlertConfigModal
+        embedded
+        onOrderScopeChange={onOrderScopeChange}
+        onExcludedOrdersOpen={onExcludedOrdersOpen}
+      />,
+    );
+    await screen.findByRole('row', { name: /Model A/ });
+
+    const summaryToggle = screen.getByRole('checkbox', { name: '显示订单汇总' });
+    const normalOrders = screen.getByRole('button', { name: '普通订单' });
+    const excludedOrders = screen.getByRole('button', { name: '筛选订单' });
+    expect(summaryToggle.compareDocumentPosition(normalOrders) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'L6 订单' }));
+    fireEvent.click(excludedOrders);
+    expect(onOrderScopeChange).toHaveBeenCalledWith('l6');
+    expect(onExcludedOrdersOpen).toHaveBeenCalledOnce();
+  });
+
   it.each(['normal', 'l6'] as const)(
     'applies model and base filters to both summaries and the %s overview',
     async orderScope => {

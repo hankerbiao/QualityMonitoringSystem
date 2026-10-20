@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
-import { X, Bell, CalendarDays, Check, ChevronDown, Loader2, FileText, Search, RefreshCw, Download } from 'lucide-react';
+import { X, Bell, CalendarDays, Check, ChevronDown, Loader2, FileText, Search, RefreshCw, Download, ListFilter } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import {
   ComposedChart,
@@ -26,6 +26,8 @@ interface AlertConfigModalProps {
   embedded?: boolean;
   onDetailOpen?: () => void;
   orderScope?: RTYFilterParams['orderScope'];
+  onOrderScopeChange?: (scope: RTYFilterParams['orderScope']) => void;
+  onExcludedOrdersOpen?: () => void;
   exportContainer?: HTMLElement | null;
 }
 
@@ -348,6 +350,8 @@ export default function AlertConfigModal({
   embedded = false,
   onDetailOpen,
   orderScope = 'normal',
+  onOrderScopeChange,
+  onExcludedOrdersOpen,
   exportContainer,
 }: AlertConfigModalProps) {
   const { settings, updateSettings } = useSettings();
@@ -727,7 +731,7 @@ export default function AlertConfigModal({
           {/* 下方：趋势图表及表格 */}
           <div className="w-full border-t border-slate-100 pt-6">
             <div className="flex flex-wrap justify-between items-center gap-3 mb-4">
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
                 <h4 className="text-sm font-semibold text-slate-800">月度生产量及直通率趋势 (按机型)</h4>
                 {/* 视图切换 */}
                 <div className="flex border border-slate-200 rounded-sm overflow-hidden">
@@ -753,6 +757,36 @@ export default function AlertConfigModal({
                   />
                   显示订单汇总
                 </label>
+                {onOrderScopeChange && (
+                  <div className="inline-flex h-7 overflow-hidden rounded-sm border border-slate-300 text-[11px] font-medium" aria-label="订单范围">
+                    <button
+                      type="button"
+                      onClick={() => onOrderScopeChange('normal')}
+                      aria-pressed={orderScope === 'normal'}
+                      className={`px-2.5 transition-colors ${orderScope === 'normal' ? 'bg-blue-700 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                    >
+                      普通订单
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onOrderScopeChange('l6')}
+                      aria-pressed={orderScope === 'l6'}
+                      className={`border-l border-slate-300 px-2.5 transition-colors ${orderScope === 'l6' ? 'bg-blue-700 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
+                    >
+                      L6 订单
+                    </button>
+                  </div>
+                )}
+                {onExcludedOrdersOpen && (
+                  <button
+                    type="button"
+                    onClick={onExcludedOrdersOpen}
+                    className="inline-flex h-7 items-center gap-1 rounded-sm border border-amber-300 bg-amber-50 px-2 text-[11px] font-medium text-amber-900 transition-colors hover:bg-amber-100"
+                  >
+                    <ListFilter className="size-3.5" />
+                    筛选订单
+                  </button>
+                )}
               </div>
               <div className="flex flex-wrap items-center gap-3">
                 <div className="flex items-center gap-2 text-xs text-slate-400" title={cacheTimeLabel ? `周期统计${cycleCacheInfo.fromCache ? '缓存' : '数据'}时间：${cacheTimeLabel}` : '周期统计数据尚未加载'}>

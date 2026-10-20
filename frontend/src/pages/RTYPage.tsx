@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { ArrowLeft, ChevronLeft, ChevronRight, ListFilter, X } from 'lucide-react';
+import { ArrowLeft, ChevronLeft, ChevronRight, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { rtyApi } from '../api/rtyApi';
 import type { RTYData, RTYFilterParams } from '../types';
@@ -192,32 +192,6 @@ export default function RTYPage() {
           <p className="text-xs text-slate-600">
             RTY 统计已排除订单状态 DLID、RELEASED 及订单类型 C001；L6 订单单独统计，不与普通订单合并。
           </p>
-          <div className="flex items-center gap-3">
-            <button
-              type="button"
-              onClick={() => setExcludedOrdersOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-sm border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-900 transition-colors hover:bg-amber-100"
-            >
-              <ListFilter className="h-3.5 w-3.5" />
-              已过滤订单
-            </button>
-            <div className="inline-flex overflow-hidden rounded-sm border border-slate-300 text-xs font-medium">
-              <button
-                type="button"
-                onClick={() => setFilters(current => ({ ...current, orderScope: 'normal' }))}
-                className={`px-3 py-1.5 transition-colors ${filters.orderScope === 'normal' ? 'bg-blue-700 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
-              >
-                普通订单
-              </button>
-              <button
-                type="button"
-                onClick={() => setFilters(current => ({ ...current, orderScope: 'l6' }))}
-                className={`border-l border-slate-300 px-3 py-1.5 transition-colors ${filters.orderScope === 'l6' ? 'bg-blue-700 text-white' : 'bg-white text-slate-600 hover:bg-slate-50'}`}
-              >
-                L6 订单
-              </button>
-            </div>
-          </div>
         </section>
 
         <AlertConfigModal
@@ -225,6 +199,8 @@ export default function RTYPage() {
           modelTargets={modelTargets}
           onDetailOpen={openDetails}
           orderScope={filters.orderScope}
+          onOrderScopeChange={(orderScope) => setFilters(current => ({ ...current, orderScope }))}
+          onExcludedOrdersOpen={() => setExcludedOrdersOpen(true)}
           exportContainer={cycleExportContainer}
         />
 
