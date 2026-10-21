@@ -143,6 +143,7 @@ export const rtyApi = {
     dateTo: string;
     orderScope: RTYFilterParams['orderScope'];
     customer?: string;
+    customers?: string[];
     productModels?: string[];
     bases?: string[];
   }): Promise<StationPassExport> {
@@ -150,6 +151,7 @@ export const rtyApi = {
       dateFrom: params.dateFrom, dateTo: params.dateTo, orderScope: params.orderScope,
     });
     if (params.customer) qs.set('customer', params.customer);
+    params.customers?.forEach(customer => qs.append('customers', customer));
     params.productModels?.forEach(model => qs.append('productModels', model));
     params.bases?.forEach(base => qs.append('bases', base));
     return requestData<StationPassExport>(`${API_BASE_URL}/rty/cycle-export?${qs}`);
@@ -177,12 +179,13 @@ export const rtyApi = {
 
   async getCycleData(
     orderScope: RTYFilterParams['orderScope'] = 'normal',
-    customer?: string,
+    customer?: string | string[],
     options: { dateFrom?: string; dateTo?: string; forceRefresh?: boolean } = {},
   ): Promise<CycleDataResult> {
     const dateFrom = options.dateFrom || '';
     const dateTo = options.dateTo || '';
-    const key = scopedKey(`cycle-data:${orderScope}:${customer || ''}:${dateFrom}:${dateTo}`);
+    const customers = [...new Set([...(Array.isArray(customer) ? customer : customer ? [customer] : [])])].sort();
+    const key = scopedKey(`cycle-data:${orderScope}:${customers.join(',')}:${dateFrom}:${dateTo}`);
     if (options.forceRefresh) {
       rtyCycleCache.delete(key);
       removeStoredCycleData(key);
@@ -205,7 +208,7 @@ export const rtyApi = {
 
     const promise = (async () => {
       const qs = new URLSearchParams({ orderScope });
-      if (customer) qs.set('customer', customer);
+      customers.forEach(value => qs.append('customers', value));
       if (dateFrom) qs.set('dateFrom', dateFrom);
       if (dateTo) qs.set('dateTo', dateTo);
       return requestData<RTYData[]>(`${API_BASE_URL}/rty/cycle-data?${qs.toString()}`);

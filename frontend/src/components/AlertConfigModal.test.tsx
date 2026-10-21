@@ -149,6 +149,29 @@ describe('cycle query and export', () => {
     },
   );
 
+  it('selects every cycle filter option without dropping existing choices or search-hidden options', async () => {
+    vi.mocked(rtyApi.getCycleData).mockResolvedValue({
+      ...result,
+      data: [
+        { ...row, productModel: 'Model A' },
+        { ...row, productModel: 'Model B' },
+      ],
+    });
+    render(<AlertConfigModal embedded />);
+    await screen.findByRole('row', { name: /Model A/ });
+
+    fireEvent.click(screen.getByRole('button', { name: '选择机型' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Model A' }));
+    fireEvent.change(screen.getByPlaceholderText('搜索机型…'), { target: { value: 'Model B' } });
+    fireEvent.click(screen.getByRole('button', { name: '全选' }));
+
+    const search = screen.getByPlaceholderText('搜索机型…') as HTMLInputElement;
+    fireEvent.change(search, { target: { value: '' } });
+    expect((screen.getByRole('checkbox', { name: 'Model A' }) as HTMLInputElement).checked).toBe(true);
+    expect((screen.getByRole('checkbox', { name: 'Model B' }) as HTMLInputElement).checked).toBe(true);
+    expect(screen.getByRole('button', { name: '机型 (2)' })).toBeTruthy();
+  });
+
   it('shows an empty L6 summary when the selected model has no L6 orders', async () => {
     vi.mocked(rtyApi.getCycleData).mockImplementation(async scope => ({
       ...result,
@@ -244,8 +267,8 @@ describe('cycle query and export', () => {
     expect(workbook.Sheets['维修故障明记录'].E3.v).toBe('CHILD-SN');
   });
 
-  it('exports applied dates, customer, order scope and multiple selected models and bases', async () => {
-    vi.mocked(rtyApi.getCustomers).mockResolvedValue(['Customer 1']);
+  it('filters and exports multiple customers including records without a customer ID', async () => {
+    vi.mocked(rtyApi.getCustomers).mockResolvedValue(['Customer 1', 'Customer 2']);
     vi.mocked(rtyApi.getCycleData).mockResolvedValue({
       ...result,
       data: [
@@ -268,14 +291,21 @@ describe('cycle query and export', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'B' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'D' }));
     fireEvent.click(screen.getByRole('button', { name: '选择客户' }));
-    fireEvent.click(screen.getByRole('radio', { name: 'Customer 1' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Customer 1' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Customer 2' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '无客户ID' }));
+    await waitFor(() => expect(rtyApi.getCycleData).toHaveBeenLastCalledWith(
+      'l6',
+      ['Customer 1', 'Customer 2', '__NO_CUSTOMER_ID__'],
+      expect.objectContaining({ dateFrom: '2026-09-01', dateTo: '2026-09-30' }),
+    ));
     await waitFor(() => expect((screen.getByRole('button', { name: '导出' }) as HTMLButtonElement).disabled).toBe(false));
     fireEvent.click(screen.getByRole('button', { name: '导出' }));
 
     await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalledTimes(1));
     expect(rtyApi.getCycleExport).toHaveBeenCalledExactlyOnceWith({
       dateFrom: '2026-09-01', dateTo: '2026-09-30',
-      orderScope: 'l6', customer: 'Customer 1',
+      orderScope: 'l6', customers: ['Customer 1', 'Customer 2', '__NO_CUSTOMER_ID__'],
       productModels: ['Model A', 'Model B'], bases: ['B', 'D'],
     });
   });

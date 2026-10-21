@@ -19,6 +19,7 @@ import { useSettings } from '../context/SettingsContext';
 import type { RTYFilterParams, CycleStatsConfig } from '../types';
 import { buildCycleVisualData } from './alert-config/cycleData';
 import { appendSourceSheets } from './rty/templateExport';
+import { customerIdLabel, NO_CUSTOMER_ID } from '../utils/customerId';
 
 interface AlertConfigModalProps {
   onClose?: () => void;
@@ -50,6 +51,7 @@ const COLORS = ['#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444', '#ec4899'
 
 type CycleFilterOption = {
   value: string;
+  label?: string;
 };
 
 /** 与销售订单看板一致的可搜索多选下拉控件。 */
@@ -84,7 +86,7 @@ function CycleMultiSelect({
 
   const normalizedQuery = query.trim().toLocaleLowerCase();
   const filteredOptions = normalizedQuery
-    ? options.filter((option) => option.value.toLocaleLowerCase().includes(normalizedQuery))
+    ? options.filter((option) => (option.label || option.value).toLocaleLowerCase().includes(normalizedQuery))
     : options;
 
   return (
@@ -111,7 +113,7 @@ function CycleMultiSelect({
             <span className="text-xs font-medium text-slate-500">{label}</span>
             <div className="flex items-center gap-3 text-xs">
               {multiple && (
-                <button type="button" onClick={() => onChange(filteredOptions.map((option) => option.value))} className="font-medium text-blue-600 hover:text-blue-700">
+                <button type="button" onClick={() => onChange([...new Set([...selected, ...options.map((option) => option.value)])])} className="font-medium text-blue-600 hover:text-blue-700">
                   全选
                 </button>
               )}
@@ -146,7 +148,7 @@ function CycleMultiSelect({
                     onChange={() => onChange(multiple ? (selected.includes(option.value) ? selected.filter((value) => value !== option.value) : [...selected, option.value]) : [option.value])}
                     className="size-3.5 rounded border-slate-300 accent-blue-600"
                   />
-                  <span className="truncate font-mono text-xs">{option.value}</span>
+                  <span className="truncate font-mono text-xs">{option.label || option.value}</span>
                 </label>
               ))
             )}
@@ -361,7 +363,7 @@ export default function AlertConfigModal({
   // 机型筛选状态
   const [selectedModels, setSelectedModels] = useState<Set<string> | null>(null);
   const [selectedBases, setSelectedBases] = useState<Set<string> | null>(null);
-  const [selectedCustomer, setSelectedCustomer] = useState('');
+  const [selectedCustomers, setSelectedCustomers] = useState<string[]>([]);
   const [customerList, setCustomerList] = useState<string[]>([]);
   const [filterSaved, setFilterSaved] = useState(false);
   
@@ -379,7 +381,7 @@ export default function AlertConfigModal({
   const allRawData = scopeRawData[orderScope];
   const latestFetchId = useRef(0);
   const [loadedQueryKey, setLoadedQueryKey] = useState<string | null>(null);
-  const queryKey = JSON.stringify([orderScope, selectedCustomer, appliedRange.start, appliedRange.end]);
+  const queryKey = JSON.stringify([orderScope, selectedCustomers.slice().sort(), appliedRange.start, appliedRange.end]);
   const [fetchError, setFetchError] = useState('');
   const [exportError, setExportError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -396,9 +398,8 @@ export default function AlertConfigModal({
     setFetchError('');
     setExportError('');
     try {
-      const customer = selectedCustomer || undefined;
       const results = await Promise.all(
-        (['normal', 'l6'] as const).map(scope => rtyApi.getCycleData(scope, customer, {
+        (['normal', 'l6'] as const).map(scope => rtyApi.getCycleData(scope, selectedCustomers, {
           dateFrom: appliedRange.start,
           dateTo: appliedRange.end,
           forceRefresh,
@@ -422,7 +423,7 @@ export default function AlertConfigModal({
     } finally {
       if (fetchId === latestFetchId.current) setLoading(false);
     }
-  }, [queryKey, selectedCustomer, appliedRange.start, appliedRange.end]);
+  }, [queryKey, selectedCustomers, appliedRange.start, appliedRange.end]);
 
   useEffect(() => {
     void fetchAllData();
@@ -506,7 +507,7 @@ export default function AlertConfigModal({
         dateFrom: appliedRange.start,
         dateTo: appliedRange.end,
         orderScope,
-        customer: selectedCustomer || undefined,
+        customers: selectedCustomers.length ? selectedCustomers : undefined,
         productModels: selectedModels?.size ? Array.from(selectedModels) : undefined,
         bases: selectedBases?.size ? Array.from(selectedBases) : undefined,
       });
@@ -809,7 +810,7 @@ export default function AlertConfigModal({
                   options={modelOptions}
                   selected={selectedModels === null ? [] : Array.from(selectedModels)}
                   onChange={(values) => {
-                    setSelectedModels(values.length === 0 || values.length === modelOptions.length ? null : new Set(values));
+                    setSelectedModels(values.length === 0 ? null : new Set(values));
                   }}
                 />
                 <button
@@ -828,17 +829,19 @@ export default function AlertConfigModal({
                   options={baseOptions}
                   selected={selectedBases === null ? [] : Array.from(selectedBases)}
                   onChange={(values) => {
-                    setSelectedBases(values.length === 0 || values.length === baseOptions.length ? null : new Set(values));
+                    setSelectedBases(values.length === 0 ? null : new Set(values));
                   }}
                 />
 
                 <CycleMultiSelect
                   label="客户"
                   placeholder="选择客户"
-                  options={customerList.map((value) => ({ value }))}
-                  selected={selectedCustomer ? [selectedCustomer] : []}
-                  onChange={(values) => setSelectedCustomer(values[0] || '')}
-                  multiple={false}
+                  options={[
+                    { value: NO_CUSTOMER_ID, label: customerIdLabel(NO_CUSTOMER_ID) },
+                    ...customerList.filter(value => value !== NO_CUSTOMER_ID).map(value => ({ value })),
+                  ]}
+                  selected={selectedCustomers}
+                  onChange={setSelectedCustomers}
                 />
                 
                 <CycleTimeRangePicker

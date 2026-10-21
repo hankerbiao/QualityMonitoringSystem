@@ -43,16 +43,18 @@ async def test_cycle_data_passes_validated_daily_range_to_gateway(monkeypatch):
     monkeypatch.setattr(rty, "_targets", AsyncMock(return_value={"M-1": 95}))
 
     response = await rty.get_rty_cycle_data(
-        "normal",
-        "customer-1",
-        "2026-04-14",
-        "2026-04-20",
+        orderScope="normal",
+        customer="customer-1",
+        customers=["customer-2", "__NO_CUSTOMER_ID__"],
+        dateFrom="2026-04-14",
+        dateTo="2026-04-20",
     )
 
     cycle_data.assert_awaited_once_with(
         "normal",
         "customer-1",
         {"M-1": 95},
+        customers=["customer-2", "__NO_CUSTOMER_ID__"],
         date_from="2026-04-14",
         date_to="2026-04-20",
     )
@@ -63,10 +65,9 @@ async def test_cycle_data_passes_validated_daily_range_to_gateway(monkeypatch):
 async def test_cycle_data_rejects_reversed_daily_range():
     with pytest.raises(HTTPException) as error:
         await rty.get_rty_cycle_data(
-            "normal",
-            None,
-            "2026-04-20",
-            "2026-04-14",
+            orderScope="normal",
+            dateFrom="2026-04-20",
+            dateTo="2026-04-14",
         )
     assert error.value.detail == "开始日期不能晚于结束日期"
 
@@ -175,6 +176,8 @@ async def test_cycle_export_passes_repeated_filters_and_requires_only_rty_permis
                 ("dateTo", "2026-10-11"),
                 ("orderScope", "l6"),
                 ("customer", "C"),
+                ("customers", "C-1"),
+                ("customers", "__NO_CUSTOMER_ID__"),
                 ("productModels", "M, A"),
                 ("productModels", "M B"),
                 ("bases", "B"),
@@ -187,7 +190,7 @@ async def test_cycle_export_passes_repeated_filters_and_requires_only_rty_permis
         assert export.await_args.kwargs == {
             "product_models": ["M, A", "M B"],
             "bases": ["B", "D"],
-            "customers": None,
+            "customers": ["C-1", "__NO_CUSTOMER_ID__", "C"],
             "integrate": True,
         }
         assert export.await_args.args[0]["orderScope"] == "l6"

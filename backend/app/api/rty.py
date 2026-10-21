@@ -83,6 +83,7 @@ async def _targets() -> dict[str, float]:
 async def get_rty_cycle_data(
     orderScope: OrderScopeQuery = "normal",
     customer: str | None = None,
+    customers: Annotated[list[str] | None, Query()] = None,
     dateFrom: str | None = None,
     dateTo: str | None = None,
 ):
@@ -95,6 +96,7 @@ async def get_rty_cycle_data(
         orderScope,
         customer,
         await _targets(),
+        customers=customers,
         date_from=date_from,
         date_to=date_to,
     )
@@ -229,6 +231,7 @@ async def get_cycle_export(
     orderScope: OrderScopeQuery = "normal",
     productModels: Annotated[list[str] | None, Query()] = None,
     bases: Annotated[list[str] | None, Query()] = None,
+    customers: Annotated[list[str] | None, Query()] = None,
 ):
     del request
     data = await rty_export.build_export_response(
@@ -241,7 +244,7 @@ async def get_cycle_export(
         ),
         product_models=productModels,
         bases=bases,
-        customers=None,
+        customers=[*(customers or []), *([customer] if customer else [])],
     )
     return HTTPResponse(
         data, media_type="application/json", headers={"Cache-Control": "private, no-store"}

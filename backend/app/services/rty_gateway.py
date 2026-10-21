@@ -592,20 +592,30 @@ async def cycle_data(
     customer: str | None,
     targets: dict[str, float],
     *,
+    customers: list[str] | None = None,
     date_from: str = YEAR_START,
     date_to: str = YEAR_END,
 ) -> list[RTYData]:
+    selected_customers = sorted(
+        {
+            value.strip()
+            for value in [*(customers or []), customer]
+            if value and value.strip()
+        }
+    )
     key = (
         current_base_permissions(),
         order_scope,
-        customer or "",
+        tuple(selected_customers),
         date_from,
         date_to,
         tuple(sorted(targets.items())),
     )
     return await _RTY_CYCLE_CACHE.get_or_set(
         key,
-        lambda: _build_cycle_data(order_scope, customer, targets, date_from, date_to),
+        lambda: _build_cycle_data(
+            order_scope, selected_customers, targets, date_from, date_to
+        ),
         ttl_seconds=RTY_CYCLE_CACHE_TTL_SECONDS,
     )
 
@@ -654,15 +664,18 @@ async def _rty_order_groups(
 
 async def _build_cycle_data(
     order_scope: str,
-    customer: str | None,
+    customers: list[str] | str | None,
     targets: dict[str, float],
     date_from: str,
     date_to: str,
 ) -> list[RTYData]:
+    selected_customers = (
+        [customers] if isinstance(customers, str) and customers else customers or []
+    )
     orders = await _orders(
         {
             "orderScope": order_scope,
-            "customer": customer or "",
+            "_customers": selected_customers,
             "dateFrom": date_from,
             "dateTo": date_to,
         }
@@ -678,7 +691,7 @@ async def _build_cycle_data(
                 time=month,
                 model="复合机型" if model in COMPOSITE_MODEL_ITEMS else "普通机型",
                 productModel=model,
-                customer=customer or "",
+                customer=selected_customers[0] if len(selected_customers) == 1 else "",
                 base=base,
                 defectCount=defects,
                 inputCount=inp,
