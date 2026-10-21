@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type Dispatch, type SetStateAction } from 'react';
 import { BarChart3, CalendarDays, ChevronDown, Download, RotateCcw, Search, X } from 'lucide-react';
 import { rtyApi } from '../../api/rtyApi';
 import type { RTYFilterParams } from '../../types';
@@ -149,7 +149,7 @@ function DateRangePicker({ value, onChange }: { value: DateRange; onChange: (ran
 
 interface FilterPanelProps {
   initialFilters: RTYFilterParams;
-  onFiltersChange: (filters: RTYFilterParams) => void;
+  onFiltersChange: Dispatch<SetStateAction<RTYFilterParams>>;
   onSearch: () => void;
   onAlertModalOpen: () => void;
   onExportConfirm: () => Promise<void>;
@@ -166,7 +166,7 @@ export function FilterPanel({
   exporting,
   exportDisabled,
 }: FilterPanelProps) {
-  const [filters, setFilters] = useState<RTYFilterParams>(initialFilters);
+  const filters = initialFilters;
   const [productModelList, setProductModelList] = useState<{ model: string; count: number }[]>([]);
   const [baseList, setBaseList] = useState<{ base: string; count: number }[]>([]);
   const [customerList, setCustomerList] = useState<string[]>([]);
@@ -178,14 +178,22 @@ export function FilterPanel({
   const [customerSearch, setCustomerSearch] = useState('');
 
   const update = (partial: Partial<RTYFilterParams>) => {
-    const newFilters = { ...filters, ...partial };
-    setFilters(newFilters);
-    onFiltersChange(newFilters);
+    onFiltersChange(current => ({ ...current, ...partial }));
   };
 
-  useEffect(() => {
-    setFilters(initialFilters);
-  }, [initialFilters]);
+  const updateFromCurrent = (getPartial: (current: RTYFilterParams) => Partial<RTYFilterParams>) => {
+    onFiltersChange(current => ({ ...current, ...getPartial(current) }));
+  };
+
+  const selectedModels = filters.productModels?.length
+    ? filters.productModels
+    : filters.productModel !== 'all' ? [filters.productModel] : [];
+  const selectedBases = filters.bases?.length
+    ? filters.bases
+    : filters.base !== 'all' ? [filters.base] : [];
+  const selectedCustomers = filters.customers?.length
+    ? filters.customers
+    : filters.customer ? [filters.customer] : [];
 
   useEffect(() => {
     const closeMenus = (event: MouseEvent) => {
@@ -219,7 +227,6 @@ export function FilterPanel({
   );
 
   const handleClear = () => {
-    setFilters({ ...EMPTY_FILTERS });
     onFiltersChange({ ...EMPTY_FILTERS });
   };
 
@@ -280,7 +287,7 @@ export function FilterPanel({
           <div className="flex-1 min-w-[150px] max-w-[240px] relative">
             <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">生产机型</label>
             <button data-rty-filter-trigger type="button" aria-label="选择机型" aria-expanded={showModelSuggestions} onClick={() => { setShowModelSuggestions(!showModelSuggestions); setShowBaseSuggestions(false); setShowCustomerSuggestions(false); }} className="flex h-[30px] w-full items-center justify-between gap-2 rounded-sm border border-slate-300 bg-white px-2 text-left text-xs text-slate-700">
-              <span className="truncate">{(filters.productModels?.length ?? 0) ? `已选 ${filters.productModels!.length} 个机型` : '全部机型'}</span><ChevronDown className="size-3.5 shrink-0" />
+              <span className="truncate">{selectedModels.length ? `已选 ${selectedModels.length} 个机型` : '全部机型'}</span><ChevronDown className="size-3.5 shrink-0" />
             </button>
             {showModelSuggestions && (
               <div data-rty-filter-menu className="absolute z-50 top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-sm shadow-lg">
@@ -291,7 +298,13 @@ export function FilterPanel({
                   .filter(item => item.model.toLowerCase().includes(modelSearch.toLowerCase()))
                   .map(item => (
                     <label key={item.model} className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-xs hover:bg-blue-50">
-                      <input type="checkbox" checked={filters.productModels?.includes(item.model) ?? filters.productModel === item.model} onChange={() => { const selected = filters.productModels ?? (filters.productModel !== 'all' ? [filters.productModel] : []); const next = selected.includes(item.model) ? selected.filter(value => value !== item.model) : [...selected, item.model]; update({ productModels: next, productModel: 'all' }); }} />
+                      <input type="checkbox" checked={selectedModels.includes(item.model)} onChange={() => updateFromCurrent(current => {
+                        const selected = current.productModels?.length
+                          ? current.productModels
+                          : current.productModel !== 'all' ? [current.productModel] : [];
+                        const next = selected.includes(item.model) ? selected.filter(value => value !== item.model) : [...selected, item.model];
+                        return { productModels: next, productModel: 'all' };
+                      })} />
                       <span className="truncate">{item.model}</span>
                       <span className="ml-auto text-[10px] text-slate-400">{COMPOSITE_MODELS.has(item.model) ? '复合 · ' : ''}{item.count}</span>
                     </label>
@@ -304,7 +317,13 @@ export function FilterPanel({
           <div className="flex-1 min-w-[130px] max-w-[190px] relative">
             <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">基地</label>
             <button data-rty-filter-trigger type="button" aria-label="选择基地" aria-expanded={showBaseSuggestions} onClick={() => { setShowBaseSuggestions(!showBaseSuggestions); setShowModelSuggestions(false); setShowCustomerSuggestions(false); }} className="flex h-[30px] w-full items-center justify-between gap-2 rounded-sm border border-slate-300 bg-white px-2 text-left text-xs text-slate-700"><span className="truncate">{(filters.bases?.length ?? 0) ? `已选 ${filters.bases!.length} 个基地` : '全部基地'}</span><ChevronDown className="size-3.5 shrink-0" /></button>
-            {showBaseSuggestions && <div data-rty-filter-menu className="absolute z-50 top-full left-0 right-0 mt-1 rounded-sm border border-slate-200 bg-white shadow-lg"><input aria-label="搜索基地" value={baseSearch} onChange={event => setBaseSearch(event.target.value)} placeholder="搜索基地" className="h-8 w-full border-b border-slate-100 px-2 text-xs outline-none" /><div className="flex justify-between border-b border-slate-100 px-2 py-1.5 text-xs"><button type="button" onClick={() => update({ bases: baseList.map(item => item.base), base: 'all' })}>全选</button><button type="button" onClick={() => update({ bases: [], base: 'all' })}>清空</button></div><div className="max-h-48 overflow-auto">{baseList.filter(item => item.base.toLowerCase().includes(baseSearch.toLowerCase())).map(item => <label key={item.base} className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-xs hover:bg-blue-50"><input type="checkbox" checked={filters.bases?.includes(item.base) ?? filters.base === item.base} onChange={() => { const selected = filters.bases ?? (filters.base !== 'all' ? [filters.base] : []); const next = selected.includes(item.base) ? selected.filter(value => value !== item.base) : [...selected, item.base]; update({ bases: next, base: 'all' }); }} />{item.base}<span className="ml-auto text-slate-400">{item.count}</span></label>)}</div></div>}
+            {showBaseSuggestions && <div data-rty-filter-menu className="absolute z-50 top-full left-0 right-0 mt-1 rounded-sm border border-slate-200 bg-white shadow-lg"><input aria-label="搜索基地" value={baseSearch} onChange={event => setBaseSearch(event.target.value)} placeholder="搜索基地" className="h-8 w-full border-b border-slate-100 px-2 text-xs outline-none" /><div className="flex justify-between border-b border-slate-100 px-2 py-1.5 text-xs"><button type="button" onClick={() => update({ bases: baseList.map(item => item.base), base: 'all' })}>全选</button><button type="button" onClick={() => update({ bases: [], base: 'all' })}>清空</button></div><div className="max-h-48 overflow-auto">{baseList.filter(item => item.base.toLowerCase().includes(baseSearch.toLowerCase())).map(item => <label key={item.base} className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-xs hover:bg-blue-50"><input type="checkbox" checked={selectedBases.includes(item.base)} onChange={() => updateFromCurrent(current => {
+              const selected = current.bases?.length
+                ? current.bases
+                : current.base !== 'all' ? [current.base] : [];
+              const next = selected.includes(item.base) ? selected.filter(value => value !== item.base) : [...selected, item.base];
+              return { bases: next, base: 'all' };
+            })} />{item.base}<span className="ml-auto text-slate-400">{item.count}</span></label>)}</div></div>}
           </div>
         </div>
 
@@ -344,7 +363,7 @@ export function FilterPanel({
 
           <div className="flex-1 min-w-[160px] max-w-[240px] relative">
             <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">客户 ID</label>
-            <button data-rty-filter-trigger type="button" aria-label="选择客户 ID" aria-expanded={showCustomerSuggestions} onClick={() => { setShowCustomerSuggestions(!showCustomerSuggestions); setShowModelSuggestions(false); setShowBaseSuggestions(false); }} className="flex h-[30px] w-full items-center justify-between gap-2 rounded-sm border border-slate-300 bg-white px-2 text-left text-xs text-slate-700"><span className="truncate">{filters.customers?.length ? `已选 ${filters.customers.length} 个客户` : '全部客户 ID'}</span><ChevronDown className="size-3.5 shrink-0" /></button>
+            <button data-rty-filter-trigger type="button" aria-label="选择客户 ID" aria-expanded={showCustomerSuggestions} onClick={() => { setShowCustomerSuggestions(!showCustomerSuggestions); setShowModelSuggestions(false); setShowBaseSuggestions(false); }} className="flex h-[30px] w-full items-center justify-between gap-2 rounded-sm border border-slate-300 bg-white px-2 text-left text-xs text-slate-700"><span className="truncate">{selectedCustomers.length ? `已选 ${selectedCustomers.length} 个客户` : '全部客户 ID'}</span><ChevronDown className="size-3.5 shrink-0" /></button>
             {showCustomerSuggestions && (
               <div data-rty-filter-menu className="absolute z-50 top-full left-0 right-0 mt-1 rounded-sm border border-slate-200 bg-white shadow-lg">
                 <input aria-label="搜索客户 ID" value={customerSearch} onChange={event => setCustomerSearch(event.target.value)} placeholder="搜索客户 ID" className="h-8 w-full border-b border-slate-100 px-2 text-xs outline-none" />
@@ -353,17 +372,30 @@ export function FilterPanel({
                 <label
                   className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs hover:bg-blue-50"
                 >
-                  <input type="checkbox" checked={filters.customers?.includes(NO_CUSTOMER_ID) ?? false} onChange={() => {
-                    const selected = filters.customers ?? [];
-                    update({ customers: selected.includes(NO_CUSTOMER_ID) ? selected.filter(value => value !== NO_CUSTOMER_ID) : [...selected, NO_CUSTOMER_ID], customer: '' });
-                  }} />无客户ID
+                  <input type="checkbox" checked={selectedCustomers.includes(NO_CUSTOMER_ID)} onChange={() => updateFromCurrent(current => {
+                    const selected = current.customers?.length
+                      ? current.customers
+                      : current.customer ? [current.customer] : [];
+                    return {
+                      customers: selected.includes(NO_CUSTOMER_ID) ? selected.filter(value => value !== NO_CUSTOMER_ID) : [...selected, NO_CUSTOMER_ID],
+                      customer: '',
+                    };
+                  })} />无客户ID
                 </label>
                 {filteredCustomers.length > 0 ? filteredCustomers.filter(customer => customer !== NO_CUSTOMER_ID).map(customer => (
                   <label
                     key={customer}
                     className="flex cursor-pointer items-center gap-2 px-2 py-1.5 text-xs hover:bg-blue-50"
                   >
-                    <input type="checkbox" checked={filters.customers?.includes(customer) ?? filters.customer === customer} onChange={() => { const selected = filters.customers ?? (filters.customer ? [filters.customer] : []); update({ customers: selected.includes(customer) ? selected.filter(value => value !== customer) : [...selected, customer], customer: '' }); }} />
+                    <input type="checkbox" checked={selectedCustomers.includes(customer)} onChange={() => updateFromCurrent(current => {
+                      const selected = current.customers?.length
+                        ? current.customers
+                        : current.customer ? [current.customer] : [];
+                      return {
+                        customers: selected.includes(customer) ? selected.filter(value => value !== customer) : [...selected, customer],
+                        customer: '',
+                      };
+                    })} />
                     <span className="truncate" title={customer}>{customerIdLabel(customer)}</span>
                   </label>
                 )) : (
