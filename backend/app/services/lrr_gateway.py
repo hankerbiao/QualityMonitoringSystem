@@ -302,8 +302,11 @@ async def load_bom(
             metadata_filters["dateFrom"] = date_start
         if date_end:
             metadata_filters["dateTo"] = date_end
-        if customer_ids:
-            metadata_filters["customer"] = ",".join(customer_ids)
+        selected_customer_ids = set(customer_ids)
+        include_empty_customer = "__NO_CUSTOMER_ID__" in selected_customer_ids
+        selected_customer_ids.discard("__NO_CUSTOMER_ID__")
+        if selected_customer_ids and not include_empty_customer:
+            metadata_filters["customer"] = ",".join(sorted(selected_customer_ids))
         orders = await data_gateway.all_orders(**metadata_filters)
     else:
         orders = []
@@ -330,7 +333,7 @@ async def load_bom(
             continue
         if allowed_bases and not ({str(row.get("LGORT") or "").strip(), base_value} & allowed_bases):
             continue
-        if customer_ids and customer not in customer_ids:
+        if customer_ids and customer not in selected_customer_ids and not (include_empty_customer and not customer):
             continue
         if allowed_models and model not in allowed_models:
             continue

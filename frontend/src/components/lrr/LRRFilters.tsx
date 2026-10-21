@@ -5,6 +5,7 @@ import { ApiRequestError } from '../../api/authApi';
 import { MonthQuickPicker } from '../shared/MonthQuickPicker';
 import type { LRRFilters, LRROptions } from '../../types';
 import { exceedsTwoCalendarMonths, matchingPlannedRange, recentPlannedRange } from '../../utils/lrr';
+import { customerIdLabel, NO_CUSTOMER_ID } from '../../utils/customerId';
 
 interface Props {
   filters: LRRFilters;
@@ -23,17 +24,24 @@ interface SearchableSelectProps {
   multiple?: boolean;
 }
 
-function SearchableSelect({ value, options, allLabel, onChange, multiple = false }: SearchableSelectProps) {
+function SearchableSelect({ value, options, allLabel, onChange, multiple = false, customerIds = false }: SearchableSelectProps & { customerIds?: boolean }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState('');
   const containerRef = useRef<HTMLDivElement>(null);
   const selectedValues = Array.isArray(value) ? value : value ? [value] : [];
-  const filteredOptions = options.filter((option) => option.toLocaleLowerCase().includes(query.trim().toLocaleLowerCase()));
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const filteredOptions = options.filter((option) => option.toLocaleLowerCase().includes(normalizedQuery));
+  const displayOptions = customerIds
+    ? [
+        ...(customerIdLabel(NO_CUSTOMER_ID).toLocaleLowerCase().includes(normalizedQuery) ? [NO_CUSTOMER_ID] : []),
+        ...filteredOptions.filter((option) => option !== NO_CUSTOMER_ID),
+      ]
+    : filteredOptions;
   const buttonLabel = selectedValues.length === 0
     ? allLabel
     : multiple && selectedValues.length > 1
     ? `已选 ${selectedValues.length} 个`
-      : selectedValues[0];
+      : customerIds ? customerIdLabel(selectedValues[0]) : selectedValues[0];
 
   useEffect(() => {
     const closeOnOutsideClick = (event: MouseEvent) => {
@@ -75,6 +83,12 @@ function SearchableSelect({ value, options, allLabel, onChange, multiple = false
             </div>
           </div>
           <div role="listbox" aria-multiselectable={multiple} className="max-h-60 overflow-y-auto py-1">
+            {multiple && (
+              <div className="flex items-center justify-between border-b border-slate-100 px-3 py-1.5 text-xs">
+                <button type="button" onClick={() => onChange(customerIds ? [NO_CUSTOMER_ID, ...options.filter((option) => option !== NO_CUSTOMER_ID)] : options)} className="font-medium text-cyan-700 hover:text-cyan-800">全选</button>
+                <button type="button" onClick={() => onChange([])} className="text-slate-500 hover:text-slate-700">清空</button>
+              </div>
+            )}
             <button
               type="button"
               onClick={() => { onChange(null); if (!multiple) setOpen(false); }}
@@ -82,7 +96,7 @@ function SearchableSelect({ value, options, allLabel, onChange, multiple = false
             >
               {allLabel}
             </button>
-            {filteredOptions.length > 0 ? filteredOptions.map((option) => (
+            {displayOptions.length > 0 ? displayOptions.map((option) => (
               <button
                 key={option}
                 type="button"
@@ -101,7 +115,7 @@ function SearchableSelect({ value, options, allLabel, onChange, multiple = false
                 className={`flex w-full items-center gap-2 px-3 py-1.5 text-left font-mono text-xs transition-colors hover:bg-cyan-50 ${selectedValues.includes(option) ? 'bg-cyan-50 font-medium text-cyan-800' : 'text-slate-600'}`}
               >
                 {multiple && <span className={`flex size-3.5 shrink-0 items-center justify-center rounded-sm border ${selectedValues.includes(option) ? 'border-cyan-600 bg-cyan-600 text-white' : 'border-slate-300'}`}>{selectedValues.includes(option) && <Check className="size-3" />}</span>}
-                <span className="block truncate">{option}</span>
+                <span className="block truncate">{customerIds ? customerIdLabel(option) : option}</span>
               </button>
             )) : <p className="px-3 py-3 text-xs text-slate-400">无匹配选项</p>}
           </div>
@@ -217,7 +231,7 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 border-t border-slate-200 pt-4 sm:grid-cols-3 lg:col-span-12 lg:gap-5"><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">机型</span><SearchableSelect value={draft.productModels} options={options.productModels} allLabel="全部机型" multiple onChange={(value) => setFilter('productModels', (value as string[] | null) ?? undefined)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">基地</span><SearchableSelect value={draft.bases} options={options.bases} allLabel="全部基地" multiple onChange={(value) => setFilter('bases', (value as string[] | null) ?? undefined)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">客户 ID</span><SearchableSelect value={draft.customerIds} options={options.customerIds} allLabel="全部客户" multiple onChange={(value) => setFilter('customerIds', (value as string[] | null) ?? undefined)} /></div></div>
+        <div className="grid grid-cols-1 gap-4 border-t border-slate-200 pt-4 sm:grid-cols-3 lg:col-span-12 lg:gap-5"><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">机型</span><SearchableSelect value={draft.productModels} options={options.productModels} allLabel="全部机型" multiple onChange={(value) => setFilter('productModels', (value as string[] | null) ?? undefined)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">基地</span><SearchableSelect value={draft.bases} options={options.bases} allLabel="全部基地" multiple onChange={(value) => setFilter('bases', (value as string[] | null) ?? undefined)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">客户 ID</span><SearchableSelect value={draft.customerIds} options={options.customerIds} allLabel="全部客户" multiple customerIds onChange={(value) => setFilter('customerIds', (value as string[] | null) ?? undefined)} /></div></div>
       </form>
       {scopeFilterWarning && <div role="alert" className="border-t border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800 sm:px-5 lg:px-6">{scopeFilterWarning}</div>}
     </section>

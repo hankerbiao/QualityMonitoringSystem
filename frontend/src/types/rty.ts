@@ -121,6 +121,9 @@ export interface RTYFilterParams {
   serialNumber: string;
   orderScope: 'normal' | 'l6';
   calculationMethod?: 'normal' | 'composite';
+  productModels?: string[];
+  bases?: string[];
+  customers?: string[];
 }
 
 export type SortField = 'time' | 'defectCount' | 'inputCount' | 'rtyRate';

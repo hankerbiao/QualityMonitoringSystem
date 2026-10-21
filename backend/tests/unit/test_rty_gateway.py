@@ -5,6 +5,81 @@ import pytest
 from app.services import rty_gateway
 
 
+def test_station_filter_can_match_empty_customer_id():
+    assert rty_gateway._matches_station_filters(
+        {"KID": ""},
+        serial_number=None,
+        product_models=None,
+        bases=None,
+        customers=["__NO_CUSTOMER_ID__"],
+        group_by="salesOrder",
+    )
+    assert not rty_gateway._matches_station_filters(
+        {"KID": "CUST-1"},
+        serial_number=None,
+        product_models=None,
+        bases=None,
+        customers=["__NO_CUSTOMER_ID__"],
+        group_by="salesOrder",
+    )
+
+
+@pytest.mark.asyncio
+async def test_orders_filter_multiple_dimensions_and_empty_customer(monkeypatch):
+    async def all_orders(**_filters):
+        return [
+            {
+                "aufnr": "match",
+                "raw": {
+                    "data": {
+                        "AUFNR": "match",
+                        "MAKTX_TH": "M-1",
+                        "LGORT": "B-1",
+                        "KID": " ",
+                        "IF_L6": "",
+                    }
+                },
+            },
+            {
+                "aufnr": "other-customer",
+                "raw": {
+                    "data": {
+                        "AUFNR": "other-customer",
+                        "MAKTX_TH": "M-1",
+                        "LGORT": "B-1",
+                        "KID": "C-1",
+                        "IF_L6": "",
+                    }
+                },
+            },
+            {
+                "aufnr": "other-model",
+                "raw": {
+                    "data": {
+                        "AUFNR": "other-model",
+                        "MAKTX_TH": "M-2",
+                        "LGORT": "B-1",
+                        "KID": "",
+                        "IF_L6": "",
+                    }
+                },
+            },
+        ]
+
+    monkeypatch.setattr(rty_gateway.data_gateway, "all_orders", all_orders)
+
+    rows = await rty_gateway._orders(
+        {
+            "orderScope": "normal",
+            "_productModels": ["M-1"],
+            "_bases": ["B-1"],
+            "_customers": ["C-1", rty_gateway.NO_CUSTOMER_ID],
+        }
+    )
+
+    assert [row["aufnr"] for row in rows] == ["match", "other-customer"]
+
+
 @pytest.mark.asyncio
 async def test_orders_pushes_gstrs_dates_to_gateway_and_filters_locally(monkeypatch):
     captured: dict[str, object] = {}

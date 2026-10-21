@@ -15,8 +15,11 @@ import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
 const DEFAULT_FILTERS: RTYFilterParams = {
   dateRange: { from: undefined, to: undefined },
   productModel: 'all',
+  productModels: [],
   customer: '',
+  customers: [],
   base: 'all',
+  bases: [],
   salesOrder: '',
   productionOrder: '',
   serialNumber: '',
@@ -35,6 +38,12 @@ export default function RTYPage() {
     if (searchParams.get('base')) df.base = searchParams.get('base')!;
     if (searchParams.get('productModel')) df.productModel = searchParams.get('productModel')!;
     if (searchParams.get('customer')) df.customer = searchParams.get('customer')!;
+    const bases = searchParams.getAll('bases');
+    const productModels = searchParams.getAll('productModels');
+    const customers = searchParams.getAll('customers');
+    if (bases.length) df.bases = bases;
+    if (productModels.length) df.productModels = productModels;
+    if (customers.length) df.customers = customers;
     if (searchParams.get('salesOrder')) df.salesOrder = searchParams.get('salesOrder')!;
     if (searchParams.get('productionOrder')) df.productionOrder = searchParams.get('productionOrder')!;
     if (searchParams.get('serialNumber')) df.serialNumber = searchParams.get('serialNumber')!;
@@ -100,8 +109,11 @@ export default function RTYPage() {
     params.dateRange.from
     || params.dateRange.to
     || params.productModel !== 'all'
+    || Boolean(params.productModels?.length)
     || params.customer
+    || Boolean(params.customers?.length)
     || params.base !== 'all'
+    || Boolean(params.bases?.length)
     || params.salesOrder
     || params.productionOrder
     || params.serialNumber,

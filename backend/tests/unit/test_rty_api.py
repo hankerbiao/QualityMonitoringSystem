@@ -139,6 +139,7 @@ async def test_template_export_forwards_complete_filters_and_is_protected(monkey
         },
         product_models=None,
         bases=None,
+        customers=None,
         integrate=True,
     )
     route = next(route for route in rty.router.routes if route.path == "/export")

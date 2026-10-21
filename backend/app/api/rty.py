@@ -241,6 +241,7 @@ async def get_cycle_export(
         ),
         product_models=productModels,
         bases=bases,
+        customers=None,
     )
     return HTTPResponse(
         data, media_type="application/json", headers={"Cache-Control": "private, no-store"}
@@ -267,6 +268,7 @@ async def get_rty_template_export(
     calculationMethod: CalculationMethodQuery = None,
     productModels: Annotated[list[str] | None, Query()] = None,
     bases: Annotated[list[str] | None, Query()] = None,
+    customers: Annotated[list[str] | None, Query()] = None,
 ):
     del request
     data = await rty_export.build_export_response(
@@ -285,6 +287,7 @@ async def get_rty_template_export(
         ),
         product_models=productModels,
         bases=bases,
+        customers=customers,
     )
     return HTTPResponse(
         data, media_type="application/json", headers={"Cache-Control": "private, no-store"}
@@ -311,10 +314,13 @@ async def get_rty_list(
     dateTo: str | None = None,
     orderScope: OrderScopeQuery = "normal",
     calculationMethod: CalculationMethodQuery = None,
+    productModels: Annotated[list[str] | None, Query()] = None,
+    bases: Annotated[list[str] | None, Query()] = None,
+    customers: Annotated[list[str] | None, Query()] = None,
 ):
     del request
     return await rty_gateway.rty_list(
-        _order_filters(
+        {**_order_filters(
             sales_order=salesOrder,
             production_order=productionOrder,
             serial_number=serialNumber,
@@ -325,7 +331,7 @@ async def get_rty_list(
             date_to=dateTo,
             order_scope=orderScope,
             calculation_method=calculationMethod,
-        ),
+        ), "_productModels": productModels or [], "_bases": bases or [], "_customers": customers or []},
         page,
         limit,
         await _targets(),
@@ -351,10 +357,13 @@ async def get_excluded_orders(
     dateFrom: str | None = None,
     dateTo: str | None = None,
     orderScope: OrderScopeQuery = "normal",
+    productModels: Annotated[list[str] | None, Query()] = None,
+    bases: Annotated[list[str] | None, Query()] = None,
+    customers: Annotated[list[str] | None, Query()] = None,
 ):
     del request
     return await rty_gateway.excluded_orders(
-        _order_filters(
+        {**_order_filters(
             sales_order=salesOrder,
             production_order=productionOrder,
             serial_number=serialNumber,
@@ -364,7 +373,7 @@ async def get_excluded_orders(
             date_from=dateFrom,
             date_to=dateTo,
             order_scope=orderScope,
-        ),
+        ), "_productModels": productModels or [], "_bases": bases or [], "_customers": customers or []},
         page,
         limit,
     )
@@ -388,6 +397,9 @@ async def get_defect_details_by_filters(
     dateTo: str | None = None,
     orderScope: OrderScopeQuery = "normal",
     calculationMethod: CalculationMethodQuery = None,
+    productModels: Annotated[list[str] | None, Query()] = None,
+    bases: Annotated[list[str] | None, Query()] = None,
+    customers: Annotated[list[str] | None, Query()] = None,
 ):
     del request, calculationMethod
     filters = _order_filters(
@@ -400,6 +412,11 @@ async def get_defect_details_by_filters(
         date_from=dateFrom,
         date_to=dateTo,
         order_scope=orderScope,
+    )
+    filters.update(
+        _productModels=productModels or [],
+        _bases=bases or [],
+        _customers=customers or [],
     )
     orders = await rty_gateway._orders(filters)
     rows = await rty_gateway.details_by_orders(

@@ -19,6 +19,7 @@ import { rtyApi } from '../api/rtyApi';
 import type { StationGroupBy, StationPassDetail, StationPassQuery, StationPassRate } from '../types';
 import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
 import { MonthQuickPicker } from '../components/shared/MonthQuickPicker';
+import { customerIdLabel, NO_CUSTOMER_ID } from '../utils/customerId';
 import { StationPassFindings, StationQueryLaunch } from '../components/station/StationPassWorkspace';
 import { buildStationPassWorkbook } from '../components/station/exportData';
 import { combinedStationPassRate, rowMatchesBand, summarizeStationRates, type StationRateRow } from '../utils/stationPassRate';
@@ -33,7 +34,19 @@ const dimensionLabels: Record<StationGroupBy, string> = {
 
 const STATION_DESCRIPTIONS: Record<string, string> = {
   OP10: '组装',
+  OP20: '',
+  OP30: '',
+  OP40: '',
+  OP50: '',
+  OP60: '',
+  OP70: '',
+  OP80: '',
+  OP81: '',
+  OP82: '',
+  OP83: '',
+  OP90: '',
   OP150: '组装',
+  OP160: '',
   OP170: '组装',
   OP180: 'PQC',
   OP181: 'L11三总线检测',
@@ -41,6 +54,7 @@ const STATION_DESCRIPTIONS: Record<string, string> = {
   OP191: 'L11冷板保压',
   OP192: 'L11整机柜保压',
   OP195: 'L11注液冲洗',
+  OP199: '',
   OP200: '初检',
   OP205: '前测',
   OP210: '压测',
@@ -49,6 +63,10 @@ const STATION_DESCRIPTIONS: Record<string, string> = {
   OP221: '冲洗',
   OP222: '排液烘干充氮',
   OP223: '湿度检测',
+  OP224: '',
+  OP225: '',
+  OP226: '',
+  OP227: '',
   OP228: 'L11排液冲洗',
   OP229A: 'L11 排液烘干',
   OP229B: 'L11 机柜保压',
@@ -56,13 +74,15 @@ const STATION_DESCRIPTIONS: Record<string, string> = {
   OP230: 'CCC安规测试',
   OP240: 'FQC',
   OP250: '维修',
+  OP251: '',
   OP300: '外箱贴标',
   OP310: '附件装箱',
   OP320: '包装',
 };
+const STATION_CODES = Object.keys(STATION_DESCRIPTIONS);
 
-function stationDescription(stationCode: string, fallback = ''): string {
-  return STATION_DESCRIPTIONS[stationCode] || fallback || '工序';
+function stationDescription(stationCode: string, _fallback = ''): string {
+  return STATION_DESCRIPTIONS[stationCode] ?? '';
 }
 
 type DetailState = { rate: StationRateRow; type: 'input' | 'defect' };
@@ -115,7 +135,7 @@ function exportCell(value: unknown): string | number | boolean {
   return value as string | number | boolean;
 }
 
-type StationFilterOption = { value: string; count?: number };
+type StationFilterOption = { value: string; count?: number; label?: string };
 
 function StationFilterMultiSelect({
   label,
@@ -135,8 +155,8 @@ function StationFilterMultiSelect({
   const selectedLabel = selected.length === 0
     ? `全部${label}`
     : selected.length === 1
-      ? selected[0]
-      : `${selected[0]} 等 ${selected.length} 项`;
+      ? options.find((option) => option.value === selected[0])?.label ?? selected[0]
+      : `${options.find((option) => option.value === selected[0])?.label ?? selected[0]} 等 ${selected.length} 项`;
 
   useEffect(() => {
     const handleOutsideClick = (event: MouseEvent) => {
@@ -206,7 +226,7 @@ function StationFilterMultiSelect({
                     )}
                     className="size-3.5 rounded border-slate-300 accent-cyan-600"
                   />
-                  <span className="min-w-0 flex-1 truncate">{option.value}</span>
+                  <span className="min-w-0 flex-1 truncate">{option.label ?? option.value}</span>
                   {option.count !== undefined && <span className="font-mono text-[10px] text-slate-400">{option.count}</span>}
                 </label>
               ))}
@@ -381,11 +401,10 @@ export default function StationPassRatePage() {
       if (requestId !== loadRequestId.current) return;
       setQueryDurationMs(performance.now() - startedAt);
       setRows(response);
-      const stations = Array.from(new Set(response.map((row) => row.stationCode))).sort((left, right) => left.localeCompare(right, 'zh-CN'));
       const savedStations = settings.stationPassRateConfig.selectedStations;
       setSelectedStations(settings.stationPassRateConfig.configured
-        ? savedStations.filter((station) => stations.includes(station))
-        : stations);
+        ? savedStations.filter((station) => STATION_CODES.includes(station))
+        : STATION_CODES);
       setAppliedQuery(query);
       setDataUpdatedAt(new Date());
       setHasSearched(true);
@@ -506,7 +525,6 @@ export default function StationPassRatePage() {
   };
 
   const matrix = useMemo(() => {
-    const stations = Array.from(new Set(rows.map((row) => row.stationCode))).sort((a, b) => a.localeCompare(b, 'zh-CN'));
     const groups = new Map<string, Map<string, StationPassRate>>();
     rows.forEach((row) => {
       const stationRows = groups.get(row.dimensionValue) || new Map<string, StationPassRate>();
@@ -515,7 +533,7 @@ export default function StationPassRatePage() {
     });
 
     return {
-      stations,
+      stations: STATION_CODES,
       rows: Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right, 'zh-CN')).map(([dimensionValue, stationRows]) => {
         const stationValues = Array.from(stationRows.values());
         const total = {
@@ -731,7 +749,7 @@ export default function StationPassRatePage() {
             <StationFilterMultiSelect
               label="客户 ID"
               selected={selectedCustomers}
-              options={customers.map((value) => ({ value }))}
+              options={[{ value: NO_CUSTOMER_ID, label: customerIdLabel(NO_CUSTOMER_ID) }, ...customers.filter((value) => value !== NO_CUSTOMER_ID).map((value) => ({ value }))]}
               onChange={(values) => {
                 setSelectedCustomers(values);
                 updateField('customers', () => {}, values);

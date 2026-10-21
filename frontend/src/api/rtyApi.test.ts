@@ -27,6 +27,24 @@ describe('rtyApi list cache', () => {
     expect(requestJson).toHaveBeenCalledTimes(1);
   });
 
+  it('preserves multi-select RTY filters as repeated query parameters', async () => {
+    vi.mocked(requestJson).mockResolvedValue({
+      items: [], total: 0, page: 1, limit: 50, has_more: false,
+    });
+    const filters: RTYFilterParams = {
+      dateRange: { from: undefined, to: undefined }, productModel: 'all', customer: '', base: 'all', salesOrder: '',
+      productionOrder: '', serialNumber: '', orderScope: 'normal',
+      productModels: ['M-1', 'M-2'], bases: ['B-1', 'B-2'], customers: ['C-1', '__NO_CUSTOMER_ID__'],
+    };
+
+    await rtyApi.getRTYData(filters);
+
+    const query = new URL(vi.mocked(requestJson).mock.calls[0][0], 'http://localhost').searchParams;
+    expect(query.getAll('productModels')).toEqual(['M-1', 'M-2']);
+    expect(query.getAll('bases')).toEqual(['B-1', 'B-2']);
+    expect(query.getAll('customers')).toEqual(['C-1', '__NO_CUSTOMER_ID__']);
+  });
+
   it('sends exact cycle date bounds and keeps each range in a separate cache entry', async () => {
     vi.mocked(requestData).mockResolvedValue([]);
 

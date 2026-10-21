@@ -105,8 +105,11 @@ function buildRtyQuery(params: RTYFilterParams): URLSearchParams {
   if (params.dateRange.from) qs.set('dateFrom', params.dateRange.from.toISOString().split('T')[0]);
   if (params.dateRange.to) qs.set('dateTo', params.dateRange.to.toISOString().split('T')[0]);
   if (params.productModel && params.productModel !== 'all') qs.set('productModel', params.productModel);
+  params.productModels?.forEach((value) => qs.append('productModels', value));
   if (params.customer) qs.set('customer', params.customer);
+  params.customers?.forEach((value) => qs.append('customers', value));
   if (params.base && params.base !== 'all') qs.set('base', params.base);
+  params.bases?.forEach((value) => qs.append('bases', value));
   if (params.salesOrder) qs.set('salesOrder', params.salesOrder);
   if (params.productionOrder) qs.set('productionOrder', params.productionOrder);
   if (params.serialNumber) qs.set('serialNumber', params.serialNumber);
@@ -220,7 +223,7 @@ export const rtyApi = {
     const qs = new URLSearchParams();
     qs.set('page', String(page));
     qs.set('limit', String(pageSize));
-    buildRtyQuery(params).forEach((value, key) => qs.set(key, value));
+    buildRtyQuery(params).forEach((value, key) => qs.append(key, value));
 
     const requestKey = scopedKey(qs.toString());
     const inFlight = rtyListInFlight.get(requestKey);
@@ -254,7 +257,7 @@ export const rtyApi = {
     const qs = new URLSearchParams();
     qs.set('page', String(page));
     qs.set('limit', String(pageSize));
-    buildRtyQuery(params).forEach((value, key) => qs.set(key, value));
+    buildRtyQuery(params).forEach((value, key) => qs.append(key, value));
     const json = await requestJson<PaginatedExcludedOrdersResponse>(`${API_BASE_URL}/rty/excluded-orders?${qs}`);
     if (!Array.isArray(json.items)) throw new Error('已过滤订单响应格式无效');
     return json as PaginatedExcludedOrdersResponse;

@@ -54,6 +54,7 @@ _RTY_LIST_CACHE = AsyncTTLCache()
 _ORDER_OWNERSHIP_CACHE = AsyncTTLCache(max_entries=4, copy_values=False)
 _ORDER_SCOPE_CACHE = AsyncTTLCache(max_entries=64, copy_values=False)
 _GroupKey = TypeVar("_GroupKey")
+NO_CUSTOMER_ID = "__NO_CUSTOMER_ID__"
 
 
 def _raw(item: dict[str, Any]) -> dict[str, Any]:
@@ -118,13 +119,29 @@ async def _order_rows(filters: dict[str, Any]) -> list[dict[str, Any]]:
     gateway_filters = {
         key: value
         for key, value in filters.items()
-        if key not in {"orderScope", "calculationMethod"} and value
+        if key not in {"orderScope", "calculationMethod", "_productModels", "_bases", "_customers"} and value
     }
     rows = [
         normalize_order_row(item)
         for item in await data_gateway.all_orders(max_rows=1_000_000, **gateway_filters)
     ]
     rows = [row for row in rows if base_allowed(row["data"].get("LGORT"))]
+    models = set(filters.get("_productModels") or [])
+    bases = set(filters.get("_bases") or [])
+    customers = set(filters.get("_customers") or [])
+    no_customer = NO_CUSTOMER_ID in customers
+    customers.discard(NO_CUSTOMER_ID)
+    if models:
+        rows = [row for row in rows if row["data"].get("MAKTX_TH") in models]
+    if bases:
+        rows = [row for row in rows if row["data"].get("LGORT") in bases]
+    if customers or no_customer:
+        rows = [
+            row
+            for row in rows
+            if str(row["data"].get("KID") or "").strip() in customers
+            or (no_customer and not str(row["data"].get("KID") or "").strip())
+        ]
     date_from = validate_date(filters["dateFrom"]) if filters.get("dateFrom") else None
     date_to = validate_date(filters["dateTo"]) if filters.get("dateTo") else None
     if date_from or date_to:
@@ -478,7 +495,7 @@ async def _build_rty_list(
         else "VBELN"
         if filters.get("salesOrder")
         else "KID"
-        if filters.get("customer")
+        if filters.get("customer") or filters.get("_customers")
         else "MAKTX_TH"
         if filters.get("productModel") not in (None, "all")
         else "LGORT"
@@ -489,6 +506,8 @@ async def _build_rty_list(
     for row in orders:
         data = row["data"]
         key = str(row["aufnr"] if group_by == "aufnr" else data.get(group_by) or "").strip()
+        if group_by == "KID" and not key:
+            key = NO_CUSTOMER_ID
         if not key:
             continue
         group = groups.setdefault(
@@ -709,8 +728,12 @@ def _matches_station_filters(
         return False
     if bases and str(raw.get("LGORT") or "").strip() not in bases:
         return False
-    if customers and scope_orders is None and str(raw.get("KID") or "").strip() not in customers:
-        return False
+    if customers and scope_orders is None:
+        customer = str(raw.get("KID") or "").strip()
+        include_empty = NO_CUSTOMER_ID in customers
+        selected = set(customers) - {NO_CUSTOMER_ID}
+        if customer not in selected and not (include_empty and not customer):
+            return False
     if scope_orders is not None:
         order = normalize_order(raw.get("AUFNR"))
         if not order or order not in scope_orders:
@@ -792,6 +815,8 @@ async def station_rates(
     selected_models = {value.strip() for value in [*(product_models or []), product_model] if value and value.strip()}
     selected_bases = {value.strip() for value in [*(bases or []), base] if value and value.strip()}
     selected_customers = {value.strip() for value in [*(customers or []), customer] if value and value.strip()}
+    include_empty_customer = NO_CUSTOMER_ID in selected_customers
+    selected_customers.discard(NO_CUSTOMER_ID)
     records, orders = await asyncio.gather(
         _station_records_in_range(start, end, serial_number=serial_number),
         # Reuse cycle RTY grouping below; individual station metrics stay separate.
@@ -809,18 +834,17 @@ async def station_rates(
         row for row in orders
         if (not selected_models or str(row["data"].get("MAKTX_TH") or "").strip() in selected_models)
         and (not selected_bases or str(row["data"].get("LGORT") or "").strip() in selected_bases)
-        and (not selected_customers or str(row["data"].get("KID") or "").strip() in selected_customers)
+        and (
+            not selected_customers
+            and not include_empty_customer
+            or str(row["data"].get("KID") or "").strip() in selected_customers
+            or include_empty_customer and not str(row["data"].get("KID") or "").strip()
+        )
     ]
-    if selected_customers:
-        orders = [
-            row
-            for row in orders
-            if str(row["data"].get("KID") or "").strip() in selected_customers
-        ]
     records = _station_rows_in_planned_range(records, start, end)
     scope_orders = (
         {normalize_order(row["aufnr"]) for row in orders if normalize_order(row["aufnr"])}
-        if order_scope == "l6" or selected_customers or overseas
+        if order_scope == "l6" or selected_customers or include_empty_customer or overseas
         else None
     )
 
@@ -933,10 +957,12 @@ async def station_details(
     selected_models = {value.strip() for value in [*(product_models or []), product_model] if value and value.strip()}
     selected_bases = {value.strip() for value in [*(bases or []), base] if value and value.strip()}
     selected_customers = {value.strip() for value in [*(customers or []), customer] if value and value.strip()}
+    include_empty_customer = NO_CUSTOMER_ID in selected_customers
+    selected_customers.discard(NO_CUSTOMER_ID)
     records = await _station_records_in_range(start, end, serial_number=serial_number)
     records = _station_rows_in_planned_range(records, start, end)
     scope_orders = None
-    if order_scope == "l6" or selected_customers or overseas:
+    if order_scope == "l6" or selected_customers or include_empty_customer or overseas:
         orders = await _orders(
             {
                 "dateFrom": f"{start[:4]}-{start[4:6]}-{start[6:]}",
@@ -950,7 +976,12 @@ async def station_details(
             row for row in orders
             if (not selected_models or str(row["data"].get("MAKTX_TH") or "").strip() in selected_models)
             and (not selected_bases or str(row["data"].get("LGORT") or "").strip() in selected_bases)
-            and (not selected_customers or str(row["data"].get("KID") or "").strip() in selected_customers)
+            and (
+                not selected_customers
+                and not include_empty_customer
+                or str(row["data"].get("KID") or "").strip() in selected_customers
+                or include_empty_customer and not str(row["data"].get("KID") or "").strip()
+            )
         ]
         scope_orders = {
             normalize_order(row["aufnr"]) for row in orders if normalize_order(row["aufnr"])

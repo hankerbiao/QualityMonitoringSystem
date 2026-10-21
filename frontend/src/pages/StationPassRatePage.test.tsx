@@ -65,25 +65,28 @@ describe('StationPassRatePage customer filter', () => {
     ]);
     render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
-    expect(await screen.findByText('已选 1 / 2 个工站')).toBeTruthy();
+    expect(await screen.findByText('已选 1 / 45 个工站')).toBeTruthy();
     expect(screen.queryByRole('button', { name: '配置工站' })).toBeNull();
     expect(context.updateSettings).not.toHaveBeenCalled();
   });
 
-  it('shows the supplied Chinese station names in table headers', async () => {
+  it('renders only the static station headers, regardless of API station codes', async () => {
     const descriptions = [
-      ['OP10', '组装'], ['OP150', '组装'], ['OP170', '组装'],
+      ['OP10', '组装'], ['OP20', ''], ['OP30', ''], ['OP40', ''], ['OP50', ''],
+      ['OP60', ''], ['OP70', ''], ['OP80', ''], ['OP81', ''], ['OP82', ''], ['OP83', ''], ['OP90', ''],
+      ['OP150', '组装'], ['OP160', ''], ['OP170', ''],
       ['OP180', 'PQC'], ['OP181', 'L11三总线检测'],
       ['OP190', '保压'], ['OP191', 'L11冷板保压'], ['OP192', 'L11整机柜保压'],
-      ['OP195', 'L11注液冲洗'], ['OP200', '初检'], ['OP205', '前测'],
+      ['OP195', 'L11注液冲洗'], ['OP199', ''], ['OP200', '初检'], ['OP205', '前测'],
       ['OP210', '压测'], ['OP215', '后测'], ['OP220', '综检'],
       ['OP221', '冲洗'], ['OP222', '排液烘干充氮'], ['OP223', '湿度检测'],
+      ['OP224', ''], ['OP225', ''], ['OP226', ''], ['OP227', ''],
       ['OP228', 'L11排液冲洗'], ['OP229A', 'L11 排液烘干'],
       ['OP229B', 'L11 机柜保压'], ['OP229C', 'L11 注氮'],
-      ['OP230', 'CCC安规测试'], ['OP240', 'FQC'], ['OP250', '维修'],
+      ['OP230', 'CCC安规测试'], ['OP240', 'FQC'], ['OP250', '维修'], ['OP251', ''],
       ['OP300', '外箱贴标'], ['OP310', '附件装箱'], ['OP320', '包装'],
     ] as const;
-    vi.mocked(rtyApi.getStationPassRates).mockResolvedValue(descriptions.map(([stationCode]) => ({
+    vi.mocked(rtyApi.getStationPassRates).mockResolvedValue([...descriptions.map(([stationCode]) => ({
       dimensionValue: 'M',
       stationCode,
       stationName: stationCode,
@@ -92,14 +95,30 @@ describe('StationPassRatePage customer filter', () => {
       passRate: 90,
       totalInputCount: 10,
       totalDefectCount: 1,
-    })));
+    })), {
+      dimensionValue: 'M',
+      stationCode: 'OP999',
+      stationName: '接口动态工站',
+      inputCount: 10,
+      defectCount: 1,
+      passRate: 90,
+      totalInputCount: 10,
+      totalDefectCount: 1,
+    }]);
     render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
 
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
 
+    const stationTable = screen.getByRole('columnheader', { name: /OP10.*组装/ }).closest('table');
+    expect(stationTable).not.toBeNull();
+    const headers = within(stationTable as HTMLTableElement).getAllByRole('columnheader');
+    const stationHeaders = headers.slice(3).map((header) => header.textContent ?? '');
     for (const [code, name] of descriptions) {
-      expect(await screen.findByRole('columnheader', { name: new RegExp(`${code}.*${name}`) })).toBeTruthy();
+      expect(stationHeaders.some((header) => header.includes(code) && (!name || header.includes(name)))).toBe(true);
     }
+    expect(stationHeaders.some((header) => header.includes('OP999'))).toBe(false);
+    expect(descriptions).toHaveLength(45);
+    expect(headers).toHaveLength(descriptions.length + 3);
   });
 
   it('allows administrators to persist station selection', async () => {
@@ -112,7 +131,7 @@ describe('StationPassRatePage customer filter', () => {
     render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
     fireEvent.click(await screen.findByRole('button', { name: '配置工站' }));
-    fireEvent.click(screen.getByRole('checkbox', { name: 'OP10' }));
+    fireEvent.click(screen.getByRole('button', { name: '清空' }));
     fireEvent.click(screen.getByRole('button', { name: '完成' }));
     await waitFor(() => expect(context.updateSettings).toHaveBeenCalledWith({
       stationPassRateConfig: { selectedStations: [] },
@@ -211,9 +230,12 @@ describe('StationPassRatePage customer filter', () => {
     expect(workbook.SheetNames).toEqual(['工位直通率透视表', '销售订单', '维修故障明记录', 'M']);
     expect(workbook.Sheets.M.E2.v).toBe('PN*2');
     expect(workbook.Sheets.M.L2.f).toBe('J2/K2');
-    expect(XLSX.utils.sheet_to_json(workbook.Sheets['工位直通率透视表'])).toEqual([
-      { 机型: 'M', Total: '90.00%', 产量: 20, 故障数: 2, 工站直通率: '90.00%', OP10: '90.00%' },
-    ]);
+    const pivotRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets['工位直通率透视表']);
+    expect(pivotRows).toHaveLength(1);
+    expect(pivotRows[0]).toMatchObject({
+      机型: 'M', Total: '90.00%', 产量: 20, 故障数: 2, 工站直通率: '90.00%', OP10: '90.00%',
+    });
+    expect(Object.keys(pivotRows[0]).filter((key) => key.startsWith('OP'))).toHaveLength(45);
     expect(XLSX.utils.sheet_to_json(workbook.Sheets['维修故障明记录'])).toHaveLength(2);
   });
 

@@ -155,6 +155,14 @@ async def _load_orders(
     selected_models = set(product_models) if product_models else None
     selected_bases = set(bases) if bases else None
     selected_customers = set(customers) if customers else None
+    include_empty_customer = bool(selected_customers and "__NO_CUSTOMER_ID__" in selected_customers)
+    if selected_customers:
+        selected_customers.discard("__NO_CUSTOMER_ID__")
+
+    def customer_matches(value: Any) -> bool:
+        normalized = str(value or "").strip()
+        return normalized in (selected_customers or set()) or (include_empty_customer and not normalized)
+
     candidates = []
     for item in items:
         normalized = rty_gateway.normalize_order_row(item)
@@ -165,7 +173,7 @@ async def _load_orders(
             and start <= planned_date <= end
             and (selected_models is None or normalized["data"].get("MAKTX_TH") in selected_models)
             and (selected_bases is None or normalized["data"].get("LGORT") in selected_bases)
-            and (selected_customers is None or normalized["data"].get("KID") in selected_customers)
+            and (selected_customers is None or customer_matches(normalized["data"].get("KID")))
         ):
             candidates.append(item)
 
@@ -187,7 +195,7 @@ async def _load_orders(
                 and rty_gateway._eligible(normalized, filters.get("orderScope", "normal"))
                 and (selected_models is None or data.get("MAKTX_TH") in selected_models)
                 and (selected_bases is None or data.get("LGORT") in selected_bases)
-                and (selected_customers is None or data.get("KID") in selected_customers)
+                and (selected_customers is None or customer_matches(data.get("KID")))
             ):
                 if not str(data.get("AUFNR") or "").strip():
                     data["AUFNR"] = normalized["aufnr"]
@@ -399,9 +407,10 @@ async def build_template_export(
     *,
     product_models: list[str] | None = None,
     bases: list[str] | None = None,
+    customers: list[str] | None = None,
     integrate: bool = False,
 ) -> RTYTemplateExport:
-    orders, faults = await _load_sources(filters, product_models=product_models, bases=bases)
+    orders, faults = await _load_sources(filters, product_models=product_models, bases=bases, customers=customers)
     by_model: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in orders:
         by_model[str(row.get("MAKTX_TH") or "")].append(row)
@@ -492,7 +501,7 @@ async def build_export_response(
             filters,
             product_models=product_models,
             bases=bases,
-            **({"customers": customers} if kind == "source" else {}),
+            customers=customers,
             integrate=True,
         )
         return Response(success=True, data=data).model_dump_json().encode()
