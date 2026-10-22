@@ -22,8 +22,9 @@ describe('RTY template workbook', () => {
     expect(orders.R2.v).toBe('最终用户');
     const faults = workbook.Sheets['维修故障明记录-分子'];
     expect(faults.A2.v).toBe('生产基地');
-    expect(faults.AI2.v).toBe('RMA复判结论');
-    expect(faults.AJ2.v).toBe('订单类型');
+    expect(faults.AH2.v).toBe('RMA复判结论');
+    expect(faults.AI2.v).toBe('订单类型');
+    expect(faults.AJ2).toBeUndefined();
     const top = workbook.Sheets['TOP问题'];
     expect(top.A1.v).toBe('序号');
     expect(top.L1.v).toBe('整机故障率');
@@ -49,8 +50,8 @@ describe('RTY template workbook', () => {
     expect(result.Sheets['销售订单-分母'].J3).toMatchObject({ t: 'n', v: 0 });
     expect(result.Sheets['维修故障明记录-分子'].E3).toMatchObject({ t: 's', v: '=literal-sn' });
     expect(result.Sheets['维修故障明记录-分子'].E3.f).toBeUndefined();
-    expect(result.Sheets['维修故障明记录-分子'].L3.v).toBe('张三');
-    expect(result.Sheets['维修故障明记录-分子'].M3).toBeUndefined();
+    expect(result.Sheets['维修故障明记录-分子'].K3.v).toBe('张三');
+    expect(result.Sheets['维修故障明记录-分子'].L3).toBeUndefined();
     expect(result.Sheets['TOP问题'].H2).toBeUndefined();
     expect(result.Sheets['TOP问题'].L2).toMatchObject({ t: 'n', v: 0, z: '0.00%' });
   });
@@ -69,9 +70,7 @@ describe('RTY template workbook', () => {
     expect(faults.I3.v).toBe('问题A * 1');
     expect(faults.I4.v).toBe('问题B * 2');
     expect(faults.I5).toBeUndefined();
-    expect(faults.J3.v).toBe(1);
-    expect(faults.J4.v).toBe(2);
-    expect(faults.J5).toBeUndefined();
+    expect(faults.J3).toBeUndefined();
     expect([faults.E3.v, faults.E4.v, faults.E5.v]).toEqual(['SN1', 'SN2', 'SN3']);
   });
 
@@ -90,9 +89,7 @@ describe('RTY template workbook', () => {
     expect(faults.I2.v).toBe('问题A * 1');
     expect(faults.I3.v).toBe('问题B * 2');
     expect(faults.I4).toBeUndefined();
-    expect(faults.J2.v).toBe(1);
-    expect(faults.J3.v).toBe(2);
-    expect(faults.J4).toBeUndefined();
+    expect(faults.J2).toBeUndefined();
     expect([faults.E2.v, faults.E3.v, faults.E4.v]).toEqual(['SN1', 'SN2', 'SN3']);
   });
 });
@@ -104,7 +101,7 @@ describe('integrated repair model sheets', () => {
       modelSheets: [{
         model: '6210 C21',
         rows: [{
-          sequence: 1, model: '6210 C21', problem: 'first\nsecond',
+          sequence: 1, model: '6210 C21', problem: 'first * 1\nsecond * 2\nsecond * 2',
           repairAction: '更换内存', material: 'B5000113*2',
           materialDescription: '=literal-description', materialCount: 2,
           materialUsage: 2400, serialCount: 1, productionQuantity: 1258,
@@ -120,6 +117,7 @@ describe('integrated repair model sheets', () => {
       REPAIR_COLUMNS.map(([, label]) => label),
     );
     expect(sheet.E2.v).toBe('B5000113*2');
+    expect(sheet.C2.v).toBe('first * 1\nsecond * 2\nsecond * 2');
     expect(sheet.G1.v).toBe('部件故障计数');
     expect(sheet.G2.v).toBe(2);
     expect(sheet.I2).toMatchObject({ t: 'n', f: 'G2/H2', v: 2 / 2400, z: '0.00%' });

@@ -6,7 +6,7 @@ import asyncio
 import gzip
 import hashlib
 import json
-from collections import defaultdict
+from collections import Counter, defaultdict
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -236,7 +236,7 @@ async def load_order_usage(orders: list[str]) -> dict[str, OrderUsage]:
 @dataclass
 class RepairGroup:
     count: int = 0
-    symptoms: dict[str, None] = field(default_factory=dict)
+    symptoms: list[str] = field(default_factory=list)
     descriptions: dict[str, None] = field(default_factory=dict)
     sns: set[str] = field(default_factory=set)
     missing_sn: int = 0
@@ -280,7 +280,7 @@ async def build_model_sheets(
             # One repair is one occurrence, even when it maps to multiple head SNs.
             group.count += 1
             if symptom := text(raw.get("ZNGWD3")):
-                group.symptoms[symptom] = None
+                group.symptoms.append(symptom)
             if (
                 (description := text(raw.get("MAKTX")))
                 and material
@@ -324,6 +324,7 @@ async def build_model_sheets(
         rows = []
         for (repair, material), group in sorted(groups.get(model, {}).items()):
             labels = {**group.descriptions, **descriptions.get(material, {})}
+            symptom_counts = Counter(group.symptoms)
             material_usage: int | float | str
             if not material:
                 material_usage = "未填写物料号"
@@ -338,7 +339,10 @@ async def build_model_sheets(
                 {
                     "sequence": len(rows) + 1,
                     "model": model,
-                    "problem": "\n".join(group.symptoms),
+                    "problem": "\n".join(
+                        f"{symptom} * {symptom_counts[symptom]}"
+                        for symptom in group.symptoms
+                    ),
                     "repairAction": repair or "未填写维修维度3",
                     "material": f"{material or '未填写物料号'}*{group.count}",
                     "materialDescription": "\n".join(labels),

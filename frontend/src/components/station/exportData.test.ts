@@ -16,8 +16,8 @@ describe('station pass workbook', () => {
     expect(orders).toEqual([ORDER_COLUMNS.map(([, label]) => label)]);
     expect(faults).toEqual([FAULT_COLUMNS.map(([, label]) => label)]);
     expect(orders[0]).toHaveLength(18);
-    expect(faults[0]).toHaveLength(36);
-    expect(XLSX.utils.sheet_to_json<string[]>(workbook.Sheets['维修故障明记录'], { header: 1 })[0]?.[35]).toBe('订单类型');
+    expect(faults[0]).toHaveLength(35);
+    expect(XLSX.utils.sheet_to_json<string[]>(workbook.Sheets['维修故障明记录'], { header: 1 })[0]?.[34]).toBe('订单类型');
   });
 
   it('round trips raw values, blank fields, leading zeros and repeated SN repairs', () => {
@@ -42,19 +42,19 @@ describe('station pass workbook', () => {
     expect(orders.B2).toBeUndefined();
     expect(faults.E2).toMatchObject({ t: 's', v: '00001' });
     expect(faults.E3).toMatchObject({ t: 's', v: '00001' });
-    expect(faults.L2.v).toBe('甲');
-    expect(faults.M2).toBeUndefined();
-    expect(faults.M3.v).toBe('2027-01-01');
-    expect(faults.AC3).toMatchObject({ t: 's', v: '=literal' });
-    expect(faults.AC3.f).toBeUndefined();
+    expect(faults.K2.v).toBe('甲');
+    expect(faults.L2).toBeUndefined();
+    expect(faults.L3.v).toBe('2027-01-01');
+    expect(faults.AB3).toMatchObject({ t: 's', v: '=literal' });
+    expect(faults.AB3.f).toBeUndefined();
     expect(faults.I2.v).toBe('字节_[字节][擎天]AC测试 尾7LOOP_内存Correctable ECC * 1');
     expect(faults.I3.v).toBe('字节_[字节][擎天]SHC Test_内存Correctable ECC * 2');
     expect(faults.I4.v).toBe('字节_[字节][擎天]IFS设置恢复检查_内存识别不全 * 1');
     expect(faults.I5).toBeUndefined();
-    expect([faults.J2.v, faults.J3.v, faults.J4.v, faults.J5]).toEqual([1, 2, 1, undefined]);
+    expect(faults.J2).toBeUndefined();
     expect(faults.E5.v).toBe('00003');
-    expect(faults.AJ2.v).toBe('C001');
-    expect(faults.AJ3.v).toBe('C002');
+    expect(faults.AI2.v).toBe('C001');
+    expect(faults.AI3.v).toBe('C002');
   });
 
 });

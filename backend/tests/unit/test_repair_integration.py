@@ -138,7 +138,8 @@ async def test_grouping_counts_repairs_not_sns_and_never_uses_repair_dates(monke
     groups = {row["material"]: row for row in by_model["M"]}
     assert groups["PN*2"]["materialCount"] == 2
     assert groups["PN*2"]["serialCount"] == 1
-    assert groups["PN*2"]["problem"] == "first\nsecond"
+    assert groups["PN*2"]["problem"] == "first * 1\nsecond * 1"
+    assert groups["OTHER*1"]["problem"] == "first * 1"
     assert groups["PN*2"]["materialUsage"] == 15
     assert groups["PN*2"]["productionQuantity"] == 50
     assert groups["PN*2"]["componentFaultRate"] == 2 / 15
@@ -192,6 +193,25 @@ async def test_composite_repairs_count_once_and_use_bound_head_sns(monkeypatch):
     )
     assert sheets[0].rows[0]["materialCount"] == 2
     assert sheets[0].rows[0]["serialCount"] == 2
+
+
+@pytest.mark.asyncio
+async def test_model_sheet_problem_marks_single_and_repeated_symptom_counts(monkeypatch):
+    monkeypatch.setattr(repair.data_gateway, "export_rows", AsyncMock(return_value=[posting()]))
+    sheets = await repair.build_model_sheets(
+        [order()],
+        [
+            (fault(ZNGWD3="single", MATNR="PN2"), {("M", "S1")}),
+            (fault(ZNGWD3="repeated"), {("M", "S2")}),
+            (fault(ZNGWD3="repeated"), {("M", "S3")}),
+            (fault(ZNGWD3="repeated", MATNR="PN3"), {("M", "S4")}),
+        ],
+    )
+
+    rows = {row["material"]: row for row in sheets[0].rows}
+    assert rows["PN2*1"]["problem"] == "single * 1"
+    assert rows["PN*2"]["problem"] == "repeated * 2\nrepeated * 2"
+    assert rows["PN3*1"]["problem"] == "repeated * 1"
 
 
 @pytest.mark.asyncio

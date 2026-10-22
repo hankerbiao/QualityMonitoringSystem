@@ -56,7 +56,6 @@ export const FAULT_COLUMNS: readonly Column[] = [
   ['U_FIND', 'NG报工人员'],
   ['T_FIND', 'NG时间'],
   ['ZNGWD3', '不良现象维度3'],
-  ['ZNGWD3_COUNT', '不良现象维度3数量'],
   ['ZNGWD', '不良现象维度2'],
   ['U_FIX', '维修人员'],
   ['ZWXDT', '维修日期时间'],
@@ -165,14 +164,13 @@ function summarizeFaultPhenomena(
   return faults.map((row) => {
     const phenomenon = String(row.ZNGWD3 ?? '').trim();
     if (!phenomenon || displayedPhenomena.has(phenomenon)) {
-      return { ...row, ZNGWD3: null, ZNGWD3_COUNT: null };
+      return { ...row, ZNGWD3: null };
     }
     displayedPhenomena.add(phenomenon);
     const count = phenomenonCounts.get(phenomenon)!;
     return {
       ...row,
       ZNGWD3: `${phenomenon} * ${count}`,
-      ZNGWD3_COUNT: count,
     };
   });
 }
