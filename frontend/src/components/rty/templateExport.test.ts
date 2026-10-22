@@ -56,7 +56,7 @@ describe('RTY template workbook', () => {
     expect(result.Sheets['TOP问题'].L2).toMatchObject({ t: 'n', v: 0, z: '0.00%' });
   });
 
-  it('summarizes repeated phenomena in the legacy fault sheet without dropping detail rows', () => {
+  it('preserves raw phenomenon values and all detail rows in the legacy fault sheet', () => {
     const workbook = buildTemplateWorkbook({
       ...empty,
       faults: [
@@ -67,14 +67,11 @@ describe('RTY template workbook', () => {
     });
     const faults = workbook.Sheets['维修故障明记录-分子'];
 
-    expect(faults.I3.v).toBe('问题A * 1');
-    expect(faults.I4.v).toBe('问题B * 2');
-    expect(faults.I5).toBeUndefined();
-    expect(faults.J3).toBeUndefined();
+    expect([faults.I3.v, faults.I4.v, faults.I5.v]).toEqual(['问题A', '问题B', '问题B']);
     expect([faults.E3.v, faults.E4.v, faults.E5.v]).toEqual(['SN1', 'SN2', 'SN3']);
   });
 
-  it('summarizes phenomenon values in integrated source sheets while preserving detail rows', () => {
+  it('preserves raw phenomenon values in integrated source sheets', () => {
     const workbook = buildTemplateWorkbook({
       ...empty,
       modelSheets: [],
@@ -86,10 +83,7 @@ describe('RTY template workbook', () => {
     });
     const faults = workbook.Sheets['维修故障明记录'];
 
-    expect(faults.I2.v).toBe('问题A * 1');
-    expect(faults.I3.v).toBe('问题B * 2');
-    expect(faults.I4).toBeUndefined();
-    expect(faults.J2).toBeUndefined();
+    expect([faults.I2.v, faults.I3.v, faults.I4.v]).toEqual(['问题A', '问题B', '问题B']);
     expect([faults.E2.v, faults.E3.v, faults.E4.v]).toEqual(['SN1', 'SN2', 'SN3']);
   });
 });

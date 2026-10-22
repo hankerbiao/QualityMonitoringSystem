@@ -47,10 +47,14 @@ describe('station pass workbook', () => {
     expect(faults.L3.v).toBe('2027-01-01');
     expect(faults.AB3).toMatchObject({ t: 's', v: '=literal' });
     expect(faults.AB3.f).toBeUndefined();
-    expect(faults.I2.v).toBe('字节_[字节][擎天]AC测试 尾7LOOP_内存Correctable ECC * 1');
-    expect(faults.I3.v).toBe('字节_[字节][擎天]SHC Test_内存Correctable ECC * 2');
-    expect(faults.I4.v).toBe('字节_[字节][擎天]IFS设置恢复检查_内存识别不全 * 1');
-    expect(faults.I5).toBeUndefined();
+    expect([
+      faults.I2.v, faults.I3.v, faults.I4.v, faults.I5.v,
+    ]).toEqual([
+      '字节_[字节][擎天]AC测试 尾7LOOP_内存Correctable ECC',
+      '字节_[字节][擎天]SHC Test_内存Correctable ECC',
+      '字节_[字节][擎天]IFS设置恢复检查_内存识别不全',
+      '字节_[字节][擎天]SHC Test_内存Correctable ECC ',
+    ]);
     expect(faults.J2).toBeUndefined();
     expect(faults.E5.v).toBe('00003');
     expect(faults.AI2.v).toBe('C001');
