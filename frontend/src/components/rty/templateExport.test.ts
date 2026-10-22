@@ -54,6 +54,47 @@ describe('RTY template workbook', () => {
     expect(result.Sheets['TOP问题'].H2).toBeUndefined();
     expect(result.Sheets['TOP问题'].L2).toMatchObject({ t: 'n', v: 0, z: '0.00%' });
   });
+
+  it('summarizes repeated phenomena in the legacy fault sheet without dropping detail rows', () => {
+    const workbook = buildTemplateWorkbook({
+      ...empty,
+      faults: [
+        { PCODE: 'SN1', ZNGWD3: '问题A' },
+        { PCODE: 'SN2', ZNGWD3: '问题B' },
+        { PCODE: 'SN3', ZNGWD3: '问题B' },
+      ],
+    });
+    const faults = workbook.Sheets['维修故障明记录-分子'];
+
+    expect(faults.I3.v).toBe('问题A * 1');
+    expect(faults.I4.v).toBe('问题B * 2');
+    expect(faults.I5).toBeUndefined();
+    expect(faults.J3.v).toBe(1);
+    expect(faults.J4.v).toBe(2);
+    expect(faults.J5).toBeUndefined();
+    expect([faults.E3.v, faults.E4.v, faults.E5.v]).toEqual(['SN1', 'SN2', 'SN3']);
+  });
+
+  it('summarizes phenomenon values in integrated source sheets while preserving detail rows', () => {
+    const workbook = buildTemplateWorkbook({
+      ...empty,
+      modelSheets: [],
+      faults: [
+        { PCODE: 'SN1', ZNGWD3: '问题A' },
+        { PCODE: 'SN2', ZNGWD3: '问题B' },
+        { PCODE: 'SN3', ZNGWD3: '问题B' },
+      ],
+    });
+    const faults = workbook.Sheets['维修故障明记录'];
+
+    expect(faults.I2.v).toBe('问题A * 1');
+    expect(faults.I3.v).toBe('问题B * 2');
+    expect(faults.I4).toBeUndefined();
+    expect(faults.J2.v).toBe(1);
+    expect(faults.J3.v).toBe(2);
+    expect(faults.J4).toBeUndefined();
+    expect([faults.E2.v, faults.E3.v, faults.E4.v]).toEqual(['SN1', 'SN2', 'SN3']);
+  });
 });
 
 describe('integrated repair model sheets', () => {

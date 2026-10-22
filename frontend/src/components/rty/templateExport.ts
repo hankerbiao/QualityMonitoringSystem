@@ -152,16 +152,33 @@ export function appendModelSheets(workbook: XLSX.WorkBook, models: RepairModelSh
   }
 }
 
-export function appendSourceSheets(workbook: XLSX.WorkBook, data: StationPassExport): void {
+function summarizeFaultPhenomena(
+  faults: Record<string, unknown>[],
+): Record<string, unknown>[] {
   const phenomenonCounts = new Map<string, number>();
-  for (const row of data.faults) {
+  for (const row of faults) {
     const phenomenon = String(row.ZNGWD3 ?? '').trim();
     if (phenomenon) phenomenonCounts.set(phenomenon, (phenomenonCounts.get(phenomenon) ?? 0) + 1);
   }
-  const faults: Record<string, unknown>[] = data.faults.map((row) => ({
-    ...row,
-    ZNGWD3_COUNT: phenomenonCounts.get(String(row.ZNGWD3 ?? '').trim()) ?? null,
-  }));
+
+  const displayedPhenomena = new Set<string>();
+  return faults.map((row) => {
+    const phenomenon = String(row.ZNGWD3 ?? '').trim();
+    if (!phenomenon || displayedPhenomena.has(phenomenon)) {
+      return { ...row, ZNGWD3: null, ZNGWD3_COUNT: null };
+    }
+    displayedPhenomena.add(phenomenon);
+    const count = phenomenonCounts.get(phenomenon)!;
+    return {
+      ...row,
+      ZNGWD3: `${phenomenon} * ${count}`,
+      ZNGWD3_COUNT: count,
+    };
+  });
+}
+
+export function appendSourceSheets(workbook: XLSX.WorkBook, data: StationPassExport): void {
+  const faults = summarizeFaultPhenomena(data.faults);
   const sources = [
     ['销售订单', ORDER_COLUMNS, data.orders],
     ['维修故障明记录', FAULT_COLUMNS, faults],
@@ -201,7 +218,7 @@ export function buildTemplateWorkbook(data: RTYTemplateExport): XLSX.WorkBook {
   const sheets = [
     ['直通率', SUMMARY_COLUMNS, data.summary, false],
     ['销售订单-分母', ORDER_COLUMNS, data.orders, true],
-    ['维修故障明记录-分子', FAULT_COLUMNS, data.faults, true],
+    ['维修故障明记录-分子', FAULT_COLUMNS, summarizeFaultPhenomena(data.faults), true],
     ['TOP问题', TOP_COLUMNS, data.topProblems, false],
   ] as const;
   for (const [name, columns, rows, hasNote] of sheets) {
