@@ -198,19 +198,24 @@ async def test_composite_repairs_count_once_and_use_bound_head_sns(monkeypatch):
 @pytest.mark.asyncio
 async def test_model_sheet_problem_marks_single_and_repeated_symptom_counts(monkeypatch):
     monkeypatch.setattr(repair.data_gateway, "export_rows", AsyncMock(return_value=[posting()]))
+    faults = [
+        (fault(ZNGWD3="single", MATNR="PN2"), {("M", "S1")}),
+        (fault(ZNGWD3="repeated"), {("M", "S2")}),
+        (fault(ZNGWD3="unique"), {("M", "S3")}),
+        *[
+            (fault(ZNGWD3="repeated"), {("M", f"S{index + 4}")})
+            for index in range(11)
+        ],
+        (fault(ZNGWD3="repeated", MATNR="PN3"), {("M", "S15")}),
+    ]
     sheets = await repair.build_model_sheets(
         [order()],
-        [
-            (fault(ZNGWD3="single", MATNR="PN2"), {("M", "S1")}),
-            (fault(ZNGWD3="repeated"), {("M", "S2")}),
-            (fault(ZNGWD3="repeated"), {("M", "S3")}),
-            (fault(ZNGWD3="repeated", MATNR="PN3"), {("M", "S4")}),
-        ],
+        faults,
     )
 
     rows = {row["material"]: row for row in sheets[0].rows}
     assert rows["PN2*1"]["problem"] == "single * 1"
-    assert rows["PN*2"]["problem"] == "repeated * 2\nrepeated * 2"
+    assert rows["PN*13"]["problem"] == "repeated * 12\nunique * 1"
     assert rows["PN3*1"]["problem"] == "repeated * 1"
 
 

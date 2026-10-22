@@ -335,14 +335,15 @@ async def build_model_sheets(
             else:
                 material_usage = excel_number(amounts[material])
             sn_count = f"缺少SN（{group.missing_sn}条）" if group.missing_sn else len(group.sns)
+            problem = "\n".join(
+                f"{symptom} * {symptom_counts[symptom]}"
+                for symptom in dict.fromkeys(group.symptoms)
+            )
             rows.append(
                 {
                     "sequence": len(rows) + 1,
                     "model": model,
-                    "problem": "\n".join(
-                        f"{symptom} * {symptom_counts[symptom]}"
-                        for symptom in group.symptoms
-                    ),
+                    "problem": problem,
                     "repairAction": repair or "未填写维修维度3",
                     "material": f"{material or '未填写物料号'}*{group.count}",
                     "materialDescription": "\n".join(labels),

@@ -101,7 +101,7 @@ describe('integrated repair model sheets', () => {
       modelSheets: [{
         model: '6210 C21',
         rows: [{
-          sequence: 1, model: '6210 C21', problem: 'first * 1\nsecond * 2\nsecond * 2',
+          sequence: 1, model: '6210 C21', problem: 'first * 1\nsecond * 2',
           repairAction: '更换内存', material: 'B5000113*2',
           materialDescription: '=literal-description', materialCount: 2,
           materialUsage: 2400, serialCount: 1, productionQuantity: 1258,
@@ -117,7 +117,7 @@ describe('integrated repair model sheets', () => {
       REPAIR_COLUMNS.map(([, label]) => label),
     );
     expect(sheet.E2.v).toBe('B5000113*2');
-    expect(sheet.C2.v).toBe('first * 1\nsecond * 2\nsecond * 2');
+    expect(sheet.C2.v).toBe('first * 1\nsecond * 2');
     expect(sheet.G1.v).toBe('部件故障计数');
     expect(sheet.G2.v).toBe(2);
     expect(sheet.I2).toMatchObject({ t: 'n', f: 'G2/H2', v: 2 / 2400, z: '0.00%' });
