@@ -19,6 +19,7 @@ describe('RTY template workbook', () => {
     const orders = workbook.Sheets['销售订单-分母'];
     expect(orders.A1.v).toBe('数据字段按如下顺序显示');
     expect(orders.A2.v).toBe('销售订单');
+    expect(orders.J2.v).toBe('包装数量');
     expect(orders.R2.v).toBe('最终用户');
     const faults = workbook.Sheets['维修故障明记录-分子'];
     expect(faults.A2.v).toBe('生产基地');
@@ -35,7 +36,7 @@ describe('RTY template workbook', () => {
     const workbook = buildTemplateWorkbook({
       ...empty,
       summary: [{ model: 'M', completedQuantity: 10, defectCount: 0, completionRate: 1 }],
-      orders: [{ AUFNR: '000000000001', WMENG: 0 }],
+      orders: [{ AUFNR: '000000000001', WMENG: 99, packagingQuantity: 0 }],
       faults: [{ PCODE: '=literal-sn', U_FIX: '张三', ZUSER: 'different-person' }],
       topProblems: [{ serialCount: 0, machineFaultRate: 0 }],
     });
@@ -47,6 +48,7 @@ describe('RTY template workbook', () => {
     expect(result.Sheets['直通率'].E2).toBeUndefined();
     expect(result.Sheets['直通率'].S2).toBeUndefined();
     expect(result.Sheets['销售订单-分母'].C3).toMatchObject({ t: 's', v: '000000000001' });
+    expect(result.Sheets['销售订单-分母'].J2.v).toBe('包装数量');
     expect(result.Sheets['销售订单-分母'].J3).toMatchObject({ t: 'n', v: 0 });
     expect(result.Sheets['维修故障明记录-分子'].E3).toMatchObject({ t: 's', v: '=literal-sn' });
     expect(result.Sheets['维修故障明记录-分子'].E3.f).toBeUndefined();
@@ -85,6 +87,24 @@ describe('RTY template workbook', () => {
 
     expect([faults.I2.v, faults.I3.v, faults.I4.v]).toEqual(['问题A', '问题B', '问题B']);
     expect([faults.E2.v, faults.E3.v, faults.E4.v]).toEqual(['SN1', 'SN2', 'SN3']);
+  });
+
+  it('exports integrated packaging counts without falling back to warehouse quantities', () => {
+    const workbook = buildTemplateWorkbook({
+      ...empty,
+      modelSheets: [],
+      orders: [
+        { AUFNR: '1', WMENG: 99, packagingQuantity: 3 },
+        { AUFNR: '2', WMENG: 99 },
+      ],
+    });
+    const result = XLSX.read(XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }), {
+      type: 'buffer',
+    });
+    const orders = result.Sheets['销售订单'];
+    expect(orders.J1.v).toBe('包装数量');
+    expect(orders.J2).toMatchObject({ t: 'n', v: 3 });
+    expect(orders.J3).toBeUndefined();
   });
 });
 

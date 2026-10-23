@@ -18,7 +18,11 @@ from app.schemas.common import Response
 from app.schemas.rty import RTYTemplateExport, StationPassExport
 from app.services import repair_integration, rty_gateway
 from app.services.async_ttl_cache import AsyncTTLCache
-from app.services.data_gateway_client import DataGatewayError, data_gateway
+from app.services.data_gateway_client import (
+    STATION_STREAM_MAX_ROWS,
+    DataGatewayError,
+    data_gateway,
+)
 from app.services.lrr_normalization import compact_date
 from app.services.rty_shared import (
     COMPOSITE_MODEL_ITEMS,
@@ -26,6 +30,7 @@ from app.services.rty_shared import (
     order_variants,
     validate_date,
 )
+from app.services.station_pass_fields import normalize_station_code
 
 MAX_EXPORT_ORDERS = 100_000
 MAX_EXPORT_FAULTS = 250_000
@@ -34,6 +39,9 @@ ORDER_DETAIL_CONCURRENCY = 8
 # gateway client's 32-connection pool without unbounded source fan-out.
 SOURCE_BATCH_CONCURRENCY = 4
 EXPORT_SOURCE_CACHE_TTL_SECONDS = 60 * 60
+EXPORT_RESPONSE_CACHE_TTL_SECONDS = 60
+PACKAGING_ORDER_BATCH_SIZE = 50
+PACKAGING_STATIONS = frozenset({"OP300", "OP310"})
 _SOURCE_CACHE = AsyncTTLCache(max_entries=8)
 _RESPONSE_CACHE = AsyncTTLCache(max_entries=8, copy_values=False)
 MatchedFault = tuple[dict[str, Any], set[tuple[str, str]]]
@@ -48,6 +56,7 @@ ORDER_FIELDS = (
     "KID",
     "GAMNG",
     "WMENG",
+    "packagingQuantity",
     "GSTRS",
     "ZDATE_STARTED",
     "AUART",
@@ -402,6 +411,86 @@ async def _load_sources_uncached(
     return orders, faults
 
 
+async def _packaging_batch(numbers: list[str]) -> dict[str, int]:
+    try:
+        rows = await data_gateway.all_station_rows(
+            productionOrder=",".join(order_variants(numbers)),
+            max_rows=STATION_STREAM_MAX_ROWS,
+            required_fields=("AUFNR", "PCODE", "LINE_CODE", "SPEC", "OPERATION"),
+        )
+        # A full batch may have been truncated by an older gateway.
+        if len(rows) >= STATION_STREAM_MAX_ROWS:
+            raise DataGatewayError("包装过站查询达到行数上限", code="QUERY_TOO_LARGE")
+    except DataGatewayError as exc:
+        if exc.code == "QUERY_TOO_LARGE" or exc.status_code == 413:
+            if len(numbers) == 1:
+                raise DataGatewayError(
+                    f"生产订单 {numbers[0]} 的包装过站数据超过查询上限，无法完整导出",
+                    code="QUERY_TOO_LARGE",
+                ) from exc
+            middle = len(numbers) // 2
+            left = await _packaging_batch(numbers[:middle])
+            right = await _packaging_batch(numbers[middle:])
+            return {**left, **right}
+        raise DataGatewayError(
+            f"包装数量查询失败，导出已终止：{exc}",
+            code=exc.code,
+            status_code=exc.status_code,
+            retryable=exc.retryable,
+        ) from exc
+
+    barcodes: dict[str, set[str]] = {number: set() for number in numbers}
+    for item in rows:
+        raw = _source(item)
+        number = normalize_order(raw.get("AUFNR"))
+        if not number:
+            raise DataGatewayError("包装过站数据缺少生产订单，无法完整导出")
+        if number not in barcodes:
+            continue
+        if not any(key in raw for key in ("LINE_CODE", "SPEC", "OPERATION")):
+            raise DataGatewayError("包装过站数据缺少工位字段，无法完整导出")
+        station = normalize_station_code(
+            item.get("stationCode")
+            or raw.get("LINE_CODE")
+            or raw.get("SPEC")
+            or raw.get("OPERATION")
+        )
+        if station not in PACKAGING_STATIONS:
+            continue
+        sn = str(raw.get("PCODE") or "").strip()
+        if not sn:
+            raise DataGatewayError(f"生产订单 {number} 的包装过站记录缺少主机条码，无法完整导出")
+        barcodes[number].add(sn)
+    return {number: len(sns) for number, sns in barcodes.items()}
+
+
+async def _export_orders(orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    numbers = sorted({normalize_order(row.get("AUFNR")) for row in orders})
+    if "" in numbers:
+        raise DataGatewayError("销售订单缺少生产订单号，无法计算包装数量")
+    counts: dict[str, int] = {}
+    batches = [
+        numbers[index : index + PACKAGING_ORDER_BATCH_SIZE]
+        for index in range(0, len(numbers), PACKAGING_ORDER_BATCH_SIZE)
+    ]
+    for index in range(0, len(batches), SOURCE_BATCH_CONCURRENCY):
+        results = await asyncio.gather(
+            *(_packaging_batch(batch) for batch in batches[index : index + SOURCE_BATCH_CONCURRENCY]),
+            return_exceptions=True,
+        )
+        for result in results:
+            if isinstance(result, BaseException):
+                raise result
+            counts.update(result)
+    return [
+        _columns(
+            {**row, "packagingQuantity": counts[normalize_order(row["AUFNR"])]},
+            ORDER_FIELDS,
+        )
+        for row in orders
+    ]
+
+
 async def build_template_export(
     filters: dict[str, str],
     *,
@@ -476,7 +565,7 @@ async def build_template_export(
         )
     return RTYTemplateExport(
         summary=summary,
-        orders=[_columns(row, ORDER_FIELDS) for row in orders],
+        orders=await _export_orders(orders),
         faults=[raw for raw, _ in faults],
         topProblems=top_problems,
         modelSheets=await repair_integration.build_model_sheets(orders, faults)
@@ -507,7 +596,7 @@ async def build_export_response(
         return Response(success=True, data=data).model_dump_json().encode()
 
     key = (
-        "export-response-v2",
+        "export-response-v3",
         kind,
         current_base_permissions(),
         data_gateway.base_url,
@@ -516,7 +605,7 @@ async def build_export_response(
         tuple(sorted(set(bases or []))),
         tuple(sorted(set(customers or []))),
     )
-    return await _RESPONSE_CACHE.get_or_set(key, load, ttl_seconds=EXPORT_SOURCE_CACHE_TTL_SECONDS)
+    return await _RESPONSE_CACHE.get_or_set(key, load, ttl_seconds=EXPORT_RESPONSE_CACHE_TTL_SECONDS)
 
 
 async def build_source_export(
@@ -530,7 +619,7 @@ async def build_source_export(
     """Load source sheets and optional model statistics without template summary."""
     orders, faults = await _load_sources(filters, product_models=product_models, bases=bases, customers=customers)
     return StationPassExport(
-        orders=[_columns(row, ORDER_FIELDS) for row in orders],
+        orders=await _export_orders(orders),
         faults=[raw for raw, _ in faults],
         modelSheets=await repair_integration.build_model_sheets(orders, faults)
         if integrate

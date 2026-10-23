@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     ALERT_TOKEN_SECRET: str = ""
     ALERT_TOKEN_TTL_DAYS: int = 7
     # 报表链接指向的前端地址（用于邮件中拼装 URL）
-    APP_PUBLIC_BASE_URL: str = "http://localhost:4000"
+    APP_PUBLIC_BASE_URL: str = "https://apps.1oa.com.cn/QualiBoard"
 
     # 邮件代理地址（中间件转发，用于发送告警邮件）
     # 默认地址由运维提供；如环境变化可通过环境变量 MAIL_PROXY_URL 覆盖。

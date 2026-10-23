@@ -87,7 +87,7 @@ class DataGatewayClient:
         self._views_cache: dict[
             tuple[str, tuple[tuple[str, str], ...]], tuple[float, list[dict[str, Any]]]
         ] = {}
-        self._text_cache: dict[tuple[str, tuple[tuple[str, str], ...]], tuple[float, Any]] = {}
+        self._text_cache: dict[tuple[Any, ...], tuple[float, Any]] = {}
         self._list_inflight: dict[object, asyncio.Task[list[dict[str, Any]]]] = {}
         self._text_inflight: dict[object, asyncio.Task[str]] = {}
         self._orders_cache_lock = asyncio.Lock()
@@ -864,19 +864,29 @@ class DataGatewayClient:
         return rows
 
     async def all_station_rows(
-        self, *, max_rows: int = STATION_STREAM_MAX_ROWS, **filters: str
+        self,
+        *,
+        max_rows: int = STATION_STREAM_MAX_ROWS,
+        required_fields: tuple[str, ...] = (),
+        **filters: str,
     ) -> list[dict[str, Any]]:
         """Read the station source projection through the TSV stream."""
         cache_key = (
             "/api/views/Z_V_ZMES_T_001/stream",
             tuple(sorted((str(key), str(value)) for key, value in filters.items() if value)),
+            required_fields,
         )
         now = time.monotonic()
         if self.cache_ttl > 0:
             async with self._orders_cache_lock:
                 cached = self._text_cache.get(cache_key)
                 if cached and cached[0] > now and isinstance(cached[1], list):
-                    return copy.deepcopy(cached[1][:max_rows])
+                    if len(cached[1]) > max_rows:
+                        raise DataGatewayError(
+                            f"工位查询结果超过本系统单次处理上限 {max_rows} 条",
+                            code="QUERY_TOO_LARGE",
+                        )
+                    return copy.deepcopy(cached[1])
                 if cached:
                     self._text_cache.pop(cache_key, None)
         try:
@@ -902,7 +912,14 @@ class DataGatewayClient:
                     values = line.split("\t")
                     if not fields:
                         fields = values
+                        if required_fields and (
+                            not set(required_fields).issubset(fields)
+                            or len(set(fields)) != len(fields)
+                        ):
+                            raise DataGatewayError("工位查询响应缺少必要字段或字段重复，无法完整导出")
                         continue
+                    if required_fields and len(values) != len(fields):
+                        raise DataGatewayError("工位查询响应行字段不完整，无法完整导出")
                     rows.append(dict(zip(fields, values, strict=False)))
                     if len(rows) > max_rows:
                         raise DataGatewayError(
@@ -921,6 +938,8 @@ class DataGatewayClient:
                 code="DATA_GATEWAY_UNAVAILABLE",
                 retryable=True,
             ) from exc
+        if required_fields and not fields:
+            raise DataGatewayError("工位查询响应缺少表头，无法完整导出")
         if filters.get("timeField") == "planned" and "GSTRS" not in fields:
             # Older gateway deployments omit the planned start date from the
             # station stream projection. Use the paginated view so the RTY

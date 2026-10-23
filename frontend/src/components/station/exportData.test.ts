@@ -22,7 +22,7 @@ describe('station pass workbook', () => {
 
   it('round trips raw values, blank fields, leading zeros and repeated SN repairs', () => {
     const workbook = buildStationPassWorkbook(XLSX.utils.aoa_to_sheet([['机型']]), {
-      orders: [{ VBELN: '0000123', AUFNR: '000000000001', IF_L6: 'X', WMENG: 0 }],
+      orders: [{ VBELN: '0000123', AUFNR: '000000000001', IF_L6: 'X', WMENG: 99, packagingQuantity: 2 }],
       faults: [
         { PCODE: '00001', ZNGWD3: '字节_[字节][擎天]AC测试 尾7LOOP_内存Correctable ECC', AUART: 'C001', U_FIX: '甲', ZWXDT: null, ZUSER: '不替代维修人员' },
         { PCODE: '00001', ZNGWD3: '字节_[字节][擎天]SHC Test_内存Correctable ECC', AUART: 'C002', U_FIX: '乙', ZWXDT: '2027-01-01', ERROR_MSG: '=literal' },
@@ -38,7 +38,8 @@ describe('station pass workbook', () => {
     expect(orders.A2).toMatchObject({ t: 's', v: '0000123' });
     expect(orders.C2).toMatchObject({ t: 's', v: '000000000001' });
     expect(orders.F2.v).toBe('X');
-    expect(orders.J2).toMatchObject({ t: 'n', v: 0 });
+    expect(orders.J1.v).toBe('包装数量');
+    expect(orders.J2).toMatchObject({ t: 'n', v: 2 });
     expect(orders.B2).toBeUndefined();
     expect(faults.E2).toMatchObject({ t: 's', v: '00001' });
     expect(faults.E3).toMatchObject({ t: 's', v: '00001' });

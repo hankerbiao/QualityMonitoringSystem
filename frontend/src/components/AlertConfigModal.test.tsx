@@ -30,7 +30,7 @@ describe('cycle query and export', () => {
     vi.mocked(rtyApi.getCustomers).mockResolvedValue([]);
     vi.mocked(rtyApi.getCycleData).mockResolvedValue(result);
     vi.mocked(rtyApi.getCycleExport).mockResolvedValue({
-      orders: [{ AUFNR: '000000000001', POSNR: '000010', CPXH: 'Product A', WMENG: 0 }],
+      orders: [{ AUFNR: '000000000001', POSNR: '000010', CPXH: 'Product A', WMENG: 99, packagingQuantity: 0 }],
       faults: [{ PCODE: 'CHILD-SN', U_FIX: 'repairer' }, { PCODE: 'CHILD-SN' }],
       modelSheets: [{
         model: 'Model A',
@@ -260,6 +260,7 @@ describe('cycle query and export', () => {
     expect(workbook.Sheets['销售订单'].C2.v).toBe('000000000001');
     expect(workbook.Sheets['销售订单'].E2.v).toBe('Product A');
     expect(workbook.Sheets['销售订单'].J2).toMatchObject({ t: 'n', v: 0 });
+    expect(workbook.Sheets['销售订单'].J1.v).toBe('包装数量');
     expect(workbook.Sheets['销售订单'].R1.v).toBe('最终用户');
     expect(workbook.Sheets['维修故障明记录'].AH1.v).toBe('RMA复判结论');
     expect(workbook.Sheets['维修故障明记录'].AI1.v).toBe('订单类型');

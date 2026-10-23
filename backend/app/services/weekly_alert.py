@@ -13,13 +13,17 @@
 - email_alert_config.enabled=False 或无有效收件人时整体跳过（send_rty_alert_email 内部也会兜底）。
 """
 
+import asyncio
 from datetime import datetime, timedelta
+from typing import Any
 
 from app.core.logger import log_error, log_info, log_warning
 from app.db.mongodb import get_database
 from app.models.documents import Collections
 from app.schemas.alert_report import AlertContext
 from app.services.alert_mail import send_rty_alert_email
+from app.services.rty_gateway import _fault_sns_by_orders, _num, _orders
+from app.services.rty_shared import normalize_order
 
 
 def compute_last_friday_window(now: datetime | None = None) -> tuple[str, str]:
@@ -100,53 +104,45 @@ async def get_weekly_production_candidates(threshold: int) -> dict:
     db = get_database()
     start, end = compute_last_friday_window()
 
-    # 读取机型目标直通率（未配置默认 100）
     targets_doc = await db[Collections.CONFIGS].find_one({"key": "model_targets"})
     targets_map: dict[str, float] = (targets_doc or {}).get("targets", {}) or {}
 
-    # 按机型聚合窗口内投入 SN（去重）
-    pipeline = [
-        {
-            "$match": {
-                "actual_start_time": {"$gte": start, "$lte": end},
-                "product_family": {"$nin": [None, ""]},
-            }
-        },
-        {"$group": {"_id": "$product_family", "sns": {"$addToSet": "$sn"}}},
+    # Use the same gateway normalization and order eligibility as the RTY dashboard.
+    orders = await _orders({"dateFrom": start[:10], "dateTo": end[:10]})
+    model_groups: dict[str, dict[str, Any]] = {}
+    for order in orders:
+        data = order["data"]
+        model = str(data.get("MAKTX_TH") or "").strip()
+        if not model:
+            continue
+        group = model_groups.setdefault(model, {"input": 0.0, "orders": set()})
+        group["input"] += _num(data.get("WMENG"))
+        group["orders"].add(order["aufnr"])
+
+    candidates = [
+        (model, group)
+        for model, group in model_groups.items()
+        if group["input"] >= threshold
     ]
-    cursor = db[Collections.MACHINE_INFO].aggregate(pipeline)
-    rows = await cursor.to_list(length=2000)
+    fault_maps = await asyncio.gather(
+        *(
+            _fault_sns_by_orders(group["orders"], model=model)
+            for model, group in candidates
+        )
+    )
 
     details: list[dict] = []
-    models_checked = 0
-
-    for row in rows:
-        model = row["_id"]
-        sns = [s for s in (row.get("sns") or []) if s]
-        input_count = len(sns)
-        target = float(targets_map.get(model, 100))
-
-        # 投入台数未达到阈值，直接跳过判定
-        if input_count < threshold:
-            continue
-
-        models_checked += 1
-
-        # 计算窗口内该机型的 RTY
-        rty = 100.0
-        defect_count = 0
-        if sns:
-            dc_cursor = db[Collections.FAULT_INFO].aggregate(
-                [
-                    {"$match": {"sn": {"$in": sns}}},
-                    {"$group": {"_id": "$sn"}},
-                    {"$count": "c"},
-                ]
+    for (model, group), faults in zip(candidates, fault_maps, strict=True):
+        input_count = group["input"]
+        defect_sns = set().union(
+            *(
+                faults.get(normalize_order(order), set())
+                for order in group["orders"]
             )
-            dres = await dc_cursor.to_list(length=10)
-            defect_count = dres[0]["c"] if dres else 0
-            rty = round((input_count - defect_count) / input_count * 100, 2)
-
+        )
+        defect_count = len(defect_sns)
+        target = float(targets_map.get(model, 100))
+        rty = round((input_count - defect_count) / input_count * 100, 2) if input_count else 100.0
         below_target = rty < target
         if below_target:
             details.append(
@@ -162,6 +158,6 @@ async def get_weekly_production_candidates(threshold: int) -> dict:
     return {
         "window": {"from": start, "to": end},
         "threshold": threshold,
-        "modelsChecked": models_checked,
+        "modelsChecked": len(candidates),
         "details": details,
     }

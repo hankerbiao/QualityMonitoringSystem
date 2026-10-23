@@ -703,7 +703,7 @@ export default function StationPassRatePage() {
   }, [calculationHelpOpen]);
 
   return (
-    <div className="min-h-screen bg-[#f6f8fb] text-slate-800">
+    <div className="station-pass-rate-page min-h-screen bg-[#f6f8fb] text-slate-800">
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 px-4 backdrop-blur">
         <div className="mx-auto flex min-h-15 max-w-[1600px] items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2.5">

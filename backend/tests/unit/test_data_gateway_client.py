@@ -891,3 +891,65 @@ async def test_station_rows_reject_a_stream_above_the_row_cap():
             await client.all_station_rows(dateFrom="2026-01-01", max_rows=1)
     finally:
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_station_cache_does_not_silently_truncate_at_a_lower_cap():
+    client = DataGatewayClient("http://gateway.test", timeout=2)
+    client.cache_ttl = 10
+    client._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda _: httpx.Response(200, text="id\tPCODE\n1\tA\n2\tB\n")
+        ),
+        base_url=client.base_url,
+    )
+    try:
+        await client.all_station_rows(productionOrder="1")
+        with pytest.raises(DataGatewayError) as exc:
+            await client.all_station_rows(productionOrder="1", max_rows=1)
+        assert exc.value.code == "QUERY_TOO_LARGE"
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("body", [
+    "",
+    "id\tPCODE\n1\tA\n",
+    "AUFNR\tPCODE\tSPEC\n1\tA\n",
+    "AUFNR\tPCODE\tSPEC\n1\tA\tOP300\textra\n",
+    "AUFNR\tPCODE\tSPEC\tPCODE\n1\tA\tOP300\tB\n",
+])
+async def test_station_required_fields_reject_incomplete_streams_even_after_a_cached_read(body):
+    client = DataGatewayClient("http://gateway.test", timeout=2)
+    client.cache_ttl = 10
+    client._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(lambda _: httpx.Response(200, text=body)),
+        base_url=client.base_url,
+    )
+    try:
+        await client.all_station_rows(productionOrder="1")
+        with pytest.raises(DataGatewayError, match="无法完整导出"):
+            await client.all_station_rows(
+                productionOrder="1", required_fields=("AUFNR", "PCODE", "SPEC")
+            )
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+async def test_station_valid_header_only_is_a_complete_empty_result():
+    def handler(request):
+        assert dict(request.url.params) == {"productionOrder": "1"}
+        return httpx.Response(200, text="AUFNR\tPCODE\tSPEC\n")
+
+    client = DataGatewayClient("http://gateway.test", timeout=2)
+    client._client = httpx.AsyncClient(
+        transport=httpx.MockTransport(handler), base_url=client.base_url
+    )
+    try:
+        assert await client.all_station_rows(
+            productionOrder="1", required_fields=("AUFNR", "PCODE", "SPEC")
+        ) == []
+    finally:
+        await client.close()

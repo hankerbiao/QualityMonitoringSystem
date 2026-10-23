@@ -2,52 +2,48 @@ from app.models.documents import Collections
 from app.services import weekly_alert
 
 
-class FakeCursor:
-    def __init__(self, rows: list[dict]):
-        self.rows = rows
-
-    async def to_list(self, length: int) -> list[dict]:
-        return self.rows[:length]
-
-
 class FakeCollection:
-    def __init__(self, rows: list[dict] | None = None, targets: dict | None = None):
-        self.rows = rows or []
-        self.targets = targets or {}
-
     async def find_one(self, query: dict) -> dict:
-        return {"targets": self.targets}
-
-    def aggregate(self, pipeline: list[dict]) -> FakeCursor:
-        if self.rows and "product_family" in pipeline[0].get("$match", {}):
-            return FakeCursor(self.rows)
-
-        sns = pipeline[0]["$match"]["sn"]["$in"]
-        return FakeCursor([{"c": 1}] if "A-1" in sns else [])
+        assert query == {"key": "model_targets"}
+        return {"targets": {"Model A": 90, "Model B": 100}}
 
 
 class FakeDatabase:
-    def __init__(self):
-        self.collections = {
-            Collections.CONFIGS: FakeCollection(targets={"Model A": 90, "Model B": 100}),
-            Collections.MACHINE_INFO: FakeCollection(
-                rows=[
-                    {"_id": "Model A", "sns": ["A-1", "A-2", "A-3"]},
-                    {"_id": "Model B", "sns": ["B-1", "B-2"]},
-                ]
-            ),
-            Collections.FAULT_INFO: FakeCollection(),
-        }
-
     def __getitem__(self, key: str) -> FakeCollection:
-        return self.collections[key]
+        assert key == Collections.CONFIGS
+        return FakeCollection()
 
 
-async def test_get_weekly_production_candidates_returns_only_below_target_models(monkeypatch):
+async def test_get_weekly_production_candidates_uses_gateway_orders_and_faults(monkeypatch):
     monkeypatch.setattr(weekly_alert, "get_database", lambda: FakeDatabase())
+    monkeypatch.setattr(
+        weekly_alert,
+        "compute_last_friday_window",
+        lambda: ("2026-06-05 00:00:00", "2026-06-08 17:00:00"),
+    )
+    orders = [
+        {"aufnr": "0001", "data": {"MAKTX_TH": "Model A", "WMENG": 1}},
+        {"aufnr": "0002", "data": {"MAKTX_TH": "Model A", "WMENG": 2}},
+        {"aufnr": "0003", "data": {"MAKTX_TH": "Model B", "WMENG": 2}},
+        {"aufnr": "0004", "data": {"MAKTX_TH": "", "WMENG": 100}},
+    ]
+    received_filters = {}
+
+    async def load_orders(filters):
+        received_filters.update(filters)
+        return orders
+
+    async def load_faults(order_numbers, *, model=None):
+        if model == "Model A":
+            return {"1": {"SN-1"}}
+        return {}
+
+    monkeypatch.setattr(weekly_alert, "_orders", load_orders)
+    monkeypatch.setattr(weekly_alert, "_fault_sns_by_orders", load_faults)
 
     result = await weekly_alert.get_weekly_production_candidates(threshold=2)
 
+    assert received_filters == {"dateFrom": "2026-06-05", "dateTo": "2026-06-08"}
     assert result["threshold"] == 2
     assert result["modelsChecked"] == 2
     assert result["details"] == [

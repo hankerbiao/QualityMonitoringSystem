@@ -318,5 +318,5 @@ DEFAULT_ADMIN_USERNAME=<your-admin-user>
 DEFAULT_ADMIN_PASSWORD=<strong-password>
 AUTH_COOKIE_SECURE=true
 CORS_ORIGINS=["https://your-frontend.example.com"]
-APP_PUBLIC_BASE_URL=https://your-frontend.example.com
+APP_PUBLIC_BASE_URL=https://apps.1oa.com.cn/QualiBoard
 ```

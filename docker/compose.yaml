@@ -15,7 +15,7 @@ x-backend-environment: &backend-environment
   DEFAULT_ADMIN_PASSWORD: ${DEFAULT_ADMIN_PASSWORD:-}
   AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-false}
   CORS_ORIGINS: '["${FRONTEND_ORIGIN:-http://localhost:4000}"]'
-  APP_PUBLIC_BASE_URL: ${FRONTEND_ORIGIN:-http://localhost:4000}
+  APP_PUBLIC_BASE_URL: ${APP_PUBLIC_BASE_URL:-https://apps.1oa.com.cn/QualiBoard}
   MAIL_PROXY_URL: ${MAIL_PROXY_URL:-http://10.32.129.1/springboard_v3/mail_proxy/buqualiboard}
   LOG_DIR: /app/logs
   LOG_LEVEL: ${LOG_LEVEL:-INFO}

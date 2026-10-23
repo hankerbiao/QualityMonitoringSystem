@@ -35,7 +35,7 @@ export const ORDER_COLUMNS: readonly Column[] = [
   ['ZSTAT', 'MES状态回传'],
   ['KID', '客户ID'],
   ['GAMNG', '订单数量'],
-  ['WMENG', '入库数量'],
+  ['packagingQuantity', '包装数量'],
   ['GSTRS', '计划开始时间'],
   ['ZDATE_STARTED', '订单实际开始时间'],
   ['AUART', '订单类型'],
