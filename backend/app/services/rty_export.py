@@ -18,11 +18,7 @@ from app.schemas.common import Response
 from app.schemas.rty import RTYTemplateExport, StationPassExport
 from app.services import repair_integration, rty_gateway
 from app.services.async_ttl_cache import AsyncTTLCache
-from app.services.data_gateway_client import (
-    STATION_STREAM_MAX_ROWS,
-    DataGatewayError,
-    data_gateway,
-)
+from app.services.data_gateway_client import DataGatewayError, data_gateway
 from app.services.lrr_normalization import compact_date
 from app.services.rty_shared import (
     COMPOSITE_MODEL_ITEMS,
@@ -40,8 +36,10 @@ ORDER_DETAIL_CONCURRENCY = 8
 SOURCE_BATCH_CONCURRENCY = 4
 EXPORT_SOURCE_CACHE_TTL_SECONDS = 60 * 60
 EXPORT_RESPONSE_CACHE_TTL_SECONDS = 60
+PACKAGING_COUNT_CACHE_TTL_SECONDS = 60
 PACKAGING_ORDER_BATCH_SIZE = 50
-PACKAGING_STATIONS = frozenset({"OP300", "OP310"})
+_PACKAGING_CACHE_EPOCH = 1
+_PACKAGING_COUNT_CACHE = AsyncTTLCache(max_entries=50_000, copy_values=False)
 _SOURCE_CACHE = AsyncTTLCache(max_entries=8)
 _RESPONSE_CACHE = AsyncTTLCache(max_entries=8, copy_values=False)
 MatchedFault = tuple[dict[str, Any], set[tuple[str, str]]]
@@ -413,14 +411,7 @@ async def _load_sources_uncached(
 
 async def _packaging_batch(numbers: list[str]) -> dict[str, int]:
     try:
-        rows = await data_gateway.all_station_rows(
-            productionOrder=",".join(order_variants(numbers)),
-            max_rows=STATION_STREAM_MAX_ROWS,
-            required_fields=("AUFNR", "PCODE", "LINE_CODE", "SPEC", "OPERATION"),
-        )
-        # A full batch may have been truncated by an older gateway.
-        if len(rows) >= STATION_STREAM_MAX_ROWS:
-            raise DataGatewayError("包装过站查询达到行数上限", code="QUERY_TOO_LARGE")
+        counts = await data_gateway.packaging_counts(numbers)
     except DataGatewayError as exc:
         if exc.code == "QUERY_TOO_LARGE" or exc.status_code == 413:
             if len(numbers) == 1:
@@ -439,49 +430,103 @@ async def _packaging_batch(numbers: list[str]) -> dict[str, int]:
             retryable=exc.retryable,
         ) from exc
 
-    barcodes: dict[str, set[str]] = {number: set() for number in numbers}
+    if counts is None:
+        return await _packaging_batch_legacy(numbers)
+    result = {}
+    requested = {normalize_order(number) for number in numbers}
+    for item in counts:
+        number = normalize_order(item["productionOrder"])
+        if number not in requested or number in result:
+            raise DataGatewayError("包装数量接口返回了重复或不相关的订单", code="DATA_GATEWAY_BAD_RESPONSE")
+        if item["missingBarcode"]:
+            raise DataGatewayError(f"生产订单 {number} 的包装过站记录缺少主机条码，无法完整导出")
+        result[number] = item["quantity"]
+    return {number: result.get(normalize_order(number), 0) for number in numbers}
+
+
+async def _packaging_batch_legacy(numbers: list[str]) -> dict[str, int]:
+    try:
+        rows = await data_gateway.all_station_rows(
+            productionOrder=",".join(order_variants(numbers)),
+            max_rows=500_000,
+            required_fields=("AUFNR", "PCODE", "LINE_CODE", "SPEC", "OPERATION"),
+        )
+    except DataGatewayError as exc:
+        if exc.code != "QUERY_TOO_LARGE" and exc.status_code != 413:
+            raise DataGatewayError(
+                f"包装数量查询失败，导出已终止：{exc}",
+                code=exc.code,
+                status_code=exc.status_code,
+                retryable=exc.retryable,
+            ) from exc
+        if len(numbers) == 1:
+            raise DataGatewayError(
+                f"生产订单 {numbers[0]} 的包装过站数据超过查询上限，无法完整导出",
+                code="QUERY_TOO_LARGE",
+            ) from exc
+        middle = len(numbers) // 2
+        left = await _packaging_batch_legacy(numbers[:middle])
+        right = await _packaging_batch_legacy(numbers[middle:])
+        return {**left, **right}
+    barcodes: dict[str, set[str]] = {normalize_order(number): set() for number in numbers}
     for item in rows:
         raw = _source(item)
         number = normalize_order(raw.get("AUFNR"))
-        if not number:
-            raise DataGatewayError("包装过站数据缺少生产订单，无法完整导出")
         if number not in barcodes:
             continue
-        if not any(key in raw for key in ("LINE_CODE", "SPEC", "OPERATION")):
-            raise DataGatewayError("包装过站数据缺少工位字段，无法完整导出")
         station = normalize_station_code(
             item.get("stationCode")
             or raw.get("LINE_CODE")
             or raw.get("SPEC")
             or raw.get("OPERATION")
         )
-        if station not in PACKAGING_STATIONS:
+        if station not in {"OP300", "OP310"}:
             continue
         sn = str(raw.get("PCODE") or "").strip()
         if not sn:
             raise DataGatewayError(f"生产订单 {number} 的包装过站记录缺少主机条码，无法完整导出")
         barcodes[number].add(sn)
-    return {number: len(sns) for number, sns in barcodes.items()}
+    return {number: len(barcodes[normalize_order(number)]) for number in numbers}
+
+
+async def _packaging_counts_for_orders(numbers: list[str]) -> dict[str, int]:
+    normalized = sorted({normalize_order(number) for number in numbers})
+    if not normalized:
+        return {}
+    key = (
+        _PACKAGING_CACHE_EPOCH,
+        data_gateway.base_url,
+        current_base_permissions(),
+        tuple(normalized),
+    )
+
+    async def load() -> dict[str, int]:
+        counts: dict[str, int] = {}
+        batches = [
+            normalized[index : index + PACKAGING_ORDER_BATCH_SIZE]
+            for index in range(0, len(normalized), PACKAGING_ORDER_BATCH_SIZE)
+        ]
+        for index in range(0, len(batches), SOURCE_BATCH_CONCURRENCY):
+            results = await asyncio.gather(
+                *(_packaging_batch(batch) for batch in batches[index : index + SOURCE_BATCH_CONCURRENCY]),
+                return_exceptions=True,
+            )
+            for result in results:
+                if isinstance(result, BaseException):
+                    raise result
+                counts.update(result)
+        return counts
+
+    return await _PACKAGING_COUNT_CACHE.get_or_set(
+        key, load, ttl_seconds=PACKAGING_COUNT_CACHE_TTL_SECONDS
+    )
 
 
 async def _export_orders(orders: list[dict[str, Any]]) -> list[dict[str, Any]]:
     numbers = sorted({normalize_order(row.get("AUFNR")) for row in orders})
     if "" in numbers:
         raise DataGatewayError("销售订单缺少生产订单号，无法计算包装数量")
-    counts: dict[str, int] = {}
-    batches = [
-        numbers[index : index + PACKAGING_ORDER_BATCH_SIZE]
-        for index in range(0, len(numbers), PACKAGING_ORDER_BATCH_SIZE)
-    ]
-    for index in range(0, len(batches), SOURCE_BATCH_CONCURRENCY):
-        results = await asyncio.gather(
-            *(_packaging_batch(batch) for batch in batches[index : index + SOURCE_BATCH_CONCURRENCY]),
-            return_exceptions=True,
-        )
-        for result in results:
-            if isinstance(result, BaseException):
-                raise result
-            counts.update(result)
+    counts = await _packaging_counts_for_orders(numbers)
     return [
         _columns(
             {**row, "packagingQuantity": counts[normalize_order(row["AUFNR"])]},
@@ -596,7 +641,7 @@ async def build_export_response(
         return Response(success=True, data=data).model_dump_json().encode()
 
     key = (
-        "export-response-v3",
+        "export-response-v4",
         kind,
         current_base_permissions(),
         data_gateway.base_url,

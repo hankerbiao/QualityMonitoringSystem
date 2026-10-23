@@ -19,6 +19,7 @@ from typing import Any
 import httpx
 
 from app.core.config import get_settings
+from app.services.rty_shared import normalize_order
 
 
 class DataGatewayError(RuntimeError):
@@ -954,6 +955,50 @@ class DataGatewayClient:
             async with self._orders_cache_lock:
                 self._text_cache[cache_key] = (time.monotonic() + self.cache_ttl, rows)
         return rows
+
+    async def packaging_counts(self, production_orders: list[str]) -> list[dict[str, Any]] | None:
+        """Return gateway-aggregated packaging counts for selected production orders."""
+        values = list(dict.fromkeys(str(value).strip() for value in production_orders if str(value).strip()))
+        if not values:
+            return []
+        if len(values) > 50:
+            raise ValueError("packaging count requests are limited to 50 production orders")
+        normalized_values = list(dict.fromkeys(normalize_order(value) for value in values))
+        try:
+            payload = await self.request_json(
+                "GET",
+                "/api/views/Z_V_ZMES_T_001/packaging-counts",
+                params={"productionOrders": ",".join(values)},
+            )
+        except DataGatewayError as exc:
+            if exc.status_code in {404, 405}:
+                return None
+            raise
+        items = payload.get("items") if isinstance(payload, dict) else None
+        if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+            raise DataGatewayError("包装数量接口返回格式错误，无法完整导出", code="DATA_GATEWAY_BAD_RESPONSE")
+        requested = set(normalized_values)
+        result: dict[str, dict[str, Any]] = {}
+        for item in items:
+            order = normalize_order(item.get("productionOrder"))
+            quantity = item.get("quantity")
+            if (
+                not order
+                or order not in requested
+                or order in result
+                or type(quantity) is not int
+                or quantity < 0
+                or type(item.get("missingBarcode")) is not bool
+            ):
+                raise DataGatewayError("包装数量接口返回的数据不完整或包含无关订单", code="DATA_GATEWAY_BAD_RESPONSE")
+            result[order] = item
+        return [
+            result.get(
+                value,
+                {"productionOrder": value, "quantity": 0, "missingBarcode": False},
+            )
+            for value in normalized_values
+        ]
 
     async def view_stats(
         self, view_id: str, *, keyword: str = "", date_from: str = "", date_to: str = ""

@@ -19,6 +19,43 @@ async def test_order_cache_isolates_sync_versions_without_forwarding_them():
 
 
 @pytest.mark.asyncio
+async def test_packaging_counts_uses_aggregate_api_and_fills_successful_zero_orders():
+    client = DataGatewayClient("http://gateway.test")
+    client.request_json = AsyncMock(return_value={
+        "items": [{"productionOrder": "1", "quantity": 3, "missingBarcode": False}],
+    })
+
+    result = await client.packaging_counts(["000000000001", "2"])
+
+    assert result == [
+        {"productionOrder": "1", "quantity": 3, "missingBarcode": False},
+        {"productionOrder": "2", "quantity": 0, "missingBarcode": False},
+    ]
+    assert client.request_json.await_args.args == (
+        "GET",
+        "/api/views/Z_V_ZMES_T_001/packaging-counts",
+    )
+    assert client.request_json.await_args.kwargs == {
+        "params": {"productionOrders": "000000000001,2"}
+    }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("items", [
+    [{"productionOrder": "999", "quantity": 1, "missingBarcode": False}],
+    [{"productionOrder": "1", "quantity": 1, "missingBarcode": False}] * 2,
+    [{"productionOrder": "1", "quantity": -1, "missingBarcode": False}],
+    [{"productionOrder": "1", "quantity": 1.0, "missingBarcode": False}],
+    [{"productionOrder": "1", "quantity": 1, "missingBarcode": 0}],
+])
+async def test_packaging_counts_rejects_incomplete_or_invalid_aggregate_responses(items):
+    client = DataGatewayClient("http://gateway.test")
+    client.request_json = AsyncMock(return_value={"items": items})
+    with pytest.raises(DataGatewayError):
+        await client.packaging_counts(["1"])
+
+
+@pytest.mark.asyncio
 async def test_export_rows_splits_oversized_batches_and_retains_every_repair():
     def handler(request):
         import json

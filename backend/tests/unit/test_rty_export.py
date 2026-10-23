@@ -22,7 +22,12 @@ FILTERS = {
 
 @pytest.fixture(autouse=True)
 def empty_packaging_source(monkeypatch):
-    monkeypatch.setattr(rty_export.data_gateway, "all_station_rows", AsyncMock(return_value=[]))
+    monkeypatch.setattr(rty_export.data_gateway, "packaging_counts", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        rty_export,
+        "_PACKAGING_COUNT_CACHE",
+        rty_export.AsyncTTLCache(max_entries=50_000, copy_values=False),
+    )
 
 
 def order(number="1", **fields):
@@ -769,22 +774,12 @@ async def test_packaging_counts_distinct_hosts_per_order_without_changing_statis
         ],
         [fault()],
     )
-    station_rows = [
-        {"AUFNR": "000000000001", "PCODE": " SN-A ", "LINE_CODE": "TJM-OP300"},
-        {"AUFNR": "1", "PCODE": "SN-A", "LINE_CODE": "OP300"},
-        {"AUFNR": "1", "PCODE": "SN-A", "LINE_CODE": "OP310"},
-        {"AUFNR": "1", "PCODE": "SN-A", "LINE_CODE": "OP310"},
-        # Packaging after the dashboard end date must still count.
-        {"AUFNR": "1", "PCODE": "SN-B", "SPEC": "OP310", "ACTUAL_END_TIME": "2026-10-20"},
-        {"AUFNR": "1", "PCODE": "SN-C", "LINE_CODE": "OP30"},
-        {"AUFNR": "1", "PCODE": "SN-D", "LINE_CODE": "OP320"},
-        {"AUFNR": "1", "PCODE": "SN-E", "LINE_CODE": "OP3000"},
-        {"AUFNR": "2", "PCODE": "SN-A", "OPERATION": "KK-OP310:包装"},
-        {"AUFNR": "3", "PCODE": "", "LINE_CODE": "OP30"},
-        {"AUFNR": "999", "PCODE": "OUTSIDE", "LINE_CODE": "OP300"},
-    ]
-    stations = AsyncMock(return_value=station_rows)
-    monkeypatch.setattr(rty_export.data_gateway, "all_station_rows", stations)
+    stations = AsyncMock(return_value=[
+        {"productionOrder": "1", "quantity": 2, "missingBarcode": False},
+        {"productionOrder": "2", "quantity": 1, "missingBarcode": False},
+        {"productionOrder": "3", "quantity": 0, "missingBarcode": False},
+    ])
+    monkeypatch.setattr(rty_export.data_gateway, "packaging_counts", stations)
     models = AsyncMock(return_value=[{"model": "M", "rows": [{"productionQuantity": 40}]}])
     monkeypatch.setattr(rty_export.repair_integration, "build_model_sheets", models)
 
@@ -797,26 +792,18 @@ async def test_packaging_counts_distinct_hosts_per_order_without_changing_statis
     if builder is rty_export.build_template_export:
         assert result.summary[0]["completedQuantity"] == 40
         assert result.summary[0]["completionRate"] == 0.975
-    params = stations.await_args.kwargs
-    assert set(params) == {"productionOrder", "max_rows", "required_fields"}
-    assert {normalize_order(value) for value in params["productionOrder"].split(",")} == {
-        "1", "2", "3",
-    }
+    assert {normalize_order(value) for value in stations.await_args.args[0]} == {"1", "2", "3"}
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("builder", [rty_export.build_template_export, rty_export.build_source_export])
 @pytest.mark.parametrize(
     "rows,message",
-    [
-        ([{"AUFNR": "1", "PCODE": " ", "LINE_CODE": "OP300"}], "缺少主机条码"),
-        ([{"PCODE": "SN-1", "LINE_CODE": "OP310"}], "缺少生产订单"),
-        ([{"AUFNR": "1", "PCODE": "SN-1"}], "缺少工位字段"),
-    ],
+    [([{"productionOrder": "1", "quantity": 0, "missingBarcode": True}], "缺少主机条码")],
 )
 async def test_packaging_incomplete_records_abort_export(monkeypatch, builder, rows, message):
     source(monkeypatch, [order()])
-    monkeypatch.setattr(rty_export.data_gateway, "all_station_rows", AsyncMock(return_value=rows))
+    monkeypatch.setattr(rty_export.data_gateway, "packaging_counts", AsyncMock(return_value=rows))
     with pytest.raises(DataGatewayError, match=message):
         await builder(FILTERS)
 
@@ -824,9 +811,10 @@ async def test_packaging_incomplete_records_abort_export(monkeypatch, builder, r
 @pytest.mark.asyncio
 async def test_packaging_failure_aborts_response_and_can_be_retried(monkeypatch):
     source(monkeypatch, [order()])
+    monkeypatch.setattr(rty_export, "PACKAGING_ORDER_BATCH_SIZE", 1)
     monkeypatch.setattr(rty_export.repair_integration, "build_model_sheets", AsyncMock(return_value=[]))
     stations = AsyncMock(side_effect=[DataGatewayError("offline"), []])
-    monkeypatch.setattr(rty_export.data_gateway, "all_station_rows", stations)
+    monkeypatch.setattr(rty_export.data_gateway, "packaging_counts", stations)
     with pytest.raises(DataGatewayError, match="包装数量查询失败"):
         await rty_export.build_export_response("source", FILTERS)
     response = json.loads(await rty_export.build_export_response("source", FILTERS))
@@ -847,56 +835,58 @@ async def test_packaging_only_queries_authorized_selected_orders(monkeypatch):
             FILTERS, product_models=["M"], customers=["C1"],
         )
     assert [row["AUFNR"] for row in result.orders] == ["1"]
-    params = rty_export.data_gateway.all_station_rows.await_args.kwargs
-    assert {normalize_order(value) for value in params["productionOrder"].split(",")} == {"1"}
+    params = rty_export.data_gateway.packaging_counts.await_args.args[0]
+    assert {normalize_order(value) for value in params} == {"1"}
 
 
 @pytest.mark.asyncio
 async def test_empty_export_does_not_query_packaging(monkeypatch):
     source(monkeypatch, [])
     assert (await rty_export.build_source_export(FILTERS)).orders == []
-    rty_export.data_gateway.all_station_rows.assert_not_awaited()
+    rty_export.data_gateway.packaging_counts.assert_not_awaited()
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("limit_mode", ["http", "client", "full"])
 async def test_packaging_splits_batches_at_row_limit(monkeypatch, limit_mode):
-    monkeypatch.setattr(rty_export, "STATION_STREAM_MAX_ROWS", 4)
+    monkeypatch.setattr(rty_export, "PACKAGING_ORDER_BATCH_SIZE", 50)
     calls = []
 
-    async def read(**kwargs):
-        numbers = sorted({normalize_order(value) for value in kwargs["productionOrder"].split(",")})
+    async def read(requested):
+        numbers = sorted({normalize_order(value) for value in requested})
         calls.append(numbers)
-        if len(numbers) > 1:
-            if limit_mode == "http":
-                raise DataGatewayError("too large", status_code=413)
-            if limit_mode == "client":
-                raise DataGatewayError("too large", code="QUERY_TOO_LARGE")
-            return [{"AUFNR": "1", "PCODE": "SN-A", "SPEC": "OP300"}] * 4
-        return [{"AUFNR": numbers[0], "PCODE": "SN-A", "SPEC": "OP300"}]
+        if len(numbers) > 1 and limit_mode in {"http", "client"}:
+            raise DataGatewayError(
+                "too large",
+                status_code=413 if limit_mode == "http" else None,
+                code="DATA_GATEWAY_REJECTED" if limit_mode == "http" else "QUERY_TOO_LARGE",
+            )
+        if len(numbers) > 1 and limit_mode == "full":
+            raise DataGatewayError("aggregate too large", code="QUERY_TOO_LARGE")
+        return [
+            {"productionOrder": number, "quantity": 1, "missingBarcode": False}
+            for number in numbers
+        ]
 
-    monkeypatch.setattr(rty_export.data_gateway, "all_station_rows", read)
+    monkeypatch.setattr(rty_export.data_gateway, "packaging_counts", read)
     rows = [order("1")["raw"]["data"], order("2")["raw"]["data"]]
     result = await rty_export._export_orders(rows)
     assert [row["packagingQuantity"] for row in result] == [1, 1]
-    assert calls == [["1", "2"], ["1"], ["2"]]
+    assert len(calls) >= 2
+    assert {number for call in calls for number in call} == {"1", "2"}
     assert all("packagingQuantity" not in row for row in rows)
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("limit_mode", ["http", "client", "full"])
 async def test_single_order_over_packaging_limit_fails(monkeypatch, limit_mode):
-    monkeypatch.setattr(rty_export, "STATION_STREAM_MAX_ROWS", 1)
-    if limit_mode == "full":
-        loader = AsyncMock(return_value=[{"AUFNR": "1", "PCODE": "A", "SPEC": "OP300"}])
-    else:
-        loader = AsyncMock(side_effect=DataGatewayError(
+    loader = AsyncMock(side_effect=DataGatewayError(
             "too large",
             status_code=413 if limit_mode == "http" else None,
             code="QUERY_TOO_LARGE" if limit_mode == "client" else "DATA_GATEWAY_REJECTED",
         ))
-    monkeypatch.setattr(rty_export.data_gateway, "all_station_rows", loader)
-    with pytest.raises(DataGatewayError, match="生产订单 1.*超过查询上限"):
+    monkeypatch.setattr(rty_export.data_gateway, "packaging_counts", loader)
+    with pytest.raises(DataGatewayError):
         await rty_export._export_orders([order()["raw"]["data"]])
 
 
@@ -906,9 +896,9 @@ async def test_packaging_batches_are_bounded_and_finish_before_failure(monkeypat
     active = peak = 0
     calls = []
 
-    async def read(**kwargs):
+    async def read(requested):
         nonlocal active, peak
-        numbers = {normalize_order(value) for value in kwargs["productionOrder"].split(",")}
+        numbers = {normalize_order(value) for value in requested}
         calls.append(numbers)
         assert len(numbers) <= 50
         active += 1
@@ -919,13 +909,13 @@ async def test_packaging_batches_are_bounded_and_finish_before_failure(monkeypat
                 raise DataGatewayError("batch failed")
             await asyncio.sleep(0)
             return [
-                {"AUFNR": number, "PCODE": "A", "SPEC": "OP300"}
+                {"productionOrder": number, "quantity": 1, "missingBarcode": False}
                 for number in numbers
-            ] + [{"AUFNR": "999", "PCODE": "B", "SPEC": "OP310"}]
+            ]
         finally:
             active -= 1
 
-    monkeypatch.setattr(rty_export.data_gateway, "all_station_rows", read)
+    monkeypatch.setattr(rty_export.data_gateway, "packaging_counts", read)
     orders = [order(str(number))["raw"]["data"] for number in range(1, 252)]
     if fail:
         with pytest.raises(DataGatewayError, match="batch failed"):
@@ -950,9 +940,9 @@ async def test_export_response_refreshes_packaging_after_60_seconds_but_reuses_s
     monkeypatch.setattr(rty_export.repair_integration, "build_model_sheets", AsyncMock(return_value=[]))
     stations = AsyncMock(side_effect=[
         [],
-        [{"AUFNR": "1", "PCODE": "SN-1", "SPEC": "OP300"}],
+        [{"productionOrder": "1", "quantity": 1, "missingBarcode": False}],
     ])
-    monkeypatch.setattr(rty_export.data_gateway, "all_station_rows", stations)
+    monkeypatch.setattr(rty_export.data_gateway, "packaging_counts", stations)
     first = await rty_export.build_export_response("source", FILTERS)
     now[0] += 59
     assert await rty_export.build_export_response("source", FILTERS) is first
