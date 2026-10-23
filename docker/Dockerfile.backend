@@ -28,7 +28,10 @@ RUN --mount=type=cache,id=qualiboard-uv,target=/root/.cache/uv \
 COPY --chmod=644 backend/app ./app
 COPY --chmod=644 backend/init_default_settings.py ./
 
-RUN mkdir -p /app/logs && chown 10001:10001 /app/logs
+RUN chmod -R a+rX /app/app \
+    && chmod a+r /app/init_default_settings.py \
+    && mkdir -p /app/logs \
+    && chown 10001:10001 /app/logs
 
 USER 10001:10001
 
