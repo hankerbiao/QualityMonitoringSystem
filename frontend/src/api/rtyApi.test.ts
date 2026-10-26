@@ -84,6 +84,17 @@ describe('rtyApi list cache', () => {
     );
   });
 
+  it('sends only supported repair quality filters', async () => {
+    vi.mocked(requestData).mockResolvedValue({});
+    await rtyApi.getRepairQuality({
+      dateFrom: '2026-10-01', dateTo: '2026-10-31',
+      productModels: ['M-1', 'M-2'], customers: ['C-1'], bases: ['1000'],
+    });
+    expect(requestData).toHaveBeenCalledWith(
+      '/api/rty/repair-quality?dateFrom=2026-10-01&dateTo=2026-10-31&productModels=M-1&productModels=M-2&customers=C-1&bases=1000',
+    );
+  });
+
   it('does not reuse the long-lived option cache for station summaries', async () => {
     vi.mocked(requestData).mockResolvedValue([]);
     const query = { groupBy: 'productModel' as const, productModel: 'M-1' };
@@ -92,6 +103,20 @@ describe('rtyApi list cache', () => {
     await rtyApi.getStationPassRates(query);
 
     expect(requestData).toHaveBeenCalledTimes(2);
+  });
+
+  it('exports repair quality using only the supported applied multiselect filters', async () => {
+    vi.mocked(requestData).mockResolvedValue({});
+    await rtyApi.getRepairQualityExport({
+      dateFrom: '2026-10-01', dateTo: '2026-10-31',
+      productModels: ['M-1', 'M-2'], customers: ['C-1', 'C-2'], bases: ['1000', '3000'],
+    });
+    const url = new URL(vi.mocked(requestData).mock.calls[0][0], 'http://localhost');
+    expect(url.pathname).toBe('/api/rty/repair-quality/export');
+    expect(url.searchParams.getAll('productModels')).toEqual(['M-1', 'M-2']);
+    expect(url.searchParams.getAll('customers')).toEqual(['C-1', 'C-2']);
+    expect(url.searchParams.getAll('bases')).toEqual(['1000', '3000']);
+    expect([...url.searchParams.keys()].sort()).toEqual(['bases', 'bases', 'customers', 'customers', 'dateFrom', 'dateTo', 'productModels', 'productModels']);
   });
 
   it('exports raw station sources using all applied filters without caching', async () => {

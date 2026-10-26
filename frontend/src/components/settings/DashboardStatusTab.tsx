@@ -13,6 +13,7 @@ interface Props {
 const icons = {
   rty: Activity,
   'station-pass-rate': Factory,
+  'repair-quality': Wrench,
   lrr: AlertTriangle,
   doa: Wrench,
   mfr: BarChart3,

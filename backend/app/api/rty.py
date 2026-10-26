@@ -21,8 +21,9 @@ from app.schemas.rty import (
     StationPassExport,
     StationPassRate,
 )
-from app.services import cycle_details, rty_export, rty_gateway
+from app.services import cycle_details, repair_quality, rty_export, rty_gateway
 from app.services.rty_shared import YEAR_END, YEAR_START, validate_date
+from app.services.settings_service import SettingsService
 
 router = APIRouter()
 
@@ -34,6 +35,65 @@ CalculationMethodQuery = Annotated[
 ]
 StationGroupBy = Literal["salesOrder", "productionOrder", "productModel"]
 StationGroupByQuery = Annotated[StationGroupBy, Query(description="统计维度")]
+
+
+async def require_repair_quality_access(
+    user: Annotated[dict, Depends(dashboard_dependency("repair-quality"))],
+):
+    if user.get("role") != "admin":
+        statuses = await SettingsService(get_database()).get_dashboard_statuses()
+        if statuses["repair-quality"] == "admin-only":
+            raise HTTPException(status_code=403, detail="维修质量透视仅管理员可见")
+    return user
+
+
+@router.get(
+    "/repair-quality",
+    response_model=Response[dict],
+    dependencies=[Depends(require_repair_quality_access)],
+)
+async def get_repair_quality(
+    dateFrom: str = Query(...),
+    dateTo: str = Query(...),
+    productModels: Annotated[list[str] | None, Query()] = None,
+    customers: Annotated[list[str] | None, Query()] = None,
+    bases: Annotated[list[str] | None, Query()] = None,
+):
+    data = await repair_quality.analyze(
+        dateFrom,
+        dateTo,
+        product_models=productModels,
+        customers=customers,
+        bases=bases,
+    )
+    return Response(success=True, data=data, message=f"分析到 {data['snCount']} 个维修 SN")
+
+
+@router.get(
+    "/repair-quality/options",
+    response_model=Response[dict[str, list[str]]],
+    dependencies=[Depends(require_repair_quality_access)],
+)
+async def get_repair_quality_options():
+    return Response(success=True, data=await repair_quality.options())
+
+
+@router.get(
+    "/repair-quality/export",
+    response_model=Response[dict],
+    dependencies=[Depends(require_repair_quality_access)],
+)
+async def get_repair_quality_export(
+    dateFrom: str = Query(...),
+    dateTo: str = Query(...),
+    productModels: Annotated[list[str] | None, Query()] = None,
+    customers: Annotated[list[str] | None, Query()] = None,
+    bases: Annotated[list[str] | None, Query()] = None,
+):
+    data = await repair_quality.build_export(
+        dateFrom, dateTo, product_models=productModels, customers=customers, bases=bases
+    )
+    return Response(success=True, data=data)
 
 
 def _split_values(value: str) -> list[str]:

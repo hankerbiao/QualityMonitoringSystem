@@ -10,6 +10,7 @@ import { getAppBasePath } from './constants';
 const Home = lazy(() => import('./pages/Home'));
 const RTYPage = lazy(() => import('./pages/RTYPage'));
 const StationPassRatePage = lazy(() => import('./pages/StationPassRatePage'));
+const RepairQualityPage = lazy(() => import('./pages/RepairQualityPage'));
 const LRRPage = lazy(() => import('./pages/LRRPage'));
 const ProcessRecordsPage = lazy(() => import('./pages/ProcessRecordsPage'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
@@ -125,6 +126,7 @@ function AppContent() {
           <Route path="/" element={<Home />} />
           <Route path="/rty" element={<DashboardAccess permission="rty"><DashboardStatusAccess dashboardId="rty" title="RTY 整机综合直通率" description="整机综合直通率质量看板"><RTYPage /></DashboardStatusAccess></DashboardAccess>} />
           <Route path="/station-pass-rate" element={<DashboardAccess permission="station-pass-rate"><DashboardStatusAccess dashboardId="station-pass-rate" title="工位过站直通率" description="工位过站直通率质量看板"><StationPassRatePage /></DashboardStatusAccess></DashboardAccess>} />
+          <Route path="/repair-quality" element={<DashboardAccess permission="repair-quality"><DashboardStatusAccess dashboardId="repair-quality" title="维修质量透视" description="首修表现与复修次数分析看板"><RepairQualityPage /></DashboardStatusAccess></DashboardAccess>} />
           <Route path="/lrr" element={<DashboardAccess permission="lrr"><DashboardStatusAccess dashboardId="lrr" title="LRR（工厂阶段部件故障率）" description="工厂阶段部件故障率质量看板"><LRRPage /></DashboardStatusAccess></DashboardAccess>} />
           <Route path="/process-records" element={<DashboardAccess permission="process-records"><ProcessRecordsPage /></DashboardAccess>} />
           <Route path="/operations" element={<DashboardAccess permission="admin"><OperationsPage /></DashboardAccess>} />

@@ -1,7 +1,7 @@
-import { DefectDetail, RTYData, RTYFilterParams, SalesOrderSummary, PaginatedRTYResponse, PaginatedExcludedOrdersResponse, StationPassDetail, StationPassQuery, StationPassRate } from '../types';
+import { DefectDetail, RTYData, RTYFilterParams, SalesOrderSummary, PaginatedRTYResponse, PaginatedExcludedOrdersResponse, RepairQualityOptions, RepairQualitySummary, StationPassDetail, StationPassQuery, StationPassRate } from '../types';
 import { requestData, requestJson } from './authApi';
 import { API_BASE_URL } from '../constants';
-import type { RTYCycleDetails, RTYCycleDetailQuery, RTYTemplateExport, StationPassExport } from '../types/rty';
+import type { RepairQualityExport, RepairQualityQuery, RTYCycleDetails, RTYCycleDetailQuery, RTYTemplateExport, StationPassExport } from '../types/rty';
 import type { UserProfile } from '../types/auth';
 
 const RTY_LIST_CACHE_TTL_MS = 2_000;
@@ -175,6 +175,26 @@ export const rtyApi = {
     // Keep request coalescing in the browser out of this result path so a
     // repeated query does not reuse a multi-hour option cache entry.
     return requestData<StationPassRate[]>(`${API_BASE_URL}/rty/station-pass-rates${suffix ? `?${suffix}` : ''}`);
+  },
+
+  async getRepairQualityOptions(): Promise<RepairQualityOptions> {
+    return requestData<RepairQualityOptions>(`${API_BASE_URL}/rty/repair-quality/options`);
+  },
+
+  async getRepairQuality(params: RepairQualityQuery): Promise<RepairQualitySummary> {
+    const qs = new URLSearchParams({ dateFrom: params.dateFrom, dateTo: params.dateTo });
+    params.productModels?.forEach(value => qs.append('productModels', value));
+    params.customers?.forEach(value => qs.append('customers', value));
+    params.bases?.forEach(value => qs.append('bases', value));
+    return requestData<RepairQualitySummary>(`${API_BASE_URL}/rty/repair-quality?${qs}`);
+  },
+
+  async getRepairQualityExport(params: RepairQualityQuery): Promise<RepairQualityExport> {
+    const qs = new URLSearchParams({ dateFrom: params.dateFrom, dateTo: params.dateTo });
+    params.productModels?.forEach(value => qs.append('productModels', value));
+    params.customers?.forEach(value => qs.append('customers', value));
+    params.bases?.forEach(value => qs.append('bases', value));
+    return requestData<RepairQualityExport>(`${API_BASE_URL}/rty/repair-quality/export?${qs}`);
   },
 
   async getStationPassExport(params: StationPassQuery): Promise<StationPassExport> {

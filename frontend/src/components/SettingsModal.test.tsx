@@ -80,6 +80,7 @@ describe('settings pages by role', () => {
         ...settings.dashboardStatuses,
         rty: 'available',
         'station-pass-rate': 'available',
+        'repair-quality': 'admin-only',
         lrr: 'available',
         doa: 'admin-only',
         mfr: 'planned',

@@ -6,7 +6,7 @@ from fastapi import FastAPI, HTTPException
 
 from app.api import auth, rty
 from app.schemas.rty import RTYCycleDetails, RTYTemplateExport, StationPassExport
-from app.services import cycle_details, rty_gateway
+from app.services import cycle_details, repair_quality, rty_gateway
 
 
 @pytest.mark.asyncio
@@ -177,6 +177,100 @@ async def test_station_pass_endpoints_forward_overseas_filter(monkeypatch):
 
     assert station_rates.await_args.kwargs["overseas"] is True
     assert station_details.await_args.kwargs["overseas"] is True
+
+
+@pytest.mark.asyncio
+async def test_repair_quality_endpoint_forwards_supported_filters(monkeypatch):
+    analyze = AsyncMock(return_value={"snCount": 0, "groups": []})
+    monkeypatch.setattr(repair_quality, "analyze", analyze)
+
+    response = await rty.get_repair_quality(
+        dateFrom="2026-10-01",
+        dateTo="2026-10-31",
+        productModels=["M1"],
+        customers=["C1"],
+        bases=["1000"],
+    )
+
+    assert response.success
+    analyze.assert_awaited_once_with(
+        "2026-10-01",
+        "2026-10-31",
+        product_models=["M1"],
+        customers=["C1"],
+        bases=["1000"],
+    )
+
+
+@pytest.mark.asyncio
+async def test_repair_quality_export_forwards_supported_filters(monkeypatch):
+    export = AsyncMock(return_value={"orders": [], "faults": [], "summary": {"snCount": 0}})
+    monkeypatch.setattr(repair_quality, "build_export", export)
+    response = await rty.get_repair_quality_export(
+        dateFrom="2026-10-01", dateTo="2026-10-31",
+        productModels=["M1", "M2"], customers=["C1"], bases=["1000"],
+    )
+    assert response.success
+    export.assert_awaited_once_with(
+        "2026-10-01", "2026-10-31", product_models=["M1", "M2"], customers=["C1"], bases=["1000"]
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("permissions", "bases", "status"),
+    [(["repair-quality"], ["1000"], 200), (["rty"], ["1000"], 403),
+     (["station-pass-rate"], ["1000"], 403), ([], ["1000"], 403),
+     (["repair-quality"], ["3000"], 403)],
+)
+async def test_repair_quality_export_requires_own_permission_and_base_access(monkeypatch, permissions, bases, status):
+    monkeypatch.setattr(rty, "get_database", lambda: None)
+    monkeypatch.setattr(rty.SettingsService, "get_dashboard_statuses", AsyncMock(return_value={"repair-quality": "available"}))
+    export = AsyncMock(return_value={"orders": [], "faults": [], "summary": {"snCount": 0}})
+    monkeypatch.setattr(repair_quality, "build_export", export)
+    app = FastAPI()
+    app.include_router(rty.router, prefix="/api/rty")
+    app.dependency_overrides[auth.get_current_user] = lambda: {
+        "role": "user", "dashboardPermissions": permissions, "basePermissions": ["1000"],
+    }
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/rty/repair-quality/export", params={
+            "dateFrom": "2026-10-01", "dateTo": "2026-10-31", "bases": bases,
+        })
+    assert response.status_code == status
+    if status == 200:
+        export.assert_awaited_once()
+    else:
+        export.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("endpoint", ["", "/options", "/export"])
+@pytest.mark.parametrize(
+    ("role", "dashboard_status", "expected"),
+    [("user", "admin-only", 403), ("admin", "admin-only", 200), ("user", "available", 200)],
+)
+async def test_repair_quality_status_guards_all_endpoints(monkeypatch, endpoint, role, dashboard_status, expected):
+    monkeypatch.setattr(rty, "get_database", lambda: None)
+    monkeypatch.setattr(rty.SettingsService, "get_dashboard_statuses", AsyncMock(return_value={"repair-quality": dashboard_status}))
+    analyze = AsyncMock(return_value={"snCount": 0, "groups": []})
+    options = AsyncMock(return_value={"productModels": [], "customers": [], "bases": []})
+    export = AsyncMock(return_value={"orders": [], "faults": [], "summary": {"snCount": 0}})
+    monkeypatch.setattr(repair_quality, "analyze", analyze)
+    monkeypatch.setattr(repair_quality, "options", options)
+    monkeypatch.setattr(repair_quality, "build_export", export)
+    app = FastAPI()
+    app.include_router(rty.router, prefix="/api/rty")
+    app.dependency_overrides[auth.get_current_user] = lambda: {
+        "role": role, "dashboardPermissions": ["repair-quality"], "basePermissions": ["1000"],
+    }
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get(f"/api/rty/repair-quality{endpoint}", params={"dateFrom": "2026-10-01", "dateTo": "2026-10-26"})
+    assert response.status_code == expected
+    if expected == 403:
+        analyze.assert_not_awaited()
+        options.assert_not_awaited()
+        export.assert_not_awaited()
 
 
 @pytest.mark.asyncio

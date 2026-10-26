@@ -27,6 +27,7 @@ export interface HomeModuleDefinition {
 export const DEFAULT_DASHBOARD_STATUSES: Record<string, HomeModuleStatus> = {
   rty: 'available',
   'station-pass-rate': 'available',
+  'repair-quality': 'admin-only',
   lrr: 'available',
   doa: 'planned',
   mfr: 'planned',
@@ -52,6 +53,16 @@ export const qualityModules: readonly HomeModuleDefinition[] = [
     accent: 'cyan',
     path: '/station-pass-rate',
     status: 'available',
+  },
+  {
+    id: 'repair-quality',
+    code: 'REPAIR QUALITY',
+    title: '维修质量透视',
+    description: '基于生产订单实际开始日期分析首修通过表现、复修次数与客户基地分布。',
+    icon: Wrench,
+    accent: 'emerald',
+    path: '/repair-quality',
+    status: 'admin-only',
   },
   {
     id: 'lrr',

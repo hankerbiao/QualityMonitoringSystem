@@ -108,6 +108,44 @@ export interface StationPassDetail {
   raw?: Record<string, unknown>;
 }
 
+export interface RepairQualityDistribution {
+  repairCount: string;
+  snCount: number;
+  percentage: number;
+}
+
+export interface RepairQualityGroup {
+  customer: string;
+  base: string;
+  snCount: number;
+  firstPassCount: number;
+  repeatCount: number;
+  firstPassRate: number;
+  distribution: RepairQualityDistribution[];
+}
+
+export interface RepairQualitySummary extends Omit<RepairQualityGroup, 'customer' | 'base'> {
+  groups: RepairQualityGroup[];
+}
+
+export interface RepairQualityOptions {
+  productModels: string[];
+  customers: string[];
+  bases: string[];
+}
+
+export interface RepairQualityQuery {
+  dateFrom: string;
+  dateTo: string;
+  productModels?: string[];
+  customers?: string[];
+  bases?: string[];
+}
+
+export interface RepairQualityExport extends StationPassExport {
+  summary: RepairQualitySummary;
+}
+
 export interface DefectDetail {
   id: string;
   defectCode: string;

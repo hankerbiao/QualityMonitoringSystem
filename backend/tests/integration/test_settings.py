@@ -35,6 +35,7 @@ class TestGetAllSettings:
         assert data["data"]["dashboardStatuses"] == {
             "rty": "available",
             "station-pass-rate": "available",
+            "repair-quality": "admin-only",
             "lrr": "available",
             "doa": "planned",
             "mfr": "planned",

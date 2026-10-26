@@ -19,7 +19,7 @@ const testDashboardStatuses: Record<string, 'available' | 'planned' | 'admin-onl
 
 const normalUser: UserProfile = {
   itcode: 'alice', username: 'alice', name: 'Alice', role: 'user',
-  dashboardPermissions: ['rty', 'station-pass-rate', 'lrr', 'process-records', 'doa', 'doa-repairs', 'mfr'],
+  dashboardPermissions: ['rty', 'station-pass-rate', 'repair-quality', 'lrr', 'process-records', 'doa', 'doa-repairs', 'mfr'],
 };
 const response = (role: UserProfile['role']) => ({
   itcode: 'alice', user: { ...normalUser, role },
@@ -65,5 +65,16 @@ describe('home administrator settings access', () => {
     vi.mocked(getCurrentUser).mockResolvedValue(response('admin'));
     await act(async () => { fireEvent(window, new Event('focus')); });
     expect(await screen.findByText('DOA 报修率')).toBeTruthy();
+  });
+
+  it('keeps repair quality administrator-only by default', async () => {
+    await act(async () => {
+      render(<MemoryRouter><AuthProvider><Home /></AuthProvider></MemoryRouter>);
+    });
+    await screen.findByText('Alice');
+    expect(screen.queryByText('维修质量透视')).toBeNull();
+    vi.mocked(getCurrentUser).mockResolvedValue(response('admin'));
+    await act(async () => { fireEvent(window, new Event('focus')); });
+    expect(await screen.findByText('维修质量透视')).toBeTruthy();
   });
 });
