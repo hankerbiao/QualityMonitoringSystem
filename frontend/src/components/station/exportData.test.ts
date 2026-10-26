@@ -24,10 +24,10 @@ describe('station pass workbook', () => {
     const workbook = buildStationPassWorkbook(XLSX.utils.aoa_to_sheet([['机型']]), {
       orders: [{ VBELN: '0000123', AUFNR: '000000000001', IF_L6: 'X', WMENG: 99, packagingQuantity: 2 }],
       faults: [
-        { PCODE: '00001', ZNGWD3: '字节_[字节][擎天]AC测试 尾7LOOP_内存Correctable ECC', AUART: 'C001', U_FIX: '甲', ZWXDT: null, ZUSER: '不替代维修人员' },
-        { PCODE: '00001', ZNGWD3: '字节_[字节][擎天]SHC Test_内存Correctable ECC', AUART: 'C002', U_FIX: '乙', ZWXDT: '2027-01-01', ERROR_MSG: '=literal' },
-        { PCODE: '00002', ZNGWD3: '字节_[字节][擎天]IFS设置恢复检查_内存识别不全', AUART: 'C003' },
-        { PCODE: '00003', ZNGWD3: '字节_[字节][擎天]SHC Test_内存Correctable ECC ', AUART: 'C004' },
+        { PCODE: '00001', ZNGWD3: '字节_[字节][擎天]AC测试 尾7LOOP_内存Correctable ECC', ZNGWD2: '维度2-1', AUART: 'C001', U_FIX: '甲', ZWXDT: null, ZUSER: '不替代维修人员' },
+        { PCODE: '00001', ZNGWD3: '字节_[字节][擎天]SHC Test_内存Correctable ECC', ZNGWD2: '维度2-2', AUART: 'C002', U_FIX: '乙', ZWXDT: '2027-01-01', ERROR_MSG: '=literal' },
+        { PCODE: '00002', ZNGWD3: '字节_[字节][擎天]IFS设置恢复检查_内存识别不全', ZNGWD2: '维度2-3', AUART: 'C003' },
+        { PCODE: '00003', ZNGWD3: '字节_[字节][擎天]SHC Test_内存Correctable ECC ', ZNGWD2: '维度2-4', AUART: 'C004' },
       ],
     });
     const result = XLSX.read(XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }), {
@@ -56,7 +56,9 @@ describe('station pass workbook', () => {
       '字节_[字节][擎天]IFS设置恢复检查_内存识别不全',
       '字节_[字节][擎天]SHC Test_内存Correctable ECC ',
     ]);
-    expect(faults.J2).toBeUndefined();
+    expect([faults.J2.v, faults.J3.v, faults.J4.v, faults.J5.v]).toEqual([
+      '维度2-1', '维度2-2', '维度2-3', '维度2-4',
+    ]);
     expect(faults.E5.v).toBe('00003');
     expect(faults.AI2.v).toBe('C001');
     expect(faults.AI3.v).toBe('C002');

@@ -56,7 +56,7 @@ export const FAULT_COLUMNS: readonly Column[] = [
   ['U_FIND', 'NG报工人员'],
   ['T_FIND', 'NG时间'],
   ['ZNGWD3', '不良现象维度3'],
-  ['ZNGWD', '不良现象维度2'],
+  ['ZNGWD2', '不良现象维度2'],
   ['U_FIX', '维修人员'],
   ['ZWXDT', '维修日期时间'],
   ['ZWXWD3', '维修维度3'],

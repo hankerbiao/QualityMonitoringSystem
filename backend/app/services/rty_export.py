@@ -74,7 +74,7 @@ FAULT_FIELDS = (
     "U_FIND",
     "T_FIND",
     "ZNGWD3",
-    "ZNGWD",
+    "ZNGWD2",
     "U_FIX",
     "ZWXDT",
     "ZWXWD3",

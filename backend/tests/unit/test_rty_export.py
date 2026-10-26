@@ -213,7 +213,7 @@ async def test_station_export_returns_only_raw_order_and_fault_columns(monkeypat
         [order("000000000001", POSNR=None, WMENG=0, IF_L6="X")],
         [
             fault("first", PCODE="00001", U_FIX=None, ZUSER="not-a-substitute", ZDATE_WX=""),
-            fault("second", PCODE="00001", ZWXDT="2027-01-01"),
+            fault("second", PCODE="00001", ZNGWD2="二级现象", ZWXDT="2027-01-01"),
         ],
     )
 
@@ -228,6 +228,7 @@ async def test_station_export_returns_only_raw_order_and_fault_columns(monkeypat
     assert len(result.faults) == 2
     assert result.faults[0]["U_FIX"] is None
     assert result.faults[0]["ZWXDT"] is None
+    assert result.faults[1]["ZNGWD2"] == "二级现象"
     assert result.faults[1]["ZWXDT"] == "2027-01-01"
 
 

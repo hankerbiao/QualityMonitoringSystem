@@ -62,14 +62,15 @@ describe('RTY template workbook', () => {
     const workbook = buildTemplateWorkbook({
       ...empty,
       faults: [
-        { PCODE: 'SN1', ZNGWD3: '问题A' },
-        { PCODE: 'SN2', ZNGWD3: '问题B' },
-        { PCODE: 'SN3', ZNGWD3: '问题B' },
+        { PCODE: 'SN1', ZNGWD3: '问题A', ZNGWD2: '二级问题A' },
+        { PCODE: 'SN2', ZNGWD3: '问题B', ZNGWD2: '二级问题B' },
+        { PCODE: 'SN3', ZNGWD3: '问题B', ZNGWD2: '二级问题B' },
       ],
     });
     const faults = workbook.Sheets['维修故障明记录-分子'];
 
     expect([faults.I3.v, faults.I4.v, faults.I5.v]).toEqual(['问题A', '问题B', '问题B']);
+    expect([faults.J3.v, faults.J4.v, faults.J5.v]).toEqual(['二级问题A', '二级问题B', '二级问题B']);
     expect([faults.E3.v, faults.E4.v, faults.E5.v]).toEqual(['SN1', 'SN2', 'SN3']);
   });
 
@@ -78,14 +79,15 @@ describe('RTY template workbook', () => {
       ...empty,
       modelSheets: [],
       faults: [
-        { PCODE: 'SN1', ZNGWD3: '问题A' },
-        { PCODE: 'SN2', ZNGWD3: '问题B' },
-        { PCODE: 'SN3', ZNGWD3: '问题B' },
+        { PCODE: 'SN1', ZNGWD3: '问题A', ZNGWD2: '二级问题A' },
+        { PCODE: 'SN2', ZNGWD3: '问题B', ZNGWD2: '二级问题B' },
+        { PCODE: 'SN3', ZNGWD3: '问题B', ZNGWD2: '二级问题B' },
       ],
     });
     const faults = workbook.Sheets['维修故障明记录'];
 
     expect([faults.I2.v, faults.I3.v, faults.I4.v]).toEqual(['问题A', '问题B', '问题B']);
+    expect([faults.J2.v, faults.J3.v, faults.J4.v]).toEqual(['二级问题A', '二级问题B', '二级问题B']);
     expect([faults.E2.v, faults.E3.v, faults.E4.v]).toEqual(['SN1', 'SN2', 'SN3']);
   });
 
