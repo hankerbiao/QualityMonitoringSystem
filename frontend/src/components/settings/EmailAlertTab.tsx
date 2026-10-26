@@ -54,8 +54,12 @@ export function EmailAlertTab({ config, onChange }: EmailAlertTabProps) {
           text: `测试邮件已发送至 ${data.recipients?.join(', ') || '配置邮箱'}`,
         });
       } else {
-        const reason = data.reason === 'no_recipients' ? '收件人邮箱无效' : '发送失败，请检查邮件服务';
-        setTestMsg({ type: 'error', text: reason });
+        const message = data.reason === 'no_recipients'
+          ? '收件人邮箱无效'
+          : data.error?.toLowerCase().includes('all connection attempts failed')
+            ? '邮件代理连接失败，请检查服务网络后重试'
+            : data.error || '测试邮件发送失败，请检查邮件服务配置';
+        setTestMsg({ type: 'error', text: message });
       }
     } catch (err) {
       const message = err instanceof Error ? err.message : '测试邮件发送失败';
@@ -79,12 +83,8 @@ export function EmailAlertTab({ config, onChange }: EmailAlertTabProps) {
   };
 
   return (
-    <div className="space-y-6 max-w-2xl">
-      <div>
-        <h3 className="text-base font-semibold text-slate-800 mb-1">邮件预警规则</h3>
-        <p className="text-sm text-slate-500 mb-6">配置当直通率低于标准时的邮件预警行为与触发条件。</p>
-      </div>
-      <div className="space-y-6">
+    <div className="space-y-5 max-w-2xl">
+      <div className="space-y-5">
         <div>
           <div className="flex items-center gap-3">
             <label className="relative inline-flex items-center cursor-pointer">
@@ -106,7 +106,7 @@ export function EmailAlertTab({ config, onChange }: EmailAlertTabProps) {
             <FileText className="w-4 h-4 text-slate-400" /> 触发条件说明
           </label>
           <textarea
-            rows={3}
+            rows={2}
             value={triggerCondition}
             onChange={(e) => onChange({ ...config, triggerCondition: e.target.value })}
             className="w-full border border-slate-300 rounded-md p-3 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-y"
@@ -118,8 +118,8 @@ export function EmailAlertTab({ config, onChange }: EmailAlertTabProps) {
           >
             按当前规则生成说明
           </button>
-          <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
-            修改周生产量阈值后，系统生成的说明会同步更新；手工修改此文本只影响说明展示，不改变实际预警判定规则。
+          <p className="mt-1.5 text-xs text-slate-500">
+            说明仅用于展示；预警按阈值和机型目标直通率判定。
           </p>
         </div>
 
@@ -148,9 +148,7 @@ export function EmailAlertTab({ config, onChange }: EmailAlertTabProps) {
               }}
               className="w-32 shrink-0 border border-slate-300 rounded-md px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
             />
-            <span className="min-w-32 flex-1 text-xs text-slate-500">
-              窗口内某机型投入台数 ≥ 该值，才纳入 RTY 判定
-            </span>
+            <span className="min-w-32 flex-1 text-xs text-slate-500">达到阈值后纳入 RTY 判定</span>
             <button
               type="button"
               onClick={handleGetQualifiedModels}
@@ -161,10 +159,7 @@ export function EmailAlertTab({ config, onChange }: EmailAlertTabProps) {
               {loadingModels ? '查询中...' : '查看符合机型'}
             </button>
           </div>
-          <p className="text-xs text-slate-500 mt-2 leading-relaxed">
-            系统每天 17:00 自动统计：时间窗口为「上周五 00:00 至当前时刻」（滚动周窗口，最长 7 天）。
-            对每个机型统计该窗口内的投入台数（按 SN 去重），达到上述阈值且实际 RTY 低于目标直通率时，自动发送预警邮件。
-          </p>
+          <p className="text-xs text-slate-500 mt-2">系统每天 17:00 检查，满足条件时发送预警邮件。</p>
           {modelsError && <p className="mt-3 text-sm text-red-600">{modelsError}</p>}
           {qualifiedModels && (
             <div className="mt-3 border border-slate-200 rounded-md overflow-hidden">
@@ -208,16 +203,17 @@ export function EmailAlertTab({ config, onChange }: EmailAlertTabProps) {
           <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-1.5">
             <Mail className="w-4 h-4 text-slate-400" /> 预警接收人邮箱
           </label>
-          <textarea
-            rows={3}
+          <input
+            aria-label="预警接收人邮箱"
+            type="text"
             value={config.emails}
             onChange={(e) => onChange({ ...config, emails: e.target.value })}
-            className="w-full border border-slate-300 rounded-md p-3 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+            className="w-full border border-slate-300 rounded-md px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
           />
-          <p className="text-xs text-slate-500 mt-1.5">支持配置多个邮箱，请使用分号 ( ; ) 分隔</p>
+          <p className="text-xs text-slate-500 mt-1.5">多个邮箱用分号分隔</p>
         </div>
 
-        <div className="pt-6 border-t border-slate-100">
+        <div className="pt-4 border-t border-slate-100">
           <div className="flex items-center gap-3 flex-wrap">
             <button
               type="button"
@@ -229,15 +225,15 @@ export function EmailAlertTab({ config, onChange }: EmailAlertTabProps) {
               {testing ? '发送中...' : '发送测试邮件'}
             </button>
             {testMsg && (
-              <span className={`inline-flex items-center gap-1.5 text-sm font-medium ${testMsg.type === 'success' ? 'text-emerald-600' : 'text-red-600'}`}>
+              <span
+                role={testMsg.type === 'success' ? 'status' : 'alert'}
+                className={`inline-flex min-w-0 items-start gap-1.5 break-words text-sm font-medium ${testMsg.type === 'success' ? 'text-emerald-600' : 'text-red-600'}`}
+              >
                 {testMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
                 {testMsg.text}
               </span>
             )}
           </div>
-          <p className="text-xs text-slate-500 mt-2">
-            点击向当前配置的接收人邮箱发送一封测试邮件，验证邮件服务与收件人配置是否正确。
-          </p>
         </div>
       </div>
     </div>

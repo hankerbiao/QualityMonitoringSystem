@@ -1,7 +1,14 @@
 import { API_BASE_URL } from '../constants';
-import { requestData } from './authApi';
+import { requestData, requestJson, type ApiEnvelope } from './authApi';
 import type { AccessibleSettingsResponse, ProcessRecordConfig, ProcessRecordConnectionTest, SettingsUpdate } from '../types';
 import type { HomeModuleStatus } from '../config/homeModules';
+
+export interface TestEmailResult {
+  sent: boolean;
+  recipients?: string[];
+  reason?: string;
+  error?: string;
+}
 
 export interface WeeklyQualifiedModels {
   window: { from: string; to: string };
@@ -46,12 +53,16 @@ export const settingsApi = {
   },
 
 
-  async testEmail(emails: string): Promise<{ sent: boolean; recipients?: string[]; reason?: string }> {
-    return requestData<{ sent: boolean; recipients?: string[]; reason?: string }>(`${API_BASE_URL}/alert-report/test`, {
+  async testEmail(emails: string): Promise<TestEmailResult> {
+    const payload = await requestJson<ApiEnvelope<TestEmailResult>>(`${API_BASE_URL}/alert-report/test`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ emails }),
     });
+    if (!payload?.data) {
+      throw new Error(payload?.error || payload?.message || '测试邮件返回数据无效');
+    }
+    return payload.data;
   },
 
   async getWeeklyQualifiedModels(threshold: number): Promise<WeeklyQualifiedModels> {

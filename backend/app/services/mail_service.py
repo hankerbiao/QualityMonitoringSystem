@@ -65,7 +65,9 @@ async def send_email(
     log_info(f"post {mail_url}")
 
     try:
-        async with httpx.AsyncClient(timeout=timeout) as client:
+        # The mail relay is an internal endpoint; do not route it through
+        # build-time HTTP_PROXY values baked into the container image.
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
             resp = await client.post(mail_url, json=payload)
     except httpx.HTTPError as exc:
         log_error(f"邮件代理请求异常: {mail_url} | {exc}")
