@@ -13,6 +13,7 @@ from app.schemas.common import PaginatedResponse, Response
 from app.schemas.rty import (
     DefectDetail,
     ExcludedOrder,
+    RTYCycleDetails,
     RTYData,
     RTYTemplateExport,
     SalesOrderSummary,
@@ -20,7 +21,7 @@ from app.schemas.rty import (
     StationPassExport,
     StationPassRate,
 )
-from app.services import rty_export, rty_gateway
+from app.services import cycle_details, rty_export, rty_gateway
 from app.services.rty_shared import YEAR_END, YEAR_START, validate_date
 
 router = APIRouter()
@@ -214,6 +215,41 @@ async def get_station_pass_export(
     )
     return HTTPResponse(
         data, media_type="application/json", headers={"Cache-Control": "private, no-store"}
+    )
+
+
+@router.get(
+    "/cycle-details",
+    response_model=Response[RTYCycleDetails],
+    dependencies=[Depends(dashboard_dependency("rty"))],
+)
+@audit_log("QUERY", "rty_cycle_details")
+async def get_cycle_details(
+    request: Request,
+    dateFrom: str | None = None,
+    dateTo: str | None = None,
+    customer: str | None = None,
+    orderScope: OrderScopeQuery = "normal",
+    productModels: Annotated[list[str] | None, Query()] = None,
+    bases: Annotated[list[str] | None, Query()] = None,
+    customers: Annotated[list[str] | None, Query()] = None,
+):
+    del request
+    data = await cycle_details.build_cycle_details(
+        _order_filters(
+            date_from=dateFrom,
+            date_to=dateTo,
+            customer=customer,
+            order_scope=orderScope,
+        ),
+        product_models=productModels,
+        bases=bases,
+        customers=[*(customers or []), *([customer] if customer else [])],
+    )
+    return Response(
+        success=True,
+        data=data,
+        message=f"查询到 {len(data.orders)} 个订单、{len(data.faults)} 条维修明细",
     )
 
 

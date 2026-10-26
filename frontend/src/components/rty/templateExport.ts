@@ -103,6 +103,25 @@ export const REPAIR_COLUMNS: readonly Column[] = TOP_COLUMNS.map(([key, label]) 
   key, key === 'materialCount' ? '部件故障计数' : label,
 ]);
 
+function buildSourceSheet(
+  columns: readonly Column[],
+  rows: readonly Record<string, unknown>[],
+): XLSX.WorkSheet {
+  const sheet = XLSX.utils.aoa_to_sheet([
+    columns.map(([, label]) => label),
+    ...rows.map((row) => columns.map(([key]) => row[key] ?? null)),
+  ]);
+  sheet['!cols'] = columns.map(([, label]) => ({
+    wch: Math.min(48, Math.max(16, label.length * 1.4)),
+  }));
+  sheet['!autofilter'] = { ref: sheet['!ref']! };
+  return sheet;
+}
+
+export function buildFaultDetailSheet(rows: readonly Record<string, unknown>[]): XLSX.WorkSheet {
+  return buildSourceSheet(FAULT_COLUMNS, rows);
+}
+
 function modelSheetName(workbook: XLSX.WorkBook, model: string): string {
   const base = (model.replace(/[\\/*?:[\]]/g, '_').replace(/^'+|'+$/g, '') || '未填写机型').slice(0, 31);
   const used = new Set(workbook.SheetNames.map(name => name.toLowerCase()));
@@ -152,21 +171,8 @@ export function appendModelSheets(workbook: XLSX.WorkBook, models: RepairModelSh
 }
 
 export function appendSourceSheets(workbook: XLSX.WorkBook, data: StationPassExport): void {
-  const sources = [
-    ['销售订单', ORDER_COLUMNS, data.orders],
-    ['维修故障明记录', FAULT_COLUMNS, data.faults],
-  ] as const;
-  for (const [name, columns, rows] of sources) {
-    const sheet = XLSX.utils.aoa_to_sheet([
-      columns.map(([, label]) => label),
-      ...rows.map((row) => columns.map(([key]) => row[key] ?? null)),
-    ]);
-    sheet['!cols'] = columns.map(([, label]) => ({
-      wch: Math.min(48, Math.max(16, label.length * 1.4)),
-    }));
-    sheet['!autofilter'] = { ref: sheet['!ref']! };
-    XLSX.utils.book_append_sheet(workbook, sheet, name);
-  }
+  XLSX.utils.book_append_sheet(workbook, buildSourceSheet(ORDER_COLUMNS, data.orders), '销售订单');
+  XLSX.utils.book_append_sheet(workbook, buildFaultDetailSheet(data.faults), '维修故障明记录');
   appendModelSheets(workbook, data.modelSheets);
 }
 

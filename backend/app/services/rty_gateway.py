@@ -855,11 +855,12 @@ async def station_rates(
         )
     ]
     records = _station_rows_in_planned_range(records, start, end)
-    scope_orders = (
-        {normalize_order(row["aufnr"]) for row in orders if normalize_order(row["aufnr"])}
-        if order_scope == "l6" or selected_customers or include_empty_customer or overseas
-        else None
-    )
+    # Station projections may omit IF_L6 and other order attributes. Use the
+    # filtered RTY order set as the source of truth for every scope so missing
+    # station fields cannot admit records from a different order population.
+    scope_orders = {
+        normalize_order(row["aufnr"]) for row in orders if normalize_order(row["aufnr"])
+    }
 
     by_station: dict[tuple[str, str], dict[str, Any]] = {}
     sn_dimensions: dict[str, set[str]] = defaultdict(set)

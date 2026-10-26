@@ -209,7 +209,13 @@ async def test_lrr_uses_order_ownership_when_bom_base_is_missing_or_conflicting(
 
 
 def test_station_filters_deny_foreign_or_missing_base():
-    kwargs = {"serial_number": None, "product_model": None, "base": None, "group_by": "salesOrder"}
+    kwargs = {
+        "serial_number": None,
+        "product_models": None,
+        "bases": None,
+        "customers": None,
+        "group_by": "salesOrder",
+    }
     with base_access_scope(["1000"]):
         assert rty_gateway._matches_station_filters({"LGORT": "1000"}, **kwargs)
         assert not rty_gateway._matches_station_filters({"LGORT": "3000"}, **kwargs)

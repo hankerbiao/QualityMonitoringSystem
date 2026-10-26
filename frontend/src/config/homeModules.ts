@@ -9,7 +9,7 @@ import {
   Wrench,
 } from 'lucide-react';
 
-export type HomeModuleStatus = 'available' | 'planned';
+export type HomeModuleStatus = 'available' | 'planned' | 'admin-only';
 export type HomeModuleAccent = 'blue' | 'amber' | 'emerald' | 'cyan' | 'rose' | 'slate';
 
 export interface HomeModuleDefinition {

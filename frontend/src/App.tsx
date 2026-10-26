@@ -97,6 +97,17 @@ function DashboardStatusAccess({
   children: ReactNode;
 }) {
   const { settings } = useSettings();
+  const { user } = useAuth();
+  if (settings.dashboardStatuses[dashboardId] === 'admin-only' && user?.role !== 'admin') {
+    return (
+      <main className="flex min-h-[60vh] items-center justify-center bg-slate-50 p-6">
+        <div className="max-w-md text-center">
+          <h1 className="text-xl font-semibold text-slate-900">仅管理员可见</h1>
+          <p className="mt-2 text-sm text-slate-500">当前看板仅对管理员开放。</p>
+        </div>
+      </main>
+    );
+  }
   if (settings.dashboardStatuses[dashboardId] === 'planned') {
     return <UnderDevelopmentPage title={title} description={description} />;
   }

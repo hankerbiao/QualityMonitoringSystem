@@ -1,7 +1,7 @@
 import { DefectDetail, RTYData, RTYFilterParams, SalesOrderSummary, PaginatedRTYResponse, PaginatedExcludedOrdersResponse, StationPassDetail, StationPassQuery, StationPassRate } from '../types';
 import { requestData, requestJson } from './authApi';
 import { API_BASE_URL } from '../constants';
-import type { RTYTemplateExport, StationPassExport } from '../types/rty';
+import type { RTYCycleDetails, RTYCycleDetailQuery, RTYTemplateExport, StationPassExport } from '../types/rty';
 import type { UserProfile } from '../types/auth';
 
 const RTY_LIST_CACHE_TTL_MS = 2_000;
@@ -155,6 +155,17 @@ export const rtyApi = {
     params.productModels?.forEach(model => qs.append('productModels', model));
     params.bases?.forEach(base => qs.append('bases', base));
     return requestData<StationPassExport>(`${API_BASE_URL}/rty/cycle-export?${qs}`);
+  },
+  async getCycleDetails(params: RTYCycleDetailQuery): Promise<RTYCycleDetails> {
+    const qs = new URLSearchParams({
+      dateFrom: params.dateFrom,
+      dateTo: params.dateTo,
+      orderScope: params.orderScope,
+    });
+    params.customers?.forEach(customer => qs.append('customers', customer));
+    params.productModels?.forEach(model => qs.append('productModels', model));
+    params.bases?.forEach(base => qs.append('bases', base));
+    return requestData<RTYCycleDetails>(`${API_BASE_URL}/rty/cycle-details?${qs}`);
   },
 
   async getStationPassRates(params: StationPassQuery): Promise<StationPassRate[]> {

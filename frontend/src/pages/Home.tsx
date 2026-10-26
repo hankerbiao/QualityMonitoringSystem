@@ -69,7 +69,9 @@ export default function Home() {
     ...module,
     status: settings.dashboardStatuses[module.id] ?? module.status,
   }));
-  const visibleQualityModules = configuredQualityModules.filter((module) => canView(module.id));
+  const visibleQualityModules = configuredQualityModules.filter((module) =>
+    canView(module.id) && (isAdmin || module.status !== 'admin-only'),
+  );
   const visibleToolModules = toolModules.filter((module) => canView(module.id));
   const visibleModules = [
     ...visibleQualityModules,
@@ -77,7 +79,7 @@ export default function Home() {
     ...(isAdmin ? managementModules : []),
   ];
   const availableFunctionCount = visibleModules.filter(
-    (module) => module.status === 'available',
+    (module) => module.status === 'available' || (isAdmin && module.status === 'admin-only'),
   ).length;
   const plannedFunctionCount = visibleModules.filter(
     (module) => module.status === 'planned',

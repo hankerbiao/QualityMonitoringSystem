@@ -51,6 +51,20 @@ export interface StationPassExport {
   modelSheets?: RepairModelSheet[];
 }
 
+export interface RTYCycleDetailQuery {
+  dateFrom: string;
+  dateTo: string;
+  orderScope: 'normal' | 'l6';
+  productModels?: string[];
+  customers?: string[];
+  bases?: string[];
+}
+
+export interface RTYCycleDetails {
+  orders: Record<string, unknown>[];
+  faults: Record<string, unknown>[];
+}
+
 export interface StationPassRate {
   dimensionValue: string;
   stationCode: string;

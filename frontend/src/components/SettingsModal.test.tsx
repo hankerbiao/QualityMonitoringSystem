@@ -47,6 +47,8 @@ describe('settings pages by role', () => {
     const navigation = screen.getByRole('navigation');
     expect(within(navigation).getAllByRole('button').map(button => button.textContent))
       .toEqual(['机型指标配置', '邮件预警规则', '修改密码']);
+    expect(within(navigation).queryByRole('button', { name: '看板状态' })).toBeNull();
+    expect(screen.queryByText('看板状态管理')).toBeNull();
     expect(screen.getByText('直通率标准配置')).toBeTruthy();
     fireEvent.change(screen.getByDisplayValue('98'), { target: { value: '99' } });
     fireEvent.click(within(navigation).getByRole('button', { name: '邮件预警规则' }));
@@ -66,12 +68,22 @@ describe('settings pages by role', () => {
     render(<SettingsModal onClose={vi.fn()} onSaved={vi.fn()} />);
     expect(within(screen.getByRole('navigation')).getAllByRole('button').map(button => button.textContent))
       .toEqual(['影像数据源', '机型指标配置', '邮件预警规则', '看板状态', '用户管理', '修改密码']);
+    fireEvent.click(screen.getByRole('button', { name: '看板状态' }));
+    expect(screen.getByText('看板状态管理')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('DOA 报修率看板状态'), { target: { value: 'admin-only' } });
     fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
     await waitFor(() => expect(updateSettings).toHaveBeenCalledWith({
       processRecords: { username: 'private-source', password: '' },
       modelTargets: settings.modelTargets,
       emailAlert: settings.emailAlert,
-      dashboardStatuses: settings.dashboardStatuses,
+      dashboardStatuses: {
+        ...settings.dashboardStatuses,
+        rty: 'available',
+        'station-pass-rate': 'available',
+        lrr: 'available',
+        doa: 'admin-only',
+        mfr: 'planned',
+      },
     }));
   });
 

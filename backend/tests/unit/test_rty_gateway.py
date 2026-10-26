@@ -708,6 +708,7 @@ async def test_station_rates_filter_input_by_gstrs_not_actual_pass_time(monkeypa
         return_value=[
             {
                 "PCODE": "SN-IN",
+                "AUFNR": "ORDER-1",
                 "SPEC": "Line-OP205:装配",
                 "MAKTX_TH": "M-1",
                 "GSTRS": "20260515",
@@ -715,6 +716,7 @@ async def test_station_rates_filter_input_by_gstrs_not_actual_pass_time(monkeypa
             },
             {
                 "PCODE": "SN-OUT",
+                "AUFNR": "ORDER-1",
                 "SPEC": "Line-OP205:装配",
                 "MAKTX_TH": "M-1",
                 "GSTRS": "20260615",
@@ -723,8 +725,14 @@ async def test_station_rates_filter_input_by_gstrs_not_actual_pass_time(monkeypa
         ]
     )
     monkeypatch.setattr(gateway, "all_station_rows", station_rows)
-    monkeypatch.setattr(gateway, "all_orders", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        gateway,
+        "all_orders",
+        AsyncMock(return_value=[{"aufnr": "ORDER-1", "plannedStartDate": "2026-05-15", "orderQuantity": 1, "productionModel": "M-1"}]),
+    )
     monkeypatch.setattr(rty_gateway, "_faults_for_sns", AsyncMock(return_value=[]))
+    monkeypatch.setattr(rty_gateway, "_fault_sns_by_orders", AsyncMock(return_value={}))
+    monkeypatch.setattr(rty_gateway, "_fault_sns_by_composite_groups", AsyncMock(return_value={}))
 
     rows = await rty_gateway.station_rates(
         "2026-05-01", "2026-05-31", product_model="M-1", group_by="productModel"
@@ -740,7 +748,7 @@ async def test_station_rates_filter_input_by_gstrs_not_actual_pass_time(monkeypa
 
 
 @pytest.mark.asyncio
-async def test_station_rates_uses_scoped_orders_when_station_rows_omit_if_l6(monkeypatch):
+async def test_station_rates_uses_filtered_orders_when_station_rows_omit_if_l6(monkeypatch):
     gateway = rty_gateway.data_gateway
     monkeypatch.setattr(
         gateway,
@@ -783,6 +791,83 @@ async def test_station_rates_uses_scoped_orders_when_station_rows_omit_if_l6(mon
     )
 
     assert [(row.dimensionValue, row.inputCount) for row in rows] == [("M-1", 1)]
+
+
+@pytest.mark.asyncio
+async def test_station_rates_excludes_l6_orders_from_normal_scope_without_station_flag(monkeypatch):
+    gateway = rty_gateway.data_gateway
+    monkeypatch.setattr(
+        gateway,
+        "all_orders",
+        AsyncMock(
+            return_value=[
+                {
+                    "aufnr": "NORMAL-1",
+                    "productionModel": "M-1",
+                    "orderQuantity": 407,
+                    "plannedStartDate": "2026-10-14",
+                    "raw": {
+                        "data": {
+                            "AUFNR": "NORMAL-1",
+                            "MAKTX_TH": "M-1",
+                            "WMENG": 407,
+                            "IF_L6": "",
+                        }
+                    },
+                },
+                {
+                    "aufnr": "L6-1",
+                    "productionModel": "M-1",
+                    "orderQuantity": 70,
+                    "plannedStartDate": "2026-10-20",
+                    "raw": {
+                        "data": {
+                            "AUFNR": "L6-1",
+                            "MAKTX_TH": "M-1",
+                            "WMENG": 70,
+                            "IF_L6": "X",
+                        }
+                    },
+                },
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        gateway,
+        "all_station_rows",
+        AsyncMock(
+            return_value=[
+                {
+                    "PCODE": f"SN-{index}",
+                    "AUFNR": "NORMAL-1",
+                    "SPEC": "OP20",
+                    "MAKTX_TH": "M-1",
+                    "GSTRS": "20261014",
+                }
+                for index in range(407)
+            ]
+            + [
+                {
+                    "PCODE": f"L6-SN-{index}",
+                    "AUFNR": "L6-1",
+                    "SPEC": "OP20",
+                    "MAKTX_TH": "M-1",
+                    "GSTRS": "20261020",
+                }
+                for index in range(70)
+            ]
+        ),
+    )
+    monkeypatch.setattr(rty_gateway, "_faults_for_sns", AsyncMock(return_value=[]))
+    monkeypatch.setattr(rty_gateway, "_fault_sns_by_orders", AsyncMock(return_value={}))
+    monkeypatch.setattr(rty_gateway, "_fault_sns_by_composite_groups", AsyncMock(return_value={}))
+
+    rows = await rty_gateway.station_rates(
+        "2026-09-27", "2026-10-26", product_model="M-1", group_by="productModel"
+    )
+
+    assert len(rows) == 1
+    assert rows[0].inputCount == rows[0].totalInputCount == 407
 
 
 @pytest.mark.asyncio
@@ -860,12 +945,14 @@ async def test_station_rates_deduplicates_matching_repair_sns(monkeypatch):
             return_value=[
                 {
                     "PCODE": "SN-1",
+                    "AUFNR": "ORDER-1",
                     "SPEC": "Line-OP205:装配",
                     "MAKTX_TH": "M-1",
                     "GSTRS": "20260515",
                 },
                 {
                     "PCODE": "SN-2",
+                    "AUFNR": "ORDER-1",
                     "SPEC": "Line-OP205:装配",
                     "MAKTX_TH": "M-1",
                     "GSTRS": "20260516",
@@ -873,7 +960,11 @@ async def test_station_rates_deduplicates_matching_repair_sns(monkeypatch):
             ]
         ),
     )
-    monkeypatch.setattr(gateway, "all_orders", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        gateway,
+        "all_orders",
+        AsyncMock(return_value=[{"aufnr": "ORDER-1", "plannedStartDate": "2026-05-15", "orderQuantity": 2, "productionModel": "M-1"}]),
+    )
     monkeypatch.setattr(
         rty_gateway,
         "_faults_for_sns",
@@ -885,6 +976,8 @@ async def test_station_rates_deduplicates_matching_repair_sns(monkeypatch):
             ]
         ),
     )
+    monkeypatch.setattr(rty_gateway, "_fault_sns_by_orders", AsyncMock(return_value={}))
+    monkeypatch.setattr(rty_gateway, "_fault_sns_by_composite_groups", AsyncMock(return_value={}))
 
     rows = await rty_gateway.station_rates(
         "2026-05-01", "2026-05-31", product_model="M-1", group_by="productModel"
@@ -906,12 +999,14 @@ async def test_station_rates_uses_repair_ng_station_without_same_sn_pass_row(mon
             return_value=[
                 {
                     "PCODE": "SN-1",
+                    "AUFNR": "ORDER-1",
                     "SPEC": "Line-OP205:装配",
                     "MAKTX_TH": "M-1",
                     "GSTRS": "20260515",
                 },
                 {
                     "PCODE": "SN-2",
+                    "AUFNR": "ORDER-1",
                     "SPEC": "Line-OP215:综检",
                     "MAKTX_TH": "M-1",
                     "GSTRS": "20260516",
@@ -919,7 +1014,11 @@ async def test_station_rates_uses_repair_ng_station_without_same_sn_pass_row(mon
             ]
         ),
     )
-    monkeypatch.setattr(gateway, "all_orders", AsyncMock(return_value=[]))
+    monkeypatch.setattr(
+        gateway,
+        "all_orders",
+        AsyncMock(return_value=[{"aufnr": "ORDER-1", "plannedStartDate": "2026-05-15", "orderQuantity": 2, "productionModel": "M-1"}]),
+    )
     monkeypatch.setattr(
         rty_gateway,
         "_faults_for_sns",
@@ -930,6 +1029,8 @@ async def test_station_rates_uses_repair_ng_station_without_same_sn_pass_row(mon
             ]
         ),
     )
+    monkeypatch.setattr(rty_gateway, "_fault_sns_by_orders", AsyncMock(return_value={}))
+    monkeypatch.setattr(rty_gateway, "_fault_sns_by_composite_groups", AsyncMock(return_value={}))
 
     rows = await rty_gateway.station_rates(
         "2026-05-01", "2026-05-31", product_model="M-1", group_by="productModel"
@@ -975,6 +1076,7 @@ async def test_station_rates_uses_the_same_wmeng_and_fault_sn_summary_as_rty(mon
             return_value=[
                 {
                     "PCODE": "SN-1",
+                    "AUFNR": "1",
                     "SPEC": "Line-OP205:装配",
                     "MAKTX_TH": "6210 C21",
                     "LGORT": "B1",
@@ -1300,8 +1402,12 @@ async def test_station_rates_splits_full_year_into_month_windows(monkeypatch):
         ]
 
     monkeypatch.setattr(gateway, "all_station_rows", all_station_rows)
-    monkeypatch.setattr(gateway, "all_orders", AsyncMock(return_value=[]))
+    monkeypatch.setattr(gateway, "all_orders", AsyncMock(return_value=[{
+        "aufnr": f"ORDER-{date}", "plannedStartDate": date, "orderQuantity": 1, "productionModel": "M-1",
+    } for date in [f"2025-{month:02d}-01" for month in range(1, 13)]]))
     monkeypatch.setattr(rty_gateway, "_faults_for_sns", AsyncMock(return_value=[]))
+    monkeypatch.setattr(rty_gateway, "_fault_sns_by_orders", AsyncMock(return_value={}))
+    monkeypatch.setattr(rty_gateway, "_fault_sns_by_composite_groups", AsyncMock(return_value={}))
     rows = await rty_gateway.station_rates(
         "2025-01-01", "2025-12-31", group_by="productModel"
     )

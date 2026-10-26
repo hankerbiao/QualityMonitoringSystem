@@ -86,6 +86,7 @@ describe('StationPassRatePage customer filter', () => {
       ['OP230', 'CCC安规测试'], ['OP240', 'FQC'], ['OP250', '维修'], ['OP251', '维修'],
       ['OP300', '外箱贴标'], ['OP310', '附件装箱'], ['OP320', '包装'],
     ] as const;
+    context.stationConfig = { selectedStations: descriptions.map(([stationCode]) => stationCode), configured: true };
     vi.mocked(rtyApi.getStationPassRates).mockResolvedValue([...descriptions.map(([stationCode]) => ({
       dimensionValue: 'M',
       stationCode,
@@ -109,7 +110,7 @@ describe('StationPassRatePage customer filter', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
 
-    const stationTable = screen.getByRole('columnheader', { name: /OP10.*组装/ }).closest('table');
+    const stationTable = (await screen.findByRole('columnheader', { name: /OP10.*组装/ })).closest('table');
     expect(stationTable).not.toBeNull();
     const headers = within(stationTable as HTMLTableElement).getAllByRole('columnheader');
     const stationHeaders = headers.slice(3).map((header) => header.textContent ?? '');
@@ -118,25 +119,31 @@ describe('StationPassRatePage customer filter', () => {
     }
     expect(stationHeaders.some((header) => header.includes('OP999'))).toBe(false);
     expect(descriptions).toHaveLength(45);
-    expect(headers).toHaveLength(descriptions.length + 3);
+    expect(stationHeaders.filter((header) => /^OP/.test(header.trim()))).toHaveLength(descriptions.length);
   });
 
   it('allows administrators to persist station selection', async () => {
     context.role = 'admin';
-    vi.mocked(rtyApi.getStationPassRates).mockResolvedValue([{
-      dimensionValue: 'M', stationCode: 'OP10', stationName: '装配',
-      inputCount: 10, defectCount: 1, passRate: 90, totalInputCount: 10, totalDefectCount: 1,
-    }]);
+    vi.mocked(rtyApi.getStationPassRates).mockResolvedValue([
+      { dimensionValue: 'M', stationCode: 'OP10', stationName: '装配',
+        inputCount: 10, defectCount: 1, passRate: 90, totalInputCount: 10, totalDefectCount: 1 },
+      { dimensionValue: 'M', stationCode: 'OP20', stationName: '测试',
+        inputCount: 10, defectCount: 0, passRate: 100, totalInputCount: 10, totalDefectCount: 1 },
+    ]);
     context.updateSettings.mockResolvedValue(undefined);
     render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
     fireEvent.click(await screen.findByRole('button', { name: '配置工站' }));
     fireEvent.click(screen.getByRole('button', { name: '清空' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'OP10' }));
     fireEvent.click(screen.getByRole('button', { name: '完成' }));
     await waitFor(() => expect(context.updateSettings).toHaveBeenCalledWith({
-      stationPassRateConfig: { selectedStations: [] },
+      stationPassRateConfig: { selectedStations: ['OP10'] },
     }));
     await waitFor(() => expect(screen.queryByRole('dialog')).toBeNull());
+    expect(screen.getByRole('columnheader', { name: /OP10/ })).toBeTruthy();
+    expect(screen.queryByRole('columnheader', { name: /OP20/ })).toBeNull();
+    expect(screen.getAllByText('90.00%').length).toBeGreaterThan(0);
   });
 
   it('passes the selected customer to the station query', async () => {
@@ -263,5 +270,51 @@ describe('StationPassRatePage customer filter', () => {
     } finally {
       log.mockRestore();
     }
+  });
+
+  it('exports repair SN with the shared raw fault detail sheet format', async () => {
+    vi.mocked(rtyApi.getStationPassRates).mockResolvedValue([{
+      dimensionValue: 'M', stationCode: 'OP10', stationName: '装配',
+      inputCount: 10, defectCount: 1, passRate: 90,
+      totalInputCount: 10, totalDefectCount: 1,
+    }]);
+    vi.mocked(rtyApi.getStationPassDetails).mockResolvedValue([{
+      id: 'repair-1',
+      sn: '00001',
+      stationCode: 'OP10',
+      stationName: '装配',
+      passDate: '20261022',
+      status: 'defect',
+      repairTime: '',
+      defectCode: 'E01',
+      description: '故障描述',
+      repairPerson: '维修人',
+      raw: {
+        FACTORY: '基地A',
+        PCODE: '00001',
+        ZNGGZ: 'OP10',
+        ZNGWD3: '维度3',
+        ZNGWD2: '维度2',
+        U_FIX: '维修人',
+        AUART: 'C001',
+      },
+    }]);
+    render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+    fireEvent.click(await screen.findByRole('button', { name: /90\.00%/ }));
+    fireEvent.click(await screen.findByRole('button', { name: '维修 SN' }));
+    await waitFor(() => expect(rtyApi.getStationPassDetails).toHaveBeenCalledTimes(2));
+
+    fireEvent.click(screen.getByRole('button', { name: '导出维修 SN' }));
+    await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalledTimes(1));
+
+    const workbook = vi.mocked(XLSX.writeFile).mock.calls[0][0];
+    expect(workbook.SheetNames).toEqual(['维修故障明记录']);
+    const sheet = workbook.Sheets['维修故障明记录'];
+    expect(sheet.J1.v).toBe('不良现象维度2');
+    expect(sheet.J2.v).toBe('维度2');
+    expect(sheet.E2.v).toBe('00001');
+    expect(sheet.AI1.v).toBe('订单类型');
+    expect(sheet['!autofilter']).toEqual({ ref: 'A1:AI2' });
   });
 });

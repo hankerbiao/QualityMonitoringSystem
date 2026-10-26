@@ -152,7 +152,8 @@ class SettingsService:
             **{
                 key: value
                 for key, value in statuses.items()
-                if key in DEFAULT_DASHBOARD_STATUSES and value in ("available", "planned")
+                if key in DEFAULT_DASHBOARD_STATUSES
+                and value in ("available", "planned", "admin-only")
             },
         }
 

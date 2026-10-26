@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-DashboardStatus = Literal["available", "planned"]
+DashboardStatus = Literal["available", "planned", "admin-only"]
 DASHBOARD_STATUS_KEYS = frozenset({"rty", "station-pass-rate", "lrr", "doa", "mfr"})
 DEFAULT_DASHBOARD_STATUSES: dict[str, DashboardStatus] = {
     "rty": "available",

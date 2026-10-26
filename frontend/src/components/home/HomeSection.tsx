@@ -18,7 +18,9 @@ export default function HomeSection({
   variant = 'compact',
   onModuleSelect,
 }: HomeSectionProps) {
-  const availableCount = modules.filter((module) => module.status === 'available').length;
+  const availableCount = modules.filter(
+    (module) => module.status === 'available' || module.status === 'admin-only',
+  ).length;
 
   return (
     <section aria-labelledby={id} className="scroll-mt-24">

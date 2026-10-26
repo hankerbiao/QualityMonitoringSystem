@@ -3,6 +3,7 @@ import { Link, useLocation } from 'react-router-dom';
 import { ChevronDown, LayoutDashboard } from 'lucide-react';
 import { useSettings } from '../../context/SettingsContext';
 import { DEFAULT_DASHBOARD_STATUSES } from '../../config/homeModules';
+import { useAuth } from '../../context/AuthContext';
 
 const dashboards = [
   { path: '/rty', id: 'rty', label: 'RTY', description: '整机综合直通率' },
@@ -15,6 +16,8 @@ const dashboards = [
 export function DashboardSwitcher() {
   const { pathname } = useLocation();
   const { settings } = useSettings();
+  const { user } = useAuth();
+  const isAdmin = user?.role === 'admin';
   const [isOpen, setIsOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement>(null);
   const currentDashboard = dashboards.find((dashboard) => dashboard.path === pathname) ?? dashboards[0];
@@ -54,6 +57,7 @@ export function DashboardSwitcher() {
           {dashboards.map((dashboard) => {
             const isCurrent = dashboard.path === pathname;
             const status = settings.dashboardStatuses[dashboard.id] ?? DEFAULT_DASHBOARD_STATUSES[dashboard.id];
+            if (status === 'admin-only' && !isAdmin) return null;
             if (status === 'planned') {
               return (
                 <span

@@ -7,7 +7,12 @@ import type { RTYData } from '../types';
 import AlertConfigModal from './AlertConfigModal';
 
 vi.mock('../api/rtyApi', () => ({
-  rtyApi: { getCycleData: vi.fn(), getCustomers: vi.fn(), getCycleExport: vi.fn() },
+  rtyApi: {
+    getCycleData: vi.fn(),
+    getCustomers: vi.fn(),
+    getCycleExport: vi.fn(),
+    getCycleDetails: vi.fn(),
+  },
 }));
 vi.mock('../context/SettingsContext', () => ({
   useSettings: () => ({ settings: { cycleStatsConfig: { selectedModels: [] } }, updateSettings: vi.fn() }),
@@ -39,6 +44,10 @@ describe('cycle query and export', () => {
           materialUsage: 20, serialCount: 1, productionQuantity: 10,
         }],
       }],
+    });
+    vi.mocked(rtyApi.getCycleDetails).mockResolvedValue({
+      orders: [{ VBELN: 'SO-1', AUFNR: 'PO-1', WMENG: 10 }],
+      faults: [{ matchedModel: 'Model A', countedSN: 'HEAD-SN', PCODE: 'CHILD-SN' }],
     });
   });
   afterEach(cleanup);
@@ -266,6 +275,40 @@ describe('cycle query and export', () => {
     expect(workbook.Sheets['维修故障明记录'].AI1.v).toBe('订单类型');
     expect(workbook.Sheets['维修故障明记录'].E2.v).toBe('CHILD-SN');
     expect(workbook.Sheets['维修故障明记录'].E3.v).toBe('CHILD-SN');
+  });
+
+  it('opens a month cell with the clipped range and exports its selected detail tab', async () => {
+    render(<AlertConfigModal embedded />);
+    await screen.findByRole('row', { name: /Model A/ });
+
+    fireEvent.click(screen.getByRole('button', { name: /近6个月/ }));
+    fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-09-10' } });
+    fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-10-15' } });
+    fireEvent.click(screen.getByRole('button', { name: '应用日期' }));
+    await screen.findByRole('row', { name: /Model A/ });
+
+    const modelRow = screen.getByRole('row', { name: /Model A/ });
+    fireEvent.click(within(modelRow).getAllByRole('cell')[1].querySelector('button')!);
+
+    expect(await screen.findByRole('heading', { name: 'Model A · 2026-09' })).toBeTruthy();
+    expect(rtyApi.getCycleDetails).toHaveBeenCalledWith({
+      dateFrom: '2026-09-10',
+      dateTo: '2026-09-30',
+      orderScope: 'normal',
+      productModels: ['Model A'],
+      bases: undefined,
+      customers: undefined,
+    });
+    expect(screen.getByText('SO-1')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('tab', { name: /维修记录/ }));
+    expect(screen.getByText('CHILD-SN')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: '导出维修记录' }));
+    await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalledOnce());
+    const workbook = vi.mocked(XLSX.writeFile).mock.calls[0][0];
+    expect(workbook.SheetNames).toEqual(['维修明细']);
+    expect(workbook.Sheets['维修明细'].B2.v).toBe('HEAD-SN');
+    expect(workbook.Sheets['维修明细'].C2.v).toBe('CHILD-SN');
   });
 
   it('filters and exports multiple customers including records without a customer ID', async () => {

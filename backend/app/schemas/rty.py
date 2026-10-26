@@ -92,6 +92,13 @@ class StationPassExport(BaseModel):
     modelSheets: list[RepairModelSheet] = Field(default_factory=list)
 
 
+class RTYCycleDetails(BaseModel):
+    """Raw order and attributed repair rows for one cycle-dashboard selection."""
+
+    orders: list[dict[str, Any]] = Field(default_factory=list)
+    faults: list[dict[str, Any]] = Field(default_factory=list)
+
+
 class StationPassRate(BaseModel):
     """工位过站直通率，汇总值与 RTY 保持同一订单口径。"""
 

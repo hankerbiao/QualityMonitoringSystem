@@ -44,14 +44,14 @@ class TestGetAllSettings:
     async def test_dashboard_statuses_can_be_updated_and_read_publicly(self, client, db_clean):
         response = await client.put(
             "/api/settings",
-            json={"dashboardStatuses": {"doa": "available", "mfr": "planned"}},
+            json={"dashboardStatuses": {"doa": "admin-only", "mfr": "planned"}},
         )
         assert response.status_code == 200
-        assert response.json()["data"]["dashboardStatuses"]["doa"] == "available"
+        assert response.json()["data"]["dashboardStatuses"]["doa"] == "admin-only"
 
         public_response = await client.get("/api/settings/dashboard-statuses")
         assert public_response.status_code == 200
-        assert public_response.json()["data"]["doa"] == "available"
+        assert public_response.json()["data"]["doa"] == "admin-only"
         assert public_response.json()["data"]["mfr"] == "planned"
 
     async def test_invalid_dashboard_status_is_rejected(self, client, db_clean):
@@ -396,6 +396,7 @@ class TestOrdinaryUserSettings:
         [
             {"processRecords": {"username": "changed"}},
             {"dashboardStatuses": {"doa": "available"}},
+            {"dashboardStatuses": {"doa": "admin-only"}},
             {"cycleStatsConfig": {"selectedModels": ["X1"]}},
             {"stationPassRateConfig": {"selectedStations": ["OP10"]}},
             {"processRecords": None},

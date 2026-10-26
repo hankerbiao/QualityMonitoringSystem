@@ -19,7 +19,9 @@ import { useSettings } from '../context/SettingsContext';
 import type { RTYFilterParams, CycleStatsConfig } from '../types';
 import { buildCycleVisualData } from './alert-config/cycleData';
 import { appendSourceSheets } from './rty/templateExport';
+import CycleDetailModal from './rty/CycleDetailModal';
 import { customerIdLabel, NO_CUSTOMER_ID } from '../utils/customerId';
+import type { RTYCycleDetailQuery } from '../types/rty';
 
 interface AlertConfigModalProps {
   onClose?: () => void;
@@ -44,6 +46,13 @@ type ScopeSummaryRow = {
   months: Record<string, ScopeSummaryCell>;
   totalInput: number;
   totalDefect: number;
+};
+
+type CycleDetailSelection = {
+  title: string;
+  query: RTYCycleDetailQuery;
+  inputCount: number;
+  defectCount: number;
 };
 
 // 预定义一些颜色，用于图表中的不同机型
@@ -167,6 +176,16 @@ function formatDate(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, '0');
   const day = String(date.getDate()).padStart(2, '0');
   return `${year}-${month}-${day}`;
+}
+
+function monthRange(month: string, range: CycleDateRange): CycleDateRange {
+  const [year, monthNumber] = month.split('-').map(Number);
+  const monthStart = `${month}-01`;
+  const monthEnd = `${month}-${String(new Date(Date.UTC(year, monthNumber, 0)).getUTCDate()).padStart(2, '0')}`;
+  return {
+    start: range.start > monthStart ? range.start : monthStart,
+    end: range.end < monthEnd ? range.end : monthEnd,
+  };
 }
 
 function getPresetRange(preset: Exclude<CycleTimePreset, 'custom'>): CycleDateRange {
@@ -391,6 +410,7 @@ export default function AlertConfigModal({
     cachedAt: null,
     fromCache: false,
   });
+  const [cycleDetailSelection, setCycleDetailSelection] = useState<CycleDetailSelection | null>(null);
 
   const fetchAllData = useCallback(async (forceRefresh = false) => {
     const fetchId = ++latestFetchId.current;
@@ -559,6 +579,37 @@ export default function AlertConfigModal({
     ])).sort(),
     [allMonths, scopeSummaryRows],
   );
+
+  const openCycleDetails = ({
+    title,
+    scope = orderScope,
+    month,
+    model,
+    inputCount,
+    defectCount,
+  }: {
+    title: string;
+    scope?: RTYFilterParams['orderScope'];
+    month?: string;
+    model?: string;
+    inputCount: number;
+    defectCount: number;
+  }) => {
+    const range = month ? monthRange(month, appliedRange) : appliedRange;
+    const query: RTYCycleDetailQuery = {
+      dateFrom: range.start,
+      dateTo: range.end,
+      orderScope: scope,
+      productModels: model
+        ? [model]
+        : selectedModels?.size
+          ? Array.from(selectedModels)
+          : undefined,
+      bases: selectedBases?.size ? Array.from(selectedBases) : undefined,
+      customers: selectedCustomers.length ? selectedCustomers : undefined,
+    };
+    setCycleDetailSelection({ title, query, inputCount, defectCount });
+  };
 
   // 机型选择/取消的辅助函数
   const handleSaveFilter = async () => {
@@ -944,20 +995,41 @@ export default function AlertConfigModal({
                               return (
                                 <td key={month} className={`px-2 py-2 border-r border-slate-200 text-center text-[10px] ${tone}`}>
                                   {cell ? (
-                                    <div className="leading-tight">
-                                      <div>{cell.rtyRate.toFixed(2)}%</div>
-                                      <div className="mt-0.5 text-[9px] font-normal opacity-80">{cell.defectCount}/{cell.inputCount}</div>
-                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => openCycleDetails({
+                                        title: `${row.label} · ${month}`,
+                                        scope: row.scope,
+                                        month,
+                                        inputCount: cell.inputCount,
+                                        defectCount: cell.defectCount,
+                                      })}
+                                      className="w-full rounded-sm px-1 py-1 leading-tight transition-colors hover:bg-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600"
+                                      title="点击查看该月订单与维修明细"
+                                    >
+                                      <span className="block">{cell.rtyRate.toFixed(2)}%</span>
+                                      <span className="mt-0.5 block text-[9px] font-normal opacity-80">{cell.defectCount}/{cell.inputCount}</span>
+                                    </button>
                                   ) : '-'}
                                 </td>
                               );
                             })}
                             <td className={`px-2 py-2 border-r border-slate-200 text-center text-[10px] ${tone}`}>
                               {totalRty === null ? '-' : (
-                                <div className="leading-tight">
-                                  <div>{totalRty.toFixed(2)}%</div>
-                                  <div className="mt-0.5 text-[9px] font-normal opacity-80">{row.totalInput.toLocaleString()} 台</div>
-                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => openCycleDetails({
+                                    title: `${row.label} · 周期合计`,
+                                    scope: row.scope,
+                                    inputCount: row.totalInput,
+                                    defectCount: row.totalDefect,
+                                  })}
+                                  className="w-full rounded-sm px-1 py-1 leading-tight transition-colors hover:bg-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600"
+                                  title="点击查看所选周期的订单与维修明细"
+                                >
+                                  <span className="block">{totalRty.toFixed(2)}%</span>
+                                  <span className="mt-0.5 block text-[9px] font-normal opacity-80">{row.totalInput.toLocaleString()} 台</span>
+                                </button>
                               )}
                             </td>
                           </tr>
@@ -1002,20 +1074,41 @@ export default function AlertConfigModal({
                                   title={cell?.text || ''}
                                 >
                                   {hasData ? (
-                                    <div className="leading-tight">
-                                      <div className="font-semibold">{rty?.toFixed(2)}%</div>
-                                      <div className="mt-0.5 text-[9px] opacity-75">{cell.text.split('(')[1]?.replace(')', '') || '-'}</div>
-                                    </div>
+                                    <button
+                                      type="button"
+                                      onClick={() => openCycleDetails({
+                                        title: `${row.model} · ${month}`,
+                                        month,
+                                        model: row.model,
+                                        inputCount: cell.inputCount ?? 0,
+                                        defectCount: cell.defectCount ?? 0,
+                                      })}
+                                      className="w-full rounded-sm px-1 py-1 leading-tight transition-colors hover:bg-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600"
+                                      title={`点击查看 ${row.model} ${month} 明细`}
+                                    >
+                                      <span className="block font-semibold">{rty?.toFixed(2)}%</span>
+                                      <span className="mt-0.5 block text-[9px] opacity-75">{cell.text.split('(')[1]?.replace(')', '') || '-'}</span>
+                                    </button>
                                   ) : '-'}
                                 </td>
                               );
                             })}
                             <td className={`px-2 py-2 border-r border-slate-100 text-center text-[10px] font-semibold bg-slate-100 ${totalRty === null ? 'text-slate-400' : totalRty >= row.targetRate ? 'text-green-700' : 'text-red-600'}`}>
                               {totalRty === null ? '-' : (
-                                <div className="leading-tight">
-                                  <div>{totalRty.toFixed(2)}%</div>
-                                  <div className="mt-0.5 text-[9px] font-normal opacity-75">{row.defectCount.toLocaleString()}/{row.inputCount.toLocaleString()}</div>
-                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => openCycleDetails({
+                                    title: `${row.model} · 周期合计`,
+                                    model: row.model,
+                                    inputCount: row.inputCount,
+                                    defectCount: row.defectCount,
+                                  })}
+                                  className="w-full rounded-sm px-1 py-1 leading-tight transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600"
+                                  title={`点击查看 ${row.model} 所选周期明细`}
+                                >
+                                  <span className="block">{totalRty.toFixed(2)}%</span>
+                                  <span className="mt-0.5 block text-[9px] font-normal opacity-75">{row.defectCount.toLocaleString()}/{row.inputCount.toLocaleString()}</span>
+                                </button>
                               )}
                             </td>
                           </tr>
@@ -1042,6 +1135,15 @@ export default function AlertConfigModal({
           </div>
         )}
       </div>
+      {cycleDetailSelection && (
+        <CycleDetailModal
+          title={cycleDetailSelection.title}
+          query={cycleDetailSelection.query}
+          inputCount={cycleDetailSelection.inputCount}
+          defectCount={cycleDetailSelection.defectCount}
+          onClose={() => setCycleDetailSelection(null)}
+        />
+      )}
     </div>
   );
 }

@@ -5,8 +5,8 @@ import pytest
 from fastapi import FastAPI, HTTPException
 
 from app.api import auth, rty
-from app.schemas.rty import RTYTemplateExport, StationPassExport
-from app.services import rty_gateway
+from app.schemas.rty import RTYCycleDetails, RTYTemplateExport, StationPassExport
+from app.services import cycle_details, rty_gateway
 
 
 @pytest.mark.asyncio
@@ -70,6 +70,80 @@ async def test_cycle_data_rejects_reversed_daily_range():
             dateTo="2026-04-14",
         )
     assert error.value.detail == "开始日期不能晚于结束日期"
+
+
+@pytest.mark.asyncio
+async def test_cycle_details_forwards_applied_filters(monkeypatch):
+    details = AsyncMock(return_value=RTYCycleDetails())
+    monkeypatch.setattr(cycle_details, "build_cycle_details", details)
+
+    response = await rty.get_cycle_details(
+        request=None,
+        dateFrom="2026-09-01",
+        dateTo="2026-09-30",
+        customer="C",
+        customers=["C-2", "__NO_CUSTOMER_ID__"],
+        productModels=["Model A"],
+        bases=["B", "D"],
+        orderScope="l6",
+    )
+
+    assert response.success
+    details.assert_awaited_once_with(
+        {
+            "salesOrder": "",
+            "productionOrder": "",
+            "serialNumber": "",
+            "base": "",
+            "productModel": "",
+            "customer": "C",
+            "dateFrom": "2026-09-01",
+            "dateTo": "2026-09-30",
+            "orderScope": "l6",
+            "calculationMethod": "",
+        },
+        product_models=["Model A"],
+        bases=["B", "D"],
+        customers=["C-2", "__NO_CUSTOMER_ID__", "C"],
+    )
+    route = next(route for route in rty.router.routes if route.path == "/cycle-details")
+    assert route.dependencies
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("permissions", "status"),
+    [(["rty"], 200), (["station-pass-rate"], 403), ([], 403)],
+)
+async def test_cycle_details_requires_rty_permission(monkeypatch, permissions, status):
+    details = AsyncMock(
+        return_value=RTYCycleDetails(orders=[{"AUFNR": "PO-1"}], faults=[])
+    )
+    monkeypatch.setattr(cycle_details, "build_cycle_details", details)
+    app = FastAPI()
+    app.include_router(rty.router, prefix="/api/rty")
+    app.dependency_overrides[auth.get_current_user] = lambda: {
+        "role": "user",
+        "dashboardPermissions": permissions,
+    }
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app),
+        base_url="http://test",
+    ) as client:
+        response = await client.get(
+            "/api/rty/cycle-details",
+            params={"dateFrom": "2026-09-01", "dateTo": "2026-09-30"},
+        )
+
+    assert response.status_code == status
+    if status == 200:
+        assert response.json()["data"] == {
+            "orders": [{"AUFNR": "PO-1"}],
+            "faults": [],
+        }
+        details.assert_awaited_once()
+    else:
+        details.assert_not_awaited()
 
 
 @pytest.mark.asyncio
