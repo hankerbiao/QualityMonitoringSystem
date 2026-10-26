@@ -6,7 +6,7 @@ from app.services import mail_service
 
 
 @pytest.mark.asyncio
-async def test_send_email_bypasses_environment_proxy_for_mail_relay(monkeypatch):
+async def test_send_email_uses_mail_service_contract_and_runtime_proxy(monkeypatch):
     captured = {}
 
     class MockResponse:
@@ -25,8 +25,9 @@ async def test_send_email_bypasses_environment_proxy_for_mail_relay(monkeypatch)
         async def __aexit__(self, *args):
             return None
 
-        async def post(self, url, json):
+        async def post(self, url, headers, json):
             captured["url"] = url
+            captured["headers"] = headers
             captured["payload"] = json
             return MockResponse()
 
@@ -34,12 +35,27 @@ async def test_send_email_bypasses_environment_proxy_for_mail_relay(monkeypatch)
     monkeypatch.setattr(
         mail_service,
         "get_settings",
-        lambda: SimpleNamespace(MAIL_PROXY_URL="http://mail-relay.test/send"),
+        lambda: SimpleNamespace(
+            MAIL_PROXY_URL="https://mail-service.test/send",
+            MAIL_PROXY_TOKEN="test-token",
+        ),
     )
 
-    response = await mail_service.send_email("subject", "<p>body</p>", ["qa@example.com"])
+    response = await mail_service.send_email(
+        "subject",
+        "<p>body</p>",
+        ["qa@example.com"],
+        cc=["cc@example.com"],
+    )
 
     assert response == {"accepted": True}
-    assert captured["client_options"]["trust_env"] is False
-    assert captured["url"] == "http://mail-relay.test/send"
+    assert captured["client_options"]["trust_env"] is True
+    assert captured["url"] == "https://mail-service.test/send"
+    assert captured["headers"] == {
+        "Authorization": "Bearer test-token",
+        "Content-Type": "application/json",
+    }
     assert captured["payload"]["to"] == ["qa@example.com"]
+    assert captured["payload"]["cc"] == ["cc@example.com"]
+    assert captured["payload"]["subject"] == "subject"
+    assert captured["payload"]["content"] == "<p>body</p>"

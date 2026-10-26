@@ -59,9 +59,11 @@ class Settings(BaseSettings):
     # 报表链接指向的前端地址（用于邮件中拼装 URL）
     APP_PUBLIC_BASE_URL: str = "https://apps.1oa.com.cn/QualiBoard"
 
-    # 邮件代理地址（中间件转发，用于发送告警邮件）
-    # 默认地址由运维提供；如环境变化可通过环境变量 MAIL_PROXY_URL 覆盖。
-    MAIL_PROXY_URL: str = "http://10.32.129.1/springboard_v3/mail_proxy/buqualiboard"
+    # 邮件服务配置；Token 仅通过环境变量注入，不写入代码仓库。
+    MAIL_PROXY_URL: str = (
+        "https://one.1oa.com.cn/springboard/api/v1/integrations/mail/app"
+    )
+    MAIL_PROXY_TOKEN: str = ""
 
     # 日志配置
     LOG_DIR: str = "logs"

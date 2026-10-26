@@ -6,9 +6,9 @@ MongoDB 仅用于读取本地配置（例如机型目标直通率）。
 """
 
 import asyncio
-from datetime import datetime, timezone
 from typing import Any
 
+from app.core.timezone import beijing_now
 from app.db.mongodb import get_database
 from app.models.documents import Collections
 from app.schemas.alert_report import AlertContext, AlertReportData, AlertReportSummary
@@ -94,7 +94,7 @@ async def build_alert_report(
     if order_numbers:
         defects = (await details_by_orders(order_numbers, product_model or None))[:DEFECT_LIMIT]
 
-    now = datetime.now(timezone.utc)
+    now = beijing_now()
     summary = AlertReportSummary(
         rtyRate=rty_rate,
         targetRate=target_rate,

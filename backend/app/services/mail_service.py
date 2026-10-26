@@ -1,16 +1,14 @@
 """
 邮件发送服务
 
-通过中间件代理发送 HTML 邮件。代理地址由配置 MAIL_PROXY_URL 指定（默认
-http://10.32.129.1/springboard_v3/mail_proxy/buqualiboard）。
+通过统一邮件服务发送 HTML 邮件。地址和 Bearer Token 由配置提供。
 
 请求体 JSON 结构:
 {
-  "subject": "xxx",
-  "html_content": "xxx",
   "to": ["libiao1@sugon.com"],
-  "bcc": [],
-  "reply_to": []
+  "cc": [],
+  "subject": "xxx",
+  "content": "xxx"
 }
 """
 import httpx
@@ -27,8 +25,7 @@ async def send_email(
     subject: str,
     html_content: str,
     to: list[str],
-    bcc: list[str] | None = None,
-    reply_to: list[str] | None = None,
+    cc: list[str] | None = None,
     timeout: float = 10.0,
 ) -> dict:
     """
@@ -38,8 +35,7 @@ async def send_email(
         subject: 邮件主题
         html_content: HTML 正文
         to: 收件人邮箱列表（至少 1 个）
-        bcc: 密送列表（可选）
-        reply_to: 回复地址列表（可选）
+        cc: 抄送列表（可选）
         timeout: 请求超时时间（秒）
 
     Returns:
@@ -51,24 +47,31 @@ async def send_email(
     if not to:
         raise MailSendError("收件人列表不能为空")
 
-    payload = {
-        "subject": subject,
-        "html_content": html_content,
-        "to": to,
-        "bcc": bcc or [],
-        "reply_to": reply_to or [],
-    }
+    settings = get_settings()
+    mail_url = settings.MAIL_PROXY_URL
+    mail_token = settings.MAIL_PROXY_TOKEN.strip()
+    if not mail_token:
+        raise MailSendError("邮件服务 Token 未配置")
 
-    mail_url = get_settings().MAIL_PROXY_URL
+    payload = {
+        "to": to,
+        "cc": cc or [],
+        "subject": subject,
+        "content": html_content,
+    }
+    headers = {
+        "Authorization": f"Bearer {mail_token}",
+        "Content-Type": "application/json",
+    }
 
     # 关键日志记录：记录发出的邮件代理请求地址
     log_info(f"post {mail_url}")
 
     try:
-        # The mail relay is an internal endpoint; do not route it through
-        # build-time HTTP_PROXY values baked into the container image.
-        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
-            resp = await client.post(mail_url, json=payload)
+        # Match the curl integration: honor the runtime proxy environment when
+        # the deployment network requires it to reach the external mail service.
+        async with httpx.AsyncClient(timeout=timeout, trust_env=True) as client:
+            resp = await client.post(mail_url, headers=headers, json=payload)
     except httpx.HTTPError as exc:
         log_error(f"邮件代理请求异常: {mail_url} | {exc}")
         raise MailSendError(f"邮件代理请求异常: {exc}") from exc

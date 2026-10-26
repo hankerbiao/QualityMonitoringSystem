@@ -1,3 +1,6 @@
+from datetime import datetime
+
+from app.core.timezone import BEIJING_TZ
 from app.models.documents import Collections
 from app.schemas.alert_report import AlertContext
 from app.schemas.rty import DefectDetail
@@ -47,6 +50,11 @@ async def test_build_alert_report_uses_gateway_orders_faults_and_details(monkeyp
     monkeypatch.setattr(alert_report, "_orders", load_orders)
     monkeypatch.setattr(alert_report, "_fault_sns_by_orders", load_faults)
     monkeypatch.setattr(alert_report, "details_by_orders", load_details)
+    monkeypatch.setattr(
+        alert_report,
+        "beijing_now",
+        lambda: datetime(2026, 10, 26, 16, 30, tzinfo=BEIJING_TZ),
+    )
 
     report = await alert_report.build_alert_report(
         AlertContext(
@@ -68,6 +76,7 @@ async def test_build_alert_report_uses_gateway_orders_faults_and_details(monkeyp
     assert report.summary.defectCount == 1
     assert report.summary.rtyRate == 66.67
     assert [item.sn for item in report.defects] == ["SN-1"]
+    assert report.generatedAt == "2026-10-26 16:30"
 
     current_rule_report = await alert_report.build_alert_report(
         AlertContext(productModel="Model A"),

@@ -5,7 +5,7 @@
 - POST /api/alert-report/preview: (已登录 + DEBUG) 生成报表签名链接，供测试 / 邮件发送调用。
 - POST /api/alert-report/notify: (已登录) 根据告警上下文发送含报表链接的告警邮件。
 """
-from datetime import datetime, timezone
+from datetime import datetime
 
 from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
@@ -13,6 +13,7 @@ from pydantic import BaseModel
 from app.api.auth import get_current_user
 from app.core.config import get_settings
 from app.core.logger import log_info
+from app.core.timezone import BEIJING_TZ
 from app.libs.alert_token import build_alert_report_url, create_alert_token, verify_alert_token
 from app.schemas.alert_report import AlertContext, AlertReportData
 from app.schemas.common import Response
@@ -45,7 +46,7 @@ async def get_alert_report(token: str, request: Request):
 
     exp = payload.get("exp")
     if isinstance(exp, int):
-        data.expiresAt = datetime.fromtimestamp(exp, tz=timezone.utc).strftime("%Y-%m-%d %H:%M")
+        data.expiresAt = datetime.fromtimestamp(exp, tz=BEIJING_TZ).strftime("%Y-%m-%d %H:%M")
 
     return Response(success=True, data=data, message="ok")
 

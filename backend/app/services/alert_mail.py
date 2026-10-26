@@ -10,10 +10,10 @@ HTML 告警邮件，并通过邮件代理(mail_service)发出。
 - 报表链接由 alert_token 签名生成，免登录即可查看完整明细。
 - 纯内联样式 HTML，兼容主流邮件客户端。
 """
-from datetime import datetime
 from typing import Any
 
 from app.core.logger import log_error, log_info, log_warning
+from app.core.timezone import beijing_now
 from app.db.mongodb import get_database
 from app.libs.alert_token import build_alert_report_url, create_alert_token
 from app.models.documents import Collections
@@ -295,7 +295,7 @@ def build_test_email_html(report_url: str | None = None, sent_at: str = "") -> s
             "查看示例报表</a></td></tr></table>"
         )
 
-    sent_at_text = sent_at or datetime.now().strftime("%Y-%m-%d %H:%M")
+    sent_at_text = sent_at or beijing_now().strftime("%Y-%m-%d %H:%M")
 
     return f"""
 <!DOCTYPE html>
@@ -376,7 +376,7 @@ async def send_test_email(emails: str) -> dict:
     token = create_alert_token(sample_ctx.model_dump(exclude_none=True))
     report_url = build_alert_report_url(token)
 
-    sent_at = datetime.now().strftime("%Y-%m-%d %H:%M")
+    sent_at = beijing_now().strftime("%Y-%m-%d %H:%M")
     subject = "【测试】QualiBoard 邮件预警配置验证"
     html_content = build_test_email_html(report_url=report_url, sent_at=sent_at)
 

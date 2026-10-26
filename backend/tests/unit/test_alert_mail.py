@@ -1,5 +1,5 @@
 from app.schemas.alert_report import AlertContext, AlertReportData, AlertReportSummary
-from app.services.alert_mail import build_alert_email_html
+from app.services.alert_mail import build_alert_email_html, build_test_email_html
 from app.services.alert_mail_support import parse_emails, target_from_config
 
 
@@ -24,3 +24,8 @@ def test_alert_template_escapes_report_values():
     html = build_alert_email_html(report, "https://example.test/report")
     assert "&lt;unsafe&gt;" in html
     assert "<unsafe>" not in html
+
+
+def test_test_email_template_preserves_beijing_time_text():
+    html = build_test_email_html(sent_at="2026-10-26 16:30")
+    assert "发送时间：2026-10-26 16:30" in html
