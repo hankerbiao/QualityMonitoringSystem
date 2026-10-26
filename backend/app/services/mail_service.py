@@ -68,9 +68,9 @@ async def send_email(
     log_info(f"post {mail_url}")
 
     try:
-        # Match the curl integration: honor the runtime proxy environment when
-        # the deployment network requires it to reach the external mail service.
-        async with httpx.AsyncClient(timeout=timeout, trust_env=True) as client:
+        # The backend is deployed with runtime proxy variables disabled. Keep
+        # this explicit so mail requests cannot accidentally inherit a proxy.
+        async with httpx.AsyncClient(timeout=timeout, trust_env=False) as client:
             resp = await client.post(mail_url, headers=headers, json=payload)
     except httpx.HTTPError as exc:
         log_error(f"邮件代理请求异常: {mail_url} | {exc}")

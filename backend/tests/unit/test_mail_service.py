@@ -6,7 +6,7 @@ from app.services import mail_service
 
 
 @pytest.mark.asyncio
-async def test_send_email_uses_mail_service_contract_and_runtime_proxy(monkeypatch):
+async def test_send_email_uses_mail_service_contract_without_runtime_proxy(monkeypatch):
     captured = {}
 
     class MockResponse:
@@ -49,7 +49,7 @@ async def test_send_email_uses_mail_service_contract_and_runtime_proxy(monkeypat
     )
 
     assert response == {"accepted": True}
-    assert captured["client_options"]["trust_env"] is True
+    assert captured["client_options"]["trust_env"] is False
     assert captured["url"] == "https://mail-service.test/send"
     assert captured["headers"] == {
         "Authorization": "Bearer test-token",

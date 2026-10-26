@@ -22,6 +22,14 @@ x-backend-environment: &backend-environment
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
   LOG_JSON_FORMAT: ${LOG_JSON_FORMAT:-false}
   TZ: ${TZ:-Asia/Shanghai}
+  HTTP_PROXY: ""
+  http_proxy: ""
+  HTTPS_PROXY: ""
+  https_proxy: ""
+  ALL_PROXY: ""
+  all_proxy: ""
+  NO_PROXY: "*"
+  no_proxy: "*"
 
 services:
   backend:
