@@ -153,7 +153,12 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
                 <ModelTargetsTab targets={modelTargets} onChange={setModelTargets} disabled={saving} onBusyChange={setModelTargetsBusy} />
               )}
               {selectedTab === 'email' && (
-                <EmailAlertTab config={emailConfig} onChange={setEmailConfig} />
+                <EmailAlertTab
+                  config={emailConfig}
+                  modelTargets={modelTargets}
+                  canRunImmediately={isAdmin}
+                  onChange={setEmailConfig}
+                />
               )}
               {selectedTab === 'dashboardStatuses' && (
                 <DashboardStatusTab statuses={dashboardStatuses} onChange={setDashboardStatuses} />

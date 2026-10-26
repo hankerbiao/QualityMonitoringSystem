@@ -26,6 +26,7 @@ from app.schemas.settings import (
     DashboardStatus,
     EmailAlertConfig,
     EmailAlertConfigUpdate,
+    ManualWeeklyEmailCheckRequest,
     ModelTargetsResponse,
     ProcessRecordConfig,
     ProcessRecordConfigUpdate,
@@ -311,6 +312,33 @@ async def run_weekly_check():
     """
     result = await run_weekly_production_check()
     return Response(success=True, data=result, message="每周生产量预警检查已执行")
+
+
+@router.post(
+    "/email-alert/send-current",
+    response_model=Response[dict],
+    dependencies=[Depends(require_admin)],
+)
+async def send_current_email_alerts(request: ManualWeeklyEmailCheckRequest):
+    """按页面当前配置立即发送符合条件机型的真实预警邮件。"""
+    emails = [
+        email.strip() for email in request.emails.replace("；", ";").split(";") if email.strip()
+    ]
+    if not emails:
+        raise HTTPException(status_code=400, detail="请先填写接收人邮箱")
+    for email in emails:
+        if "@" not in email:
+            raise HTTPException(status_code=400, detail=f"Invalid email format: {email}")
+
+    result = await run_weekly_production_check(
+        {
+            "enabled": request.enabled,
+            "emails": "; ".join(emails),
+            "weeklyProductionThreshold": request.weeklyProductionThreshold,
+            "modelTargets": request.modelTargets,
+        }
+    )
+    return Response(success=True, data=result, message="当前条件预警邮件发送已执行")
 
 
 @router.get("/email-alert/qualified-models", response_model=Response[dict])

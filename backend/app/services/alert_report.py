@@ -60,13 +60,20 @@ async def _faults_by_model(orders: list[dict[str, Any]]) -> dict[str, set[str]]:
     return result
 
 
-async def build_alert_report(context: AlertContext) -> AlertReportData:
+async def build_alert_report(
+    context: AlertContext,
+    *,
+    targets_override: dict[str, float] | None = None,
+) -> AlertReportData:
     """根据告警上下文实时聚合生成报表数据。"""
     db = get_database()
 
-    # 机型指标仍属于本系统配置，不属于生产业务数据源。
-    targets_doc = await db[Collections.CONFIGS].find_one({"key": "model_targets"})
-    targets_map: dict[str, float] = (targets_doc or {}).get("targets", {}) or {}
+    if targets_override is None:
+        # 机型指标仍属于本系统配置，不属于生产业务数据源。
+        targets_doc = await db[Collections.CONFIGS].find_one({"key": "model_targets"})
+        targets_map: dict[str, float] = (targets_doc or {}).get("targets", {}) or {}
+    else:
+        targets_map = targets_override
 
     orders = await _orders(_build_gateway_filters(context))
     order_numbers = {order["aufnr"] for order in orders if order.get("aufnr")}

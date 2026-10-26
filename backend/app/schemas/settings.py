@@ -128,6 +128,24 @@ class EmailAlertConfigUpdate(BaseModel):
     weeklyProductionThreshold: int | None = Field(None, ge=0)
 
 
+class ManualWeeklyEmailCheckRequest(BaseModel):
+    """使用页面当前配置立即执行一次周生产量预警。"""
+
+    enabled: bool
+    emails: str
+    weeklyProductionThreshold: int = Field(..., ge=0)
+    modelTargets: dict[str, float] | None = None
+
+    @field_validator("modelTargets", mode="before")
+    @classmethod
+    def validate_targets(cls, value: dict | None) -> dict[str, float] | None:
+        if value is not None:
+            if not isinstance(value, dict):
+                raise ValueError("机型指标必须为机型与直通率的映射")
+            return validate_model_targets(value)
+        return value
+
+
 # ============== 周期统计看板配置 ==============
 
 

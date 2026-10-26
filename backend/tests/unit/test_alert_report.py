@@ -68,3 +68,9 @@ async def test_build_alert_report_uses_gateway_orders_faults_and_details(monkeyp
     assert report.summary.defectCount == 1
     assert report.summary.rtyRate == 66.67
     assert [item.sn for item in report.defects] == ["SN-1"]
+
+    current_rule_report = await alert_report.build_alert_report(
+        AlertContext(productModel="Model A"),
+        targets_override={"Model A": 80},
+    )
+    assert current_rule_report.summary.targetRate == 80

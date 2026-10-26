@@ -55,3 +55,57 @@ async def test_get_weekly_production_candidates_uses_gateway_orders_and_faults(m
             "targetRate": 90.0,
         }
     ]
+
+    current_targets = await weekly_alert.get_weekly_production_candidates(
+        threshold=2,
+        targets={"Model A": 60, "Model B": 100},
+    )
+    assert current_targets["modelsChecked"] == 2
+    assert current_targets["details"] == []
+
+
+async def test_manual_check_uses_current_config_for_candidates_and_mail(monkeypatch):
+    calls = {}
+    candidates = {
+        "window": {"from": "2026-10-23 00:00:00", "to": "2026-10-26 17:00:00"},
+        "threshold": 12,
+        "modelsChecked": 1,
+        "details": [
+            {
+                "productModel": "Model A",
+                "inputCount": 12,
+                "defectCount": 2,
+                "rtyRate": 83.33,
+                "targetRate": 90,
+            }
+        ],
+    }
+
+    async def load_candidates(threshold, *, targets=None):
+        calls["candidate_config"] = {"threshold": threshold, "targets": targets}
+        return candidates
+
+    async def send_email(context, *, config_override=None):
+        calls["mail_config"] = config_override
+        calls["model"] = context.productModel
+        return {"sent": True}
+
+    monkeypatch.setattr(weekly_alert, "get_database", lambda: object())
+    monkeypatch.setattr(weekly_alert, "get_weekly_production_candidates", load_candidates)
+    monkeypatch.setattr(weekly_alert, "send_rty_alert_email", send_email)
+    config = {
+        "enabled": True,
+        "emails": "current@example.com",
+        "weeklyProductionThreshold": 12,
+        "modelTargets": {"Model A": 90},
+    }
+
+    result = await weekly_alert.run_weekly_production_check(config)
+
+    assert calls == {
+        "candidate_config": {"threshold": 12, "targets": {"Model A": 90}},
+        "mail_config": config,
+        "model": "Model A",
+    }
+    assert result["alertsSent"] == 1
+    assert result["alertsFailed"] == 0

@@ -421,6 +421,16 @@ class TestOrdinaryUserSettings:
             ("get", "/api/settings/cycle-stats-config", None),
             ("put", "/api/settings/cycle-stats-config", {"selectedModels": ["X1"]}),
             ("post", "/api/settings/email-alert/run-weekly-check", None),
+            (
+                "post",
+                "/api/settings/email-alert/send-current",
+                {
+                    "enabled": True,
+                    "emails": "current@example.com",
+                    "weeklyProductionThreshold": 10,
+                    "modelTargets": {},
+                },
+            ),
             ("get", "/api/admin/users", None),
         ],
     )
@@ -473,6 +483,59 @@ class TestOrdinaryUserSettings:
         )
         assert response.status_code == 200
         assert response.json()["data"]["threshold"] == 100
+
+    async def test_manual_alert_uses_current_form_values_without_saving(
+        self, client, db_clean, monkeypatch
+    ):
+        from app.api import settings
+
+        received = {}
+
+        async def run_check(config_override):
+            received.update(config_override)
+            return {
+                "checked": True,
+                "threshold": config_override["weeklyProductionThreshold"],
+                "modelsChecked": 1,
+                "alertsSent": 1,
+                "alertsFailed": 0,
+                "details": [],
+                "failures": [],
+            }
+
+        monkeypatch.setattr(settings, "run_weekly_production_check", run_check)
+        response = await client.post(
+            "/api/settings/email-alert/send-current",
+            json={
+                "enabled": True,
+                "emails": "current@example.com",
+                "weeklyProductionThreshold": 12,
+                "modelTargets": {"X1": 98.5},
+            },
+        )
+
+        assert response.status_code == 200
+        assert response.json()["data"]["alertsSent"] == 1
+        assert received == {
+            "enabled": True,
+            "emails": "current@example.com",
+            "weeklyProductionThreshold": 12,
+            "modelTargets": {"X1": 98.5},
+        }
+        assert await db_clean.configs.find_one({"key": "email_alert_config"}) is None
+
+    async def test_manual_alert_rejects_invalid_current_email(self, client):
+        response = await client.post(
+            "/api/settings/email-alert/send-current",
+            json={
+                "enabled": True,
+                "emails": "not-an-email",
+                "weeklyProductionThreshold": 10,
+                "modelTargets": {},
+            },
+        )
+
+        assert response.status_code == 400
 
     @pytest.mark.parametrize(
         ("method", "path", "payload"),

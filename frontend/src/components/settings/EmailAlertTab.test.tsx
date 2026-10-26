@@ -7,10 +7,12 @@ import { EmailAlertTab } from './EmailAlertTab';
 vi.mock('../../api/settingsApi', () => ({
   settingsApi: {
     testEmail: vi.fn(),
+    sendCurrentEmailAlerts: vi.fn(),
     getWeeklyQualifiedModels: vi.fn(),
   },
 }));
 
+const modelTargets = { 'Model A': 90 };
 const config = {
   enabled: true,
   emails: 'qa@example.com',
@@ -24,20 +26,33 @@ describe('EmailAlertTab', () => {
     vi.resetAllMocks();
   });
 
-  it('shows a useful mail-relay error and keeps the rule page concise', async () => {
-    vi.mocked(settingsApi.testEmail).mockResolvedValue({
-      sent: false,
-      reason: 'send_error',
-      error: '邮件代理请求异常: All connection attempts failed',
+  it('reports a partial send failure and keeps the rule page concise', async () => {
+    vi.spyOn(window, 'confirm').mockReturnValue(true);
+    vi.mocked(settingsApi.sendCurrentEmailAlerts).mockResolvedValue({
+      checked: true,
+      threshold: 10,
+      window: { from: '2026-10-23 00:00:00', to: '2026-10-26 10:00:00' },
+      modelsChecked: 1,
+      details: [{ productModel: 'Model A', inputCount: 10, defectCount: 2, rtyRate: 80, targetRate: 90 }],
+      alertsSent: 0,
+      alertsFailed: 1,
+      failures: [{ productModel: 'Model A', reason: 'send_error', error: '邮件代理连接失败' }],
     });
-    render(<EmailAlertTab config={config} onChange={vi.fn()} />);
+    render(<EmailAlertTab config={config} modelTargets={modelTargets} canRunImmediately onChange={vi.fn()} />);
 
     expect(screen.queryByText('配置当直通率低于标准时的邮件预警行为与触发条件。')).toBeNull();
     expect(screen.getByRole('textbox', { name: '预警接收人邮箱' })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole('button', { name: '发送测试邮件' }));
+    fireEvent.click(screen.getByRole('button', { name: '立即发送符合条件机型预警' }));
 
-    expect((await screen.findByRole('alert')).textContent).toContain('邮件代理连接失败，请检查服务网络后重试');
+    expect(window.confirm).toHaveBeenCalledOnce();
+    expect(settingsApi.sendCurrentEmailAlerts).toHaveBeenCalledWith({
+      enabled: true,
+      emails: 'qa@example.com',
+      weeklyProductionThreshold: 10,
+      modelTargets,
+    });
+    expect((await screen.findByRole('alert')).textContent).toContain('1 个机型发送失败：Model A');
     expect(screen.queryByText('已尝试发送测试邮件')).toBeNull();
   });
 });

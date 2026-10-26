@@ -1,6 +1,11 @@
 import { Mail, Send, Loader2, CheckCircle2, XCircle, FileText, Hash, ListFilter } from 'lucide-react';
 import { useState } from 'react';
-import { settingsApi, type WeeklyQualifiedModels } from '../../api/settingsApi';
+import {
+  settingsApi,
+  type ManualWeeklyEmailCheckResult,
+  type WeeklyQualifiedModels,
+} from '../../api/settingsApi';
+import type { ModelTargets } from '../../types';
 import {
   buildTriggerCondition,
   DEFAULT_TRIGGER_CONDITION,
@@ -15,6 +20,8 @@ interface EmailAlertTabProps {
     triggerCondition: string;
     weeklyProductionThreshold: number;
   };
+  modelTargets: ModelTargets;
+  canRunImmediately: boolean;
   onChange: (config: {
     enabled: boolean;
     emails: string;
@@ -25,9 +32,9 @@ interface EmailAlertTabProps {
 
 export { buildTriggerCondition, DEFAULT_TRIGGER_CONDITION, DEFAULT_WEEKLY_PRODUCTION_THRESHOLD };
 
-export function EmailAlertTab({ config, onChange }: EmailAlertTabProps) {
-  const [testing, setTesting] = useState(false);
-  const [testMsg, setTestMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+export function EmailAlertTab({ config, modelTargets, canRunImmediately, onChange }: EmailAlertTabProps) {
+  const [sending, setSending] = useState(false);
+  const [sendMsg, setSendMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
   const [qualifiedModels, setQualifiedModels] = useState<WeeklyQualifiedModels | null>(null);
   const [modelsError, setModelsError] = useState<string | null>(null);
@@ -39,33 +46,52 @@ export function EmailAlertTab({ config, onChange }: EmailAlertTabProps) {
     ? config.triggerCondition
     : generatedTriggerCondition;
 
-  const handleTest = async () => {
-    if (!config.emails.trim()) {
-      setTestMsg({ type: 'error', text: '请先填写接收人邮箱' });
+  const handleSendCurrentAlerts = async () => {
+    if (!canRunImmediately) {
+      setSendMsg({ type: 'error', text: '仅管理员可以立即发送预警邮件' });
       return;
     }
-    setTesting(true);
-    setTestMsg(null);
+    if (!config.enabled) {
+      setSendMsg({ type: 'error', text: '请先启用邮件预警规则' });
+      return;
+    }
+    if (!config.emails.trim()) {
+      setSendMsg({ type: 'error', text: '请先填写接收人邮箱' });
+      return;
+    }
+    const confirmed = window.confirm(
+      '将按当前统计窗口和页面配置筛选符合条件的机型，并向配置邮箱发送真实预警邮件。本次操作不会保存配置。是否继续？',
+    );
+    if (!confirmed) return;
+
+    setSending(true);
+    setSendMsg(null);
     try {
-      const data = await settingsApi.testEmail(config.emails);
-      if (data.sent) {
-        setTestMsg({
-          type: 'success',
-          text: `测试邮件已发送至 ${data.recipients?.join(', ') || '配置邮箱'}`,
+      const data: ManualWeeklyEmailCheckResult = await settingsApi.sendCurrentEmailAlerts({
+        enabled: config.enabled,
+        emails: config.emails,
+        weeklyProductionThreshold: threshold,
+        modelTargets,
+      });
+      setQualifiedModels(data);
+      if (!data.checked && data.reason === 'disabled') {
+        setSendMsg({ type: 'error', text: '邮件预警规则未启用，未发送邮件' });
+      } else if ((data.alertsFailed ?? 0) > 0) {
+        const failedModels = data.failures?.map(({ productModel }) => productModel).join('、');
+        setSendMsg({
+          type: 'error',
+          text: `已发送 ${data.alertsSent ?? 0} 个机型，${data.alertsFailed} 个机型发送失败${failedModels ? `：${failedModels}` : ''}`,
         });
+      } else if ((data.alertsSent ?? 0) === 0) {
+        setSendMsg({ type: 'success', text: '当前条件下没有符合机型，未发送邮件' });
       } else {
-        const message = data.reason === 'no_recipients'
-          ? '收件人邮箱无效'
-          : data.error?.toLowerCase().includes('all connection attempts failed')
-            ? '邮件代理连接失败，请检查服务网络后重试'
-            : data.error || '测试邮件发送失败，请检查邮件服务配置';
-        setTestMsg({ type: 'error', text: message });
+        setSendMsg({ type: 'success', text: `已向 ${data.alertsSent} 个符合条件的机型发送预警邮件` });
       }
     } catch (err) {
-      const message = err instanceof Error ? err.message : '测试邮件发送失败';
-      setTestMsg({ type: 'error', text: message });
+      const message = err instanceof Error ? err.message : '预警邮件发送失败';
+      setSendMsg({ type: 'error', text: message });
     } finally {
-      setTesting(false);
+      setSending(false);
     }
   };
 
@@ -217,20 +243,21 @@ export function EmailAlertTab({ config, onChange }: EmailAlertTabProps) {
           <div className="flex items-center gap-3 flex-wrap">
             <button
               type="button"
-              onClick={handleTest}
-              disabled={testing}
+              onClick={handleSendCurrentAlerts}
+              disabled={sending || !canRunImmediately || !config.enabled}
+              title={!canRunImmediately ? '仅管理员可以立即发送预警邮件' : undefined}
               className="inline-flex items-center gap-1.5 px-4 py-2 bg-slate-900 hover:bg-slate-800 disabled:opacity-60 text-white rounded-md text-sm font-medium transition-colors shadow-sm"
             >
-              {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              {testing ? '发送中...' : '发送测试邮件'}
+              {sending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+              {sending ? '正在检查并发送...' : '立即发送符合条件机型预警'}
             </button>
-            {testMsg && (
+            {sendMsg && (
               <span
-                role={testMsg.type === 'success' ? 'status' : 'alert'}
-                className={`inline-flex min-w-0 items-start gap-1.5 break-words text-sm font-medium ${testMsg.type === 'success' ? 'text-emerald-600' : 'text-red-600'}`}
+                role={sendMsg.type === 'success' ? 'status' : 'alert'}
+                className={`inline-flex min-w-0 items-start gap-1.5 break-words text-sm font-medium ${sendMsg.type === 'success' ? 'text-emerald-600' : 'text-red-600'}`}
               >
-                {testMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
-                {testMsg.text}
+                {sendMsg.type === 'success' ? <CheckCircle2 className="w-4 h-4" /> : <XCircle className="w-4 h-4" />}
+                {sendMsg.text}
               </span>
             )}
           </div>

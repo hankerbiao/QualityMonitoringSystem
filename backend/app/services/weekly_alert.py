@@ -45,7 +45,9 @@ def compute_last_friday_window(now: datetime | None = None) -> tuple[str, str]:
     return last_friday.strftime(fmt), now.strftime(fmt)
 
 
-async def run_weekly_production_check() -> dict:
+async def run_weekly_production_check(
+    config_override: dict[str, Any] | None = None,
+) -> dict:
     """
     执行一次每周生产量预警检查。
 
@@ -54,7 +56,9 @@ async def run_weekly_production_check() -> dict:
                        alertsSent, skipped(noRecipients/disabled), details[]}
     """
     db = get_database()
-    cfg_doc = await db[Collections.CONFIGS].find_one({"key": "email_alert_config"})
+    cfg_doc = config_override
+    if cfg_doc is None:
+        cfg_doc = await db[Collections.CONFIGS].find_one({"key": "email_alert_config"})
     enabled = (cfg_doc or {}).get("enabled", True)
     threshold = int(
         (cfg_doc or {}).get(
@@ -64,13 +68,23 @@ async def run_weekly_production_check() -> dict:
 
     if not enabled:
         log_info("邮件预警未启用，跳过每周生产量统计")
-        return {"checked": False, "reason": "disabled", "emailsSent": 0, "modelsChecked": 0}
+        return {
+            "checked": False,
+            "reason": "disabled",
+            "alertsSent": 0,
+            "alertsFailed": 0,
+            "failures": [],
+            "modelsChecked": 0,
+        }
 
-    candidates = await get_weekly_production_candidates(threshold)
+    targets = (cfg_doc or {}).get("modelTargets")
+    candidates = await get_weekly_production_candidates(threshold, targets=targets)
     start = candidates["window"]["from"]
     end = candidates["window"]["to"]
     details = candidates["details"]
     alerts_sent = 0
+    alerts_failed = 0
+    failures: list[dict[str, str]] = []
 
     log_info(f"每周生产量预警统计开始: 窗口 {start} ~ {end}, 周生产量阈值={threshold} 台")
 
@@ -88,29 +102,58 @@ async def run_weekly_production_check() -> dict:
             title=f"{model} 周生产量 {input_count} 台，直通率 {rty}% 低于目标 {target}%",
         )
         try:
-            result = await send_rty_alert_email(ctx)
+            result = await send_rty_alert_email(ctx, config_override=cfg_doc)
             if result.get("sent"):
                 alerts_sent += 1
                 log_info(f"已发送周生产量预警邮件: 机型={model} RTY={rty}% 目标={target}%")
             else:
+                alerts_failed += 1
+                failures.append(
+                    {
+                        "productModel": model,
+                        "reason": str(result.get("reason") or "send_failed"),
+                        "error": str(result.get("error") or ""),
+                    }
+                )
                 log_warning(f"周生产量预警邮件未发送: 机型={model} reason={result.get('reason')}")
         except Exception as exc:  # 单机型发送失败不影响其他机型
+            alerts_failed += 1
+            failures.append(
+                {
+                    "productModel": model,
+                    "reason": "send_error",
+                    "error": str(exc),
+                }
+            )
             log_error(f"周生产量预警邮件发送异常: 机型={model} err={exc}")
 
     log_info(
         f"每周生产量预警统计完成: 窗口 {start}~{end}, "
         f"纳入判定机型={candidates['modelsChecked']}, 发送邮件={alerts_sent}"
     )
-    return {**candidates, "checked": True, "alertsSent": alerts_sent}
+    return {
+        **candidates,
+        "checked": True,
+        "alertsSent": alerts_sent,
+        "alertsFailed": alerts_failed,
+        "failures": failures,
+    }
 
 
-async def get_weekly_production_candidates(threshold: int) -> dict:
+async def get_weekly_production_candidates(
+    threshold: int,
+    *,
+    targets: dict[str, float] | None = None,
+) -> dict:
     """返回达到生产量阈值且 RTY 未达标的机型，不发送邮件。"""
     db = get_database()
     start, end = compute_last_friday_window()
 
-    targets_doc = await db[Collections.CONFIGS].find_one({"key": "model_targets"})
-    targets_map: dict[str, float] = (targets_doc or {}).get("targets", {}) or {}
+    if targets is None:
+        targets_doc = await db[Collections.CONFIGS].find_one({"key": "model_targets"})
+        targets_map: dict[str, float] = (targets_doc or {}).get("targets", {}) or {}
+    else:
+        targets_map = targets
 
     # Use the same gateway normalization and order eligibility as the RTY dashboard.
     orders = await _orders({"dateFrom": start[:10], "dateTo": end[:10]})

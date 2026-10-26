@@ -205,7 +205,11 @@ def build_alert_email_html(
 """.strip()
 
 
-async def send_rty_alert_email(context: AlertContext) -> dict:
+async def send_rty_alert_email(
+    context: AlertContext,
+    *,
+    config_override: dict[str, Any] | None = None,
+) -> dict:
     """
     根据告警上下文发送告警邮件。
 
@@ -218,7 +222,9 @@ async def send_rty_alert_email(context: AlertContext) -> dict:
         dict: {{"sent": bool, ...}}
     """
     db = get_database()
-    cfg_doc = await db[Collections.CONFIGS].find_one({"key": "email_alert_config"})
+    cfg_doc = config_override
+    if cfg_doc is None:
+        cfg_doc = await db[Collections.CONFIGS].find_one({"key": "email_alert_config"})
 
     # 始终附带故障明细（去掉可配置选项）
     target = target_from_config(cfg_doc)
@@ -234,7 +240,10 @@ async def send_rty_alert_email(context: AlertContext) -> dict:
         log_warning("邮件预警已启用但无有效收件人，跳过发送")
         return {"sent": False, "reason": "no_recipients"}
 
-    report = await build_alert_report(context)
+    report = await build_alert_report(
+        context,
+        targets_override=(config_override or {}).get("modelTargets"),
+    )
     token = create_alert_token(context.model_dump(exclude_none=True))
     report_url = build_alert_report_url(token)
 

@@ -23,6 +23,18 @@ export interface WeeklyQualifiedModels {
   }>;
 }
 
+export interface ManualWeeklyEmailCheckResult extends WeeklyQualifiedModels {
+  checked: boolean;
+  reason?: string;
+  alertsSent?: number;
+  alertsFailed?: number;
+  failures?: Array<{
+    productModel: string;
+    reason: string;
+    error: string;
+  }>;
+}
+
 export const settingsApi = {
   async getModelTargetSourceModels(): Promise<string[]> {
     return requestData<string[]>(`${API_BASE_URL}/settings/model-targets/models`);
@@ -67,6 +79,19 @@ export const settingsApi = {
 
   async getWeeklyQualifiedModels(threshold: number): Promise<WeeklyQualifiedModels> {
     return requestData<WeeklyQualifiedModels>(`${API_BASE_URL}/settings/email-alert/qualified-models?threshold=${threshold}`);
+  },
+
+  async sendCurrentEmailAlerts(config: {
+    enabled: boolean;
+    emails: string;
+    weeklyProductionThreshold: number;
+    modelTargets: Record<string, number>;
+  }): Promise<ManualWeeklyEmailCheckResult> {
+    return requestData<ManualWeeklyEmailCheckResult>(`${API_BASE_URL}/settings/email-alert/send-current`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    });
   },
 
 };
