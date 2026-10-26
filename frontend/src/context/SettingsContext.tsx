@@ -3,13 +3,22 @@ import { settingsApi } from '../api/settingsApi';
 import { useAuth } from './AuthContext';
 import type { SettingsContextType, SettingsResponse, SettingsUpdate } from '../types';
 import { DEFAULT_DASHBOARD_STATUSES } from '../config/homeModules';
+import {
+  DEFAULT_TRIGGER_CONDITION,
+  DEFAULT_WEEKLY_PRODUCTION_THRESHOLD,
+} from '../utils/emailAlert';
 
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
 const DEFAULT_SETTINGS: SettingsResponse = {
   processRecords: { username: '', password: '', hasPassword: false },
   modelTargets: {},
-  emailAlert: { enabled: true, emails: '', triggerCondition: '', weeklyProductionThreshold: 50 },
+  emailAlert: {
+    enabled: true,
+    emails: '',
+    triggerCondition: DEFAULT_TRIGGER_CONDITION,
+    weeklyProductionThreshold: DEFAULT_WEEKLY_PRODUCTION_THRESHOLD,
+  },
   dashboardStatuses: DEFAULT_DASHBOARD_STATUSES,
   cycleStatsConfig: { selectedModels: [] },
   stationPassRateConfig: { selectedStations: [], configured: false },

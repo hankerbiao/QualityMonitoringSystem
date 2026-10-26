@@ -21,6 +21,7 @@ from app.core.logger import log_error, log_info, log_warning
 from app.db.mongodb import get_database
 from app.models.documents import Collections
 from app.schemas.alert_report import AlertContext
+from app.schemas.settings import DEFAULT_WEEKLY_PRODUCTION_THRESHOLD
 from app.services.alert_mail import send_rty_alert_email
 from app.services.rty_gateway import _fault_sns_by_orders, _num, _orders
 from app.services.rty_shared import normalize_order
@@ -55,7 +56,11 @@ async def run_weekly_production_check() -> dict:
     db = get_database()
     cfg_doc = await db[Collections.CONFIGS].find_one({"key": "email_alert_config"})
     enabled = (cfg_doc or {}).get("enabled", True)
-    threshold = int((cfg_doc or {}).get("weeklyProductionThreshold", 50))
+    threshold = int(
+        (cfg_doc or {}).get(
+            "weeklyProductionThreshold", DEFAULT_WEEKLY_PRODUCTION_THRESHOLD
+        )
+    )
 
     if not enabled:
         log_info("邮件预警未启用，跳过每周生产量统计")

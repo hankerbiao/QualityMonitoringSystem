@@ -1,6 +1,12 @@
 import { Mail, Send, Loader2, CheckCircle2, XCircle, FileText, Hash, ListFilter } from 'lucide-react';
 import { useState } from 'react';
 import { settingsApi, type WeeklyQualifiedModels } from '../../api/settingsApi';
+import {
+  buildTriggerCondition,
+  DEFAULT_TRIGGER_CONDITION,
+  DEFAULT_WEEKLY_PRODUCTION_THRESHOLD,
+  isGeneratedTriggerCondition,
+} from '../../utils/emailAlert';
 
 interface EmailAlertTabProps {
   config: {
@@ -17,8 +23,7 @@ interface EmailAlertTabProps {
   }) => void;
 }
 
-export const DEFAULT_TRIGGER_CONDITION =
-  '当某机型周生产量达到设定阈值（默认 50 台），且实际 RTY 低于目标直通率时，系统将在每天 17:00 自动发送预警邮件。';
+export { buildTriggerCondition, DEFAULT_TRIGGER_CONDITION, DEFAULT_WEEKLY_PRODUCTION_THRESHOLD };
 
 export function EmailAlertTab({ config, onChange }: EmailAlertTabProps) {
   const [testing, setTesting] = useState(false);
@@ -26,6 +31,13 @@ export function EmailAlertTab({ config, onChange }: EmailAlertTabProps) {
   const [loadingModels, setLoadingModels] = useState(false);
   const [qualifiedModels, setQualifiedModels] = useState<WeeklyQualifiedModels | null>(null);
   const [modelsError, setModelsError] = useState<string | null>(null);
+  const threshold = Number.isFinite(config.weeklyProductionThreshold)
+    ? Math.max(0, Math.trunc(config.weeklyProductionThreshold))
+    : DEFAULT_WEEKLY_PRODUCTION_THRESHOLD;
+  const generatedTriggerCondition = buildTriggerCondition(threshold);
+  const triggerCondition = config.triggerCondition.trim() && !isGeneratedTriggerCondition(config.triggerCondition)
+    ? config.triggerCondition
+    : generatedTriggerCondition;
 
   const handleTest = async () => {
     if (!config.emails.trim()) {
@@ -88,25 +100,27 @@ export function EmailAlertTab({ config, onChange }: EmailAlertTabProps) {
           </div>
         </div>
 
-        {/* 触发条件说明（用户自定义文本） */}
+        {/* 触发条件说明：系统按规则参数生成，也允许用户补充展示文字。 */}
         <div className={!config.enabled ? 'opacity-50 pointer-events-none transition-opacity' : 'transition-opacity'}>
           <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-1.5">
             <FileText className="w-4 h-4 text-slate-400" /> 触发条件说明
           </label>
           <textarea
             rows={3}
-            value={config.triggerCondition}
-            placeholder={DEFAULT_TRIGGER_CONDITION}
+            value={triggerCondition}
             onChange={(e) => onChange({ ...config, triggerCondition: e.target.value })}
             className="w-full border border-slate-300 rounded-md p-3 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 resize-y"
           />
           <button
             type="button"
-            onClick={() => onChange({ ...config, triggerCondition: DEFAULT_TRIGGER_CONDITION })}
+            onClick={() => onChange({ ...config, triggerCondition: generatedTriggerCondition })}
             className="mt-2 text-xs text-blue-600 hover:text-blue-800"
           >
-            恢复默认说明
+            按当前规则生成说明
           </button>
+          <p className="mt-1.5 text-xs leading-relaxed text-slate-500">
+            修改周生产量阈值后，系统生成的说明会同步更新；手工修改此文本只影响说明展示，不改变实际预警判定规则。
+          </p>
         </div>
 
         {/* 周生产量阈值 */}
@@ -121,7 +135,16 @@ export function EmailAlertTab({ config, onChange }: EmailAlertTabProps) {
               value={config.weeklyProductionThreshold}
               onChange={(e) => {
                 const v = Number(e.target.value);
-                onChange({ ...config, weeklyProductionThreshold: Number.isFinite(v) && v >= 0 ? v : 0 });
+                const nextThreshold = Number.isFinite(v) && v >= 0 ? Math.trunc(v) : 0;
+                const nextTriggerCondition = !config.triggerCondition.trim()
+                  || isGeneratedTriggerCondition(config.triggerCondition)
+                  ? buildTriggerCondition(nextThreshold)
+                  : config.triggerCondition;
+                onChange({
+                  ...config,
+                  weeklyProductionThreshold: nextThreshold,
+                  triggerCondition: nextTriggerCondition,
+                });
               }}
               className="w-32 shrink-0 border border-slate-300 rounded-md px-3 py-2 text-sm outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
             />

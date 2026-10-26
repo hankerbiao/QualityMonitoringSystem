@@ -33,8 +33,8 @@ def _build_gateway_filters(ctx: AlertContext) -> dict[str, Any]:
         "base": ctx.base or "",
         "productModel": ctx.productModel or "",
         "customer": ctx.customer or "",
-        "dateFrom": ctx.dateFrom or "",
-        "dateTo": ctx.dateTo or "",
+        "dateFrom": ctx.dateFrom[:10] if ctx.dateFrom else "",
+        "dateTo": ctx.dateTo[:10] if ctx.dateTo else "",
         "orderScope": "normal",
     }
     return {key: value for key, value in filters.items() if value}

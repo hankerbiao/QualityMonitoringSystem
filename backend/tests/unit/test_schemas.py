@@ -7,6 +7,7 @@ from pydantic import ValidationError
 
 from app.schemas.rty import RTYData
 from app.schemas.settings import (
+    DEFAULT_WEEKLY_PRODUCTION_THRESHOLD,
     EmailAlertConfig,
     EmailAlertConfigUpdate,
     ModelTargetBase,
@@ -103,6 +104,18 @@ class TestEmailAlertConfig:
         update = EmailAlertConfigUpdate(enabled=False)
         assert update.enabled is False
         assert update.emails is None
+
+    def test_default_rule_uses_ten_as_the_weekly_threshold(self):
+        config = EmailAlertConfig(emails="")
+        assert config.weeklyProductionThreshold == DEFAULT_WEEKLY_PRODUCTION_THRESHOLD
+        assert config.triggerCondition == (
+            "当某机型周生产量达到设定阈值（默认 10 台），且实际 RTY 低于目标直通率时，"
+            "系统将在每天 17:00 自动发送预警邮件。"
+        )
+
+    def test_negative_weekly_threshold_is_rejected(self):
+        with pytest.raises(ValidationError):
+            EmailAlertConfigUpdate(weeklyProductionThreshold=-1)
 
 
 # ─── Settings Update Request ─────────────────────────────────────────────────

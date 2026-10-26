@@ -83,17 +83,31 @@ class ModelTargetsResponse(BaseModel):
 # ============== 邮件预警配置 ==============
 
 
+DEFAULT_WEEKLY_PRODUCTION_THRESHOLD = 10
+
+
+def build_email_alert_trigger_condition(threshold: int) -> str:
+    """Build the default explanation for the configured weekly threshold."""
+    threshold_label = "默认" if threshold == DEFAULT_WEEKLY_PRODUCTION_THRESHOLD else "当前"
+    return (
+        f"当某机型周生产量达到设定阈值（{threshold_label} {threshold} 台），且实际 RTY 低于目标直通率时，"
+        "系统将在每天 17:00 自动发送预警邮件。"
+    )
+
+
 class EmailAlertConfigBase(BaseModel):
     """邮件预警配置基础模型"""
 
     enabled: bool = Field(True, description="是否启用邮件预警")
     emails: str = Field(..., description="预警接收人邮箱, 多个用分号分隔")
     triggerCondition: str = Field(
-        "",
+        default_factory=lambda: build_email_alert_trigger_condition(
+            DEFAULT_WEEKLY_PRODUCTION_THRESHOLD
+        ),
         description="触发条件说明文本（用户自定义，可在前端「邮件预警规则」中编辑）",
     )
     weeklyProductionThreshold: int = Field(
-        50,
+        DEFAULT_WEEKLY_PRODUCTION_THRESHOLD,
         ge=0,
         description="周生产量阈值（台）：窗口内某机型投入台数达到该值才纳入 RTY 判定",
     )
@@ -111,7 +125,7 @@ class EmailAlertConfigUpdate(BaseModel):
     enabled: bool | None = None
     emails: str | None = None
     triggerCondition: str | None = None
-    weeklyProductionThreshold: int | None = None
+    weeklyProductionThreshold: int | None = Field(None, ge=0)
 
 
 # ============== 周期统计看板配置 ==============

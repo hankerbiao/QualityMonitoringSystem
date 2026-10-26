@@ -27,6 +27,11 @@ class TestGetAllSettings:
         assert data["data"]["processRecords"]["hasPassword"] is False
         assert data["data"]["modelTargets"] == {}
         assert data["data"]["emailAlert"]["enabled"] is True
+        assert data["data"]["emailAlert"]["weeklyProductionThreshold"] == 10
+        assert data["data"]["emailAlert"]["triggerCondition"] == (
+            "当某机型周生产量达到设定阈值（默认 10 台），且实际 RTY 低于目标直通率时，"
+            "系统将在每天 17:00 自动发送预警邮件。"
+        )
         assert data["data"]["dashboardStatuses"] == {
             "rty": "available",
             "station-pass-rate": "available",
@@ -269,6 +274,17 @@ class TestEmailAlert:
         data = response.json()["data"]
         assert data["enabled"] is False
         assert "qa@company.com" in data["emails"]
+
+    async def test_threshold_update_returns_matching_rule_description(self, client, db_clean):
+        response = await client.put(
+            "/api/settings/email-alert",
+            json={"weeklyProductionThreshold": 25},
+        )
+        assert response.status_code == 200
+        assert response.json()["data"]["triggerCondition"] == (
+            "当某机型周生产量达到设定阈值（当前 25 台），且实际 RTY 低于目标直通率时，"
+            "系统将在每天 17:00 自动发送预警邮件。"
+        )
 
     async def test_invalid_email_format_rejected(self, client, db_clean):
         response = await client.put(

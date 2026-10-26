@@ -50,8 +50,8 @@ def main():
         "key": "email_alert_config",
         "enabled": True,
         "emails": "manager@company.com; quality-team@company.com",
-        "triggerCondition": "当某机型周生产量达到设定阈值（默认 50 台），且实际 RTY 低于目标直通率时，系统将在每天 17:00 自动发送预警邮件。",
-        "weeklyProductionThreshold": 50,
+        "triggerCondition": "当某机型周生产量达到设定阈值（默认 10 台），且实际 RTY 低于目标直通率时，系统将在每天 17:00 自动发送预警邮件。",
+        "weeklyProductionThreshold": 10,
         "updatedAt": now,
     }
     configs.update_one(

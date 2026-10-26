@@ -60,8 +60,8 @@ async def test_build_alert_report_uses_gateway_orders_faults_and_details(monkeyp
     assert received_filters == {
         "base": "Base 1",
         "productModel": "Model A",
-        "dateFrom": "2026-06-05 00:00:00",
-        "dateTo": "2026-06-08 17:00:00",
+        "dateFrom": "2026-06-05",
+        "dateTo": "2026-06-08",
         "orderScope": "normal",
     }
     assert report.summary.inputCount == 3

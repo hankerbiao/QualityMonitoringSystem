@@ -13,6 +13,7 @@ from fastapi import HTTPException
 from app.models.documents import Collections
 from app.schemas.settings import (
     DEFAULT_DASHBOARD_STATUSES,
+    DEFAULT_WEEKLY_PRODUCTION_THRESHOLD,
     CycleStatsConfig,
     DashboardStatus,
     EmailAlertConfig,
@@ -21,6 +22,7 @@ from app.schemas.settings import (
     SettingsResponse,
     SettingsUpdateRequest,
     StationPassRateConfig,
+    build_email_alert_trigger_condition,
 )
 from app.services.alert_mail_support import EMAIL_DEFAULT
 from app.services.credential_crypto import encrypt_credential
@@ -169,12 +171,19 @@ class SettingsService:
             return EmailAlertConfig(
                 enabled=True,
                 emails=EMAIL_DEFAULT,
-                triggerCondition="",
-                weeklyProductionThreshold=50,
+                triggerCondition=build_email_alert_trigger_condition(
+                    DEFAULT_WEEKLY_PRODUCTION_THRESHOLD
+                ),
+                weeklyProductionThreshold=DEFAULT_WEEKLY_PRODUCTION_THRESHOLD,
             )
+        threshold = int(
+            doc.get("weeklyProductionThreshold", DEFAULT_WEEKLY_PRODUCTION_THRESHOLD)
+        )
+        trigger_condition = str(doc.get("triggerCondition") or "").strip()
         return EmailAlertConfig(
             enabled=doc.get("enabled", True),
             emails=doc.get("emails", ""),
-            triggerCondition=doc.get("triggerCondition", ""),
-            weeklyProductionThreshold=doc.get("weeklyProductionThreshold", 50),
+            triggerCondition=trigger_condition
+            or build_email_alert_trigger_condition(threshold),
+            weeklyProductionThreshold=threshold,
         )
