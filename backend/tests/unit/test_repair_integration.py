@@ -1,5 +1,6 @@
 import asyncio
 import gzip
+import hashlib
 import json
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
@@ -17,7 +18,7 @@ from tests.mock_motor import MockMotorClient
 def posting(order="1", material="PN", amount="10", identity="P1", **extra):
     return {
         "id": identity,
-        "raw": {"AUFNR_1": order, "MATNR": material, "MENGE_A": amount, **extra},
+        "raw": {"AUFNR_1": order, "MATNR": material, "MENGE_A": amount, "BWART": "261", **extra},
     }
 
 
@@ -83,6 +84,79 @@ def test_invalid_source_values_abort_instead_of_becoming_zero(row):
 def test_conflicting_duplicate_posting_aborts():
     with pytest.raises(DataGatewayError, match="内容冲突"):
         repair.aggregate_postings("1", [posting(), posting(amount="20")])
+
+
+@pytest.mark.parametrize(
+    "issued,returned,expected",
+    [("607", "400", "207"), ("10.5", "0.3", "10.2"), ("10", "10", "0"), ("1", "3", "-2")],
+)
+def test_postings_subtract_returns_and_ignore_other_movements(issued, returned, expected):
+    issue = posting(amount=issued)
+    rows = [
+        issue,
+        issue,
+        posting(amount=returned, identity="return", BWART=" 262 "),
+        *[
+            posting(amount="800", identity=movement, BWART=movement)
+            for movement in ("101", "601", "602", "Z35", "Z37")
+        ],
+        posting(order="2", amount="999", identity="another-order"),
+    ]
+    usage = repair.aggregate_postings("1", rows)
+    assert usage.quantities == {"PN": Decimal(expected)}
+
+
+@pytest.mark.parametrize("movement", [None, ""])
+def test_postings_reject_missing_movement_type(movement):
+    row = posting(BWART=movement)
+    if movement is None:
+        del row["raw"]["BWART"]
+    with pytest.raises(DataGatewayError, match="移动类型"):
+        repair.aggregate_postings("1", [row])
+
+
+def test_duplicate_posting_with_conflicting_movement_type_aborts():
+    with pytest.raises(DataGatewayError, match="内容冲突"):
+        repair.aggregate_postings("1", [posting(), posting(BWART="262")])
+
+
+@pytest.mark.asyncio
+async def test_model_material_usage_subtracts_returns_for_all_selected_orders(monkeypatch):
+    monkeypatch.setattr(
+        repair.data_gateway,
+        "export_rows",
+        AsyncMock(return_value=[
+            *[posting(material="000000000024002317", amount="200", identity=f"issue-{i}") for i in range(3)],
+            *[posting(material="24002317", amount="200", identity=f"return-{i}", BWART="262") for i in range(2)],
+            posting(order="2", material="24002317", amount="7", identity="issue-2nd-order"),
+        ]),
+    )
+    sheets = await repair.build_model_sheets(
+        [order(model="6210 C1"), order("2", model="6210 C1")],
+        [(fault(MATNR="24002317"), {("6210 C1", f"SN-{i}")}) for i in range(6)],
+    )
+    row = sheets[0].rows[0]
+    assert row["materialUsage"] == 207
+    assert row["materialCount"] == 6
+    assert row["componentFaultRate"] == pytest.approx(6 / 207)
+    assert row["productionQuantity"] == 40
+
+
+@pytest.mark.asyncio
+async def test_order_usage_ignores_cache_from_before_movement_type_fix(monkeypatch, isolated_cache):
+    old_key = hashlib.sha256(json.dumps(["v2", repair.data_gateway.base_url, "1"]).encode()).hexdigest()
+    await isolated_cache[repair.MATERIAL_CACHE_COLLECTION].insert_one({
+        "_id": old_key,
+        "expiresAt": datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=24),
+        "payload": gzip.compress(json.dumps({
+            "quantities": {"PN": "1007"}, "descriptions": {}, "sales": [], "row_count": 2,
+        }).encode()),
+    })
+    monkeypatch.setattr(repair.data_gateway, "export_rows", AsyncMock(return_value=[
+        posting(amount="607"),
+        posting(amount="400", identity="return", BWART="262"),
+    ]))
+    assert (await repair.load_order_usage(["1"]))["1"].quantities == {"PN": Decimal(207)}
 
 
 @pytest.mark.asyncio

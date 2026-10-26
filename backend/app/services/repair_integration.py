@@ -28,6 +28,7 @@ MATERIAL_CONCURRENCY = 16
 MAX_ORDER_POSTINGS = 250_000
 MAX_EXPORT_POSTINGS = 1_000_000
 MATERIAL_CACHE_SECONDS = 24 * 60 * 60
+MATERIAL_CACHE_VERSION = "v3"
 _ORDER_CACHE = AsyncTTLCache(max_entries=8)
 MATERIAL_CACHE_COLLECTION = "repair_material_usage_cache"
 MatchedFault = tuple[dict[str, Any], set[tuple[str, str]]]
@@ -87,7 +88,9 @@ class _CachedUsage(BaseModel):
 
 
 def _cache_id(order: str) -> str:
-    return hashlib.sha256(json.dumps(["v2", data_gateway.base_url, order]).encode()).hexdigest()
+    return hashlib.sha256(
+        json.dumps([MATERIAL_CACHE_VERSION, data_gateway.base_url, order]).encode()
+    ).hexdigest()
 
 
 async def _persistent_usage(order: str) -> OrderUsage | None:
@@ -158,18 +161,25 @@ def aggregate_postings(order: str, items: list[dict[str, Any]]) -> OrderUsage:
             continue
         material = identifier(raw.get("MATNR"))
         amount = quantity(raw.get("MENGE_A"), signed=True)
+        movement_type = text(raw.get("BWART")).upper()
         identity = text(item.get("id") or raw.get("_source_key") or raw.get("_id"))
         if not identity or not material or amount is None:
             raise DataGatewayError(f"生产订单 {order} 的发料记录缺少ID、料号或有效数量")
+        if not movement_type:
+            raise DataGatewayError(
+                f"生产订单 {order} 的发料记录缺少移动类型 BWART，无法计算净发料量，请检查数据网关"
+            )
         sales = identifier(raw.get("VBELN_EX"))
         description = text(raw.get("MAKTX"))
-        signature = (material, amount, sales, description)
+        signature = (material, amount, movement_type, sales, description)
         if identity in seen:
             if seen[identity] != signature:
                 raise DataGatewayError(f"生产订单 {order} 的发料记录 {identity} 内容冲突")
             continue
         seen[identity] = signature
-        result.quantities[material] = result.quantities.get(material, Decimal(0)) + amount
+        # MENGE_A is positive for returns too; BWART determines their contribution.
+        net_amount = amount if movement_type == "261" else -amount if movement_type == "262" else Decimal(0)
+        result.quantities[material] = result.quantities.get(material, Decimal(0)) + net_amount
         if description:
             result.descriptions.setdefault(material, {})[description] = None
         if sales:
@@ -229,7 +239,9 @@ async def load_order_usage(orders: list[str]) -> dict[str, OrderUsage]:
         return results
 
     return await _ORDER_CACHE.get_or_set(
-        (data_gateway.base_url, tuple(values)), load, ttl_seconds=MATERIAL_CACHE_SECONDS
+        (MATERIAL_CACHE_VERSION, data_gateway.base_url, tuple(values)),
+        load,
+        ttl_seconds=MATERIAL_CACHE_SECONDS,
     )
 
 
