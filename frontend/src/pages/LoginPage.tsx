@@ -15,9 +15,9 @@ import { useAuth } from '../context/AuthContext';
 import appPackage from '../../package.json';
 
 const qualityModules = [
-  { icon: Gauge, code: 'RTY', label: '整机直通率', status: '在线' },
-  { icon: Activity, code: 'LRR', label: '部件故障率', status: '在线' },
-  { icon: Boxes, code: 'DOA', label: '开箱报修率', status: '建设中' },
+  { icon: Gauge, code: 'RTY', label: '整机直通率' },
+  { icon: Activity, code: 'LRR', label: '部件故障率' },
+  { icon: Boxes, code: 'DOA', label: '开箱报修率' },
 ];
 
 export default function LoginPage() {
@@ -86,18 +86,12 @@ export default function LoginPage() {
         <div className="relative z-10">
           <div className="mb-4 flex items-center justify-between border-b border-white/12 pb-3 text-xs text-white/45">
             <span>监控模块</span>
-            <span>系统状态</span>
           </div>
           <div className="grid grid-cols-3 gap-3">
             {qualityModules.map((module) => (
               <div key={module.code} className="border-l-2 border-white/15 py-2 pl-3">
                 <div className="mb-4 flex items-center justify-between">
                   <module.icon className="h-4 w-4 text-white/55" strokeWidth={1.7} />
-                  <span
-                    className={`text-[11px] ${module.status === '在线' ? 'text-[#d7ff55]' : 'text-white/35'}`}
-                  >
-                    {module.status}
-                  </span>
                 </div>
                 <p className="text-lg font-semibold">{module.code}</p>
                 <p className="mt-1 text-xs text-white/48">{module.label}</p>

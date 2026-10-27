@@ -14,6 +14,7 @@ from app.schemas.doa import (
 )
 from app.services.doa_service import (
     build_doa_dashboard,
+    get_doa_audit,
     get_doa_options,
     get_doa_raw,
     get_doa_repairs,
@@ -30,6 +31,8 @@ def _filters(
     timeGranularity: str = "month",
     acceptedDateFrom: str | None = None,
     acceptedDateTo: str | None = None,
+    customers: list[str] | None = None,
+    models: list[str] | None = None,
 ) -> DoaFilters:
     if timeGranularity not in {"year", "month", "day"}:
         timeGranularity = "month"
@@ -40,6 +43,8 @@ def _filters(
         acceptedDateTo=acceptedDateTo,
         customer=customer,
         model=model,
+        customers=sorted(set(filter(None, customers or []))),
+        models=sorted(set(filter(None, models or []))),
         timeGranularity=timeGranularity,
     )  # type: ignore[arg-type]
 
@@ -99,6 +104,8 @@ async def doa_dashboard(
     timeGranularity: str = Query("month"),
     acceptedDateFrom: str | None = Query(None),
     acceptedDateTo: str | None = Query(None),
+    customers: Annotated[list[str] | None, Query()] = None,
+    models: Annotated[list[str] | None, Query()] = None,
 ):
     return await build_doa_dashboard(
         _filters(
@@ -109,7 +116,30 @@ async def doa_dashboard(
             timeGranularity,
             acceptedDateFrom,
             acceptedDateTo,
+            customers,
+            models,
         ),
+    )
+
+
+@router.get(
+    "/audit",
+    dependencies=[Depends(dashboard_dependency("doa-repairs"))],
+)
+async def doa_audit(
+    _: Annotated[dict, Depends(get_current_user)],
+    dateFrom: str | None = Query(None),
+    dateTo: str | None = Query(None),
+    customer: str | None = Query(None),
+    model: str | None = Query(None),
+    timeGranularity: str = Query("month"),
+    acceptedDateFrom: str | None = Query(None),
+    acceptedDateTo: str | None = Query(None),
+    customers: Annotated[list[str] | None, Query()] = None,
+    models: Annotated[list[str] | None, Query()] = None,
+):
+    return await get_doa_audit(
+        _filters(dateFrom, dateTo, customer, model, timeGranularity, acceptedDateFrom, acceptedDateTo, customers, models)
     )
 
 
@@ -127,6 +157,8 @@ async def doa_repairs(
     timeGranularity: str = Query("month"),
     acceptedDateFrom: str | None = Query(None),
     acceptedDateTo: str | None = Query(None),
+    customers: Annotated[list[str] | None, Query()] = None,
+    models: Annotated[list[str] | None, Query()] = None,
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=50000),
     replacementOnly: bool = Query(False),
@@ -140,6 +172,8 @@ async def doa_repairs(
             timeGranularity,
             acceptedDateFrom,
             acceptedDateTo,
+            customers,
+            models,
         ),
         page,
         limit,

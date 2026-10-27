@@ -81,9 +81,6 @@ export default function Home() {
   const availableFunctionCount = visibleModules.filter(
     (module) => module.status === 'available' || (isAdmin && module.status === 'admin-only'),
   ).length;
-  const plannedFunctionCount = visibleModules.filter(
-    (module) => module.status === 'planned',
-  ).length;
   const normalizedQuery = searchQuery.trim().toLocaleLowerCase();
   const filterModules = (modules: readonly HomeModuleDefinition[]) =>
     modules.filter((module) =>
@@ -193,10 +190,6 @@ export default function Home() {
             <span className="flex items-center gap-2">
               <span className="size-2 rounded-full bg-emerald-500" aria-hidden="true" />
               {availableFunctionCount} 个功能可用
-            </span>
-            <span className="flex items-center gap-2">
-              <span className="size-2 rounded-full bg-amber-400" aria-hidden="true" />
-              {plannedFunctionCount} 个建设中
             </span>
             <button
               type="button"

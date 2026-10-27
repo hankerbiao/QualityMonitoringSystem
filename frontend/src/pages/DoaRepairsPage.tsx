@@ -14,6 +14,8 @@ function filtersFrom(params: URLSearchParams): DoaFilters {
     acceptedDateTo: params.get("acceptedDateTo") || undefined,
     customer: params.get("customer") || "",
     model: params.get("model") || "",
+    customers: params.getAll("customers"),
+    models: params.getAll("models"),
     timeGranularity: g === "year" || g === "day" ? g : "month",
   };
 }
@@ -69,8 +71,8 @@ export default function DoaRepairsPage() {
       受理日期: item.acceptedAt,
       客户: item.customer,
       机型: item.model,
-      发货日期: item.shippedDate,
-      出货数: item.shippedCount,
+      订单计划开始日期: item.shippedDate,
+      匹配订单数量: item.shippedCount,
       问题批次数量: item.repairCount,
       ...item.data,
     }));
@@ -140,7 +142,7 @@ export default function DoaRepairsPage() {
                       "受理日期",
                       "客户",
                       "机型",
-                      "发货日期",
+                      "订单计划开始日期",
                       "问题批次数量",
                     ].map((h) => (
                       <th key={h} className="px-4 py-2.5 font-medium">

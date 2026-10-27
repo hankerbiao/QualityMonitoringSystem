@@ -7,6 +7,8 @@ export interface DoaFilters {
   acceptedDateTo?: string;
   customer: string;
   model: string;
+  customers?: string[];
+  models?: string[];
   timeGranularity: DoaTimeGranularity;
 }
 
@@ -40,6 +42,13 @@ export interface DoaDashboard {
   trend: DoaTrendItem[];
   byCustomer: DoaDimensionItem[];
   byModel: DoaDimensionItem[];
+  unmatchedOrders: { salesOrder: string; recordCount: number }[];
+}
+
+export interface DoaAudit {
+  repairs: { matchStatus: string; salesOrder: string; id: string; acceptedAt: string; repairCount: number | string; raw: Record<string, unknown> }[];
+  orders: Record<string, unknown>[];
+  changes: Record<string, unknown>[];
 }
 
 export interface DoaRepairItem {

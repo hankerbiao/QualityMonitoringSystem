@@ -25,7 +25,7 @@ export default function DashboardStatusTab({ statuses, onChange }: Props) {
       <div>
         <h3 className="text-base font-semibold text-slate-800">看板状态管理</h3>
         <p className="mt-1 text-sm text-slate-500">
-          控制首页和看板切换器中的显示状态。“开发中”不可进入；“仅管理员可见”不会展示给普通用户。
+          控制首页和看板切换器中的显示状态。“仅管理员可见”不会展示给普通用户。
         </p>
       </div>
       <div className="divide-y divide-slate-100 rounded-md border border-slate-200">
@@ -61,7 +61,6 @@ export default function DashboardStatusTab({ statuses, onChange }: Props) {
                 className="h-9 shrink-0 rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-700 outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
               >
                 <option value="available">可用</option>
-                <option value="planned">开发中</option>
                 <option value="admin-only">仅管理员可见</option>
               </select>
             </label>

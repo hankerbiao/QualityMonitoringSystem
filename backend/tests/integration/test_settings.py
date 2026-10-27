@@ -37,15 +37,15 @@ class TestGetAllSettings:
             "station-pass-rate": "available",
             "repair-quality": "admin-only",
             "lrr": "available",
-            "doa": "planned",
-            "mfr": "planned",
+            "doa": "available",
+            "mfr": "admin-only",
         }
         assert data["data"]["cycleStatsConfig"]["selectedModels"] == []
 
     async def test_dashboard_statuses_can_be_updated_and_read_publicly(self, client, db_clean):
         response = await client.put(
             "/api/settings",
-            json={"dashboardStatuses": {"doa": "admin-only", "mfr": "planned"}},
+            json={"dashboardStatuses": {"doa": "admin-only", "mfr": "available"}},
         )
         assert response.status_code == 200
         assert response.json()["data"]["dashboardStatuses"]["doa"] == "admin-only"
@@ -53,7 +53,7 @@ class TestGetAllSettings:
         public_response = await client.get("/api/settings/dashboard-statuses")
         assert public_response.status_code == 200
         assert public_response.json()["data"]["doa"] == "admin-only"
-        assert public_response.json()["data"]["mfr"] == "planned"
+        assert public_response.json()["data"]["mfr"] == "available"
 
     async def test_invalid_dashboard_status_is_rejected(self, client, db_clean):
         response = await client.put(
@@ -365,7 +365,7 @@ class TestOrdinaryUserSettings:
             "/api/settings",
             json={
                 "processRecords": {"username": "private-source", "password": "secret"},
-                "dashboardStatuses": {"doa": "planned"},
+                "dashboardStatuses": {"doa": "admin-only"},
             },
         )
         before = await db_clean.configs.find_one({"key": "process_record_config"})
@@ -390,7 +390,7 @@ class TestOrdinaryUserSettings:
         assert await db_clean.configs.find_one({"key": "process_record_config"}) == before
         admin_data = (await client.get("/api/settings")).json()["data"]
         assert admin_data["modelTargets"] == {"X1": 99}
-        assert admin_data["dashboardStatuses"]["doa"] == "planned"
+        assert admin_data["dashboardStatuses"]["doa"] == "admin-only"
 
     @pytest.mark.parametrize(
         "forbidden_section",

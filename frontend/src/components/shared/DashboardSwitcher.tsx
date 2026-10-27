@@ -59,19 +59,6 @@ export function DashboardSwitcher() {
             const isCurrent = dashboard.path === pathname;
             const status = settings.dashboardStatuses[dashboard.id] ?? DEFAULT_DASHBOARD_STATUSES[dashboard.id];
             if (status === 'admin-only' && !isAdmin) return null;
-            if (status === 'planned') {
-              return (
-                <span
-                  key={dashboard.path}
-                  role="menuitem"
-                  aria-disabled="true"
-                  className="flex cursor-not-allowed items-center justify-between gap-3 px-3 py-2.5 text-slate-400"
-                >
-                  <span className="text-sm font-semibold">{dashboard.label}</span>
-                  <span className="text-xs text-slate-400">开发中</span>
-                </span>
-              );
-            }
             return (
               <Link
                 key={dashboard.path}

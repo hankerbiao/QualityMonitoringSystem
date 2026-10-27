@@ -1,13 +1,16 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { AlertCircle, ArrowLeft, CheckCircle2, ChevronDown, CircleHelp, Download, RotateCcw, Search, Wrench } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { AlertCircle, ArrowLeft, CheckCircle2, CircleHelp, Download, RotateCcw, Search, Wrench } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
 import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
 import { DateRangePicker } from '../components/shared/DateRangePicker';
+import { MultiSelect } from '../components/shared/MultiSelect';
 import { RepairQualityCharts } from '../components/repair/RepairQualityCharts';
+import { RepairQualityDetailDialog } from '../components/repair/RepairQualityDetailDialog';
 import { buildRepairQualityWorkbook } from '../components/repair/exportData';
 import { rtyApi } from '../api/rtyApi';
 import type { RepairQualityOptions, RepairQualityQuery, RepairQualitySummary } from '../types';
+import type { RepairQualityBucket, RepairQualityDetailQuery } from '../types/rty';
 import { recentDateRange } from '../utils/dateRange';
 
 function rateStyle(rate: number) {
@@ -26,55 +29,6 @@ function distributionStyle(percentage: number, index: number): React.CSSProperti
   };
 }
 
-function MultiSelect({ label, options, value, onChange }: {
-  label: string; options: string[]; value: string[]; onChange: (values: string[]) => void;
-}) {
-  const [open, setOpen] = useState(false);
-  const [search, setSearch] = useState('');
-  const root = useRef<HTMLDivElement>(null);
-  const filtered = options.filter(option => option.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase()));
-  const summary = value.length === 0
-    ? `全部${label.replace(/（多选）$/, '')}`
-    : value.length === 1 ? value[0] : `${value[0]} 等 ${value.length} 项`;
-
-  useEffect(() => {
-    const outside = (event: MouseEvent) => {
-      if (root.current && !root.current.contains(event.target as Node)) setOpen(false);
-    };
-    const escape = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false); };
-    document.addEventListener('mousedown', outside);
-    document.addEventListener('keydown', escape);
-    return () => {
-      document.removeEventListener('mousedown', outside);
-      document.removeEventListener('keydown', escape);
-    };
-  }, []);
-
-  return (
-    <div ref={root} className="relative flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600">
-      <span>{label}</span>
-      <button type="button" aria-label={label} aria-expanded={open} aria-haspopup="dialog" title={value.join('、') || undefined}
-        onClick={() => { setOpen(current => !current); setSearch(''); }}
-        className={`flex h-9 w-full items-center justify-between gap-2 rounded-md border bg-white px-2.5 text-sm font-normal outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100 ${value.length ? 'border-teal-300 text-slate-800' : 'border-slate-300 text-slate-500'}`}>
-        <span className="truncate">{summary}</span><span className="flex shrink-0 items-center gap-1 text-xs text-slate-400">{value.length > 0 && <span>{value.length}</span>}<ChevronDown className={`size-4 transition-transform ${open ? 'rotate-180' : ''}`} /></span>
-      </button>
-      {open && <div role="dialog" aria-label={`选择${label.replace(/（多选）$/, '')}`} className="absolute left-0 top-full z-50 mt-1 w-full min-w-56 overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg">
-        <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-3 py-2">
-          <span className="text-xs text-slate-500">已选 {value.length} 项</span>
-          <div className="flex items-center gap-3 text-xs"><button type="button" onClick={() => onChange(filtered)} className="font-medium text-teal-700">全选</button><button type="button" onClick={() => onChange([])} className="font-medium text-slate-500">清空</button></div>
-        </div>
-        <div className="border-b border-slate-100 p-2"><input type="search" aria-label={`搜索${label.replace(/（多选）$/, '')}`} value={search} onChange={event => setSearch(event.target.value)} placeholder={`搜索${label.replace(/（多选）$/, '')}`} className="h-8 w-full rounded-md border border-slate-200 bg-slate-50 px-2.5 text-xs font-normal text-slate-700 outline-none focus:border-teal-400 focus:bg-white" /></div>
-        <div className="max-h-56 overflow-y-auto py-1">
-          {filtered.length ? filtered.map(option => <label key={option} className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-xs font-normal text-slate-700 hover:bg-teal-50">
-            <input type="checkbox" checked={value.includes(option)} onChange={() => onChange(value.includes(option) ? value.filter(item => item !== option) : [...value, option])} className="size-3.5 rounded border-slate-300 accent-teal-700" />
-            <span className="min-w-0 flex-1 truncate">{option}</span>
-          </label>) : <p className="px-3 py-4 text-center text-xs font-normal text-slate-400">{options.length ? '没有匹配项' : '暂无可选项目'}</p>}
-        </div>
-      </div>}
-    </div>
-  );
-}
-
 export default function RepairQualityPage() {
   const navigate = useNavigate();
   const dates = useMemo(() => recentDateRange(7), []);
@@ -91,6 +45,13 @@ export default function RepairQualityPage() {
   const [appliedQuery, setAppliedQuery] = useState<RepairQualityQuery | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState('');
+  const [detail, setDetail] = useState<{ query: RepairQualityDetailQuery; expectedCount: number; denominator?: number } | null>(null);
+  const closeDetail = useCallback(() => setDetail(null), []);
+
+  const openDetail = (customer: string, base: string, bucket: RepairQualityBucket, expectedCount: number, denominator?: number) => {
+    if (!appliedQuery || !expectedCount || loading) return;
+    setDetail({ query: { ...appliedQuery, customer, base, bucket }, expectedCount, denominator });
+  };
 
   useEffect(() => {
     let active = true;
@@ -230,8 +191,8 @@ export default function RepairQualityPage() {
                     {distribution.map((item, index) => <th key={item.repairCount} colSpan={2} style={distributionStyle(item.percentage, index)} className="min-w-[76px] border border-slate-300 px-1 py-1.5">{item.repairCount === '9+' ? '9次+' : `${item.repairCount}次`}</th>)}
                   </tr><tr className="bg-slate-50">{distribution.flatMap((item, index) => [<th key={`${item.repairCount}-count`} style={distributionStyle(item.percentage, index)} className="border border-slate-300 px-1 py-1">数量</th>, <th key={`${item.repairCount}-pct`} style={distributionStyle(item.percentage, index)} className="border border-slate-300 px-1 py-1">占比</th>])}</tr></thead>
                   <tbody>{result.groups.map((row, rowIndex) => <tr key={`${row.customer}-${row.base}`} className={`${rowIndex % 2 ? 'bg-slate-50/70' : 'bg-white'} hover:bg-cyan-50`}>
-                    <th className={`sticky left-0 z-[1] border border-slate-200 px-2 py-1.5 text-left font-medium text-slate-800 ${rowIndex % 2 ? 'bg-slate-50' : 'bg-white'} group-hover:bg-cyan-50`}>{row.customer}</th><td className={`sticky left-32 z-[1] border border-slate-200 px-2 py-1.5 text-left text-slate-600 ${rowIndex % 2 ? 'bg-slate-50' : 'bg-white'}`}>{row.base}</td><td className="border border-slate-200 px-1.5 py-1.5 font-semibold text-slate-800">{row.snCount}</td><td className="border border-slate-200 px-1.5 py-1.5"><span className={`inline-flex min-w-[3.5rem] justify-center rounded-sm px-1.5 py-0.5 font-semibold ${rateStyle(row.firstPassRate)}`}>{row.firstPassRate.toFixed(2)}%</span></td>
-                    {row.distribution.map((item, index) => <FragmentCells key={item.repairCount} count={item.snCount} percentage={item.percentage} style={distributionStyle(item.percentage, index)} />)}
+                    <th className={`sticky left-0 z-[1] border border-slate-200 px-2 py-1.5 text-left font-medium text-slate-800 ${rowIndex % 2 ? 'bg-slate-50' : 'bg-white'} group-hover:bg-cyan-50`}>{row.customer}</th><td className={`sticky left-32 z-[1] border border-slate-200 px-2 py-1.5 text-left text-slate-600 ${rowIndex % 2 ? 'bg-slate-50' : 'bg-white'}`}>{row.base}</td><td className="border border-slate-200 px-1.5 py-1.5 font-semibold text-slate-800"><button type="button" disabled={loading || !row.snCount} onClick={() => openDetail(row.customer, row.base, 'all', row.snCount)} aria-label={`${row.customer} ${row.base} 全部维修 SN 明细`} className="underline decoration-dotted underline-offset-2 hover:text-teal-700 disabled:no-underline">{row.snCount}</button></td><td className="border border-slate-200 px-1.5 py-1.5"><button type="button" disabled={loading || !row.firstPassCount} onClick={() => openDetail(row.customer, row.base, '1', row.firstPassCount, row.snCount)} aria-label={`${row.customer} ${row.base} 首修通过明细`} className={`inline-flex min-w-[3.5rem] justify-center rounded-sm px-1.5 py-0.5 font-semibold ${rateStyle(row.firstPassRate)} enabled:underline enabled:decoration-dotted enabled:underline-offset-2`}>{row.firstPassRate.toFixed(2)}%</button></td>
+                    {row.distribution.map((item, index) => <FragmentCells key={item.repairCount} count={item.snCount} percentage={item.percentage} style={distributionStyle(item.percentage, index)} label={`${row.customer} ${row.base} 维修 ${item.repairCount} 次`} disabled={loading} onOpen={() => openDetail(row.customer, row.base, item.repairCount as RepairQualityBucket, item.snCount)} />)}
                   </tr>)}</tbody>
                 </table>
               </div>
@@ -239,12 +200,13 @@ export default function RepairQualityPage() {
           </>}
         </>}
       </main>
+      {detail && <RepairQualityDetailDialog query={detail.query} expectedCount={detail.expectedCount} denominator={detail.denominator} onClose={closeDetail} />}
     </div>
   );
 }
 
-function FragmentCells({ count, percentage, style }: { count: number; percentage: number; style: React.CSSProperties }) {
-  return <><td style={style} className="border border-slate-200 px-1 py-1.5 font-medium">{count || '-'}</td><td style={style} className="border border-slate-200 px-1 py-1.5">{count ? `${percentage.toFixed(1)}%` : '-'}</td></>;
+function FragmentCells({ count, percentage, style, label, disabled, onOpen }: { count: number; percentage: number; style: React.CSSProperties; label: string; disabled: boolean; onOpen: () => void }) {
+  return <>{(['数量', '占比'] as const).map(kind => <td key={kind} style={style} className="border border-slate-200 px-1 py-1.5"><button type="button" disabled={disabled || !count} onClick={onOpen} aria-label={`${label} ${kind}明细`} className="enabled:underline enabled:decoration-dotted enabled:underline-offset-2 enabled:hover:text-teal-700">{count ? kind === '数量' ? count : `${percentage.toFixed(1)}%` : '-'}</button></td>)}</>;
 }
 
 function Metric({ label, value, detail, tone = 'slate' }: { label: string; value: string; detail: string; tone?: 'slate' | 'emerald' | 'orange' }) {

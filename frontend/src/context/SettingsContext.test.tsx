@@ -45,6 +45,13 @@ describe('shared settings context', () => {
     expect(result.current.settings.processRecords.username).toBe('');
   });
 
+  it('treats legacy development statuses as administrator-only', async () => {
+    vi.mocked(settingsApi.getDashboardStatuses).mockResolvedValue({ doa: 'planned' } as never);
+    const { result } = renderHook(() => useSettings(), { wrapper: SettingsProvider });
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.settings.dashboardStatuses.doa).toBe('admin-only');
+  });
+
   it('discards administrator settings when the role changes to an ordinary user', async () => {
     setRole('admin');
     vi.mocked(settingsApi.getAll).mockResolvedValueOnce({

@@ -10,12 +10,15 @@ from fastapi import HTTPException
 from app.base_access import base_allowed, current_base_permissions
 from app.schemas.rty import StationPassExport
 from app.services import rty_export, rty_gateway
+from app.services.async_ttl_cache import AsyncTTLCache
 from app.services.data_gateway_client import DataGatewayError, data_gateway
 from app.services.lrr_normalization import compact_date
 from app.services.rty_export import MAX_EXPORT_ORDERS, _source
 from app.services.rty_shared import normalize_order, validate_date
 
 MAX_REPAIR_QUALITY_FAULTS = 250_000
+REPAIR_QUALITY_SOURCE_CACHE_TTL_SECONDS = 60.0
+_REPAIR_QUALITY_SOURCE_CACHE = AsyncTTLCache(max_entries=64)
 
 
 def _order_identity(item: dict[str, Any]) -> str:
@@ -52,11 +55,10 @@ def _unique_repairs(faults: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return result
 
 
-def aggregate_repairs(
+def _group_repairs(
     faults: list[dict[str, Any]],
     orders: dict[str, dict[str, Any]],
-) -> dict[str, Any]:
-    """Aggregate de-duplicated source repair rows per SN and customer/base."""
+) -> tuple[dict[str, list[dict[str, Any]]], dict[tuple[str, str], set[str]]]:
     rows_by_sn: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in _unique_repairs(faults):
         sn = str(row.get("PCODE") or "").strip()
@@ -67,6 +69,15 @@ def aggregate_repairs(
         for row in rows:
             order = orders.get(normalize_order(row.get("AUFNR")), {})
             groups[(str(order.get("KID") or "未填写客户").strip(), str(order.get("LGORT") or "未知基地").strip())].add(sn)
+    return rows_by_sn, groups
+
+
+def aggregate_repairs(
+    faults: list[dict[str, Any]],
+    orders: dict[str, dict[str, Any]],
+) -> dict[str, Any]:
+    """Aggregate de-duplicated source repair rows per SN and customer/base."""
+    rows_by_sn, groups = _group_repairs(faults, orders)
 
     def summary(sns: set[str]) -> dict[str, Any]:
         counts = [len(rows_by_sn[sn]) for sn in sns]
@@ -99,7 +110,7 @@ def aggregate_repairs(
     }
 
 
-async def _load_sources(
+async def _load_sources_uncached(
     date_from: str,
     date_to: str,
     *,
@@ -182,6 +193,38 @@ async def _load_sources(
     return selected_rows, _unique_repairs(repairs), metadata
 
 
+async def _load_sources(
+    date_from: str,
+    date_to: str,
+    *,
+    product_models: list[str] | None = None,
+    customers: list[str] | None = None,
+    bases: list[str] | None = None,
+    full_fault_rows: bool = False,
+) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, dict[str, Any]]]:
+    key = (
+        date_from,
+        date_to,
+        tuple(sorted(product_models or [])),
+        tuple(sorted(customers or [])),
+        tuple(sorted(bases or [])),
+        current_base_permissions(),
+        full_fault_rows,
+    )
+    return await _REPAIR_QUALITY_SOURCE_CACHE.get_or_set(
+        key,
+        lambda: _load_sources_uncached(
+            date_from,
+            date_to,
+            product_models=product_models,
+            customers=customers,
+            bases=bases,
+            full_fault_rows=full_fault_rows,
+        ),
+        ttl_seconds=REPAIR_QUALITY_SOURCE_CACHE_TTL_SECONDS,
+    )
+
+
 async def analyze(
     date_from: str,
     date_to: str,
@@ -194,6 +237,61 @@ async def analyze(
         date_from, date_to, product_models=product_models, customers=customers, bases=bases
     )
     return aggregate_repairs(repairs, metadata)
+
+
+async def details(
+    date_from: str,
+    date_to: str,
+    customer: str,
+    base: str,
+    bucket: str,
+    *,
+    product_models: list[str] | None = None,
+    customers: list[str] | None = None,
+    bases: list[str] | None = None,
+    page: int = 1,
+    page_size: int = 50,
+    export_all: bool = False,
+) -> dict[str, Any]:
+    _, repairs, metadata = await _load_sources(
+        date_from, date_to, product_models=product_models, customers=customers, bases=bases
+    )
+    rows_by_sn, groups = _group_repairs(repairs, metadata)
+    sns = sorted(
+        sn for sn in groups.get((customer, base), set())
+        if bucket == "all"
+        or (bucket == "9+" and len(rows_by_sn[sn]) >= 9)
+        or (bucket.isdigit() and len(rows_by_sn[sn]) == int(bucket))
+    )
+    selected = sns if export_all else sns[(page - 1) * page_size : page * page_size]
+    items = []
+    for sn in selected:
+        rows = rows_by_sn[sn]
+        orders = sorted({str(row.get("AUFNR") or "").strip() for row in rows} - {""})
+        models = sorted({
+            str(metadata.get(normalize_order(order), {}).get("MAKTX_TH") or "").strip()
+            for order in orders
+        } - {""})
+        items.append({
+            "sn": sn,
+            "productionOrders": orders,
+            "models": models,
+            "repairCount": len(rows),
+            "repairs": [
+                {
+                    "productionOrder": str(row.get("AUFNR") or ""),
+                    "salesOrder": str(row.get("VBELN") or ""),
+                    "station": str(row.get("ZNGGZ") or ""),
+                    "faultCode": str(row.get("ZNGWD") or ""),
+                    "description": str(row.get("ZWXWD") or ""),
+                    "foundDate": str(row.get("T_FIND") or ""),
+                    "repairDate": str(row.get("ZWXDT") or ""),
+                    "repairPerson": str(row.get("U_FIX") or row.get("ZUSER") or ""),
+                }
+                for row in rows
+            ],
+        })
+    return {"items": items, "total": len(sns), "page": page, "pageSize": page_size}
 
 
 async def build_export(

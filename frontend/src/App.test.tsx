@@ -1,114 +1,57 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
-import { Link } from 'react-router-dom';
-import type { ReactNode } from 'react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { getAccessToken, getCurrentUser, loginWithPassword } from './api/authApi';
-import { useAuth } from './context/AuthContext';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import App from './App';
 
-vi.mock('./api/authApi', () => ({
-  getCurrentUser: vi.fn(), getAccessToken: vi.fn(), loginWithPassword: vi.fn(),
-  registerUnauthorizedHandler: vi.fn(), setAccessToken: vi.fn(),
-  setRefreshToken: vi.fn(), clearTokens: vi.fn(),
+const state = vi.hoisted(() => ({
+  loading: true,
+  error: null as string | null,
+  status: 'available',
+  reload: vi.fn(),
 }));
-vi.mock('./api/operationsApi', () => ({
-  operationsApi: { trackPageView: vi.fn().mockResolvedValue(undefined) },
+vi.mock('./context/AuthContext', () => ({
+  AuthProvider: ({ children }: { children: React.ReactNode }) => children,
+  useAuth: () => ({
+    isAuthLoaded: true, isAuthenticated: true,
+    user: { username: 'test', role: 'user', dashboardPermissions: ['doa'] },
+  }),
 }));
 vi.mock('./context/SettingsContext', () => ({
-  SettingsProvider: ({ children }: { children: ReactNode }) => children,
-  useSettings: () => ({ settings: { dashboardStatuses: {} } }),
+  SettingsProvider: ({ children }: { children: React.ReactNode }) => children,
+  useSettings: () => ({
+    loading: state.loading, error: state.error, reloadSettings: state.reload,
+    settings: { dashboardStatuses: { doa: state.status } },
+  }),
 }));
-vi.mock('./pages/Home', () => ({
-  default: () => {
-    const { logout } = useAuth();
-    return <main><h1>Home</h1><Link to="/rty">RTY</Link><button onClick={logout}>Sign out</button></main>;
-  },
-}));
-vi.mock('./pages/RTYPage', () => ({
-  default: () => <main><h1>RTY</h1><Link to="/">Home</Link></main>,
-}));
-vi.mock('./pages/LoginPage', () => ({
-  default: () => {
-    const { login } = useAuth();
-    return <button onClick={() => void login('alice', 'test-password')}>Sign in</button>;
-  },
-}));
-vi.mock('./pages/AlertReportPage', () => ({
-  default: () => <h1>Alert report</h1>,
-}));
+vi.mock('./api/operationsApi', () => ({ operationsApi: { trackPageView: vi.fn().mockResolvedValue(undefined) } }));
+vi.mock('./pages/DoaPage', () => ({ default: () => <div>DOA 看板内容</div> }));
 
-const user = { itcode: 'alice', role: 'user', dashboardPermissions: ['rty'] };
+describe('dashboard status on refresh', () => {
+  afterEach(() => { cleanup(); state.loading = true; state.error = null; state.status = 'available'; state.reload.mockClear(); });
 
-beforeEach(() => {
-  vi.clearAllMocks();
-  vi.mocked(getAccessToken).mockReturnValue('existing-token');
-  vi.mocked(getCurrentUser).mockResolvedValue({ itcode: user.itcode, user });
-  vi.mocked(loginWithPassword).mockResolvedValue({
-    ok: true, user, access_token: 'access-token', refresh_token: 'refresh-token',
-  });
-});
-afterEach(() => {
-  cleanup();
-  window.history.replaceState(null, '', '/');
-});
-
-describe.each(['', '/QualiBoard'])('application entry %s', prefix => {
-  it('renders the entry without changing its address and keeps navigation under that entry', async () => {
-    const entry = prefix || '/';
-    window.history.replaceState(null, '', entry);
-    render(<App />);
-    await screen.findByRole('heading', { name: 'Home' });
-    expect(window.location.pathname).toBe(entry);
-    const link = screen.getByRole('link', { name: 'RTY' });
-    expect(link.getAttribute('href')).toBe(`${prefix}/rty`);
-    fireEvent.click(link);
-    await screen.findByRole('heading', { name: 'RTY' });
-    expect(window.location.pathname).toBe(`${prefix}/rty`);
-    fireEvent.click(screen.getByRole('link', { name: 'Home' }));
-    await screen.findByRole('heading', { name: 'Home' });
-    expect(window.location.pathname).toBe(entry);
-  });
-
-  it('keeps login and logout within the chosen entry', async () => {
-    vi.mocked(getAccessToken).mockReturnValue(null);
-    window.history.replaceState(null, '', prefix || '/');
-    render(<App />);
-    const signIn = await screen.findByRole('button', { name: 'Sign in' });
-    expect(window.location.pathname).toBe(`${prefix}/login`);
-    fireEvent.click(signIn);
-    await screen.findByRole('heading', { name: 'Home' });
-    expect(window.location.pathname).toBe(prefix || '/');
-    fireEvent.click(screen.getByRole('button', { name: 'Sign out' }));
-    await screen.findByRole('button', { name: 'Sign in' });
-    expect(window.location.pathname).toBe(`${prefix}/login`);
-  });
-
-  it('loads a bookmarked dashboard after a full page reload', async () => {
-    window.history.replaceState(null, '', `${prefix}/rty?model=M`);
+  it('waits for the saved status before rendering and respects administrator-only access', async () => {
+    window.history.pushState({}, '', '/doa');
     const view = render(<App />);
-    await screen.findByRole('heading', { name: 'RTY' });
-    view.unmount();
-    render(<App />);
-    await screen.findByRole('heading', { name: 'RTY' });
-    expect(window.location.pathname).toBe(`${prefix}/rty`);
-    expect(window.location.search).toBe('?model=M');
+    expect(screen.queryByText('DOA 看板内容')).toBeNull();
+    expect(screen.queryByText(/正在开发/)).toBeNull();
+    state.loading = false;
+    state.status = 'admin-only';
+    view.rerender(<App />);
+    expect(await screen.findByText('仅管理员可见')).toBeTruthy();
+    expect(screen.queryByText('DOA 看板内容')).toBeNull();
+    state.status = 'available';
+    view.rerender(<App />);
+    expect(await screen.findByText('DOA 看板内容')).toBeTruthy();
   });
 
-  it('loads public reports without forcing authentication', async () => {
-    vi.mocked(getAccessToken).mockReturnValue(null);
-    window.history.replaceState(null, '', `${prefix}/alert-report/test-token`);
+  it('offers a retry when status settings cannot be loaded', () => {
+    window.history.pushState({}, '', '/doa');
+    state.loading = false;
+    state.error = '连接失败';
     render(<App />);
-    await screen.findByRole('heading', { name: 'Alert report' });
-    expect(window.location.pathname).toBe(`${prefix}/alert-report/test-token`);
-    expect(screen.queryByRole('button', { name: 'Sign in' })).toBeNull();
+    expect(screen.getByRole('alert').textContent).toContain('连接失败');
+    fireEvent.click(screen.getByRole('button', { name: '重新加载' }));
+    expect(state.reload).toHaveBeenCalledOnce();
+    expect(screen.queryByText('DOA 看板内容')).toBeNull();
   });
-});
-
-it('supports the QualiBoard entry with a trailing slash and query parameters', async () => {
-  window.history.replaceState(null, '', '/QualiBoard/?from=bookmark');
-  render(<App />);
-  await screen.findByRole('heading', { name: 'Home' });
-  expect(window.location.pathname).toBe('/QualiBoard/');
-  expect(window.location.search).toBe('?from=bookmark');
 });

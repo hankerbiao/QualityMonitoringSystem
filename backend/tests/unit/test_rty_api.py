@@ -245,7 +245,7 @@ async def test_repair_quality_export_requires_own_permission_and_base_access(mon
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("endpoint", ["", "/options", "/export"])
+@pytest.mark.parametrize("endpoint", ["", "/options", "/export", "/details"])
 @pytest.mark.parametrize(
     ("role", "dashboard_status", "expected"),
     [("user", "admin-only", 403), ("admin", "admin-only", 200), ("user", "available", 200)],
@@ -256,21 +256,74 @@ async def test_repair_quality_status_guards_all_endpoints(monkeypatch, endpoint,
     analyze = AsyncMock(return_value={"snCount": 0, "groups": []})
     options = AsyncMock(return_value={"productModels": [], "customers": [], "bases": []})
     export = AsyncMock(return_value={"orders": [], "faults": [], "summary": {"snCount": 0}})
+    details = AsyncMock(return_value={"items": [], "total": 0})
     monkeypatch.setattr(repair_quality, "analyze", analyze)
     monkeypatch.setattr(repair_quality, "options", options)
     monkeypatch.setattr(repair_quality, "build_export", export)
+    monkeypatch.setattr(repair_quality, "details", details)
     app = FastAPI()
     app.include_router(rty.router, prefix="/api/rty")
     app.dependency_overrides[auth.get_current_user] = lambda: {
         "role": role, "dashboardPermissions": ["repair-quality"], "basePermissions": ["1000"],
     }
     async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
-        response = await client.get(f"/api/rty/repair-quality{endpoint}", params={"dateFrom": "2026-10-01", "dateTo": "2026-10-26"})
+        response = await client.get(f"/api/rty/repair-quality{endpoint}", params={
+            "dateFrom": "2026-10-01", "dateTo": "2026-10-26", "customer": "C1", "base": "1000",
+        })
     assert response.status_code == expected
     if expected == 403:
         analyze.assert_not_awaited()
         options.assert_not_awaited()
         export.assert_not_awaited()
+        details.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_repair_quality_details_validates_and_forwards_query(monkeypatch):
+    monkeypatch.setattr(rty, "get_database", lambda: None)
+    monkeypatch.setattr(rty.SettingsService, "get_dashboard_statuses", AsyncMock(return_value={"repair-quality": "available"}))
+    details = AsyncMock(return_value={"items": [], "total": 0})
+    monkeypatch.setattr(repair_quality, "details", details)
+    app = FastAPI()
+    app.include_router(rty.router, prefix="/api/rty")
+    app.dependency_overrides[auth.get_current_user] = lambda: {
+        "role": "user", "dashboardPermissions": ["repair-quality"], "basePermissions": ["1000"],
+    }
+    params = {
+        "dateFrom": "2026-10-01", "dateTo": "2026-10-31",
+        "customer": "C1", "base": "1000", "bucket": "9+", "page": 2,
+        "pageSize": 20, "productModels": "M1", "exportAll": "true",
+    }
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/rty/repair-quality/details", params=params)
+        invalid = await client.get("/api/rty/repair-quality/details", params={**params, "bucket": "10"})
+        oversized = await client.get("/api/rty/repair-quality/details", params={**params, "pageSize": 201})
+    assert response.status_code == 200
+    assert invalid.status_code == oversized.status_code == 422
+    details.assert_awaited_once_with(
+        "2026-10-01", "2026-10-31", "C1", "1000", "9+",
+        product_models=["M1"], customers=None, bases=None,
+        page=2, page_size=20, export_all=True,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("permissions", [[], ["rty"], ["station-pass-rate"]])
+async def test_repair_quality_details_requires_dashboard_permission(monkeypatch, permissions):
+    details = AsyncMock(return_value={"items": [], "total": 0})
+    monkeypatch.setattr(repair_quality, "details", details)
+    app = FastAPI()
+    app.include_router(rty.router, prefix="/api/rty")
+    app.dependency_overrides[auth.get_current_user] = lambda: {
+        "role": "user", "dashboardPermissions": permissions, "basePermissions": ["1000"],
+    }
+    async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test") as client:
+        response = await client.get("/api/rty/repair-quality/details", params={
+            "dateFrom": "2026-10-01", "dateTo": "2026-10-31",
+            "customer": "C1", "base": "1000", "exportAll": "true",
+        })
+    assert response.status_code == 403
+    details.assert_not_awaited()
 
 
 @pytest.mark.asyncio

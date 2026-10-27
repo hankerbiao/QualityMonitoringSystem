@@ -17,7 +17,7 @@ const settings: SettingsResponse = {
     enabled: true, emails: 'quality@company.com', triggerCondition: 'existing-rule',
     weeklyProductionThreshold: 50,
   },
-  dashboardStatuses: { doa: 'planned' },
+  dashboardStatuses: { doa: 'admin-only' },
   cycleStatsConfig: { selectedModels: [] },
   stationPassRateConfig: { selectedStations: [], configured: false },
 };
@@ -83,7 +83,7 @@ describe('settings pages by role', () => {
         'repair-quality': 'admin-only',
         lrr: 'available',
         doa: 'admin-only',
-        mfr: 'planned',
+        mfr: 'admin-only',
       },
     }));
   });

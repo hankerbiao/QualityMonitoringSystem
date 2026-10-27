@@ -219,6 +219,26 @@ class TestAdminUsers:
         assert (await client.get("/api/admin/users", headers=headers)).status_code == 403
         assert (await client.get("/api/doa/options", headers=headers)).status_code == 403
 
+    async def test_doa_audit_requires_repair_detail_permission(self, client):
+        admin_headers = {"Authorization": f"Bearer {await _admin_token(client)}"}
+        created = await client.post(
+            "/api/admin/users",
+            headers=admin_headers,
+            json={
+                "username": "doa-dashboard-only",
+                "displayName": "DOA Dashboard Only",
+                "password": "initial-password",
+                "dashboardPermissions": ["doa"],
+            },
+        )
+        assert created.status_code == 201
+        login = await client.post(
+            "/api/auth/login", json={"username": "doa-dashboard-only", "password": "initial-password"}
+        )
+        headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+        assert (await client.get("/api/doa/audit", headers=headers)).status_code == 403
+
     async def test_admin_account_cannot_be_managed(self, client):
         headers = {"Authorization": f"Bearer {await _admin_token(client)}"}
         response = await client.patch(

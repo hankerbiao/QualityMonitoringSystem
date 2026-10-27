@@ -124,6 +124,7 @@ async def test_doa_replacement_rate_counts_only_valid_replacement_defect_quantit
             {
                 "salesOrder": "0001",
                 "shipmentQuantity": 100,
+                "orderQuantity": 100,
                 "shipmentDate": "2026-09-01",
                 "is5000Company": True,
                 "finalUser": "客户A",

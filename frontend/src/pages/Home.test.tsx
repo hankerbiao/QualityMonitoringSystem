@@ -15,7 +15,7 @@ vi.mock('../context/SettingsContext', () => ({
   useSettings: () => ({ settings: { dashboardStatuses: testDashboardStatuses } }),
 }));
 
-const testDashboardStatuses: Record<string, 'available' | 'planned' | 'admin-only'> = {};
+const testDashboardStatuses: Record<string, 'available' | 'admin-only'> = {};
 
 const normalUser: UserProfile = {
   itcode: 'alice', username: 'alice', name: 'Alice', role: 'user',

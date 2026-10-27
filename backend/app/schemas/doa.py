@@ -15,6 +15,8 @@ class DoaFilters(BaseModel):
     acceptedDateTo: str | None = None
     customer: str | None = None
     model: str | None = None
+    customers: list[str] = Field(default_factory=list)
+    models: list[str] = Field(default_factory=list)
     timeGranularity: TimeGranularity = "month"
 
 
@@ -49,12 +51,18 @@ class DoaSummary(BaseModel):
     latestDataAt: datetime | None = None
 
 
+class DoaUnmatchedOrder(BaseModel):
+    salesOrder: str
+    recordCount: int
+
+
 class DoaDashboardResponse(BaseModel):
     filters: DoaFilters
     summary: DoaSummary
     trend: list[DoaTrendItem] = Field(default_factory=list)
     byCustomer: list[DoaDimensionItem] = Field(default_factory=list)
     byModel: list[DoaDimensionItem] = Field(default_factory=list)
+    unmatchedOrders: list[DoaUnmatchedOrder] = Field(default_factory=list)
 
 
 class DoaRepairItem(BaseModel):

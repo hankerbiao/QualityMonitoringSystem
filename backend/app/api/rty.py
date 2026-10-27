@@ -79,6 +79,32 @@ async def get_repair_quality_options():
 
 
 @router.get(
+    "/repair-quality/details",
+    response_model=Response[dict],
+    dependencies=[Depends(require_repair_quality_access)],
+)
+async def get_repair_quality_details(
+    dateFrom: str = Query(...),
+    dateTo: str = Query(...),
+    customer: str = Query(..., min_length=1),
+    base: str = Query(..., min_length=1),
+    bucket: Literal["all", "1", "2", "3", "4", "5", "6", "7", "8", "9+"] = "all",
+    productModels: Annotated[list[str] | None, Query()] = None,
+    customers: Annotated[list[str] | None, Query()] = None,
+    bases: Annotated[list[str] | None, Query()] = None,
+    page: int = Query(1, ge=1),
+    pageSize: int = Query(50, ge=1, le=200),
+    exportAll: bool = False,
+):
+    data = await repair_quality.details(
+        dateFrom, dateTo, customer, base, bucket,
+        product_models=productModels, customers=customers, bases=bases,
+        page=page, page_size=pageSize, export_all=exportAll,
+    )
+    return Response(success=True, data=data)
+
+
+@router.get(
     "/repair-quality/export",
     response_model=Response[dict],
     dependencies=[Depends(require_repair_quality_access)],

@@ -1,7 +1,7 @@
 import { DefectDetail, RTYData, RTYFilterParams, SalesOrderSummary, PaginatedRTYResponse, PaginatedExcludedOrdersResponse, RepairQualityOptions, RepairQualitySummary, StationPassDetail, StationPassQuery, StationPassRate } from '../types';
 import { requestData, requestJson } from './authApi';
 import { API_BASE_URL } from '../constants';
-import type { RepairQualityExport, RepairQualityQuery, RTYCycleDetails, RTYCycleDetailQuery, RTYTemplateExport, StationPassExport } from '../types/rty';
+import type { RepairQualityDetailQuery, RepairQualityDetails, RepairQualityExport, RepairQualityQuery, RTYCycleDetails, RTYCycleDetailQuery, RTYTemplateExport, StationPassExport } from '../types/rty';
 import type { UserProfile } from '../types/auth';
 
 const RTY_LIST_CACHE_TTL_MS = 2_000;
@@ -118,6 +118,14 @@ function buildRtyQuery(params: RTYFilterParams): URLSearchParams {
   return qs;
 }
 
+function buildRepairQualityQuery(params: RepairQualityQuery): URLSearchParams {
+  const qs = new URLSearchParams({ dateFrom: params.dateFrom, dateTo: params.dateTo });
+  params.productModels?.forEach(value => qs.append('productModels', value));
+  params.customers?.forEach(value => qs.append('customers', value));
+  params.bases?.forEach(value => qs.append('bases', value));
+  return qs;
+}
+
 function buildStationPassQuery(params: StationPassQuery): URLSearchParams {
   const qs = new URLSearchParams({ groupBy: params.groupBy, orderScope: params.orderScope || 'normal' });
   if (params.dateFrom) qs.set('dateFrom', params.dateFrom);
@@ -182,19 +190,23 @@ export const rtyApi = {
   },
 
   async getRepairQuality(params: RepairQualityQuery): Promise<RepairQualitySummary> {
-    const qs = new URLSearchParams({ dateFrom: params.dateFrom, dateTo: params.dateTo });
-    params.productModels?.forEach(value => qs.append('productModels', value));
-    params.customers?.forEach(value => qs.append('customers', value));
-    params.bases?.forEach(value => qs.append('bases', value));
+    const qs = buildRepairQualityQuery(params);
     return requestData<RepairQualitySummary>(`${API_BASE_URL}/rty/repair-quality?${qs}`);
   },
 
   async getRepairQualityExport(params: RepairQualityQuery): Promise<RepairQualityExport> {
-    const qs = new URLSearchParams({ dateFrom: params.dateFrom, dateTo: params.dateTo });
-    params.productModels?.forEach(value => qs.append('productModels', value));
-    params.customers?.forEach(value => qs.append('customers', value));
-    params.bases?.forEach(value => qs.append('bases', value));
+    const qs = buildRepairQualityQuery(params);
     return requestData<RepairQualityExport>(`${API_BASE_URL}/rty/repair-quality/export?${qs}`);
+  },
+
+  async getRepairQualityDetails(params: RepairQualityDetailQuery, page = 1, exportAll = false): Promise<RepairQualityDetails> {
+    const qs = buildRepairQualityQuery(params);
+    qs.set('customer', params.customer);
+    qs.set('base', params.base);
+    qs.set('bucket', params.bucket);
+    qs.set('page', String(page));
+    if (exportAll) qs.set('exportAll', 'true');
+    return requestData<RepairQualityDetails>(`${API_BASE_URL}/rty/repair-quality/details?${qs}`);
   },
 
   async getStationPassExport(params: StationPassQuery): Promise<StationPassExport> {

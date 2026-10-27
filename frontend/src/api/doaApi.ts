@@ -1,11 +1,13 @@
 import { requestJson } from './authApi';
 import { API_BASE_URL } from '../constants';
-import type { DoaDashboard, DoaFilters, DoaOptions, DoaRawDashboard, DoaRawFilters, DoaRepairsResponse } from '../types/doa';
+import type { DoaAudit, DoaDashboard, DoaFilters, DoaOptions, DoaRawDashboard, DoaRawFilters, DoaRepairsResponse } from '../types/doa';
 
 function query(filters: DoaFilters, extra: Record<string, string | number> = {}) {
   const params = new URLSearchParams();
   Object.entries({ ...filters, ...extra }).forEach(([key, value]) => {
-    if (value !== '' && value !== undefined && value !== null) params.set(key, String(value));
+    if (Array.isArray(value)) {
+      [...new Set(value)].sort().forEach((item) => params.append(key, item));
+    } else if (value !== '' && value !== undefined && value !== null) params.set(key, String(value));
   });
   return params.toString() ? `?${params.toString()}` : '';
 }
@@ -16,6 +18,9 @@ export const doaApi = {
   },
   async getDashboard(filters: DoaFilters): Promise<DoaDashboard> {
     return requestJson<DoaDashboard>(`${API_BASE_URL}/doa/dashboard${query(filters)}`);
+  },
+  async getAudit(filters: DoaFilters): Promise<DoaAudit> {
+    return requestJson<DoaAudit>(`${API_BASE_URL}/doa/audit${query(filters)}`);
   },
   async getRepairs(filters: DoaFilters, page = 1, limit = 50, replacementOnly = false): Promise<DoaRepairsResponse> {
     const extra: Record<string, string | number> = replacementOnly

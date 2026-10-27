@@ -9,7 +9,7 @@ import {
   Wrench,
 } from 'lucide-react';
 
-export type HomeModuleStatus = 'available' | 'planned' | 'admin-only';
+export type HomeModuleStatus = 'available' | 'admin-only';
 export type HomeModuleAccent = 'blue' | 'amber' | 'emerald' | 'cyan' | 'rose' | 'slate';
 
 export interface HomeModuleDefinition {
@@ -29,8 +29,8 @@ export const DEFAULT_DASHBOARD_STATUSES: Record<string, HomeModuleStatus> = {
   'station-pass-rate': 'available',
   'repair-quality': 'admin-only',
   lrr: 'available',
-  doa: 'planned',
-  mfr: 'planned',
+  doa: 'available',
+  mfr: 'admin-only',
 };
 
 export const qualityModules: readonly HomeModuleDefinition[] = [
@@ -82,7 +82,7 @@ export const qualityModules: readonly HomeModuleDefinition[] = [
     icon: Wrench,
     accent: 'emerald',
     path: '/doa',
-    status: 'planned',
+    status: 'available',
   },
   {
     id: 'mfr',
@@ -92,7 +92,7 @@ export const qualityModules: readonly HomeModuleDefinition[] = [
     icon: BarChart3,
     accent: 'rose',
     path: '/mfr',
-    status: 'planned',
+    status: 'admin-only',
   },
 ];
 

@@ -1,4 +1,4 @@
-import { ArrowRight, Clock3 } from 'lucide-react';
+import { ArrowRight } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import type { HomeModuleDefinition } from '../../config/homeModules';
 
@@ -49,31 +49,18 @@ const accentStyles = {
 
 function ModuleIcon({ module, compact }: { module: HomeModuleDefinition; compact: boolean }) {
   const Icon = module.icon;
-  const isPlanned = module.status === 'planned';
   const accent = accentStyles[module.accent];
 
   return (
     <div
-      className={`flex shrink-0 items-center justify-center rounded-lg border ${compact ? 'size-9' : 'size-10'} ${
-        isPlanned ? 'border-slate-200 bg-slate-100 text-slate-500' : accent.icon
-      }`}
+      className={`flex shrink-0 items-center justify-center rounded-lg border ${compact ? 'size-9' : 'size-10'} ${accent.icon}`}
     >
       <Icon className={compact ? 'size-5' : 'size-5.5'} aria-hidden="true" />
     </div>
   );
 }
 
-function PlannedBadge() {
-  return (
-    <span className="inline-flex shrink-0 items-center gap-1 rounded-md bg-slate-100 px-2 py-1 text-xs font-medium text-slate-500 ring-1 ring-inset ring-slate-200">
-      <Clock3 className="size-3.5" aria-hidden="true" />
-      开发中
-    </span>
-  );
-}
-
 function CardContent({ module, variant = 'primary' }: ModuleCardProps) {
-  const isPlanned = module.status === 'planned';
   const accent = accentStyles[module.accent];
 
   if (variant === 'compact') {
@@ -88,10 +75,8 @@ function CardContent({ module, variant = 'primary' }: ModuleCardProps) {
           <p className="mt-1.5 line-clamp-2 text-xs leading-5 text-slate-500">{module.description}</p>
         </div>
         <div className="mt-4 flex items-center justify-between gap-3">
-          {isPlanned ? <PlannedBadge /> : <span className={`text-xs font-medium ${accent.action}`}>进入功能</span>}
-          {!isPlanned && (
-            <ArrowRight className={`size-4 transition-transform group-hover:translate-x-0.5 ${accent.action}`} aria-hidden="true" />
-          )}
+          <span className={`text-xs font-medium ${accent.action}`}>进入功能</span>
+          <ArrowRight className={`size-4 transition-transform group-hover:translate-x-0.5 ${accent.action}`} aria-hidden="true" />
         </div>
       </>
     );
@@ -107,11 +92,9 @@ function CardContent({ module, variant = 'primary' }: ModuleCardProps) {
         <h3 className="line-clamp-2 text-base font-semibold leading-6 text-slate-950">{module.title}</h3>
         <p className="mt-2 line-clamp-2 text-sm leading-5 text-slate-500">{module.description}</p>
       </div>
-      <div className={`mt-5 flex items-center justify-between gap-3 text-sm font-medium ${isPlanned ? 'text-slate-400' : accent.action}`}>
-        {isPlanned ? <PlannedBadge /> : <span>打开看板</span>}
-        {!isPlanned && (
-          <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
-        )}
+      <div className={`mt-5 flex items-center justify-between gap-3 text-sm font-medium ${accent.action}`}>
+        <span>打开看板</span>
+        <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
       </div>
     </>
   );
@@ -124,17 +107,6 @@ export default function ModuleCard({ module, variant = 'primary', onSelect }: Mo
     ? 'group flex min-h-[168px] w-full flex-col rounded-lg border border-t-2 p-4 text-left transition-colors'
     : 'group flex min-h-[196px] w-full flex-col rounded-lg border border-t-2 p-5 text-left transition-colors';
   const interactiveClassName = `border-slate-200 ${accent.edge} bg-white ${accent.hover} focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 focus-visible:ring-offset-2`;
-
-  if (module.status === 'planned') {
-    return (
-      <article
-        aria-disabled="true"
-        className={`${baseClassName} border-slate-200 border-t-slate-300 bg-slate-50`}
-      >
-        <CardContent module={module} variant={variant} />
-      </article>
-    );
-  }
 
   if (module.path) {
     return (

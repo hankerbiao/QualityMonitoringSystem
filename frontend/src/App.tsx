@@ -6,6 +6,7 @@ import { SettingsProvider } from './context/SettingsContext';
 import { useSettings } from './context/SettingsContext';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { getAppBasePath } from './constants';
+import { DEFAULT_DASHBOARD_STATUSES } from './config/homeModules';
 
 const Home = lazy(() => import('./pages/Home'));
 const RTYPage = lazy(() => import('./pages/RTYPage'));
@@ -20,7 +21,6 @@ const DoaPage = lazy(() => import('./pages/DoaPage'));
 const DoaScsPage = lazy(() => import('./pages/DoaScsPage'));
 const DoaRepairsPage = lazy(() => import('./pages/DoaRepairsPage'));
 const MFRPage = lazy(() => import('./pages/MFRPage'));
-const UnderDevelopmentPage = lazy(() => import('./pages/UnderDevelopmentPage'));
 
 class RouteErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean }> {
   state = { hasError: false };
@@ -57,6 +57,7 @@ class RouteErrorBoundary extends Component<{ children: ReactNode }, { hasError: 
 
 function ProtectedLayout() {
   const { isAuthenticated, isAuthLoaded, user } = useAuth();
+  const { loading, error, reloadSettings } = useSettings();
   const location = useLocation();
 
   useEffect(() => {
@@ -68,6 +69,15 @@ function ProtectedLayout() {
 
   if (!isAuthLoaded) return null;
   if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (loading) return <LoadingPage />;
+  if (error) return (
+    <main className="flex min-h-[60vh] items-center justify-center p-6">
+      <div role="alert" className="text-center">
+        <p className="text-sm text-red-700">看板状态加载失败：{error}</p>
+        <button type="button" onClick={reloadSettings} className="mt-3 rounded-md border border-slate-300 px-3 py-2 text-sm">重新加载</button>
+      </div>
+    </main>
+  );
   return <Outlet key={JSON.stringify([user?.username || user?.itcode, user?.role, user?.basePermissions, user?.dashboardPermissions])} />;
 }
 
@@ -88,18 +98,14 @@ function DashboardAccess({ permission, children }: { permission: string; childre
 
 function DashboardStatusAccess({
   dashboardId,
-  title,
-  description,
   children,
 }: {
   dashboardId: string;
-  title: string;
-  description: string;
   children: ReactNode;
 }) {
   const { settings } = useSettings();
   const { user } = useAuth();
-  if (settings.dashboardStatuses[dashboardId] === 'admin-only' && user?.role !== 'admin') {
+  if ((settings.dashboardStatuses[dashboardId] ?? DEFAULT_DASHBOARD_STATUSES[dashboardId]) !== 'available' && user?.role !== 'admin') {
     return (
       <main className="flex min-h-[60vh] items-center justify-center bg-slate-50 p-6">
         <div className="max-w-md text-center">
@@ -108,9 +114,6 @@ function DashboardStatusAccess({
         </div>
       </main>
     );
-  }
-  if (settings.dashboardStatuses[dashboardId] === 'planned') {
-    return <UnderDevelopmentPage title={title} description={description} />;
   }
   return <>{children}</>;
 }
@@ -124,16 +127,16 @@ function AppContent() {
         <Route path="/alert-report/:token" element={<AlertReportPage />} />
         <Route element={<ProtectedLayout />}>
           <Route path="/" element={<Home />} />
-          <Route path="/rty" element={<DashboardAccess permission="rty"><DashboardStatusAccess dashboardId="rty" title="RTY 整机综合直通率" description="整机综合直通率质量看板"><RTYPage /></DashboardStatusAccess></DashboardAccess>} />
-          <Route path="/station-pass-rate" element={<DashboardAccess permission="station-pass-rate"><DashboardStatusAccess dashboardId="station-pass-rate" title="工位过站直通率" description="工位过站直通率质量看板"><StationPassRatePage /></DashboardStatusAccess></DashboardAccess>} />
-          <Route path="/repair-quality" element={<DashboardAccess permission="repair-quality"><DashboardStatusAccess dashboardId="repair-quality" title="维修首修通过率分析" description="维修首修通过率与复修次数分析看板"><RepairQualityPage /></DashboardStatusAccess></DashboardAccess>} />
-          <Route path="/lrr" element={<DashboardAccess permission="lrr"><DashboardStatusAccess dashboardId="lrr" title="LRR（工厂阶段部件故障率）" description="工厂阶段部件故障率质量看板"><LRRPage /></DashboardStatusAccess></DashboardAccess>} />
+        <Route path="/rty" element={<DashboardAccess permission="rty"><DashboardStatusAccess dashboardId="rty"><RTYPage /></DashboardStatusAccess></DashboardAccess>} />
+        <Route path="/station-pass-rate" element={<DashboardAccess permission="station-pass-rate"><DashboardStatusAccess dashboardId="station-pass-rate"><StationPassRatePage /></DashboardStatusAccess></DashboardAccess>} />
+        <Route path="/repair-quality" element={<DashboardAccess permission="repair-quality"><DashboardStatusAccess dashboardId="repair-quality"><RepairQualityPage /></DashboardStatusAccess></DashboardAccess>} />
+        <Route path="/lrr" element={<DashboardAccess permission="lrr"><DashboardStatusAccess dashboardId="lrr"><LRRPage /></DashboardStatusAccess></DashboardAccess>} />
           <Route path="/process-records" element={<DashboardAccess permission="process-records"><ProcessRecordsPage /></DashboardAccess>} />
           <Route path="/operations" element={<DashboardAccess permission="admin"><OperationsPage /></DashboardAccess>} />
-          <Route path="/doa/raw" element={<DashboardAccess permission="doa"><DashboardStatusAccess dashboardId="doa" title="DOA 报修率" description="开箱报修率质量看板"><DoaScsPage /></DashboardStatusAccess></DashboardAccess>} />
-          <Route path="/doa" element={<DashboardAccess permission="doa"><DashboardStatusAccess dashboardId="doa" title="DOA 报修率" description="开箱报修率质量看板"><DoaPage /></DashboardStatusAccess></DashboardAccess>} />
-          <Route path="/doa/repairs" element={<DashboardAccess permission="doa-repairs"><DashboardStatusAccess dashboardId="doa" title="DOA 报修率" description="开箱报修率质量看板"><DoaRepairsPage /></DashboardStatusAccess></DashboardAccess>} />
-          <Route path="/mfr" element={<DashboardAccess permission="mfr"><DashboardStatusAccess dashboardId="mfr" title="MFR（现网月化故障率）" description="现网月化故障率质量看板"><MFRPage /></DashboardStatusAccess></DashboardAccess>} />
+        <Route path="/doa/raw" element={<DashboardAccess permission="doa"><DashboardStatusAccess dashboardId="doa"><DoaScsPage /></DashboardStatusAccess></DashboardAccess>} />
+        <Route path="/doa" element={<DashboardAccess permission="doa"><DashboardStatusAccess dashboardId="doa"><DoaPage /></DashboardStatusAccess></DashboardAccess>} />
+        <Route path="/doa/repairs" element={<DashboardAccess permission="doa-repairs"><DashboardStatusAccess dashboardId="doa"><DoaRepairsPage /></DashboardStatusAccess></DashboardAccess>} />
+        <Route path="/mfr" element={<DashboardAccess permission="mfr"><DashboardStatusAccess dashboardId="mfr"><MFRPage /></DashboardStatusAccess></DashboardAccess>} />
         </Route>
         </Routes>
       </Suspense>

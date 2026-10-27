@@ -142,6 +142,38 @@ export interface RepairQualityQuery {
   bases?: string[];
 }
 
+export type RepairQualityBucket = 'all' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9+';
+
+export interface RepairQualityDetailQuery extends RepairQualityQuery {
+  customer: string;
+  base: string;
+  bucket: RepairQualityBucket;
+}
+
+export interface RepairQualityDetail {
+  sn: string;
+  productionOrders: string[];
+  models: string[];
+  repairCount: number;
+  repairs: {
+    productionOrder: string;
+    salesOrder: string;
+    station: string;
+    faultCode: string;
+    description: string;
+    foundDate: string;
+    repairDate: string;
+    repairPerson: string;
+  }[];
+}
+
+export interface RepairQualityDetails {
+  items: RepairQualityDetail[];
+  total: number;
+  page: number;
+  pageSize: number;
+}
+
 export interface RepairQualityExport extends StationPassExport {
   summary: RepairQualitySummary;
 }

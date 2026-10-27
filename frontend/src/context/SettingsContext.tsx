@@ -55,7 +55,15 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
         if (active) {
           setResult({
             key: requestKey,
-            settings: { ...DEFAULT_SETTINGS, ...accessibleSettings, dashboardStatuses },
+            settings: {
+              ...DEFAULT_SETTINGS,
+              ...accessibleSettings,
+              dashboardStatuses: Object.fromEntries(
+                Object.entries(dashboardStatuses).map(([key, status]) => [
+                  key, status === 'available' ? 'available' : 'admin-only',
+                ]),
+              ),
+            },
             error: null,
           });
         }

@@ -1,6 +1,15 @@
 from app.services.settings_service import SettingsService
 
 
+def test_legacy_dashboard_status_remains_restricted():
+    result = SettingsService.dashboard_statuses_from_doc(
+        {"statuses": {"doa": "planned", "mfr": "available"}}
+    )
+    assert result["doa"] == "admin-only"
+    assert result["mfr"] == "available"
+    assert SettingsService.dashboard_statuses_from_doc(None)["doa"] == "available"
+
+
 def test_email_from_doc_generates_rule_description_for_a_custom_threshold():
     config = SettingsService.email_from_doc(
         {

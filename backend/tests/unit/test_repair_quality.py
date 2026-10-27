@@ -57,6 +57,46 @@ def test_aggregate_repairs_ignores_rows_without_serial_number():
 
 
 @pytest.mark.asyncio
+async def test_details_match_group_counts_and_keep_cross_group_lifecycle(monkeypatch):
+    orders = {
+        "1": {"KID": "A", "LGORT": "1000", "MAKTX_TH": "M1"},
+        "2": {"KID": "B", "LGORT": "2000", "MAKTX_TH": "M2"},
+    }
+    faults = [
+        {"_id": "a", "PCODE": "SN-1", "AUFNR": "1"},
+        {"_id": "a", "PCODE": "SN-1", "AUFNR": "1"},
+        {"_id": "b", "PCODE": "SN-1", "AUFNR": "2", "ZWXWD": "故障"},
+        {"_id": "c", "PCODE": "SN-2", "AUFNR": "1"},
+        *[{"_id": f"long-{i}", "PCODE": "SN-3", "AUFNR": "1"} for i in range(10)],
+    ]
+    loader = AsyncMock(return_value=([], faults, orders))
+    monkeypatch.setattr(repair_quality, "_load_sources", loader)
+    summary = aggregate_repairs(faults, orders)
+
+    all_rows = await repair_quality.details(
+        "2026-01-01", "2026-01-31", "A", "1000", "all", page_size=1
+    )
+    second = await repair_quality.details(
+        "2026-01-01", "2026-01-31", "A", "1000", "all", page=2, page_size=1
+    )
+    repeats = await repair_quality.details("2026-01-01", "2026-01-31", "B", "2000", "2")
+    long_tail = await repair_quality.details("2026-01-01", "2026-01-31", "A", "1000", "9+")
+    export = await repair_quality.details(
+        "2026-01-01", "2026-01-31", "A", "1000", "all", page_size=1, export_all=True
+    )
+
+    assert all_rows["total"] == summary["groups"][0]["snCount"] == 3
+    assert all_rows["items"][0]["sn"] == "SN-1"
+    assert second["items"][0]["sn"] == "SN-2"
+    assert repeats["total"] == summary["groups"][1]["distribution"][1]["snCount"] == 1
+    assert repeats["items"][0]["repairCount"] == 2
+    assert repeats["items"][0]["models"] == ["M1", "M2"]
+    assert repeats["items"][0]["repairs"][1]["description"] == "故障"
+    assert long_tail["items"][0]["repairCount"] == 10
+    assert len(export["items"]) == export["total"] == 3
+
+
+@pytest.mark.asyncio
 async def test_analyze_filters_by_actual_start_date_and_dimensions(monkeypatch):
     orders = [
         {"id": "in-range", "aufnr": "1"},
@@ -166,6 +206,17 @@ async def test_export_does_not_leak_unauthorized_lifecycle_rows(monkeypatch):
     assert [row["AUFNR"] for row in result["faults"]] == ["1", "2"]
     assert result["summary"] == summary
     assert result["summary"]["distribution"][1]["snCount"] == 1
+
+
+@pytest.mark.asyncio
+async def test_details_respect_base_permissions(monkeypatch):
+    mock_export_sources(monkeypatch)
+    with base_access_scope(["1000"]):
+        result = await repair_quality.details("2026-10-01", "2026-10-31", "C1", "1000", "2")
+        forbidden = await repair_quality.details("2026-10-01", "2026-10-31", "C1", "3000", "all")
+    assert result["total"] == 1
+    assert [row["productionOrder"] for row in result["items"][0]["repairs"]] == ["1", "2"]
+    assert forbidden["total"] == 0
 
 
 @pytest.mark.asyncio

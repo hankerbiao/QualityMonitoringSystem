@@ -150,7 +150,7 @@ class SettingsService:
         return {
             **DEFAULT_DASHBOARD_STATUSES,
             **{
-                key: value
+                key: "admin-only" if value == "planned" else value
                 for key, value in statuses.items()
                 if key in DEFAULT_DASHBOARD_STATUSES
                 and value in ("available", "planned", "admin-only")
