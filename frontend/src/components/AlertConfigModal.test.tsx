@@ -47,7 +47,10 @@ describe('cycle query and export', () => {
     });
     vi.mocked(rtyApi.getCycleDetails).mockResolvedValue({
       orders: [{ VBELN: 'SO-1', AUFNR: 'PO-1', WMENG: 10 }],
-      faults: [{ matchedModel: 'Model A', countedSN: 'HEAD-SN', PCODE: 'CHILD-SN' }],
+      faults: [{
+        matchedModel: 'Model A', countedSN: 'HEAD-SN', PCODE: 'CHILD-SN',
+        ZNGWD3: '原故障现象', ZWXWD3: '维修维度3内容',
+      }],
     });
   });
   afterEach(cleanup);
@@ -303,12 +306,25 @@ describe('cycle query and export', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: /维修记录/ }));
     expect(screen.getByText('CHILD-SN')).toBeTruthy();
+    const dialog = within(screen.getByRole('dialog'));
+    expect(dialog.queryByRole('columnheader', { name: '计入故障SN' })).toBeNull();
+    const headers = dialog.getAllByRole('columnheader').map(header => header.textContent);
+    const faultIndex = headers.indexOf('故障现象');
+    const repairIndex = headers.indexOf('维修措施');
+    expect(faultIndex).toBeGreaterThanOrEqual(0);
+    expect(repairIndex).toBeGreaterThanOrEqual(0);
+    const repairCells = within(dialog.getByRole('row', { name: /CHILD-SN/ })).getAllByRole('cell');
+    expect(repairCells[faultIndex].textContent).toBe('原故障现象');
+    expect(repairCells[repairIndex].textContent).toBe('维修维度3内容');
     fireEvent.click(screen.getByRole('button', { name: '导出维修记录' }));
     await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalledOnce());
     const workbook = vi.mocked(XLSX.writeFile).mock.calls[0][0];
     expect(workbook.SheetNames).toEqual(['维修明细']);
-    expect(workbook.Sheets['维修明细'].B2.v).toBe('HEAD-SN');
-    expect(workbook.Sheets['维修明细'].C2.v).toBe('CHILD-SN');
+    const exported = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets['维修明细'], { header: 1 });
+    expect(exported[0]).toEqual(headers);
+    expect(exported[1][1]).toBe('CHILD-SN');
+    expect(exported[1][faultIndex]).toBe('原故障现象');
+    expect(exported[1][repairIndex]).toBe('维修维度3内容');
   });
 
   it('filters and exports multiple customers including records without a customer ID', async () => {

@@ -23,6 +23,7 @@ import { customerIdLabel, NO_CUSTOMER_ID } from '../utils/customerId';
 import { StationPassFindings, StationQueryLaunch } from '../components/station/StationPassWorkspace';
 import { buildStationPassWorkbook } from '../components/station/exportData';
 import { buildFaultDetailSheet } from '../components/rty/templateExport';
+import { REPAIR_DETAIL_COLUMNS } from '../components/rty/repairDetailColumns';
 import { combinedStationPassRate, rowMatchesBand, summarizeStationRates, type StationRateRow } from '../utils/stationPassRate';
 import { useSettings } from '../context/SettingsContext';
 import { useAuth } from '../context/AuthContext';
@@ -283,11 +284,10 @@ function CalculationHelpDialog({ onClose }: { onClose: () => void }) {
           </section>
           <section>
             <h3 className="font-semibold text-slate-800">RTY 汇总列</h3>
-            <p>RTY 汇总列使用订单的 <span className="font-mono text-slate-800">WMENG</span>（订单产量）作为分母，订单计划开始日期使用 <span className="font-mono text-slate-800">GSTRS</span>；它与各工站过站 SN 数不是同一统计口径。</p>
+            <p>RTY 汇总列以当前维度所有工站的过站 SN 去重数为分母，同一 SN 在多个工站过站只计一次；订单计划开始日期使用 <span className="font-mono text-slate-800">GSTRS</span>。</p>
             <p className="mt-1">订单范围筛选对两侧一致：普通订单排除 <span className="font-mono text-slate-800">IF_L6 = X</span> 的 L6 订单；选择 L6 订单时只统计 <span className="font-mono text-slate-800">IF_L6 = X</span>。工位过站记录按生产订单号关联到已筛选的订单，避免过站数据缺少 L6 标记时把另一范围的 SN 混入分母。</p>
-            <p className="mt-1">例如普通订单下，L6 订单的过站 SN 不应计入工位分母；若发现过站数高于 RTY 分母，先检查订单范围及过站记录的生产订单关联。</p>
             <p className="mt-1">故障数为所选订单关联的全部故障 SN 去重数量，不限制维修日期或维修年份，与 RTY 页周期统计保持一致。</p>
-            <p className="mt-1">跨月或跨工厂地点时，按 RTY 页相同的分组计算后汇总。</p>
+            <p className="mt-1">故障数按 RTY 页相同的月份、机型和工厂地点分组后汇总；由于统计范围不同，故障数可能大于过站 SN 数。RTY 页仍以订单产量为分母。</p>
           </section>
           <section>
             <h3 className="font-semibold text-slate-800">组合工站直通率</h3>
@@ -540,7 +540,7 @@ export default function StationPassRatePage() {
       rows: Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right, 'zh-CN')).map(([dimensionValue, stationRows]) => {
         const stationValues = Array.from(stationRows.values());
         const total = {
-          // 汇总计数由后端按 RTY 订单口径计算，不能从工位计数相加推算。
+          // 汇总过站 SN 跨工位去重，不能从各工位计数相加推算。
           inputCount: stationValues[0].totalInputCount,
           defectCount: stationValues[0].totalDefectCount,
         };
@@ -562,6 +562,9 @@ export default function StationPassRatePage() {
       setDetailRows(response);
     } catch (err) {
       console.error('Failed to fetch station details', err);
+      if (requestId === detailRequestId.current) {
+        setDetailExportError(err instanceof Error && err.message ? err.message : '明细加载失败，请重试');
+      }
     } finally {
       if (requestId === detailRequestId.current) setDetailLoading(false);
     }
@@ -611,7 +614,7 @@ export default function StationPassRatePage() {
       const data = matrix.rows.map((row) => ({
         [dimensionLabels[appliedQuery.groupBy]]: row.dimensionValue,
         Total: formatRate(row.total.inputCount, row.total.defectCount),
-        产量: row.total.inputCount,
+        过站SN数: row.total.inputCount,
         故障数: row.total.defectCount,
         工站直通率: (() => {
           const rate = combinedStationPassRate(row.stationRows, selectedStations, onlyAvailableStations);
@@ -823,7 +826,40 @@ export default function StationPassRatePage() {
 
       {stationConfigOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={closeStationConfig}><div role="dialog" aria-modal="true" aria-labelledby="station-config-title" className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-md bg-white shadow-xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-slate-200 px-5 py-4"><div><h2 id="station-config-title" className="text-sm font-semibold text-slate-900">配置组合工站</h2><p className="mt-0.5 text-xs text-slate-500">已选择的工站用于计算工站直通率，完成后会长期保存</p></div><button type="button" onClick={closeStationConfig} disabled={stationConfigSaving} aria-label="关闭" title="关闭" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-40"><X className="size-4" /></button></div><div className="flex items-center justify-between border-b border-slate-100 px-5 py-3"><span className="text-xs text-slate-500">已选 {selectedStations.length} / {STATION_CODES.length} 个</span><div className="flex items-center gap-3"><button type="button" onClick={() => setSelectedStations(STATION_CODES)} disabled={stationConfigSaving} className="text-xs font-medium text-cyan-700 hover:text-cyan-800 disabled:opacity-40">全选</button><button type="button" onClick={() => setSelectedStations([])} disabled={!selectedStations.length || stationConfigSaving} className="text-xs font-medium text-slate-500 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40">清空</button></div></div><div className="grid grid-cols-2 gap-x-6 gap-y-2 overflow-y-auto px-5 py-4 sm:grid-cols-3">{STATION_CODES.map((station) => <label key={station} className="inline-flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={selectedStations.includes(station)} disabled={stationConfigSaving} onChange={() => toggleStation(station)} className="size-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" /><span className="font-mono">{station}</span></label>)}</div><div className="flex items-center justify-between border-t border-slate-100 px-5 py-3">{stationConfigError ? <span className="text-xs text-red-600">{stationConfigError}</span> : <span className="text-xs text-slate-400">当前选择将在后续查询中自动恢复</span>}<button type="button" onClick={() => void saveStationConfig()} disabled={stationConfigSaving} className="inline-flex h-9 items-center rounded-md bg-cyan-600 px-4 text-sm font-medium text-white hover:bg-cyan-700 disabled:cursor-wait disabled:opacity-60">{stationConfigSaving ? '保存中...' : '完成'}</button></div></div></div>}
 
-      {detail && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={closeDetail}><div ref={detailDialogRef} role="dialog" aria-modal="true" aria-labelledby="station-detail-title" className="flex max-h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-md bg-white shadow-xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-slate-200 px-5 py-4"><div className="flex items-center gap-2"><FileSearch className="size-4 text-cyan-600" /><div><h2 id="station-detail-title" className="text-sm font-semibold text-slate-900">{detail.rate.dimensionValue} · {detail.rate.stationCode}</h2><p className="mt-0.5 text-xs text-slate-500">{detail.rate.stationName || '未命名工位'} · {appliedQuery?.dateFrom} 至 {appliedQuery?.dateTo}</p></div></div><button ref={detailCloseButtonRef} type="button" onClick={closeDetail} aria-label="关闭" title="关闭" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"><X className="size-4" /></button></div><div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-2"><button type="button" onClick={() => void openDetail(detail.rate, 'input')} className={`rounded-md px-3 py-1.5 text-xs font-medium ${detail.type === 'input' ? 'bg-cyan-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>过站 SN</button><button type="button" onClick={() => void openDetail(detail.rate, 'defect')} className={`rounded-md px-3 py-1.5 text-xs font-medium ${detail.type === 'defect' ? 'bg-cyan-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>维修 SN</button><span className="mx-1 hidden h-5 border-l border-slate-200 sm:block" /><button type="button" onClick={() => void exportDetailRows('input')} disabled={detailExporting !== null} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-50" title="导出全部过站 SN"><Download className="size-3.5" />{detailExporting === 'input' ? '导出中...' : '导出过站 SN'}</button><button type="button" onClick={() => void exportDetailRows('defect')} disabled={detailExporting !== null} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-50" title="导出全部维修 SN"><Download className="size-3.5" />{detailExporting === 'defect' ? '导出中...' : '导出维修 SN'}</button></div><div className="overflow-auto p-4">{detailExportError && <p role="alert" className="mb-3 text-xs text-red-600">{detailExportError}</p>}{detailLoading ? <div className="py-12 text-center text-sm text-slate-500">正在加载明细...</div> : detailRows.length === 0 ? <div className="py-12 text-center text-sm text-slate-500">暂无明细数据</div> : <table className="w-full min-w-[820px] text-left text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-slate-600"><tr><th className="px-3 py-2">机器 SN</th><th className="px-3 py-2">过站日期</th><th className="px-3 py-2">故障代码</th><th className="px-3 py-2">故障描述</th>{detail.type === 'defect' && <th className="px-3 py-2">维修人</th>}</tr></thead><tbody className="divide-y divide-slate-100">{detailRows.map((item) => <tr key={item.id} className="hover:bg-slate-50"><td className="px-3 py-2 font-mono text-slate-700">{item.sn}</td><td className="px-3 py-2 text-slate-600">{item.passDate || '-'}</td><td className="px-3 py-2 text-red-700">{item.defectCode || '-'}</td><td className="max-w-[260px] px-3 py-2 text-slate-600">{item.description || '-'}</td>{detail.type === 'defect' && <td className="px-3 py-2 text-slate-600">{item.repairPerson || '-'}</td>}</tr>)}</tbody></table>}</div><div className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">共 {detailRows.length.toLocaleString('zh-CN')} 条记录</div></div></div>}
+      {detail && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={closeDetail}>
+          <div ref={detailDialogRef} role="dialog" aria-modal="true" aria-labelledby="station-detail-title" className="flex max-h-[85vh] w-full max-w-6xl flex-col overflow-hidden rounded-md bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
+            <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+              <div className="flex items-center gap-2"><FileSearch className="size-4 text-cyan-600" /><div><h2 id="station-detail-title" className="text-sm font-semibold text-slate-900">{detail.rate.dimensionValue} · {detail.rate.stationCode}</h2><p className="mt-0.5 text-xs text-slate-500">{detail.rate.stationName || '未命名工位'} · {appliedQuery?.dateFrom} 至 {appliedQuery?.dateTo}</p></div></div>
+              <button ref={detailCloseButtonRef} type="button" onClick={closeDetail} aria-label="关闭" title="关闭" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"><X className="size-4" /></button>
+            </div>
+            <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-5 py-2">
+              <button type="button" onClick={() => void openDetail(detail.rate, 'input')} className={`rounded-md px-3 py-1.5 text-xs font-medium ${detail.type === 'input' ? 'bg-cyan-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>过站 SN</button>
+              <button type="button" onClick={() => void openDetail(detail.rate, 'defect')} className={`rounded-md px-3 py-1.5 text-xs font-medium ${detail.type === 'defect' ? 'bg-cyan-600 text-white' : 'text-slate-600 hover:bg-slate-100'}`}>维修 SN</button>
+              <span className="mx-1 hidden h-5 border-l border-slate-200 sm:block" />
+              <button type="button" onClick={() => void exportDetailRows('input')} disabled={detailExporting !== null} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-50" title="导出全部过站 SN"><Download className="size-3.5" />{detailExporting === 'input' ? '导出中...' : '导出过站 SN'}</button>
+              <button type="button" onClick={() => void exportDetailRows('defect')} disabled={detailExporting !== null} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:cursor-wait disabled:opacity-50" title="导出全部维修 SN"><Download className="size-3.5" />{detailExporting === 'defect' ? '导出中...' : '导出维修 SN'}</button>
+            </div>
+            <div className="overflow-auto p-4">
+              {detailExportError && <p role="alert" className="mb-3 text-xs text-red-600">{detailExportError}</p>}
+              {detailLoading ? <div className="py-12 text-center text-sm text-slate-500">正在加载明细...</div> : detailRows.length === 0 ? !detailExportError && <div className="py-12 text-center text-sm text-slate-500">暂无明细数据</div> : detail.type === 'defect' ? (
+                <table className="w-full min-w-[900px] text-left text-xs">
+                  <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-slate-600"><tr>{REPAIR_DETAIL_COLUMNS.map(([, label]) => <th key={label} className="px-3 py-2 font-semibold">{label}</th>)}</tr></thead>
+                  <tbody className="divide-y divide-slate-100 text-slate-700">
+                    {detailRows.map((item) => {
+                      const values: Record<string, unknown> = { ...item.raw, PCODE: item.raw?.PCODE || item.sn, matchedModel: item.matchedModel };
+                      return <tr key={item.id} className="hover:bg-slate-50">{REPAIR_DETAIL_COLUMNS.map(([key]) => <td key={key} className="max-w-64 px-3 py-2" title={String(values[key] ?? '')}>{values[key] === null || values[key] === undefined || values[key] === '' ? '-' : String(values[key])}</td>)}</tr>;
+                    })}
+                  </tbody>
+                </table>
+              ) : (
+                <table className="w-full min-w-[820px] text-left text-xs"><thead className="border-b border-slate-200 bg-slate-50 text-slate-600"><tr><th className="px-3 py-2">机器 SN</th><th className="px-3 py-2">过站日期</th><th className="px-3 py-2">故障代码</th><th className="px-3 py-2">故障描述</th></tr></thead><tbody className="divide-y divide-slate-100">{detailRows.map((item) => <tr key={item.id} className="hover:bg-slate-50"><td className="px-3 py-2 font-mono text-slate-700">{item.sn}</td><td className="px-3 py-2 text-slate-600">{item.passDate || '-'}</td><td className="px-3 py-2 text-red-700">{item.defectCode || '-'}</td><td className="max-w-[260px] px-3 py-2 text-slate-600">{item.description || '-'}</td></tr>)}</tbody></table>
+              )}
+            </div>
+            <div className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">共 {detailRows.length.toLocaleString('zh-CN')} 条记录</div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

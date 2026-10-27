@@ -163,6 +163,34 @@ async def test_dashboard_and_repairs_share_one_doa_snapshot(monkeypatch):
     assert calls == {"orders": 1, "doa": 1, "changes": 1}
 
 
+async def test_snapshot_keeps_only_orders_and_changes_relevant_to_eligible_repairs(monkeypatch):
+    async def all_orders(**_filters):
+        return [
+            shipment("0001", 10, "2026-09-01"),
+            shipment("1", 20, "2026-09-01"),
+            shipment("2", 30, "2026-09-01"),
+        ]
+
+    async def all_rows(view_id, **_filters):
+        if view_id == "SCS_DOA":
+            return [doa("one", "1", "是", 2), doa("missing", "404", "是", 1)]
+        return [
+            {"service_order": "one", "change_type": "换上", "is_revoked": False, "raw": {}},
+            {"service_order": "other", "change_type": "换上", "is_revoked": False, "raw": {}},
+        ]
+
+    monkeypatch.setattr(doa_service, "_DOA_ORDERS_CACHE", doa_service.AsyncTTLCache())
+    monkeypatch.setattr(doa_service.data_gateway, "all_orders", all_orders)
+    monkeypatch.setattr(doa_service.scs_gateway, "all", all_rows)
+
+    orders, _, repairs, changes = await doa_service._load_doa_snapshot(DoaFilters())
+
+    assert [order["sales_order"] for order in orders] == ["0001", "1"]
+    assert [change["service_order"] for change in changes] == ["one"]
+    assert repairs[0]["shipped_count"] == 30
+    assert repairs[0]["has_change"] is True
+
+
 async def test_dashboard_uses_matched_order_quantities_once_per_period(monkeypatch):
     async def all_orders(**_filters):
         return [

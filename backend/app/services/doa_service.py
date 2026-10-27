@@ -205,6 +205,10 @@ async def _load_doa_snapshot(
         _eligible_doa(filters),
         scs_gateway.all("SCS_CHANGE", company5000="true"),
     )
+    sales_keys = {_sales_order_key(row["sales_order"]) for row in eligible}
+    service_orders = {row["service_order"] for row in eligible}
+    orders = [order for order in orders if _sales_order_key(order["sales_order"]) in sales_keys]
+    changes = [change for change in changes if change["service_order"] in service_orders]
     return orders, eligible, _build_doa_repairs(orders, eligible, changes, filters), changes
 
 

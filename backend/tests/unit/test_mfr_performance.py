@@ -113,3 +113,26 @@ async def test_mfr_concurrent_queries_share_the_order_snapshot_load(sources, mon
     ])
     assert [result.summary.ordersMissingWarrantyDates for result in results] == [1, 1, 1]
     assert len(order_calls) == 1
+
+
+async def test_mfr_loads_orders_and_doa_concurrently(monkeypatch):
+    doa_started = asyncio.Event()
+    orders_started = asyncio.Event()
+
+    async def orders():
+        orders_started.set()
+        await asyncio.wait_for(doa_started.wait(), timeout=0.5)
+        return {}
+
+    async def scs(view, **_kwargs):
+        assert view == "SCS_DOA"
+        doa_started.set()
+        await asyncio.wait_for(orders_started.wait(), timeout=0.5)
+        return []
+
+    monkeypatch.setattr(mfr_service, "_mfr_orders", orders)
+    monkeypatch.setattr(mfr_service.scs_gateway, "all", scs)
+    result = await mfr_service._build_mfr_dashboard(
+        MFRFilters(dateFrom="2026-01-01", dateTo="2026-01-31")
+    )
+    assert result.summary.faultCount == 0

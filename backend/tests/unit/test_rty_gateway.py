@@ -574,6 +574,67 @@ async def test_all_pages_handles_null_items(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_station_repair_details_load_matching_full_fault_rows(monkeypatch):
+    gateway = rty_gateway.data_gateway
+    monkeypatch.setattr(
+        gateway,
+        "all_station_rows",
+        AsyncMock(return_value=[{
+            "raw": {
+                "PCODE": "SN-1", "SPEC": "Line-OP205:装配",
+                "MAKTX_TH": "M-1", "GSTRS": "20260515",
+            }
+        }]),
+    )
+    monkeypatch.setattr(
+        gateway,
+        "fault_rows_by_sns",
+        AsyncMock(return_value=[
+            {"_source_key": "r1", "PCODE": "SN-1", "AUFNR": "P1", "ZNGGZ": "OP205", "GSTRS": "20260515"},
+            {"_source_key": "r2", "PCODE": "SN-1", "AUFNR": "P1", "ZNGGZ": "OP205", "GSTRS": "20260515"},
+            {"_source_key": "r3", "PCODE": "SN-1", "AUFNR": "P1", "ZNGGZ": "OP210", "GSTRS": "20260515"},
+        ]),
+    )
+    full_rows = AsyncMock(return_value=[
+        {"raw": {"_source_key": "r2", "PCODE": "SN-1", "AUFNR": "P1", "ZNGGZ": "OP205", "ZNGWD3": "现象2", "ZWXWD3": "措施2"}},
+        {"raw": {"_source_key": "r1", "PCODE": "SN-1", "AUFNR": "P1", "ZNGGZ": "OP205", "ZNGWD3": "现象1", "ZWXWD3": "措施1"}},
+        {"raw": {"_source_key": "r3", "PCODE": "SN-1", "AUFNR": "P1", "ZNGGZ": "OP210", "ZNGWD3": "其他工位"}},
+    ])
+    monkeypatch.setattr(gateway, "fault_rows_by_host_barcodes", full_rows)
+
+    rows = await rty_gateway.station_details(
+        "OP205", "2026-05-01", "2026-05-31", "defect",
+        product_model="M-1", group_by="productModel", dimension_value="M-1",
+    )
+
+    assert [(row.raw.get("ZNGWD3"), row.raw.get("ZWXWD3")) for row in rows] == [
+        ("现象1", "措施1"), ("现象2", "措施2"),
+    ]
+    assert [row.matchedModel for row in rows] == ["M-1", "M-1"]
+    full_rows.assert_awaited_once_with(["SN-1"])
+
+
+@pytest.mark.asyncio
+async def test_station_repair_details_reject_missing_full_record(monkeypatch):
+    monkeypatch.setattr(
+        rty_gateway.data_gateway, "all_station_rows",
+        AsyncMock(return_value=[{"raw": {"PCODE": "SN-1", "SPEC": "OP205", "GSTRS": "20260515"}}]),
+    )
+    monkeypatch.setattr(
+        rty_gateway.data_gateway, "fault_rows_by_sns",
+        AsyncMock(return_value=[{
+            "_source_key": "r1", "PCODE": "SN-1", "AUFNR": "P1", "ZNGGZ": "OP205", "GSTRS": "20260515",
+        }]),
+    )
+    monkeypatch.setattr(
+        rty_gateway.data_gateway, "fault_rows_by_host_barcodes", AsyncMock(return_value=[]),
+    )
+
+    with pytest.raises(rty_gateway.DataGatewayError, match="维修明细"):
+        await rty_gateway.station_details("OP205", "2026-05-01", "2026-05-31", "defect")
+
+
+@pytest.mark.asyncio
 async def test_station_detail_repairs_use_the_same_local_station_match_as_summary(monkeypatch):
     gateway = rty_gateway.data_gateway
     monkeypatch.setattr(
@@ -1043,7 +1104,7 @@ async def test_station_rates_uses_repair_ng_station_without_same_sn_pass_row(mon
 
 
 @pytest.mark.asyncio
-async def test_station_rates_uses_the_same_wmeng_and_fault_sn_summary_as_rty(monkeypatch):
+async def test_station_rates_summary_uses_pass_sns_and_rty_faults(monkeypatch):
     gateway = rty_gateway.data_gateway
     monkeypatch.setattr(
         gateway,
@@ -1102,7 +1163,7 @@ async def test_station_rates_uses_the_same_wmeng_and_fault_sn_summary_as_rty(mon
 
     assert len(rows) == 1
     assert rows[0].inputCount == 1
-    assert rows[0].totalInputCount == 101
+    assert rows[0].totalInputCount == 1
     assert rows[0].totalDefectCount == 2
     assert faults.await_args.kwargs == {
         "production_orders": ["000000000001", "1"],
@@ -1209,7 +1270,8 @@ async def test_station_rty_matches_cycle_for_repairs_outside_selected_order_date
     )
 
     assert len(cycle_rows) == len(station_rows) == 1
-    assert station_rows[0].totalInputCount == cycle_rows[0].inputCount == 1258
+    assert station_rows[0].totalInputCount == 1
+    assert cycle_rows[0].inputCount == 1258
     assert station_rows[0].totalDefectCount == cycle_rows[0].defectCount == 6
     assert list_rows["items"][0].defectCount == 6
     assert cycle_rows[0].serialNumbers == sorted([
@@ -1222,7 +1284,7 @@ async def test_station_rty_matches_cycle_for_repairs_outside_selected_order_date
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("group_by", ["productModel", "salesOrder", "productionOrder"])
-async def test_station_rty_reuses_cycle_month_and_base_grouping(monkeypatch, group_by):
+async def test_station_summary_deduplicates_pass_sns_across_months_and_stations(monkeypatch, group_by):
     gateway = rty_gateway.data_gateway
     order_values = [
         ("1", "2026-07-01", "B1"),
@@ -1262,6 +1324,21 @@ async def test_station_rty_reuses_cycle_month_and_base_grouping(monkeypatch, gro
                     "SPEC": "OP205",
                 }
                 for order, planned_date, base in order_values
+            ] + [
+                {
+                    "AUFNR": "1",
+                    "VBELN": "SO-1",
+                    "MAKTX_TH": "6210 C21",
+                    "LGORT": "B1",
+                    "GSTRS": "2026-07-01",
+                    "PCODE": sn,
+                    "SPEC": station,
+                }
+                for sn, station in [
+                    ("SN-SHARED", "OP210"),
+                    ("SN-SECOND", "OP205"),
+                    ("SN-SECOND", "OP205"),
+                ]
             ]
         ),
     )
@@ -1289,11 +1366,14 @@ async def test_station_rty_reuses_cycle_month_and_base_grouping(monkeypatch, gro
     if group_by == "productionOrder":
         assert {
             row.dimensionValue: (row.totalInputCount, row.totalDefectCount) for row in station_rows
-        } == {order: (10, 1) for order, _date, _base in order_values}
+        } == {"1": (2, 1), "2": (1, 1), "3": (1, 1), "4": (1, 1)}
     else:
-        assert len(station_rows) == 1
-        assert station_rows[0].totalInputCount == sum(row.inputCount for row in cycle_rows)
-        assert station_rows[0].totalDefectCount == sum(row.defectCount for row in cycle_rows)
+        assert len(station_rows) == 2
+        assert all(row.totalInputCount == 2 for row in station_rows)
+        assert all(row.totalDefectCount == sum(item.defectCount for item in cycle_rows) for row in station_rows)
+    assert next(row for row in station_rows if row.dimensionValue == (
+        "1" if group_by == "productionOrder" else "SO-1" if group_by == "salesOrder" else "6210 C21"
+    ) and row.stationCode == "OP205").inputCount == 2
 
 
 @pytest.mark.asyncio
@@ -1379,7 +1459,7 @@ async def test_station_rates_customer_filter_scopes_station_and_rty_counts(monke
     assert repairs.await_args.args[0] == {"SN-A"}
     assert len(rows) == 1
     assert rows[0].inputCount == 1
-    assert rows[0].totalInputCount == 10
+    assert rows[0].totalInputCount == 1
     assert rows[0].totalDefectCount == 1
 
 

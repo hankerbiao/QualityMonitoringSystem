@@ -105,6 +105,7 @@ export interface StationPassDetail {
   defectCode: string;
   description: string;
   repairPerson: string;
+  matchedModel?: string;
   raw?: Record<string, unknown>;
 }
 

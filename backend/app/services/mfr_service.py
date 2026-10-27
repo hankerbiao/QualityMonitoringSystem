@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from calendar import monthrange
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
@@ -202,11 +203,12 @@ async def _build_mfr_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
     if not start or not end or start > end:
         raise ValueError("dateFrom/dateTo 必须是有效的 YYYY-MM-DD 日期范围")
     periods = _month_range(start, end)
-    orders = await _mfr_orders()
+    orders, doa_rows = await asyncio.gather(
+        _mfr_orders(), scs_gateway.all("SCS_DOA", company5000="true")
+    )
 
     order_numbers = set(orders)
     service_to_order: dict[str, str] = {}
-    doa_rows = await scs_gateway.all("SCS_DOA", company5000="true")
     for document in doa_rows:
         service_no = document["service_order"]
         order_key = _order_key(document["sales_order"])

@@ -227,7 +227,7 @@ describe('StationPassRatePage customer filter', () => {
     vi.mocked(rtyApi.getStationPassRates).mockResolvedValue([{
       dimensionValue: 'M', stationCode: 'OP10', stationName: '装配',
       inputCount: 10, defectCount: 1, passRate: 90,
-      totalInputCount: 20, totalDefectCount: 2,
+      totalInputCount: 10, totalDefectCount: 2,
     }]);
     vi.mocked(rtyApi.getStationPassExport).mockResolvedValue({
       orders: [{ VBELN: '00001', WMENG: 20 }],
@@ -247,6 +247,8 @@ describe('StationPassRatePage customer filter', () => {
     fireEvent.click(await screen.findByRole('checkbox', { name: 'CUST-A' }));
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
     await waitFor(() => expect((exportButton as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.getByText('80.00%')).toBeTruthy();
+    expect(screen.getByText('2/10')).toBeTruthy();
     fireEvent.click(exportButton);
 
     await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalledTimes(1));
@@ -261,7 +263,7 @@ describe('StationPassRatePage customer filter', () => {
     const pivotRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets['工位直通率透视表']);
     expect(pivotRows).toHaveLength(1);
     expect(pivotRows[0]).toMatchObject({
-      机型: 'M', Total: '90.00%', 产量: 20, 故障数: 2, 工站直通率: '90.00%', OP10: '90.00%',
+      机型: 'M', Total: '80.00%', 过站SN数: 10, 故障数: 2, 工站直通率: '90.00%', OP10: '90.00%',
     });
     expect(Object.keys(pivotRows[0]).filter((key) => key.startsWith('OP'))).toHaveLength(45);
     expect(XLSX.utils.sheet_to_json(workbook.Sheets['维修故障明记录'])).toHaveLength(2);
@@ -310,13 +312,18 @@ describe('StationPassRatePage customer filter', () => {
       defectCode: 'E01',
       description: '故障描述',
       repairPerson: '维修人',
+      matchedModel: 'M',
       raw: {
         FACTORY: '基地A',
         PCODE: '00001',
+        VBELN: 'SO-1',
+        AUFNR: 'PO-1',
         ZNGGZ: 'OP10',
         ZNGWD3: '维度3',
+        ZWXWD3: '处理措施',
         ZNGWD2: '维度2',
         U_FIX: '维修人',
+        ZWXDT: '20261022123000',
         AUART: 'C001',
       },
     }]);
@@ -325,6 +332,15 @@ describe('StationPassRatePage customer filter', () => {
     fireEvent.click(await screen.findByRole('button', { name: /90\.00%/ }));
     fireEvent.click(await screen.findByRole('button', { name: '维修 SN' }));
     await waitFor(() => expect(rtyApi.getStationPassDetails).toHaveBeenCalledTimes(2));
+    const dialog = within(screen.getByRole('dialog'));
+    expect(dialog.getAllByRole('columnheader').map(header => header.textContent)).toEqual([
+      '计入机型', '维修记录SN', '销售订单', '维修记录订单', '故障现象',
+      '维修措施', '故障工站', '维修人员', '维修时间',
+    ]);
+    const cells = within(dialog.getByRole('row', { name: /00001/ })).getAllByRole('cell');
+    expect(cells.map(cell => cell.textContent)).toEqual([
+      'M', '00001', 'SO-1', 'PO-1', '维度3', '处理措施', 'OP10', '维修人', '20261022123000',
+    ]);
 
     fireEvent.click(screen.getByRole('button', { name: '导出维修 SN' }));
     await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalledTimes(1));
@@ -337,5 +353,26 @@ describe('StationPassRatePage customer filter', () => {
     expect(sheet.E2.v).toBe('00001');
     expect(sheet.AI1.v).toBe('订单类型');
     expect(sheet['!autofilter']).toEqual({ ref: 'A1:AI2' });
+  });
+
+  it('shows an error when station repair details cannot be loaded', async () => {
+    vi.mocked(rtyApi.getStationPassRates).mockResolvedValue([{
+      dimensionValue: 'M', stationCode: 'OP10', stationName: '装配',
+      inputCount: 10, defectCount: 1, passRate: 90,
+      totalInputCount: 10, totalDefectCount: 1,
+    }]);
+    vi.mocked(rtyApi.getStationPassDetails)
+      .mockResolvedValueOnce([])
+      .mockRejectedValueOnce(new Error('维修明细读取失败'));
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
+      fireEvent.click(screen.getByRole('button', { name: '查询' }));
+      fireEvent.click(await screen.findByRole('button', { name: /90\.00%/ }));
+      fireEvent.click(await screen.findByRole('button', { name: '维修 SN' }));
+      expect(await screen.findByRole('alert')).toHaveProperty('textContent', '维修明细读取失败');
+    } finally {
+      log.mockRestore();
+    }
   });
 });

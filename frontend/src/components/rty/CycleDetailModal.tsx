@@ -3,6 +3,7 @@ import { Download, FileSearch, X } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { rtyApi } from '../../api/rtyApi';
 import type { RTYCycleDetailQuery, RTYCycleDetails } from '../../types/rty';
+import { REPAIR_DETAIL_COLUMNS } from './repairDetailColumns';
 
 type CycleDetailTab = 'orders' | 'faults';
 
@@ -26,19 +27,6 @@ const ORDER_COLUMNS = [
   ['AUART', '订单类型'],
 ] as const;
 
-const FAULT_COLUMNS = [
-  ['matchedModel', '计入机型'],
-  ['countedSN', '计入故障SN'],
-  ['PCODE', '维修记录SN'],
-  ['VBELN', '销售订单'],
-  ['AUFNR', '维修记录订单'],
-  ['ZNGWD3', '故障现象'],
-  ['ZWXWD3', '维修措施'],
-  ['ZNGGZ', '故障工站'],
-  ['U_FIX', '维修人员'],
-  ['ZWXDT', '维修时间'],
-] as const;
-
 function safeCell(value: unknown): unknown {
   if (typeof value !== 'string') return value ?? null;
   return /^[\s]*[=+\-@]/.test(value) ? `'${value}` : value;
@@ -58,7 +46,7 @@ export default function CycleDetailModal({
   const [error, setError] = useState('');
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const requestId = useRef(0);
-  const columns = tab === 'orders' ? ORDER_COLUMNS : FAULT_COLUMNS;
+  const columns = tab === 'orders' ? ORDER_COLUMNS : REPAIR_DETAIL_COLUMNS;
   const rows = tab === 'orders' ? data.orders : data.faults;
   const rtyRate = inputCount ? ((inputCount - defectCount) / inputCount) * 100 : null;
 

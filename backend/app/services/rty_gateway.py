@@ -823,8 +823,7 @@ async def station_rates(
     start, end = _date_range(date_from, date_to)
     date_from_iso = f"{start[:4]}-{start[4:6]}-{start[6:]}"
     date_to_iso = f"{end[:4]}-{end[4:6]}-{end[6:]}"
-    # Station rows and orders are independent. The summary faults only need
-    # orders, while station defects only need the serial numbers below.
+    # Orders determine the eligible population and the summary fault count.
     selected_models = {value.strip() for value in [*(product_models or []), product_model] if value and value.strip()}
     selected_bases = {value.strip() for value in [*(bases or []), base] if value and value.strip()}
     selected_customers = {value.strip() for value in [*(customers or []), customer] if value and value.strip()}
@@ -899,13 +898,12 @@ async def station_rates(
         _station_repairs_for_sns(all_sns, date_from=start, date_to=end),
         _rty_order_groups(orders, group_by=group_by),
     )
-    summary_counts: dict[str, tuple[int, int]] = {}
+    summary_faults: dict[str, int] = defaultdict(int)
     for (dimension, _month, _model, _base), group in rty_groups.items():
-        inputs, defects = summary_counts.get(dimension, (0, 0))
-        summary_counts[dimension] = (
-            inputs + round(group["input"]),
-            defects + len(group["defects"]),
-        )
+        summary_faults[dimension] += len(group["defects"])
+    summary_sns: dict[str, set[str]] = defaultdict(set)
+    for (dimension, _station), value in by_station.items():
+        summary_sns[dimension].update(value["sns"])
     defect_by_station: dict[tuple[str, str], set[str]] = defaultdict(set)
     for row in repairs:
         repair_station = normalize_station_code(str(row.get("ZNGGZ") or ""))
@@ -941,8 +939,8 @@ async def station_rates(
             )
             if value["sns"]
             else 100.0,
-            totalInputCount=summary_counts.get(dimension_value, (0, 0))[0],
-            totalDefectCount=summary_counts.get(dimension_value, (0, 0))[1],
+            totalInputCount=len(summary_sns[dimension_value]),
+            totalDefectCount=summary_faults[dimension_value],
         )
         for (dimension_value, station), value in sorted(by_station.items())
     ]
@@ -1056,14 +1054,39 @@ async def station_details(
     if not scope_records:
         return []
     repairs = await _station_repairs_for_sns(set(scope_records), date_from=start, date_to=end)
+    repairs = [
+        row for row in repairs
+        if normalize_station_code(str(row.get("ZNGGZ") or "")) == station
+        and str(row.get("PCODE") or "").strip() in scope_records
+    ]
+    sns_with_ids = {
+        str(row.get("PCODE") or "").strip()
+        for row in repairs if row.get("_source_key") or row.get("_id")
+    }
+    full_by_key: dict[str, dict[str, Any]] = {}
+    if sns_with_ids:
+        full_rows = await data_gateway.fault_rows_by_host_barcodes(sorted(sns_with_ids))
+        for item in full_rows:
+            full = normalize_fault_row(item)
+            for identity in {str(full.get("_source_key") or "").strip(), str(full.get("_id") or "").strip()} - {""}:
+                if identity in full_by_key:
+                    raise DataGatewayError("维修明细原始记录标识重复，请重新查询", retryable=True)
+                full_by_key[identity] = full
     result: list[StationPassDetail] = []
     for row in repairs:
-        if normalize_station_code(str(row.get("ZNGGZ") or "")) != station:
-            continue
         sn = str(row.get("PCODE") or "").strip()
-        if not sn or sn not in scope_records:
-            continue
         pass_row = scope_records[sn]
+        identity = str(row.get("_source_key") or row.get("_id") or "").strip()
+        full = full_by_key.get(identity)
+        if (
+            full
+            and str(full.get("PCODE") or "").strip() == sn
+            and normalize_order(full.get("AUFNR")) == normalize_order(row.get("AUFNR"))
+            and normalize_station_code(str(full.get("ZNGGZ") or "")) == station
+        ):
+            row = {**row, **full}
+        elif identity:
+            raise DataGatewayError("维修明细原始记录缺失或不匹配，请重新查询", retryable=True)
         result.append(
             StationPassDetail(
                 id=f"{station}:{sn}:defect:{len(result)}",
@@ -1075,6 +1098,7 @@ async def station_details(
                 defectCode=str(row.get("ZNGWD") or ""),
                 description=str(row.get("ZWXWD") or ""),
                 repairPerson=str(row.get("ZUSER") or ""),
+                matchedModel=str(_raw(pass_row).get("MAKTX_TH") or pass_row.get("productionModel") or ""),
                 raw=row,
             )
         )
