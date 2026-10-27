@@ -106,6 +106,7 @@ async def _load_sources(
     product_models: list[str] | None = None,
     customers: list[str] | None = None,
     bases: list[str] | None = None,
+    full_fault_rows: bool = False,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, dict[str, Any]]]:
     if current_base_permissions() == ():
         return [], [], {}
@@ -162,7 +163,13 @@ async def _load_sources(
     if not selected_sns:
         return selected_rows, [], metadata
 
-    repairs = await rty_gateway._faults_for_sns(selected_sns)
+    if full_fault_rows:
+        fetched = await data_gateway.fault_rows_by_host_barcodes(
+            sorted(selected_sns), max_rows=MAX_REPAIR_QUALITY_FAULTS
+        )
+        repairs = [rty_gateway.normalize_fault_row(row) for row in fetched]
+    else:
+        repairs = await rty_gateway._faults_for_sns(selected_sns)
     if len(repairs) > MAX_REPAIR_QUALITY_FAULTS:
         raise DataGatewayError("维修记录超过维修分析上限，请增加筛选条件")
     # Lifecycle records may reference orders outside the date range, but never
@@ -198,7 +205,12 @@ async def build_export(
     bases: list[str] | None = None,
 ) -> dict[str, Any]:
     orders, repairs, metadata = await _load_sources(
-        date_from, date_to, product_models=product_models, customers=customers, bases=bases
+        date_from,
+        date_to,
+        product_models=product_models,
+        customers=customers,
+        bases=bases,
+        full_fault_rows=True,
     )
     source = StationPassExport(
         orders=await rty_export._export_orders(orders),

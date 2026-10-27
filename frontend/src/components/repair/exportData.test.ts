@@ -28,8 +28,8 @@ describe('repair quality Excel export', () => {
     const result = XLSX.read(XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }), {
       type: 'buffer', cellNF: true,
     });
-    expect(result.SheetNames).toEqual(['维修质量透视表', '销售订单', '维修故障明记录']);
-    const sheet = result.Sheets['维修质量透视表'];
+    expect(result.SheetNames).toEqual(['维修首修通过率分析表', '销售订单', '维修故障明记录']);
+    const sheet = result.Sheets['维修首修通过率分析表'];
     expect(sheet.A2).toMatchObject({ t: 's', v: '00001' });
     expect(sheet.C2).toMatchObject({ t: 'n', v: 3 });
     expect(sheet.D2).toMatchObject({ t: 'n', z: '0.00%' });
@@ -55,9 +55,9 @@ describe('repair quality Excel export', () => {
       summary: { snCount: 0, firstPassCount: 0, repeatCount: 0, firstPassRate: 0, distribution: [], groups: [] },
       orders: [], faults: [],
     });
-    expect(book.Sheets['维修质量透视表'].V1.v).toBe('9次+占比');
-    expect(book.Sheets['维修质量透视表'].C2.v).toBe(0);
-    expect(book.Sheets['维修质量透视表'].D2.v).toBe(0);
+    expect(book.Sheets['维修首修通过率分析表'].V1.v).toBe('9次+占比');
+    expect(book.Sheets['维修首修通过率分析表'].C2.v).toBe(0);
+    expect(book.Sheets['维修首修通过率分析表'].D2.v).toBe(0);
     expect(book.Sheets['销售订单']['!ref']).toBe('A1:R1');
     expect(book.Sheets['维修故障明记录']['!ref']).toBe('A1:AI1');
   });

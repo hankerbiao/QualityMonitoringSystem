@@ -104,7 +104,16 @@ def mock_export_sources(monkeypatch):
     monkeypatch.setattr(repair_quality.data_gateway, "export_rows", AsyncMock(return_value=full_orders))
     monkeypatch.setattr(repair_quality.rty_gateway, "_faults_for_orders", AsyncMock(return_value=faults[:1]))
     monkeypatch.setattr(repair_quality.rty_gateway, "_faults_for_sns", AsyncMock(return_value=faults))
-    packaging = AsyncMock(return_value={"1": 0})
+    raw_faults = [
+        {**row, "ZNGWD3": f"完整不良现象-{row['_id']}", "ZNGWD2": "完整维度2"}
+        for row in faults
+    ]
+    monkeypatch.setattr(
+        repair_quality.data_gateway,
+        "fault_rows_by_host_barcodes",
+        AsyncMock(return_value=raw_faults),
+    )
+    packaging = AsyncMock(return_value={"1": 0, "2": 0, "3": 0})
     monkeypatch.setattr(repair_quality.rty_export, "_packaging_counts_for_orders", packaging)
     return packaging
 
@@ -116,7 +125,10 @@ async def test_export_shares_actual_date_filters_and_complete_deduplicated_lifec
         "2026-10-01", "2026-10-31", product_models=["M1"], customers=["C1"], bases=["1000"]
     )
     repair_quality.rty_gateway._faults_for_orders.assert_awaited_once_with({"1"})
-    repair_quality.rty_gateway._faults_for_sns.assert_awaited_once_with({"000001"})
+    repair_quality.data_gateway.fault_rows_by_host_barcodes.assert_awaited_once_with(
+        ["000001"], max_rows=250_000
+    )
+    repair_quality.rty_gateway._faults_for_sns.assert_not_awaited()
     packaging.assert_awaited_once_with(["1"])
     assert result["orders"][0]["AUFNR"] == "000000001"
     assert result["orders"][0]["VBELN"] == "0000123"
@@ -126,11 +138,23 @@ async def test_export_shares_actual_date_filters_and_complete_deduplicated_lifec
     assert len(result["orders"]) == 1
     assert len(result["faults"]) == 3
     assert [row["T_FIND"] for row in result["faults"]] == ["20261010", "20250101", "20270101"]
+    assert [row["ZNGWD3"] for row in result["faults"]] == [
+        "完整不良现象-first", "完整不良现象-second", "完整不良现象-third"
+    ]
+    assert all(row["ZNGWD2"] == "完整维度2" for row in result["faults"])
     assert result["faults"][0]["U_FIX"] == "甲"
     assert result["faults"][0]["ZWXDT"] is None
     assert result["faults"][1]["ERROR_MSG"] == "=literal"
     assert result["summary"]["distribution"][2]["snCount"] == 1
     assert all(set(row) == set(repair_quality.rty_export.FAULT_FIELDS) for row in result["faults"])
+
+
+@pytest.mark.asyncio
+async def test_analysis_keeps_projection_path_while_export_reads_full_raw_fault_fields(monkeypatch):
+    mock_export_sources(monkeypatch)
+    await repair_quality.analyze("2026-10-01", "2026-10-31")
+    repair_quality.rty_gateway._faults_for_sns.assert_awaited_once_with({"000001"})
+    repair_quality.data_gateway.fault_rows_by_host_barcodes.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -165,7 +189,7 @@ async def test_export_rejects_missing_full_orders_instead_of_partial_data(monkey
 @pytest.mark.asyncio
 async def test_export_propagates_lifecycle_failure(monkeypatch):
     mock_export_sources(monkeypatch)
-    repair_quality.rty_gateway._faults_for_sns.side_effect = DataGatewayError("维修读取失败")
+    repair_quality.data_gateway.fault_rows_by_host_barcodes.side_effect = DataGatewayError("维修读取失败")
     with pytest.raises(DataGatewayError, match="维修读取失败"):
         await repair_quality.build_export("2026-10-01", "2026-10-31")
 

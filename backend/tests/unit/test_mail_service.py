@@ -59,3 +59,4 @@ async def test_send_email_uses_mail_service_contract_without_runtime_proxy(monke
     assert captured["payload"]["cc"] == ["cc@example.com"]
     assert captured["payload"]["subject"] == "subject"
     assert captured["payload"]["content"] == "<p>body</p>"
+    assert captured["payload"]["contentType"] == "text/html; charset=utf-8"

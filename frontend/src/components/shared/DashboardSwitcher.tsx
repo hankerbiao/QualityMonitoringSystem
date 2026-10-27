@@ -8,7 +8,7 @@ import { useAuth } from '../../context/AuthContext';
 const dashboards = [
   { path: '/rty', id: 'rty', label: 'RTY', description: '整机综合直通率' },
   { path: '/station-pass-rate', id: 'station-pass-rate', label: 'STATION RTY', description: '工位过站直通率' },
-  { path: '/repair-quality', id: 'repair-quality', label: 'REPAIR QUALITY', description: '维修质量透视' },
+  { path: '/repair-quality', id: 'repair-quality', label: 'REPAIR PASS RATE', description: '维修首修通过率分析' },
   { path: '/lrr', id: 'lrr', label: 'LRR', description: '工厂阶段部件故障率' },
   { path: '/doa', id: 'doa', label: 'DOA', description: '报修率' },
   { path: '/mfr', id: 'mfr', label: 'MFR', description: '现网月化故障率' },

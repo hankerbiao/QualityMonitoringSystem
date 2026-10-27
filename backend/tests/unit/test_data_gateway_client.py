@@ -339,6 +339,23 @@ async def test_fault_rows_by_host_barcodes_reads_full_fault_documents():
 
 
 @pytest.mark.asyncio
+async def test_fault_rows_by_host_barcodes_splits_large_sn_lists_and_preserves_all_rows():
+    client = DataGatewayClient("http://gateway.test", timeout=2)
+    calls: list[dict[str, object]] = []
+
+    async def all_pages(method: str, path: str, **kwargs: object):
+        calls.append(kwargs["filters"])
+        return [{"id": str(index)} for index in range(len(kwargs["filters"]["hostBarcode"].split(",")))]
+
+    client.all_pages = all_pages  # type: ignore[method-assign]
+    rows = await client.fault_rows_by_host_barcodes([f"SN-{index}" for index in range(401)], max_rows=500)
+
+    assert len(rows) == 401
+    assert [len(call["hostBarcode"].split(",")) for call in calls] == [200, 200, 1]
+    assert all(call["dateFrom"] == "" and call["dateTo"] == "" for call in calls)
+
+
+@pytest.mark.asyncio
 async def test_all_orders_reuses_short_lived_cache():
     calls = 0
 

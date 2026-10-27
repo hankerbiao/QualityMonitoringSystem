@@ -29,7 +29,7 @@ export function buildRepairQualityWorkbook(data: RepairQualityExport): XLSX.Work
   });
   sheet['!cols'] = headers.map((_, index) => ({ wch: index === 0 ? 24 : index === 1 ? 16 : 14 }));
   sheet['!autofilter'] = { ref: `A1:V${data.summary.groups.length + 1}` };
-  XLSX.utils.book_append_sheet(workbook, sheet, '维修质量透视表');
+  XLSX.utils.book_append_sheet(workbook, sheet, '维修首修通过率分析表');
   appendSourceSheets(workbook, data);
   return workbook;
 }

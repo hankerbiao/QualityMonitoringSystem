@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { AlertCircle, CheckCircle2, ChevronDown, CircleHelp, Download, RotateCcw, Search, Wrench } from 'lucide-react';
+import { AlertCircle, ArrowLeft, CheckCircle2, ChevronDown, CircleHelp, Download, RotateCcw, Search, Wrench } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { useNavigate } from 'react-router-dom';
 import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
 import { DateRangePicker } from '../components/shared/DateRangePicker';
 import { RepairQualityCharts } from '../components/repair/RepairQualityCharts';
@@ -75,6 +76,7 @@ function MultiSelect({ label, options, value, onChange }: {
 }
 
 export default function RepairQualityPage() {
+  const navigate = useNavigate();
   const dates = useMemo(() => recentDateRange(), []);
   const [dateFrom, setDateFrom] = useState(dates.from);
   const [dateTo, setDateTo] = useState(dates.to);
@@ -147,7 +149,7 @@ export default function RepairQualityPage() {
     setExportError('');
     try {
       const data = await rtyApi.getRepairQualityExport(appliedQuery);
-      XLSX.writeFile(buildRepairQualityWorkbook(data), `维修质量透视_${appliedQuery.dateFrom}_${appliedQuery.dateTo}.xlsx`);
+      XLSX.writeFile(buildRepairQualityWorkbook(data), `维修首修通过率分析_${appliedQuery.dateFrom}_${appliedQuery.dateTo}.xlsx`);
     } catch (reason) {
       setExportError(reason instanceof Error ? reason.message : '导出失败，请重试');
     } finally {
@@ -166,14 +168,15 @@ export default function RepairQualityPage() {
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 px-4 backdrop-blur">
         <div className="mx-auto flex min-h-15 max-w-[1500px] items-center justify-between gap-3">
           <div className="flex min-w-0 items-center gap-2.5">
+            <button type="button" onClick={() => navigate('/')} className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600" title="返回首页" aria-label="返回首页"><ArrowLeft className="size-4" /></button>
             <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700"><Wrench className="size-4" /></span>
-            <div className="min-w-0"><h1 className="truncate text-base font-semibold text-slate-900">维修质量透视</h1><p className="hidden text-xs text-slate-500 sm:block">首修表现与复修次数分析</p></div>
+            <div className="min-w-0"><h1 className="truncate text-base font-semibold text-slate-900">维修首修通过率分析</h1><p className="hidden text-xs text-slate-500 sm:block">首修表现与复修次数分析</p></div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <DashboardSwitcher />
             <button type="button" onClick={() => void exportRows()} disabled={loading || exporting || !appliedQuery || !result?.snCount}
               className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-medium text-slate-700 transition-colors hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-45 sm:px-3"
-              title="导出维修质量透视表、销售订单及维修故障明记录" aria-label="导出维修质量透视表、销售订单及维修故障明记录" aria-busy={exporting}>
+              title="导出维修首修通过率分析表、销售订单及维修故障明记录" aria-label="导出维修首修通过率分析表、销售订单及维修故障明记录" aria-busy={exporting}>
               <Download className="size-4" /><span className="hidden sm:inline">{exporting ? '导出中' : '导出'}</span>
             </button>
           </div>

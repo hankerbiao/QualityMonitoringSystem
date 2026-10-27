@@ -20,7 +20,7 @@ ALL_DASHBOARD_PERMISSIONS: Final[tuple[str, ...]] = (
 DASHBOARD_LABELS: Final[dict[str, str]] = {
     "rty": "RTY 整机直通率",
     "station-pass-rate": "工位过站直通率",
-    "repair-quality": "维修质量透视",
+    "repair-quality": "维修首修通过率分析",
     "lrr": "LRR 部件故障率",
     "process-records": "关键工位影像追溯",
     "doa": "DOA 报修率",

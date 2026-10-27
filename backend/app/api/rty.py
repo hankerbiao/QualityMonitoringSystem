@@ -43,7 +43,7 @@ async def require_repair_quality_access(
     if user.get("role") != "admin":
         statuses = await SettingsService(get_database()).get_dashboard_statuses()
         if statuses["repair-quality"] == "admin-only":
-            raise HTTPException(status_code=403, detail="维修质量透视仅管理员可见")
+            raise HTTPException(status_code=403, detail="维修首修通过率分析仅管理员可见")
     return user
 
 

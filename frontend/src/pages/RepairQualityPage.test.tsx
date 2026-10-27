@@ -46,6 +46,8 @@ describe('RepairQualityPage', () => {
 
   it('queries with date and chosen dimensions and renders KPIs and grouped results', async () => {
     render(<MemoryRouter><RepairQualityPage /></MemoryRouter>);
+    expect(screen.getByRole('heading', { name: '维修首修通过率分析' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '返回首页' })).toBeTruthy();
     fireEvent.click(await screen.findByRole('button', { name: '客户（多选）' }));
     fireEvent.click(await screen.findByRole('checkbox', { name: 'C-1' }));
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
@@ -90,21 +92,21 @@ describe('RepairQualityPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '确定' }));
     fireEvent.click(screen.getByRole('button', { name: '客户（多选）' }));
     fireEvent.click(await screen.findByRole('checkbox', { name: 'C-1' }));
-    fireEvent.click(screen.getByRole('button', { name: /导出维修质量透视表/ }));
+    fireEvent.click(screen.getByRole('button', { name: /导出维修首修通过率分析表/ }));
     await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalledOnce());
     expect(rtyApi.getRepairQualityExport).toHaveBeenCalledWith(applied);
     const [workbook, filename] = vi.mocked(XLSX.writeFile).mock.calls[0];
-    expect(workbook.SheetNames).toEqual(['维修质量透视表', '销售订单', '维修故障明记录']);
-    expect(filename).toBe(`维修质量透视_${applied.dateFrom}_${applied.dateTo}.xlsx`);
+    expect(workbook.SheetNames).toEqual(['维修首修通过率分析表', '销售订单', '维修故障明记录']);
+    expect(filename).toBe(`维修首修通过率分析_${applied.dateFrom}_${applied.dateTo}.xlsx`);
     fireEvent.click(screen.getByRole('button', { name: '重置' }));
-    expect((screen.getByRole('button', { name: /导出维修质量透视表/ }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole('button', { name: /导出维修首修通过率分析表/ }) as HTMLButtonElement).disabled).toBe(true);
   });
 
   it('disables export until data exists and during download, handles errors and allows retry', async () => {
     let rejectExport!: (reason: Error) => void;
     vi.mocked(rtyApi.getRepairQualityExport).mockImplementationOnce(() => new Promise((_, reject) => { rejectExport = reject; }));
     render(<MemoryRouter><RepairQualityPage /></MemoryRouter>);
-    const button = screen.getByRole('button', { name: /导出维修质量透视表/ }) as HTMLButtonElement;
+    const button = screen.getByRole('button', { name: /导出维修首修通过率分析表/ }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
     await screen.findByText('客户 / 基地维修表现');
     fireEvent.click(button);

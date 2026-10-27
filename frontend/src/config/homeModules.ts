@@ -56,8 +56,8 @@ export const qualityModules: readonly HomeModuleDefinition[] = [
   },
   {
     id: 'repair-quality',
-    code: 'REPAIR QUALITY',
-    title: '维修质量透视',
+    code: 'REPAIR PASS RATE',
+    title: '维修首修通过率分析',
     description: '基于生产订单实际开始日期分析首修通过表现、复修次数与客户基地分布。',
     icon: Wrench,
     accent: 'emerald',

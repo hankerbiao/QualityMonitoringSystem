@@ -704,19 +704,29 @@ class DataGatewayClient:
         values = list(dict.fromkeys(value.strip() for value in host_barcodes if value.strip()))
         if not values:
             return []
-        filters = {
-            "hostBarcode": ",".join(values),
-            "dateFrom": date_from,
-            "dateTo": date_to,
-        }
-        if time_field:
-            filters["timeField"] = time_field
-        return await self.all_pages(
-            "GET",
-            "/api/faults",
-            filters=filters,
-            max_rows=max_rows,
-        )
+        rows: list[dict[str, Any]] = []
+        # Keep hostBarcode query strings below proxy limits for large dashboards.
+        for index in range(0, len(values), 200):
+            filters = {
+                "hostBarcode": ",".join(values[index : index + 200]),
+                "dateFrom": date_from,
+                "dateTo": date_to,
+            }
+            if time_field:
+                filters["timeField"] = time_field
+            batch = await self.all_pages(
+                "GET",
+                "/api/faults",
+                filters=filters,
+                max_rows=max_rows - len(rows),
+            )
+            rows.extend(batch)
+            if len(rows) > max_rows:
+                raise DataGatewayError(
+                    f"维修记录超过完整读取上限 {max_rows}，请缩小查询范围",
+                    code="QUERY_TOO_LARGE",
+                )
+        return rows
 
     async def all_faults(
         self, *, max_rows: int = 1_000_000, **filters: str
