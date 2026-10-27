@@ -1,7 +1,9 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { Download, LoaderCircle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { alertReportApi } from '../api/alertReport';
+import { buildFaultDetailSheet } from '../components/rty/templateExport';
 import type { AlertReportData, AlertContext } from '../types/alertReport';
 
 function severityStyles(severity: string): { badge: string; banner: string } {
@@ -50,6 +52,9 @@ export default function AlertReportPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [data, setData] = useState<AlertReportData | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
+  const exportInProgress = useRef(false);
 
   useEffect(() => {
     if (!token) {
@@ -80,18 +85,24 @@ export default function AlertReportPage() {
   );
   const chips = useMemo(() => (data ? buildTriggerChips(data.context) : []), [data]);
 
-  const handleExport = () => {
-    if (!data) return;
-    const exportData = data.defects.map((d) => ({
-      机器SN: d.sn,
-      故障类型: d.defectCode,
-      故障描述: d.description,
-      维修人: d.repairPerson,
-    }));
-    const ws = XLSX.utils.json_to_sheet(exportData);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, '故障明细');
-    XLSX.writeFile(wb, `故障明细_${data.context.productModel || 'report'}_${data.generatedAt}.xlsx`);
+  const handleExport = async () => {
+    if (!data || !token || exportInProgress.current) return;
+    exportInProgress.current = true;
+    setExporting(true);
+    setExportError('');
+    try {
+      const rows = await alertReportApi.getFaultExport(token);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, buildFaultDetailSheet(rows), '维修故障明记录');
+      const filename = `故障明细_${data.context.productModel || 'report'}_${data.generatedAt}`
+        .replace(/[\\/:*?"<>|]/g, '_');
+      XLSX.writeFile(workbook, `${filename}.xlsx`);
+    } catch (reason) {
+      setExportError(reason instanceof Error ? reason.message : '故障明细导出失败，请重试');
+    } finally {
+      exportInProgress.current = false;
+      setExporting(false);
+    }
   };
 
   if (loading) {
@@ -233,12 +244,15 @@ export default function AlertReportPage() {
           </button>
           <button
             onClick={handleExport}
-            disabled={data.defects.length === 0}
-            className="px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            disabled={exporting || data.defects.length === 0}
+            aria-busy={exporting}
+            className="inline-flex items-center gap-1.5 px-4 py-2 bg-white border border-slate-300 text-slate-700 rounded-md text-sm font-medium hover:bg-slate-50 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
           >
-            导出 Excel 报表
+            {exporting ? <LoaderCircle className="size-4 animate-spin" /> : <Download className="size-4" />}
+            {exporting ? '导出中...' : '导出故障明细'}
           </button>
         </div>
+        {exportError && <p role="alert" className="mb-4 text-sm text-red-700">{exportError}</p>}
 
         {/* 页脚 */}
         <div className="text-xs text-slate-400 text-center pt-3 border-t border-slate-200">

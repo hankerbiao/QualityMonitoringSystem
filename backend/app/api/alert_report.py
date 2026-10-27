@@ -18,7 +18,7 @@ from app.libs.alert_token import build_alert_report_url, create_alert_token, ver
 from app.schemas.alert_report import AlertContext, AlertReportData
 from app.schemas.common import Response
 from app.services.alert_mail import send_rty_alert_email, send_test_email
-from app.services.alert_report import build_alert_report
+from app.services.alert_report import build_alert_fault_export, build_alert_report
 
 router = APIRouter()
 
@@ -27,6 +27,23 @@ class PreviewRequest(BaseModel):
     context: AlertContext
     ttlDays: int | None = None
     baseUrl: str | None = None
+
+
+@router.get("/{token}/export", response_model=Response[list[dict]])
+async def export_alert_faults(token: str):
+    """Export raw repair details within the signed report's filter scope."""
+    try:
+        payload = verify_alert_token(token)
+    except ValueError as exc:
+        return Response(success=False, error=str(exc), message="链接无效或已过期")
+
+    try:
+        context = AlertContext(**payload.get("ctx", {}))
+        rows = await build_alert_fault_export(context)
+    except Exception as exc:
+        log_info(f"告警故障明细导出失败: {exc}")
+        return Response(success=False, error="故障明细导出失败，请稍后重试")
+    return Response(success=True, data=rows, message=f"导出 {len(rows)} 条维修故障明细")
 
 
 @router.get("/{token}", response_model=Response[AlertReportData])

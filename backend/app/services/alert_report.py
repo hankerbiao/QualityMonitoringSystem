@@ -12,6 +12,7 @@ from app.core.timezone import beijing_now
 from app.db.mongodb import get_database
 from app.models.documents import Collections
 from app.schemas.alert_report import AlertContext, AlertReportData, AlertReportSummary
+from app.services import rty_export
 from app.services.rty_gateway import (
     _fault_sns_by_orders,
     _num,
@@ -38,6 +39,16 @@ def _build_gateway_filters(ctx: AlertContext) -> dict[str, Any]:
         "orderScope": "normal",
     }
     return {key: value for key, value in filters.items() if value}
+
+
+async def build_alert_fault_export(context: AlertContext) -> list[dict[str, Any]]:
+    """Read the same complete source columns as RTY, without the report display limit."""
+    filters = _build_gateway_filters(context)
+    # A signed report can omit either date boundary; preserve its open interval.
+    filters.setdefault("dateFrom", "1900-01-01")
+    filters.setdefault("dateTo", "9999-12-31")
+    _, faults = await rty_export._load_sources(filters)
+    return [row for row, _ in faults]
 
 
 async def _faults_by_model(orders: list[dict[str, Any]]) -> dict[str, set[str]]:
