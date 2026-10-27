@@ -33,19 +33,6 @@ function buildTriggerChips(ctx: AlertContext): string[] {
   return chips;
 }
 
-function buildDeepLink(ctx: AlertContext): string {
-  const p = new URLSearchParams();
-  if (ctx.base) p.set('base', ctx.base);
-  if (ctx.productModel) p.set('productModel', ctx.productModel);
-  if (ctx.customer) p.set('customer', ctx.customer);
-  if (ctx.salesOrder) p.set('salesOrder', ctx.salesOrder);
-  if (ctx.productionOrder) p.set('productionOrder', ctx.productionOrder);
-  if (ctx.serialNumber) p.set('serialNumber', ctx.serialNumber);
-  if (ctx.dateFrom) p.set('dateFrom', ctx.dateFrom);
-  if (ctx.dateTo) p.set('dateTo', ctx.dateTo);
-  return `/rty?${p.toString()}`;
-}
-
 export default function AlertReportPage() {
   const { token } = useParams<{ token: string }>();
   const navigate = useNavigate();
@@ -236,12 +223,6 @@ export default function AlertReportPage() {
 
         {/* 操作区 */}
         <div className="flex gap-3 mb-4">
-          <button
-            onClick={() => navigate(buildDeepLink(context))}
-            className="px-4 py-2 bg-blue-600 text-white rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
-          >
-            在 QualiBoard 中查看完整看板 →
-          </button>
           <button
             onClick={handleExport}
             disabled={exporting || data.defects.length === 0}
