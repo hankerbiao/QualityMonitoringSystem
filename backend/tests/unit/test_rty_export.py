@@ -233,6 +233,26 @@ async def test_station_export_returns_only_raw_order_and_fault_columns(monkeypat
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("builder", [rty_export.build_source_export, rty_export.build_template_export])
+async def test_exports_read_full_faults_when_bulk_projection_omits_dimension_two(monkeypatch, builder):
+    loader = source(monkeypatch, [order()], [fault(ZNGWD2="二级现象")])
+
+    async def export_rows(resource, _keys, **_kwargs):
+        if resource == "faults":
+            return [fault()["raw"]]
+        return None
+
+    bulk = AsyncMock(side_effect=export_rows)
+    monkeypatch.setattr(rty_export.data_gateway, "export_rows", bulk)
+
+    result = await builder(FILTERS)
+
+    assert result.faults[0]["ZNGWD2"] == "二级现象"
+    assert any(call.args[1] == "/api/faults" for call in loader.await_args_list)
+    assert all(call.args[0] != "faults" for call in bulk.await_args_list)
+
+
+@pytest.mark.asyncio
 async def test_station_export_returns_empty_sources_when_no_orders_match(monkeypatch):
     loader = source(monkeypatch, [])
     result = await rty_export.build_source_export(FILTERS)

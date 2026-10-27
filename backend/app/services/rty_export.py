@@ -267,10 +267,12 @@ async def _full_orders(items: list[dict[str, Any]]) -> list[dict[str, Any] | Bas
 async def _read_source_batch(
     path: str, filters: dict[str, str], *, max_rows: int
 ) -> list[dict[str, Any]]:
-    resource, key = (
-        ("faults", "productionOrders") if path == "/api/faults" else ("bindings", "headOrder")
+    if path == "/api/faults":
+        # The gateway's bulk fault projection omits ZNGWD2.
+        return await data_gateway.all_pages("GET", path, filters=filters, max_rows=max_rows)
+    items = await data_gateway.export_rows(
+        "bindings", filters["headOrder"].split(","), max_rows=max_rows
     )
-    items = await data_gateway.export_rows(resource, filters[key].split(","), max_rows=max_rows)
     if items is not None:
         return items
     return await data_gateway.all_pages("GET", path, filters=filters, max_rows=max_rows)
@@ -334,6 +336,7 @@ async def _load_sources(
     if start > end:
         raise HTTPException(status_code=422, detail="开始日期不能晚于结束日期")
     key = (
+        "export-sources-v2",
         current_base_permissions(),
         data_gateway.base_url,
         tuple(sorted(filters.items())),
@@ -641,7 +644,7 @@ async def build_export_response(
         return Response(success=True, data=data).model_dump_json().encode()
 
     key = (
-        "export-response-v4",
+        "export-response-v5",
         kind,
         current_base_permissions(),
         data_gateway.base_url,
