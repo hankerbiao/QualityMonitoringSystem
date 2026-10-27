@@ -72,10 +72,10 @@ describe('home administrator settings access', () => {
       render(<MemoryRouter><AuthProvider><Home /></AuthProvider></MemoryRouter>);
     });
     await screen.findByText('Alice');
-    expect(screen.queryByText('维修首修通过率分析')).toBeNull();
+    expect(screen.queryByText('维修通过率分析')).toBeNull();
     vi.mocked(getCurrentUser).mockResolvedValue(response('admin'));
     await act(async () => { fireEvent(window, new Event('focus')); });
-    expect(await screen.findByText('维修首修通过率分析')).toBeTruthy();
+    expect(await screen.findByText('维修通过率分析')).toBeTruthy();
   });
 
   it('groups DOA and MFR separately and supports category filtering and search', async () => {
