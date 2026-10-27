@@ -1,6 +1,7 @@
 import { Activity, AlertTriangle, BarChart3, Factory, Wrench } from 'lucide-react';
 import {
   DEFAULT_DASHBOARD_STATUSES,
+  fieldQualityModules,
   qualityModules,
   type HomeModuleStatus,
 } from '../../config/homeModules';
@@ -29,7 +30,7 @@ export default function DashboardStatusTab({ statuses, onChange }: Props) {
         </p>
       </div>
       <div className="divide-y divide-slate-100 rounded-md border border-slate-200">
-        {qualityModules.map((module) => {
+        {[...qualityModules, ...fieldQualityModules].map((module) => {
           const Icon = icons[module.id as keyof typeof icons];
           const status = statuses[module.id] ?? DEFAULT_DASHBOARD_STATUSES[module.id];
           return (

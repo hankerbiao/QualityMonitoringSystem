@@ -74,6 +74,9 @@ export const qualityModules: readonly HomeModuleDefinition[] = [
     path: '/lrr',
     status: 'available',
   },
+];
+
+export const fieldQualityModules: readonly HomeModuleDefinition[] = [
   {
     id: 'doa',
     code: 'DOA',

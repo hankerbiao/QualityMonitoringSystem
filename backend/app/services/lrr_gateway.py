@@ -554,44 +554,55 @@ async def load_faults(
     ]
 
 
+async def _lrr_options_for_base(base: str = "") -> dict[str, list[str]]:
+    try:
+        return (
+            await data_gateway.order_options(base=base)
+            if base
+            else await data_gateway.order_options()
+        )
+    except DataGatewayError as exc:
+        unused_fields = ("productionOrders", "salesOrders", "materialNumbers")
+        if not any(str(exc).startswith(f"订单选项 {field} 超过 ") for field in unused_fields):
+            raise
+
+    # Older gateways return all option fields together, so an unused large
+    # field can prevent LRR's model/base/customer options from loading.
+    orders = await data_gateway.all_orders(**({"base": base} if base else {}))
+    values: dict[str, set[str]] = {"productModels": set(), "bases": set(), "customerIds": set()}
+    for order in orders:
+        location = str(order.get("inventoryLocation") or "").strip()
+        if not base_allowed(location):
+            continue
+        for key, field in (
+            ("productModels", "productionModel"),
+            ("bases", "inventoryLocation"),
+            ("customerIds", "customerId"),
+        ):
+            value = str(order.get(field) or "").strip()
+            if value:
+                values[key].add(value)
+    return {key: sorted(items) for key, items in values.items()}
+
+
 async def options() -> dict[str, list[str]]:
     scope = current_base_permissions()
     if scope == ():
-        return {
-            key: []
-            for key in (
-                "productionOrders",
-                "salesOrders",
-                "materialNumbers",
-                "productModels",
-                "bases",
-                "customerIds",
-            )
-        }
+        return {key: [] for key in ("materialNumbers", "productModels", "bases", "customerIds")}
     if scope is None:
-        option_sets = [await data_gateway.order_options()]
+        option_sets = [await _lrr_options_for_base()]
     else:
-        option_sets = await asyncio.gather(
-            *(data_gateway.order_options(base=base) for base in scope)
-        )
-    production: set[str] = set()
-    sales: set[str] = set()
-    materials: set[str] = set()
+        option_sets = await asyncio.gather(*(_lrr_options_for_base(base) for base in scope))
     models: set[str] = set()
     bases: set[str] = set()
     customers: set[str] = set()
+    materials: set[str] = set()
     for options_data in option_sets:
-        production.update(
-            normalize_production_order(value) for value in options_data["productionOrders"]
-        )
-        sales.update(normalize_sales_order(value) for value in options_data["salesOrders"])
-        materials.update(options_data["materialNumbers"])
+        materials.update(options_data.get("materialNumbers", []))
         models.update(options_data["productModels"])
         bases.update(options_data["bases"])
         customers.update(options_data["customerIds"])
     return {
-        "productionOrders": sorted(value for value in production if value),
-        "salesOrders": sorted(value for value in sales if value),
         "materialNumbers": sorted(value for value in materials if value),
         "productModels": sorted(value for value in models if value),
         "bases": sorted(value for value in bases if value),

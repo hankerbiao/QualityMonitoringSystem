@@ -9,6 +9,51 @@ body {
   font-family: var(--font-sans);
 }
 
+@keyframes dashboard-loading-shimmer {
+  to { background-position: -200% 0; }
+}
+
+@keyframes dashboard-loading-wave {
+  0%, 100% { opacity: 0.5; transform: scaleY(0.86); }
+  50% { opacity: 1; transform: scaleY(1); }
+}
+
+@keyframes dashboard-loading-dot {
+  0%, 100% { opacity: 0.3; transform: translateY(0); }
+  50% { opacity: 1; transform: translateY(-3px); }
+}
+
+.dashboard-skeleton {
+  border-radius: 3px;
+  background: linear-gradient(90deg, #edf2f1 25%, #dcebe7 50%, #edf2f1 75%);
+  background-size: 200% 100%;
+  animation: dashboard-loading-shimmer 2s linear infinite;
+}
+
+.dashboard-loading-column {
+  transform-origin: bottom;
+  animation: dashboard-loading-wave 1.6s ease-in-out infinite;
+}
+
+.dashboard-loading-dots i {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: #0f766e;
+  animation: dashboard-loading-dot 1.2s ease-in-out infinite;
+}
+
+.dashboard-loading-dots i:nth-child(2) { animation-delay: 150ms; }
+.dashboard-loading-dots i:nth-child(3) { animation-delay: 300ms; }
+
+@media (prefers-reduced-motion: reduce) {
+  .dashboard-skeleton,
+  .dashboard-loading-column,
+  .dashboard-loading-dots i {
+    animation: none;
+  }
+}
+
 /* ===== Login page ===== */
 @keyframes login-entry {
   from {

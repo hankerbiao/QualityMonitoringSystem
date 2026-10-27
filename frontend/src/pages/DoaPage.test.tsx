@@ -34,6 +34,17 @@ describe('DoaPage', () => {
     vi.clearAllMocks();
   });
 
+  it('shows the dashboard loading state until a request fails', async () => {
+    let reject!: (error: Error) => void;
+    vi.mocked(doaApi.getDashboard).mockImplementationOnce(() => new Promise((_, fail) => { reject = fail; }));
+    render(<MemoryRouter><DoaPage /></MemoryRouter>);
+    expect(screen.getByRole('status', { name: '正在加载 DOA 看板数据' })).toBeTruthy();
+    expect(screen.queryByLabelText('质量概览指标')).toBeNull();
+    reject(new Error('数据加载失败'));
+    expect((await screen.findByRole('alert')).textContent).toContain('数据加载失败');
+    expect(screen.queryByRole('status')).toBeNull();
+  });
+
   it('opens the filters on entry', async () => {
     vi.mocked(doaApi.getDashboard).mockRejectedValue(new Error('数据源不可用'));
     render(<MemoryRouter><DoaPage /></MemoryRouter>);

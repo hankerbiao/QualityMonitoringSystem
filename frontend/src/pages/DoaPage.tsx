@@ -30,6 +30,7 @@ import type {
   DoaTimeGranularity,
 } from "../types/doa";
 import { DashboardSwitcher } from "../components/shared/DashboardSwitcher";
+import { DashboardLoading } from "../components/shared/DashboardLoading";
 import { DateRangePicker } from "../components/shared/DateRangePicker";
 import { MultiSelect } from "../components/shared/MultiSelect";
 import { useAuth } from "../context/AuthContext";
@@ -355,7 +356,7 @@ export default function DoaPage() {
           </div>
         )}
         {exportError && <div role="alert" className="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{exportError}</div>}
-        {!error && <>
+        {!error && (loading ? <DashboardLoading dashboard="DOA" /> : <>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <h2 className="text-sm font-semibold text-slate-950">质量概览</h2>
           <p className="text-xs text-slate-500">基于筛选范围内已匹配的 SCS 申报及销售订单</p>
@@ -639,7 +640,7 @@ export default function DoaPage() {
             <Link to="/doa/raw" className="inline-flex items-center gap-1 font-medium text-emerald-700 hover:underline">查看 SCS 原始数据 <ArrowRight className="size-3" /></Link>
           </div>
         </details>
-        </>}
+        </>)}
       </main>
     </div>
   );

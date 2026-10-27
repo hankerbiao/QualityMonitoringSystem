@@ -91,6 +91,28 @@ async def test_search_options_only_include_authorized_base_and_its_models(client
     assert [item["name"] for item in photo_options["data"]["bases"]] == ["天津"]
 
 
+async def test_lrr_options_fallback_returns_only_authorized_base(client, base_users, monkeypatch):
+    from app.services.data_gateway_client import DataGatewayError
+
+    _, scoped = base_users
+    monkeypatch.setattr(
+        data_gateway,
+        "order_options",
+        AsyncMock(
+            side_effect=DataGatewayError("订单选项 productionOrders 超过 20000 条，请增加基地筛选")
+        ),
+    )
+    response = await client.get("/api/lrr/options", headers=scoped)
+    assert response.status_code == 200
+    assert response.json() == {
+        "materialNumbers": [],
+        "productModels": ["TJ-model"],
+        "bases": ["1000"],
+        "customerIds": ["C-TJ"],
+    }
+    data_gateway.all_orders.assert_awaited_once_with(base="1000")
+
+
 @pytest.mark.parametrize(
     "path",
     [

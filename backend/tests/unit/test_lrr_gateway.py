@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.base_access import base_access_scope
 from app.services import lrr_gateway
 from app.services.data_gateway_client import DataGatewayClient, DataGatewayError
 
@@ -618,12 +619,80 @@ async def test_options_uses_orders_without_loading_entire_bom(monkeypatch):
     monkeypatch.setattr(lrr_gateway.data_gateway, "order_options", order_options)
     monkeypatch.setattr(lrr_gateway.data_gateway, "all_view", fail_all_view)
     result = await lrr_gateway.options()
-    assert result["productionOrders"] == ["000000000001"]
-    assert result["salesOrders"] == ["9"]
+    assert "productionOrders" not in result
+    assert "salesOrders" not in result
     assert result["bases"] == ["BASE-A"]
     assert result["customerIds"] == ["C-1"]
     assert result["materialNumbers"] == ["MAT-1"]
     assert result["productModels"] == ["MODEL-1"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["productionOrders", "salesOrders", "materialNumbers"])
+async def test_options_falls_back_when_unused_order_options_exceed_limit(monkeypatch, field):
+    async def order_options(**_filters):
+        raise DataGatewayError(f"订单选项 {field} 超过 20000 条，请增加基地筛选")
+
+    async def all_orders(**filters):
+        assert filters == {}
+        return [
+            {"inventoryLocation": "1000", "productionModel": " M1 ", "customerId": "C1"},
+            {"inventoryLocation": "3000", "productionModel": "M2", "customerId": "C2"},
+            {"inventoryLocation": "1000", "productionModel": "M1", "customerId": "C1"},
+        ]
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "order_options", order_options)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_orders", all_orders)
+    with base_access_scope(None):
+        assert await lrr_gateway.options() == {
+            "materialNumbers": [],
+            "productModels": ["M1", "M2"],
+            "bases": ["1000", "3000"],
+            "customerIds": ["C1", "C2"],
+        }
+
+
+@pytest.mark.asyncio
+async def test_options_fallback_enforces_base_permissions_even_if_gateway_returns_extra_rows(
+    monkeypatch,
+):
+    async def order_options(**_filters):
+        raise DataGatewayError("订单选项 productionOrders 超过 20000 条，请增加基地筛选")
+
+    async def all_orders(**filters):
+        assert filters == {"base": "1000"}
+        return [
+            {"inventoryLocation": "1000", "productionModel": "allowed", "customerId": "C1"},
+            {"inventoryLocation": "3000", "productionModel": "denied", "customerId": "C2"},
+            {"productionModel": "unknown", "customerId": "C3"},
+        ]
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "order_options", order_options)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_orders", all_orders)
+    with base_access_scope(["1000"]):
+        assert await lrr_gateway.options() == {
+            "materialNumbers": [],
+            "productModels": ["allowed"],
+            "bases": ["1000"],
+            "customerIds": ["C1"],
+        }
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "message", ["网关连接失败", "订单选项 customerIds 超过 20000 条，请增加基地筛选"]
+)
+async def test_options_does_not_hide_other_gateway_errors(monkeypatch, message):
+    async def order_options(**_filters):
+        raise DataGatewayError(message)
+
+    async def all_orders(**_filters):
+        pytest.fail("unexpected fallback")
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "order_options", order_options)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_orders", all_orders)
+    with base_access_scope(None), pytest.raises(DataGatewayError, match=message):
+        await lrr_gateway.options()
 
 
 @pytest.mark.asyncio

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   BarChart3,
+  Boxes,
   ChevronDown,
   LayoutGrid,
   LogOut,
@@ -15,6 +16,7 @@ import {
 import HomeSection from '../components/home/HomeSection';
 import SettingsModal from '../components/SettingsModal';
 import {
+  fieldQualityModules,
   managementModules,
   qualityModules,
   toolModules,
@@ -24,11 +26,12 @@ import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import appPackage from '../../package.json';
 
-type ModuleFilter = 'all' | 'quality' | 'tools' | 'management';
+type ModuleFilter = 'all' | 'quality' | 'field-quality' | 'tools' | 'management';
 
 const moduleFilters = [
   { id: 'all', label: '全部', icon: LayoutGrid },
   { id: 'quality', label: '质量看板', icon: BarChart3 },
+  { id: 'field-quality', label: '交付与现网质量', icon: Boxes },
   { id: 'tools', label: '关键工位影像追溯', icon: Wrench },
   { id: 'management', label: '运营监控', icon: Settings2, adminOnly: true },
 ] as const;
@@ -65,16 +68,19 @@ export default function Home() {
   }, [isAdmin]);
   const dashboardPermissions = new Set(user?.dashboardPermissions ?? []);
   const canView = (id: string) => isAdmin || dashboardPermissions.has(id);
-  const configuredQualityModules = qualityModules.map((module) => ({
-    ...module,
-    status: settings.dashboardStatuses[module.id] ?? module.status,
-  }));
-  const visibleQualityModules = configuredQualityModules.filter((module) =>
-    canView(module.id) && (isAdmin || module.status !== 'admin-only'),
-  );
+  const visibleDashboards = (modules: readonly HomeModuleDefinition[]) =>
+    modules
+      .map((module) => ({
+        ...module,
+        status: settings.dashboardStatuses[module.id] ?? module.status,
+      }))
+      .filter((module) => canView(module.id) && (isAdmin || module.status !== 'admin-only'));
+  const visibleQualityModules = visibleDashboards(qualityModules);
+  const visibleFieldQualityModules = visibleDashboards(fieldQualityModules);
   const visibleToolModules = toolModules.filter((module) => canView(module.id));
   const visibleModules = [
     ...visibleQualityModules,
+    ...visibleFieldQualityModules,
     ...visibleToolModules,
     ...(isAdmin ? managementModules : []),
   ];
@@ -90,14 +96,17 @@ export default function Home() {
         .includes(normalizedQuery),
     );
   const filteredQualityModules = filterModules(visibleQualityModules);
+  const filteredFieldQualityModules = filterModules(visibleFieldQualityModules);
   const filteredToolModules = filterModules(visibleToolModules);
   const filteredManagementModules = filterModules(managementModules);
   const showQuality = activeFilter === 'all' || activeFilter === 'quality';
+  const showFieldQuality = activeFilter === 'all' || activeFilter === 'field-quality';
   const showTools = activeFilter === 'all' || activeFilter === 'tools';
   const showManagement = isAdmin && (activeFilter === 'all' || activeFilter === 'management');
   const hasToolResults = showTools && filteredToolModules.length > 0;
   const resultCount =
     (showQuality ? filteredQualityModules.length : 0) +
+    (showFieldQuality ? filteredFieldQualityModules.length : 0) +
     (showTools ? filteredToolModules.length : 0) +
     (showManagement ? filteredManagementModules.length : 0);
 
@@ -258,8 +267,18 @@ export default function Home() {
             <HomeSection
               id="quality-dashboards"
               title="核心质量看板"
-              description="覆盖生产、交付与现网阶段的关键质量表现。"
+              description="覆盖生产阶段的关键质量表现。"
               modules={filteredQualityModules}
+              variant="primary"
+            />
+          )}
+
+          {showFieldQuality && filteredFieldQualityModules.length > 0 && (
+            <HomeSection
+              id="field-quality-dashboards"
+              title="交付与现网质量"
+              description="关注开箱报修及现网故障表现。"
+              modules={filteredFieldQualityModules}
               variant="primary"
             />
           )}
