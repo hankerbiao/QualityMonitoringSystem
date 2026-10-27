@@ -20,6 +20,11 @@ class MFRTrendItem(MFRDimensionItem):
     period: str
 
 
+class MFRDailyTrendItem(BaseModel):
+    period: str
+    faultCount: int = 0
+
+
 class MFRSummary(BaseModel):
     faultCount: int = 0
     fleetCount: float = 0
@@ -33,4 +38,5 @@ class MFRDashboardResponse(BaseModel):
     filters: MFRFilters
     summary: MFRSummary
     trend: list[MFRTrendItem] = Field(default_factory=list)
+    dailyTrend: list[MFRDailyTrendItem] = Field(default_factory=list)
     byModel: list[MFRDimensionItem] = Field(default_factory=list)

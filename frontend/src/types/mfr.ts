@@ -15,6 +15,11 @@ export interface MFRTrendItem extends MFRDimensionItem {
   period: string;
 }
 
+export interface MFRDailyTrendItem {
+  period: string;
+  faultCount: number;
+}
+
 export interface MFRDashboard {
   filters: MFRFilters;
   summary: {
@@ -26,5 +31,6 @@ export interface MFRDashboard {
     ordersMissingWarrantyDates: number;
   };
   trend: MFRTrendItem[];
+  dailyTrend: MFRDailyTrendItem[];
   byModel: MFRDimensionItem[];
 }

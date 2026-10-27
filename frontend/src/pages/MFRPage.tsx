@@ -97,6 +97,8 @@ export default function MFRPage() {
   const maxRate = Math.max(0, ...rankedModels.map(item => item.mfrRate ?? 0));
   const summary = data?.summary;
   const pending = !sameFilters(draft, filters);
+  const dailyTrend = filters.dateFrom.slice(0, 7) === filters.dateTo.slice(0, 7) && Boolean(data?.dailyTrend?.length);
+  const chartTrend = dailyTrend ? data?.dailyTrend ?? [] : data?.trend ?? [];
 
   return <div className="min-h-screen bg-[#f4f6f5] text-slate-800">
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur">
@@ -146,17 +148,17 @@ export default function MFRPage() {
         <section className="grid gap-3 lg:grid-cols-[minmax(0,1.65fr)_minmax(320px,1fr)]">
           <div className="min-w-0 rounded-md border border-slate-200 bg-white">
             <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-100 px-4 py-3">
-              <div><h2 className="flex items-center gap-2 text-sm font-semibold"><BarChart3 className="size-4 text-teal-700" />现网故障趋势</h2><p className="mt-1 text-xs text-slate-500">按月展示故障事件及月化故障率</p></div>
-              <div className="flex gap-3 text-xs text-slate-500"><span><span className="mr-1 inline-block size-2 rounded-sm bg-teal-600" />故障事件</span><span><span className="mr-1 inline-block size-2 rounded-full bg-rose-500" />MFR</span></div>
+              <div><h2 className="flex items-center gap-2 text-sm font-semibold"><BarChart3 className="size-4 text-teal-700" />现网故障趋势</h2><p className="mt-1 text-xs text-slate-500">{dailyTrend ? '按日展示故障事件；MFR 保持月度口径' : '按月展示故障事件及月化故障率'}</p></div>
+              <div className="flex gap-3 text-xs text-slate-500"><span><span className="mr-1 inline-block size-2 rounded-sm bg-teal-600" />故障事件</span>{!dailyTrend && <span><span className="mr-1 inline-block size-2 rounded-full bg-rose-500" />MFR</span>}</div>
             </div>
-            <div className="h-[310px] px-1 py-4 sm:px-3">{data.trend.length ? <ResponsiveContainer width="100%" height="100%"><ComposedChart data={data.trend} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
+            <div className="h-[310px] px-1 py-4 sm:px-3">{chartTrend.length ? <ResponsiveContainer width="100%" height="100%"><ComposedChart data={chartTrend} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
               <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} />
-              <XAxis dataKey="period" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} />
+              <XAxis dataKey="period" tickFormatter={dailyTrend ? (value: string) => value.slice(5) : undefined} tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} />
               <YAxis yAxisId="events" allowDecimals={false} tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} />
-              <YAxis yAxisId="rate" orientation="right" tickFormatter={(value: number) => `${value}%`} tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} />
+              {!dailyTrend && <YAxis yAxisId="rate" orientation="right" tickFormatter={(value: number) => `${value}%`} tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} />}
               <Tooltip formatter={(value, name) => [name === 'MFR' ? rate(typeof value === 'number' ? value : null) : number(Number(value)), name]} />
               <Bar yAxisId="events" dataKey="faultCount" name="故障事件" fill="#0d9488" radius={[2, 2, 0, 0]} maxBarSize={32} />
-              <Line yAxisId="rate" dataKey="mfrRate" name="MFR" type="monotone" stroke="#e11d48" strokeWidth={2} dot={{ r: 3, fill: '#e11d48' }} connectNulls={false} />
+              {!dailyTrend && <Line yAxisId="rate" dataKey="mfrRate" name="MFR" type="monotone" stroke="#e11d48" strokeWidth={2} dot={{ r: 3, fill: '#e11d48' }} connectNulls={false} />}
             </ComposedChart></ResponsiveContainer> : <div className="flex h-full items-center justify-center text-sm text-slate-400">暂无趋势数据</div>}</div>
           </div>
           <div className="min-w-0 rounded-md border border-slate-200 bg-white">

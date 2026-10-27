@@ -1,23 +1,39 @@
 import { Activity } from 'lucide-react';
+import { useEffect, useState } from 'react';
 
 interface DashboardLoadingProps {
   dashboard: 'DOA' | 'MFR';
 }
 
 export function DashboardLoading({ dashboard }: DashboardLoadingProps) {
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+
+  useEffect(() => {
+    if (dashboard !== 'MFR') return;
+    const started = Date.now();
+    const timer = window.setInterval(() => setElapsedSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => window.clearInterval(timer);
+  }, [dashboard]);
+
   return (
     <div role="status" aria-live="polite" aria-label={`正在加载 ${dashboard} 看板数据`} className="space-y-3">
-      <div className="flex items-center gap-3 border border-teal-100 bg-white px-4 py-3">
-        <span aria-hidden="true" className="flex size-9 shrink-0 items-center justify-center rounded-md bg-teal-50 text-teal-700">
-          <Activity className="size-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-slate-800">正在加载 {dashboard} 看板数据</p>
-          <p className="mt-0.5 text-xs text-slate-500">正在汇总所选范围内的数据</p>
+      <div className="overflow-hidden border border-teal-100 bg-white">
+        <div className="flex items-center gap-3 px-4 py-3">
+          <span aria-hidden="true" className="flex size-9 shrink-0 items-center justify-center rounded-md bg-teal-50 text-teal-700">
+            <Activity className="size-4" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-slate-800">正在加载 {dashboard} 看板数据</p>
+            <p className="mt-0.5 text-xs text-slate-500">{dashboard === 'MFR'
+              ? elapsedSeconds >= 8 ? '数据量较大，仍在加载，请稍候' : '正在读取订单、服务单和换件数据'
+              : '正在汇总所选范围内的数据'}</p>
+          </div>
+          {dashboard === 'MFR' && elapsedSeconds > 0 && <span aria-hidden="true" className="shrink-0 font-mono text-xs tabular-nums text-slate-500">已等待 {elapsedSeconds} 秒</span>}
+          <span aria-hidden="true" className="dashboard-loading-dots flex shrink-0 gap-1">
+            <i /><i /><i />
+          </span>
         </div>
-        <span aria-hidden="true" className="dashboard-loading-dots flex shrink-0 gap-1">
-          <i /><i /><i />
-        </span>
+        {dashboard === 'MFR' && <div aria-hidden="true" className="h-0.5 overflow-hidden bg-teal-50"><div className="dashboard-loading-indicator h-full w-1/3 bg-teal-600" /></div>}
       </div>
 
       <div aria-hidden="true" className="space-y-3">

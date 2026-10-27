@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ReactNode } from 'react';
 import { mfrApi } from '../api/mfrApi';
 import type { MFRDashboard, MFRFilters } from '../types/mfr';
 import { formatLocalDate } from '../utils/dateRange';
@@ -17,7 +18,9 @@ vi.mock('xlsx', () => ({ utils: xlsx, writeFile: xlsx.writeFile }));
 vi.mock('../api/mfrApi', () => ({ mfrApi: { getDashboard: vi.fn() } }));
 vi.mock('../components/shared/DashboardSwitcher', () => ({ DashboardSwitcher: () => null }));
 vi.mock('recharts', () => ({
-  ResponsiveContainer: () => null, ComposedChart: () => null, Bar: () => null, Line: () => null,
+  ResponsiveContainer: ({ children }: { children: ReactNode }) => children,
+  ComposedChart: ({ children, data }: { children: ReactNode; data: Array<{ period: string }> }) => <div data-testid="trend-chart" data-periods={data.map(item => item.period).join(',')}>{children}</div>,
+  Bar: () => null, Line: () => <span data-testid="mfr-line" />,
   CartesianGrid: () => null, Tooltip: () => null, XAxis: () => null, YAxis: () => null,
 }));
 
@@ -25,6 +28,9 @@ const fixture = (filters: MFRFilters): MFRDashboard => ({
   filters,
   summary: { faultCount: 12, fleetCount: 400, mfrRate: 3, warrantyDateCoverage: 80, ordersWithWarrantyDates: 8, ordersMissingWarrantyDates: 2 },
   trend: [{ period: '2026-01', key: '2026-01', faultCount: 12, fleetCount: 400, mfrRate: 3 }],
+  dailyTrend: filters.dateFrom.slice(0, 7) === filters.dateTo.slice(0, 7)
+    ? [{ period: filters.dateFrom, faultCount: 4 }, { period: filters.dateTo, faultCount: 8 }]
+    : [],
   byModel: [
     { key: 'Model A', faultCount: 10, fleetCount: 200, mfrRate: 5 },
     { key: 'Model B', faultCount: 2, fleetCount: 200, mfrRate: 1 },
@@ -59,6 +65,22 @@ describe('MFR dashboard', () => {
     expect(screen.getByText('各月在保整机快照之和')).toBeTruthy();
     expect(screen.getByText(/全部订单中有 2 个/)).toBeTruthy();
     expect(screen.getByText(/完整率 80.00%/)).toBeTruthy();
+    expect(screen.getByText('按日展示故障事件；MFR 保持月度口径')).toBeTruthy();
+    expect(screen.getByTestId('trend-chart').getAttribute('data-periods')).toContain(formatLocalDate(today));
+    expect(screen.queryByTestId('mfr-line')).toBeNull();
+  });
+
+  it('switches back to the monthly fault and MFR trend for a multi-month range', async () => {
+    render(<MemoryRouter><MFRPage /></MemoryRouter>);
+    await screen.findByText('Model A');
+    fireEvent.click(screen.getByRole('button', { name: '统计日期' }));
+    fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-01-01' } });
+    fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-03-31' } });
+    fireEvent.click(screen.getByRole('button', { name: '确定' }));
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+    await screen.findByText('按月展示故障事件及月化故障率');
+    expect(screen.getByTestId('trend-chart').getAttribute('data-periods')).toBe('2026-01');
+    expect(screen.getByTestId('mfr-line')).toBeTruthy();
   });
 
   it('drills into a model and resets applied filters while keeping model options', async () => {

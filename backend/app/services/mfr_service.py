@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from calendar import monthrange
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 from app.schemas.mfr import (
+    MFRDailyTrendItem,
     MFRDashboardResponse,
     MFRDimensionItem,
     MFRFilters,
@@ -14,11 +15,13 @@ from app.schemas.mfr import (
     MFRTrendItem,
 )
 from app.services.async_ttl_cache import AsyncTTLCache
-from app.services.data_gateway_client import data_gateway
+from app.services.data_gateway_client import DataGatewayError, data_gateway
 from app.services.scs_gateway import scs_gateway
 
 MFR_CACHE_TTL_SECONDS = 60.0
+MFR_ORDER_CACHE_TTL_SECONDS = 60 * 60.0
 _MFR_DASHBOARD_CACHE = AsyncTTLCache()
+_MFR_ORDER_CACHE = AsyncTTLCache(max_entries=4)
 
 
 def _parse_date(value: Any) -> date | None:
@@ -104,19 +107,15 @@ async def build_mfr_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
     )
 
 
-async def _build_mfr_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
-    start = _parse_date(filters.dateFrom)
-    end = _parse_date(filters.dateTo)
-    if not start or not end or start > end:
-        raise ValueError("dateFrom/dateTo 必须是有效的 YYYY-MM-DD 日期范围")
-    periods = _month_range(start, end)
-
+async def _load_mfr_orders(source_version: str | None) -> dict[str, dict[str, Any]]:
     orders: dict[str, dict[str, Any]] = {}
 
     async def order_documents():
         # MFR needs the complete in-warranty fleet, not only the selected
         # production-date window. The gateway client bounds and caches this.
-        items = await data_gateway.all_orders(max_rows=1_000_000)
+        items = await data_gateway.all_orders(
+            max_rows=1_000_000, **({"source_version": source_version} if source_version else {})
+        )
         for item in items:
             raw = item.get("raw") if isinstance(item.get("raw"), dict) else {}
             data = raw.get("data") if isinstance(raw.get("data"), dict) else raw
@@ -172,6 +171,39 @@ async def _build_mfr_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
             if not existing["warranty_date"]:
                 existing["warranty_date"] = incoming["warranty_date"]
 
+    return orders
+
+
+async def _mfr_orders() -> dict[str, dict[str, Any]]:
+    try:
+        version = await data_gateway.export_version()
+    except DataGatewayError:
+        version = None
+    if not version:
+        return await _load_mfr_orders(None)
+
+    order_version = version["orders"]
+
+    async def load():
+        orders = await _load_mfr_orders(order_version)
+        latest = await data_gateway.export_version()
+        if not latest or latest["orders"] != order_version:
+            raise DataGatewayError("订单数据版本发生变化，请重新查询", retryable=True)
+        return orders
+
+    return await _MFR_ORDER_CACHE.get_or_set(
+        (data_gateway.base_url, order_version), load, ttl_seconds=MFR_ORDER_CACHE_TTL_SECONDS
+    )
+
+
+async def _build_mfr_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
+    start = _parse_date(filters.dateFrom)
+    end = _parse_date(filters.dateTo)
+    if not start or not end or start > end:
+        raise ValueError("dateFrom/dateTo 必须是有效的 YYYY-MM-DD 日期范围")
+    periods = _month_range(start, end)
+    orders = await _mfr_orders()
+
     order_numbers = set(orders)
     service_to_order: dict[str, str] = {}
     doa_rows = await scs_gateway.all("SCS_DOA", company5000="true")
@@ -191,6 +223,7 @@ async def _build_mfr_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
     # multiple distinct failures contributes once per event; this is different
     # from a unique-affected-machine rate.
     faults_by_period_model: dict[tuple[str, str], int] = {}
+    daily_faults: dict[date, int] = {}
     if service_to_order:
         changes = await scs_gateway.all(
             "SCS_CHANGE", company5000="true", dateFrom=start.isoformat(), dateTo=end.isoformat()
@@ -200,13 +233,15 @@ async def _build_mfr_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
                 continue
             linked_order = service_to_order.get(document["service_order"])
             operation_date = _parse_date(document["create_at"])
-            if not linked_order or not operation_date:
+            if not linked_order or not operation_date or not start <= operation_date <= end:
                 continue
             period = operation_date.strftime("%Y-%m")
             if period in periods:
                 order = orders[linked_order]
                 key = (period, order["model"])
                 faults_by_period_model[key] = faults_by_period_model.get(key, 0) + 1
+                if not filters.model or filters.model == order["model"]:
+                    daily_faults[operation_date] = daily_faults.get(operation_date, 0) + 1
     month_points = {period: _month_point(period) for period in periods}
     fleet_by_period_model: dict[tuple[str, str], float] = {}
     with_dates = missing_dates = 0
@@ -271,6 +306,14 @@ async def _build_mfr_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
             )
         )
 
+    daily_trend = []
+    if len(periods) == 1:
+        for offset in range((end - start).days + 1):
+            day = start + timedelta(days=offset)
+            daily_trend.append(
+                MFRDailyTrendItem(period=day.isoformat(), faultCount=daily_faults.get(day, 0))
+            )
+
     fault_count = sum(item.faultCount for item in by_model)
     fleet_count = sum(item.fleetCount for item in by_model)
     total_orders = with_dates + missing_dates
@@ -286,5 +329,6 @@ async def _build_mfr_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
             ordersMissingWarrantyDates=missing_dates,
         ),
         trend=trend,
+        dailyTrend=daily_trend,
         byModel=by_model,
     )

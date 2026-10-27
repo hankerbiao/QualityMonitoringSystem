@@ -23,6 +23,15 @@ body {
   50% { opacity: 1; transform: translateY(-3px); }
 }
 
+@keyframes dashboard-loading-indicator {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(300%); }
+}
+
+.dashboard-loading-indicator {
+  animation: dashboard-loading-indicator 1.8s ease-in-out infinite;
+}
+
 .dashboard-skeleton {
   border-radius: 3px;
   background: linear-gradient(90deg, #edf2f1 25%, #dcebe7 50%, #edf2f1 75%);
@@ -49,6 +58,7 @@ body {
 @media (prefers-reduced-motion: reduce) {
   .dashboard-skeleton,
   .dashboard-loading-column,
+  .dashboard-loading-indicator,
   .dashboard-loading-dots i {
     animation: none;
   }
