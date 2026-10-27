@@ -8,8 +8,7 @@
   "to": ["libiao1@sugon.com"],
   "cc": [],
   "subject": "xxx",
-  "content": "xxx",
-  "contentType": "text/html; charset=utf-8"
+  "content": "xxx"
 }
 """
 import httpx
@@ -59,7 +58,6 @@ async def send_email(
         "cc": cc or [],
         "subject": subject,
         "content": html_content,
-        "contentType": "text/html; charset=utf-8",
     }
     headers = {
         "Authorization": f"Bearer {mail_token}",
