@@ -77,7 +77,7 @@ function MultiSelect({ label, options, value, onChange }: {
 
 export default function RepairQualityPage() {
   const navigate = useNavigate();
-  const dates = useMemo(() => recentDateRange(), []);
+  const dates = useMemo(() => recentDateRange(7), []);
   const [dateFrom, setDateFrom] = useState(dates.from);
   const [dateTo, setDateTo] = useState(dates.to);
   const [options, setOptions] = useState<RepairQualityOptions>({ productModels: [], customers: [], bases: [] });
@@ -203,7 +203,7 @@ export default function RepairQualityPage() {
         {error && <div role="alert" className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800"><AlertCircle className="size-4 shrink-0" />{error}</div>}
         {exportError && <div role="alert" className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800"><AlertCircle className="size-4 shrink-0" />导出失败：{exportError}</div>}
         {!result && !error && <div className="flex min-h-64 flex-col items-center justify-center border-y border-slate-200 text-center text-slate-500">
-          {loading ? <><div className="size-8 animate-spin rounded-full border-2 border-teal-700 border-t-transparent" /><p className="mt-3 text-sm font-medium text-slate-700">正在分析维修记录</p><p className="mt-1 text-xs text-slate-400">按订单实际开始日期筛选，并汇总 SN 完整维修记录</p></> : <><Wrench className="size-8 text-teal-700" /><p className="mt-3 text-sm font-medium text-slate-700">选择日期和筛选条件查看维修表现</p><p className="mt-1 text-xs text-slate-400">默认周期为最近 30 天</p></>}
+          {loading ? <><div className="size-8 animate-spin rounded-full border-2 border-teal-700 border-t-transparent" /><p className="mt-3 text-sm font-medium text-slate-700">正在分析维修记录</p><p className="mt-1 text-xs text-slate-400">按订单实际开始日期筛选，并汇总 SN 完整维修记录</p></> : <><Wrench className="size-8 text-teal-700" /><p className="mt-3 text-sm font-medium text-slate-700">选择日期和筛选条件查看维修表现</p><p className="mt-1 text-xs text-slate-400">默认周期为最近 7 天</p></>}
         </div>}
         {result && <>
           <section aria-label="关键指标" className="grid grid-cols-2 gap-x-3 gap-y-2 border-y border-slate-200 bg-white px-3 py-2.5 sm:grid-cols-3 xl:grid-cols-6">

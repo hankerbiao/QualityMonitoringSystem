@@ -16,16 +16,9 @@ import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, 
 import { mfrApi } from '../api/mfrApi';
 import type { MFRDashboard, MFRDimensionItem, MFRFilters } from '../types/mfr';
 import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
-import { MonthQuickPicker } from '../components/shared/MonthQuickPicker';
+import { DateRangePicker } from '../components/shared/DateRangePicker';
+import { recentDateRange } from '../utils/dateRange';
 
-const DEFAULT_FROM = '2026-01';
-
-function currentMonth(): string { return new Date().toISOString().slice(0, 7); }
-function monthStart(month: string): string { return `${month}-01`; }
-function monthEnd(month: string): string {
-  const [year, value] = month.split('-').map(Number);
-  return `${month}-${String(new Date(year, value, 0).getDate()).padStart(2, '0')}`;
-}
 function formatNumber(value: number): string { return new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(value); }
 function formatRate(value: number | null): string { return value == null ? '—' : `${value.toFixed(2)}%`; }
 
@@ -40,10 +33,14 @@ function RiskRow({ item, rank, maxRate }: { item: MFRDimensionItem; rank: number
 }
 
 export default function MFRPage() {
-  const thisMonth = currentMonth();
-  const initialFilters = useMemo<MFRFilters>(() => ({ dateFrom: monthStart(DEFAULT_FROM), dateTo: monthEnd(thisMonth), model: '' }), [thisMonth]);
-  const [draftFrom, setDraftFrom] = useState(DEFAULT_FROM);
-  const [draftTo, setDraftTo] = useState(thisMonth);
+  const [initialRange] = useState(() => recentDateRange(7));
+  const initialFilters = useMemo<MFRFilters>(() => ({
+    dateFrom: initialRange.from,
+    dateTo: initialRange.to,
+    model: '',
+  }), [initialRange]);
+  const [draftFrom, setDraftFrom] = useState(initialRange.from);
+  const [draftTo, setDraftTo] = useState(initialRange.to);
   const [draftModel, setDraftModel] = useState('');
   const [filters, setFilters] = useState<MFRFilters>(initialFilters);
   const [data, setData] = useState<MFRDashboard | null>(null);
@@ -58,22 +55,22 @@ export default function MFRPage() {
 
   const applyFilters = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (!draftFrom || !draftTo || draftFrom > draftTo) { setError('开始月份不能晚于结束月份'); return; }
-    const nextFilters = { dateFrom: monthStart(draftFrom), dateTo: monthEnd(draftTo), model: draftModel.trim() };
+    if (!draftFrom || !draftTo || draftFrom > draftTo) { setError('开始日期不能晚于结束日期'); return; }
+    const nextFilters = { dateFrom: draftFrom, dateTo: draftTo, model: draftModel.trim() };
     setFilters(nextFilters); void load(nextFilters);
   };
-  const resetFilters = () => { setDraftFrom(DEFAULT_FROM); setDraftTo(thisMonth); setDraftModel(''); setFilters(initialFilters); void load(initialFilters); };
+  const resetFilters = () => { setDraftFrom(initialRange.from); setDraftTo(initialRange.to); setDraftModel(''); setFilters(initialFilters); void load(initialFilters); };
 
   const summary = data?.summary;
   const trend = data?.trend ?? [];
   const models = data?.byModel ?? [];
   const rankedModels = useMemo(() => [...models].sort((a, b) => (b.mfrRate ?? -1) - (a.mfrRate ?? -1)).slice(0, 6), [models]);
   const maxRate = Math.max(...rankedModels.map((item) => item.mfrRate ?? 0), 0);
-  const hasPendingChanges = filters.dateFrom !== monthStart(draftFrom) || filters.dateTo !== monthEnd(draftTo) || (filters.model ?? '') !== draftModel.trim();
+  const hasPendingChanges = filters.dateFrom !== draftFrom || filters.dateTo !== draftTo || (filters.model ?? '') !== draftModel.trim();
   return <div className="min-h-screen bg-[#f6f8fb] text-slate-800">
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 backdrop-blur"><div className="mx-auto flex min-h-15 max-w-[1600px] items-center justify-between gap-3 px-4 sm:px-6 lg:px-8"><div className="flex min-w-0 items-center gap-2.5"><Link to="/" className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800" aria-label="返回首页" title="返回首页"><ArrowLeft className="size-4" /></Link><div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-rose-600 text-white"><Activity className="size-4" /></div><div className="min-w-0"><h1 className="truncate text-base font-semibold text-slate-900">MFR 整机现网月化故障率</h1><p className="hidden text-xs text-slate-500 sm:block">Field reliability / 在保整机质量信号</p></div></div><div className="flex shrink-0 items-center gap-1.5 sm:gap-2"><DashboardSwitcher /></div></div></header>
     <main className="mx-auto flex w-full max-w-[1600px] flex-col gap-3 px-4 py-4 sm:px-6 lg:px-8">
-      <section className="rounded-md border border-slate-200 bg-white shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 sm:px-5"><div className="flex items-center gap-2 text-sm font-semibold text-slate-800"><SlidersHorizontal className="size-4 text-rose-600" />筛选范围</div><div className="flex items-center gap-2 text-xs text-slate-500"><CalendarDays className="size-3.5" />月度统计，按月末在保量计算</div></div><form onSubmit={applyFilters} className="grid gap-4 px-4 py-4 sm:grid-cols-2 sm:px-5 lg:grid-cols-[1fr_1fr_1.5fr_auto] lg:items-end"><label className="text-xs font-semibold text-slate-600">开始月份<input type="month" value={draftFrom} onChange={(event) => setDraftFrom(event.target.value)} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 outline-none transition focus:border-rose-500 focus:ring-2 focus:ring-rose-100" /></label><label className="text-xs font-semibold text-slate-600">结束月份<input type="month" value={draftTo} onChange={(event) => setDraftTo(event.target.value)} className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 outline-none transition focus:border-rose-500 focus:ring-2 focus:ring-rose-100" /></label><label className="text-xs font-semibold text-slate-600">机型<input list="mfr-model-options" value={draftModel} onChange={(event) => setDraftModel(event.target.value)} placeholder="全部机型" className="mt-1 h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm font-normal text-slate-700 outline-none transition focus:border-rose-500 focus:ring-2 focus:ring-rose-100" /><datalist id="mfr-model-options">{models.map((item) => <option key={item.key} value={item.key} />)}</datalist></label><div className="flex items-end gap-2 sm:col-span-2 lg:col-span-1"><button type="submit" className="inline-flex h-10 flex-1 items-center justify-center gap-1.5 rounded-md bg-rose-600 px-4 text-sm font-medium text-white transition-colors hover:bg-rose-700"><BarChart3 className="size-4" />应用</button><button type="button" onClick={resetFilters} disabled={!hasPendingChanges} className="inline-flex size-10 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40" aria-label="重置筛选" title="重置筛选"><RotateCcw className="size-4" /></button></div><div className="sm:col-span-2 lg:col-span-2"><MonthQuickPicker mode="month" from={draftFrom} to={draftTo} onChange={(from, to) => { setDraftFrom(from); setDraftTo(to); }} accent="rose" defaultExpanded={false} /></div></form></section>
+      <section className="rounded-md border border-slate-200 bg-white shadow-sm"><div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-4 py-3 sm:px-5"><div className="flex items-center gap-2 text-sm font-semibold text-slate-800"><SlidersHorizontal className="size-4 text-rose-600" />筛选范围</div><div className="flex items-center gap-2 text-xs text-slate-500"><CalendarDays className="size-3.5" />月度统计，按月末在保量计算</div></div><form onSubmit={applyFilters} className="flex flex-wrap items-end gap-2 px-4 py-3 sm:px-5"><DateRangePicker label="统计日期范围" from={draftFrom} to={draftTo} disabled={loading} onChange={(from, to) => { setDraftFrom(from); setDraftTo(to); }} /><label className="flex min-w-0 basis-full flex-col gap-1 text-[11px] font-medium text-slate-600 sm:min-w-48 sm:flex-1">机型<input list="mfr-model-options" value={draftModel} onChange={(event) => setDraftModel(event.target.value)} placeholder="全部机型" className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs font-normal text-slate-700 outline-none focus:border-teal-600 focus:ring-2 focus:ring-teal-100" /><datalist id="mfr-model-options">{models.map((item) => <option key={item.key} value={item.key} />)}</datalist></label><div className="flex basis-full items-end gap-2 sm:basis-auto"><button type="submit" disabled={loading} className="inline-flex h-9 flex-1 items-center justify-center gap-1.5 rounded-md bg-rose-600 px-4 text-sm font-medium text-white transition-colors hover:bg-rose-700 disabled:cursor-not-allowed disabled:opacity-50"><BarChart3 className="size-4" />应用</button><button type="button" onClick={resetFilters} disabled={!hasPendingChanges || loading} className="inline-flex size-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 transition-colors hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-40" aria-label="重置筛选" title="重置筛选"><RotateCcw className="size-4" /></button></div></form></section>
       {error && <div className="flex items-start gap-2 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"><AlertTriangle className="mt-0.5 size-4 shrink-0" />{error}</div>}
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4"><SignalMetric label="综合 MFR" value={loading ? '…' : formatRate(summary?.mfrRate ?? null)} detail="故障事件 ÷ 在保整机" /><SignalMetric label="故障事件" value={loading ? '…' : formatNumber(summary?.faultCount ?? 0)} detail="撤销记录已排除" /><SignalMetric label="在保整机" value={loading ? '…' : formatNumber(summary?.fleetCount ?? 0)} detail="按统计点动态变化" /><SignalMetric label="纳入订单" value={loading ? '…' : formatNumber(summary?.ordersWithWarrantyDates ?? 0)} detail="具备完整生命周期日期" /></section>
       <section className="grid gap-3 lg:grid-cols-[minmax(0,1.65fr)_minmax(340px,1fr)]"><div className="rounded-md border border-slate-200 bg-white shadow-sm"><div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3 sm:px-5"><div><div className="flex items-center gap-2 text-sm font-semibold text-slate-900"><BarChart3 className="size-4 text-rose-600" />现网故障趋势</div><p className="mt-1 text-xs text-slate-500">柱状图显示故障事件，折线显示同期 MFR</p></div><span className="inline-flex items-center gap-1.5 text-xs text-slate-500"><span className="size-2 rounded-full bg-rose-500" />故障事件 <span className="ml-2 size-2 rounded-full bg-slate-500" />MFR</span></div><div className="h-[310px] px-2 pb-3 pt-5 sm:px-5">{loading ? <div className="flex h-full items-center justify-center text-sm text-slate-400">正在加载趋势...</div> : trend.length ? <ResponsiveContainer width="100%" height="100%"><ComposedChart data={trend} margin={{ top: 8, right: 8, left: -18, bottom: 0 }}><CartesianGrid stroke="#e2e8f0" strokeDasharray="3 3" vertical={false} /><XAxis dataKey="period" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} /><YAxis yAxisId="events" allowDecimals={false} tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} /><YAxis yAxisId="rate" orientation="right" tickFormatter={(value: number) => `${value}%`} tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} /><Tooltip formatter={(value, name) => [name === 'mfrRate' ? `${Number(value).toFixed(2)}%` : formatNumber(Number(value)), name === 'mfrRate' ? 'MFR' : '故障事件']} /><Bar yAxisId="events" dataKey="faultCount" name="faultCount" fill="#e11d48" radius={[2, 2, 0, 0]} maxBarSize={32} /><Line yAxisId="rate" dataKey="mfrRate" name="mfrRate" type="monotone" stroke="#475569" strokeWidth={2.5} dot={{ r: 3, fill: '#475569', strokeWidth: 0 }} connectNulls={false} /></ComposedChart></ResponsiveContainer> : <div className="flex h-full items-center justify-center border border-dashed border-slate-200 text-sm text-slate-400">暂无趋势数据</div>}</div></div><div className="rounded-md border border-slate-200 bg-white shadow-sm"><div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3 sm:px-5"><div><div className="flex items-center gap-2 text-sm font-semibold text-slate-900"><AlertTriangle className="size-4 text-amber-500" />机型风险排行</div><p className="mt-1 text-xs text-slate-500">按 MFR 从高到低，最多展示 6 个机型</p></div><span className="font-mono text-xs text-slate-400">{models.length} 个机型</span></div><div className="px-4 sm:px-5">{loading ? <div className="flex h-[310px] items-center justify-center text-sm text-slate-400">正在计算风险...</div> : rankedModels.length ? rankedModels.map((item, index) => <RiskRow key={item.key} item={item} rank={index + 1} maxRate={maxRate} />) : <div className="flex h-[310px] items-center justify-center text-sm text-slate-400">暂无机型数据</div>}</div></div></section>

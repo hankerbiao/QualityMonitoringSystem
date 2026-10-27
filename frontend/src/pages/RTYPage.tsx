@@ -11,6 +11,7 @@ import { ExcludedOrdersModal, FilterPanel } from '../components/rty';
 import { buildTemplateWorkbook } from '../components/rty/templateExport';
 import { SortIcon } from '../components/shared/SortIcon';
 import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
+import { recentDateRange } from '../utils/dateRange';
 
 const DEFAULT_FILTERS: RTYFilterParams = {
   dateRange: { from: undefined, to: undefined },
@@ -34,7 +35,14 @@ export default function RTYPage() {
 
   // 支持从告警报表链接 /rty?base=...&productModel=... 深链预填筛选条件
   const initialFilters = useMemo<RTYFilterParams>(() => {
-    const df: RTYFilterParams = { ...DEFAULT_FILTERS };
+    const defaultRange = recentDateRange(7);
+    const df: RTYFilterParams = {
+      ...DEFAULT_FILTERS,
+      dateRange: {
+        from: new Date(defaultRange.from),
+        to: new Date(defaultRange.to),
+      },
+    };
     if (searchParams.get('base')) df.base = searchParams.get('base')!;
     if (searchParams.get('productModel')) df.productModel = searchParams.get('productModel')!;
     if (searchParams.get('customer')) df.customer = searchParams.get('customer')!;

@@ -107,7 +107,7 @@ function formatDateInput(date: Date): string {
 function defaultDateRange(): { from: string; to: string } {
   const to = new Date();
   const from = new Date(to);
-  from.setDate(from.getDate() - 29);
+  from.setDate(from.getDate() - 6);
   return { from: formatDateInput(from), to: formatDateInput(to) };
 }
 

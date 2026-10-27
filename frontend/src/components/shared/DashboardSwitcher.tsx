@@ -6,12 +6,12 @@ import { DEFAULT_DASHBOARD_STATUSES } from '../../config/homeModules';
 import { useAuth } from '../../context/AuthContext';
 
 const dashboards = [
-  { path: '/rty', id: 'rty', label: 'RTY', description: '整机综合直通率' },
-  { path: '/station-pass-rate', id: 'station-pass-rate', label: 'STATION RTY', description: '工位过站直通率' },
-  { path: '/repair-quality', id: 'repair-quality', label: 'REPAIR PASS RATE', description: '维修首修通过率分析' },
-  { path: '/lrr', id: 'lrr', label: 'LRR', description: '工厂阶段部件故障率' },
-  { path: '/doa', id: 'doa', label: 'DOA', description: '报修率' },
-  { path: '/mfr', id: 'mfr', label: 'MFR', description: '现网月化故障率' },
+  { path: '/rty', id: 'rty', label: '整机直通率', description: '整机综合直通率' },
+  { path: '/station-pass-rate', id: 'station-pass-rate', label: '工位直通率', description: '工位过站直通率' },
+  { path: '/repair-quality', id: 'repair-quality', label: '维修首修通过率', description: '维修首修通过率分析' },
+  { path: '/lrr', id: 'lrr', label: '部件故障率', description: '工厂阶段部件故障率' },
+  { path: '/doa', id: 'doa', label: '开箱报修率', description: 'DOA 报修率' },
+  { path: '/mfr', id: 'mfr', label: '现网月化故障率', description: 'MFR 整机故障率' },
 ] as const;
 
 export function DashboardSwitcher() {

@@ -3,11 +3,10 @@ import type { ReactNode } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   AlertTriangle,
-  CalendarDays,
+  ChevronDown,
   Clock,
   Filter,
   Home,
-  Package,
   RotateCcw,
 } from "lucide-react";
 import {
@@ -27,20 +26,25 @@ import type {
   DoaTimeGranularity,
 } from "../types/doa";
 import { DashboardSwitcher } from "../components/shared/DashboardSwitcher";
-import { MonthQuickPicker } from "../components/shared/MonthQuickPicker";
+import { DateRangePicker } from "../components/shared/DateRangePicker";
+import { recentDateRange } from "../utils/dateRange";
 
-const defaultFilters: DoaFilters = {
-  dateFrom: "",
-  dateTo: "",
-  customer: "",
-  model: "",
-  timeGranularity: "month",
-};
+function defaultFilters(): DoaFilters {
+  const range = recentDateRange(7);
+  return {
+    dateFrom: range.from,
+    dateTo: range.to,
+    customer: "",
+    model: "",
+    timeGranularity: "month",
+  };
+}
 function readFilters(params: URLSearchParams): DoaFilters {
   const granularity = params.get("timeGranularity");
+  const defaults = defaultFilters();
   return {
-    dateFrom: params.get("dateFrom") || "",
-    dateTo: params.get("dateTo") || "",
+    dateFrom: params.get("dateFrom") || defaults.dateFrom,
+    dateTo: params.get("dateTo") || defaults.dateTo,
     acceptedDateFrom: params.get("acceptedDateFrom") || undefined,
     acceptedDateTo: params.get("acceptedDateTo") || undefined,
     customer: params.get("customer") || "",
@@ -91,33 +95,22 @@ function Stat({
   label,
   value,
   detail,
-  tone,
   edge,
 }: {
   label: string;
   value: ReactNode;
-  detail: string;
-  tone: string;
+  detail: ReactNode;
   edge: string;
 }) {
   return (
-    <div
-      className={`rounded-lg border border-slate-200 border-t-2 bg-white p-4 shadow-sm ${edge}`}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <span className="truncate text-xs font-semibold text-slate-700">
-          {label}
-        </span>
-        <span
-          className={`flex size-8 shrink-0 items-center justify-center rounded-md ${tone}`}
-        >
-          <Package className="size-4" />
-        </span>
-      </div>
-      <p className="mt-3 font-mono text-3xl font-bold tracking-normal text-slate-950">
+    <div className={`min-w-0 border-l-2 bg-white px-4 py-3 ${edge}`}>
+      <p className="text-xs font-semibold text-slate-600">{label}</p>
+      <p className="mt-2 truncate font-mono text-2xl font-semibold tabular-nums text-slate-950">
         {value}
       </p>
-      <p className="mt-1 text-xs text-slate-500">{detail}</p>
+      <div className="mt-1 min-h-4 text-xs leading-5 text-slate-500">
+        {detail}
+      </div>
     </div>
   );
 }
@@ -132,6 +125,10 @@ export default function DoaPage() {
   const [data, setData] = useState<DoaDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const [rankingDimension, setRankingDimension] = useState<
+    "customer" | "model"
+  >("customer");
   const load = useCallback(async (next: DoaFilters) => {
     setLoading(true);
     setError("");
@@ -157,9 +154,30 @@ export default function DoaPage() {
     load(next);
   };
   const summary = data?.summary;
-  const topCustomers = [...(data?.byCustomer || [])]
+  const rankingItems = [
+    ...(rankingDimension === "customer"
+      ? data?.byCustomer || []
+      : data?.byModel || []),
+  ]
     .sort((a, b) => (b.repairRate ?? -1) - (a.repairRate ?? -1))
-    .slice(0, 20);
+    .slice(0, 10);
+  const filterSummary = [
+    `发货 ${filters.dateFrom || filters.dateTo
+      ? `${filters.dateFrom || "不限"} 至 ${filters.dateTo || "不限"}`
+      : "全部日期"}`,
+    ...(filters.acceptedDateFrom || filters.acceptedDateTo
+      ? [
+          `受理 ${filters.acceptedDateFrom || "不限"} 至 ${filters.acceptedDateTo || "不限"}`,
+        ]
+      : []),
+    filters.customer || "全部客户",
+    filters.model || "全部机型",
+    filters.timeGranularity === "year"
+      ? "按年"
+      : filters.timeGranularity === "day"
+        ? "按日"
+        : "按月",
+  ].join(" · ");
   return (
     <div className="min-h-screen bg-slate-100 text-slate-800">
       <header className="border-b border-slate-200 bg-white">
@@ -200,181 +218,173 @@ export default function DoaPage() {
           </div>
         </div>
       </header>
-      <main className="mx-auto max-w-7xl space-y-4 px-4 py-5 sm:px-6 lg:px-8">
-        <section className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-          <div className="mb-3 flex items-center justify-between">
-            <div className="flex items-center gap-2 text-sm font-semibold text-slate-800">
-              <Filter className="size-4 text-emerald-600" />
-              多维筛选
-            </div>
+      <main className="mx-auto max-w-7xl space-y-4 px-4 py-4 sm:px-6 lg:px-8">
+        <section className="border-y border-slate-200 bg-white">
+          <div className="flex min-h-12 items-center justify-between gap-3 px-3 sm:px-4">
             <button
               type="button"
-              onClick={() => apply(defaultFilters)}
-              className="inline-flex items-center gap-1 text-sm font-medium text-slate-600 transition-colors hover:text-emerald-700"
+              aria-expanded={filtersExpanded}
+              aria-controls={filtersExpanded ? "doa-filter-controls" : undefined}
+              onClick={() => setFiltersExpanded((expanded) => !expanded)}
+              className="flex min-w-0 flex-1 items-center gap-2 text-left"
+            >
+              <Filter className="size-4 shrink-0 text-emerald-700" />
+              <span className="shrink-0 text-sm font-semibold text-slate-800">
+                筛选条件
+              </span>
+              <span className="truncate text-xs text-slate-500">{filterSummary}</span>
+              <ChevronDown
+                className={`size-4 shrink-0 text-slate-500 transition-transform ${filtersExpanded ? "rotate-180" : ""}`}
+              />
+            </button>
+            <button
+              type="button"
+              onClick={() => apply(defaultFilters())}
+              className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-slate-600 transition-colors hover:text-emerald-700"
             >
               <RotateCcw className="size-3.5" />
               重置
             </button>
           </div>
-          <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
-            <label className="text-xs font-medium text-slate-700">
-              开始日期
-              <input
-                type="date"
-                value={filters.dateFrom}
-                onChange={(e) => apply({ dateFrom: e.target.value })}
-                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm"
-              />
-            </label>
-            <label className="text-xs font-medium text-slate-700">
-              结束日期
-              <input
-                type="date"
-                value={filters.dateTo}
-                onChange={(e) => apply({ dateTo: e.target.value })}
-                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm"
-              />
-            </label>
-            <label className="text-xs font-medium text-slate-700">
-              客户
-              <select
-                value={filters.customer}
-                onChange={(e) => apply({ customer: e.target.value })}
-                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm"
-              >
-                <option value="">全部客户</option>
-                {options.customers.map((v) => (
-                  <option key={v}>{v}</option>
-                ))}
-              </select>
-            </label>
-            <label className="text-xs font-medium text-slate-700">
-              机型
-              <select
-                value={filters.model}
-                onChange={(e) => apply({ model: e.target.value })}
-                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm"
-              >
-                <option value="">全部机型</option>
-                {options.models.map((v) => (
-                  <option key={v}>{v}</option>
-                ))}
-              </select>
-            </label>
-            <label className="text-xs font-medium text-slate-700">
-              趋势粒度
-              <select
-                value={filters.timeGranularity}
-                onChange={(e) =>
-                  apply({
-                    timeGranularity: e.target.value as DoaTimeGranularity,
-                  })
-                }
-                className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm"
-              >
-                <option value="year">按年</option>
-                <option value="month">按月</option>
-                <option value="day">按日</option>
-              </select>
-            </label>
-          </div>
-          <MonthQuickPicker
-            from={filters.dateFrom}
-            to={filters.dateTo}
-            onChange={(dateFrom, dateTo) => apply({ dateFrom, dateTo })}
-            accent="emerald"
-            defaultExpanded={false}
-            className="mt-3 md:max-w-3xl"
-          />
+          {filtersExpanded && (
+            <div
+              id="doa-filter-controls"
+              className="border-t border-slate-100 px-3 py-3 sm:px-4"
+            >
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
+                <div className="col-span-2 min-w-0 md:col-span-2">
+                  <DateRangePicker
+                    label="实际发货日期"
+                    from={filters.dateFrom}
+                    to={filters.dateTo}
+                    disabled={loading}
+                    onChange={(dateFrom, dateTo) =>
+                      apply({ dateFrom, dateTo })
+                    }
+                  />
+                </div>
+                <label className="text-xs font-medium text-slate-700">
+                  客户
+                  <select
+                    value={filters.customer}
+                    onChange={(e) => apply({ customer: e.target.value })}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm"
+                  >
+                    <option value="">全部客户</option>
+                    {options.customers.map((v) => (
+                      <option key={v}>{v}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-xs font-medium text-slate-700">
+                  机型
+                  <select
+                    value={filters.model}
+                    onChange={(e) => apply({ model: e.target.value })}
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm"
+                  >
+                    <option value="">全部机型</option>
+                    {options.models.map((v) => (
+                      <option key={v}>{v}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="text-xs font-medium text-slate-700">
+                  趋势粒度
+                  <select
+                    value={filters.timeGranularity}
+                    onChange={(e) =>
+                      apply({
+                        timeGranularity: e.target.value as DoaTimeGranularity,
+                      })
+                    }
+                    className="mt-1 w-full rounded-md border border-slate-300 bg-white px-2 py-1.5 text-sm text-slate-900 shadow-sm"
+                  >
+                    <option value="year">按年</option>
+                    <option value="month">按月</option>
+                    <option value="day">按日</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+          )}
         </section>
         {error && (
           <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
             {error}
           </div>
         )}
-        <section className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <section className="grid grid-cols-2 divide-x divide-y divide-slate-200 border-y border-slate-200 bg-white sm:grid-cols-4 sm:divide-y-0">
           <Stat
             label="DOA 报修率"
             value={loading ? "…" : rate(summary?.repairRate ?? null)}
-            detail="问题批次数量 ÷ 出货数"
-            tone="bg-emerald-100 text-emerald-700"
-            edge="border-t-emerald-500"
-          />
-          <Stat
-            label="报修数据"
-            value={
-              loading ? (
-                "…"
-              ) : (
+            detail={loading ? "问题批次数量 ÷ 出货数" : (
+              <>
+                报修数据{" "}
                 <Link
-                  className="text-blue-700 underline-offset-2 hover:underline"
+                  className="font-medium text-blue-700 underline-offset-2 hover:underline"
                   to={`/doa/repairs?${doaApi.buildQuery(filters)}`}
                 >
                   {num(summary?.repairCount ?? 0)}
                 </Link>
-              )
-            }
-            detail="进入报修明细与导出"
-            tone="bg-amber-100 text-amber-700"
-            edge="border-t-amber-500"
+                {" "}· 问题批次数量 / 出货数
+              </>
+            )}
+            edge="border-emerald-600"
           />
           <Stat
             label="DOA 换件率"
             value={loading ? "…" : rate(summary?.replacementRate ?? null)}
-            detail="换件不良数量 ÷ 出货数"
-            tone="bg-sky-100 text-sky-700"
-            edge="border-t-sky-500"
-          />
-          <Stat
-            label="换件不良数量"
-            value={
-              loading ? (
-                "…"
-              ) : (
+            detail={loading ? "换件不良数量 ÷ 出货数" : (
+              <>
+                换件不良{" "}
                 <Link
-                  className="text-blue-700 underline-offset-2 hover:underline"
+                  className="font-medium text-blue-700 underline-offset-2 hover:underline"
                   to={`/doa/repairs?${doaApi.buildQuery(filters, { replacementOnly: "true" })}`}
                 >
                   {num(summary?.replacementCount ?? 0)}
                 </Link>
-              )
-            }
-            detail={`已换件 ${summary?.replacementRecordCount ?? 0} 条 DOA`}
-            tone="bg-orange-100 text-orange-700"
-            edge="border-t-orange-500"
+                {" "}· 已换件 {num(summary?.replacementRecordCount ?? 0)} 条
+              </>
+            )}
+            edge="border-sky-600"
           />
           <Stat
             label="出货数量"
             value={loading ? "…" : num(summary?.shippedCount ?? 0)}
-            detail={`已匹配 ${summary?.matchedRepairRecords ?? 0} 条 DOA`}
-            tone="bg-blue-100 text-blue-700"
-            edge="border-t-blue-500"
+            detail="按 SAP 实际发货日期统计"
+            edge="border-blue-600"
+          />
+          <Stat
+            label="已匹配 DOA"
+            value={loading ? "…" : num(summary?.matchedRepairRecords ?? 0)}
+            detail={`未匹配 ${num(summary?.excludedRepairRecords ?? 0)} 条`}
+            edge="border-amber-500"
           />
         </section>
         <section className="grid gap-4 lg:grid-cols-[minmax(0,1.8fr)_minmax(300px,1fr)]">
-          <div className="overflow-hidden rounded-lg border border-slate-200 bg-white shadow-sm">
-            <div className="flex items-center justify-between gap-3 border-b border-slate-200 px-4 py-3">
+          <div className="min-w-0 border-y border-slate-200 bg-white">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-3 py-3 sm:px-4">
               <div>
                 <h2 className="text-sm font-semibold text-slate-900">
-                  周期趋势
+                  报修与换件趋势
                 </h2>
-                <p className="mt-1 text-xs text-slate-600">
+                <p className="mt-1 text-xs leading-5 text-slate-600">
                   出货按 SAP 实际发货日期，报修和换件按 DOA 受理日期
                 </p>
               </div>
-              <div className="flex items-center gap-3 text-xs font-semibold">
+              <div className="flex items-center gap-3 text-xs font-medium">
                 <span className="inline-flex items-center gap-1.5 text-emerald-700">
-                  <span className="size-2 rounded-full bg-emerald-600" />
+                  <span className="size-2 rounded-sm bg-emerald-600" />
                   报修率
                 </span>
                 <span className="inline-flex items-center gap-1.5 text-sky-700">
-                  <span className="size-2 rounded-full bg-sky-600" />
+                  <span className="size-2 rounded-sm bg-sky-600" />
                   换件率
                 </span>
-                <CalendarDays className="size-4 text-slate-500" />
               </div>
             </div>
-            <div className="h-[260px] px-2 pb-2 pt-5 sm:px-5">
+            <div className="h-[260px] px-1 pb-2 pt-4 sm:px-4">
               {loading ? (
                 <div className="flex h-full items-center justify-center text-sm text-slate-500">
                   加载中…
@@ -442,122 +452,88 @@ export default function DoaPage() {
                 </ResponsiveContainer>
               )}
             </div>
-            <div className="overflow-x-auto border-t border-slate-200">
-              <table className="w-full min-w-[760px] text-left text-sm">
-                <thead>
-                  <tr className="border-b border-slate-200 bg-slate-100">
-                    <th className="px-4 py-3 text-xs font-semibold text-slate-700">
-                      时间
-                    </th>
-                    <th className="px-4 py-3 text-xs font-semibold text-slate-700">
-                      报修服务器数
-                    </th>
-                    <th className="px-4 py-3 text-xs font-semibold text-slate-700">
-                      报修率
-                    </th>
-                    <th className="px-4 py-3 text-xs font-semibold text-slate-700">
-                      换件不良数量
-                    </th>
-                    <th className="px-4 py-3 text-xs font-semibold text-slate-700">
-                      换件率
-                    </th>
-                    <th className="px-4 py-3 text-xs font-semibold text-slate-700">
-                      当期出货
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-200">
-                  {(data?.trend || []).map((item) => (
-                    <tr
-                      key={item.period}
-                      className="odd:bg-white even:bg-slate-50/70 transition-colors hover:bg-emerald-50/40"
-                    >
-                      <td className="px-4 py-3 font-medium text-slate-800">
-                        {item.period}
-                      </td>
-                      <td className="px-4 py-3 font-mono">
-                        <Link
-                          className="text-blue-700 underline-offset-2 hover:underline"
-                          to={`/doa/repairs?${doaApi.buildQuery(filtersForPeriod(filters, item.period))}`}
-                        >
-                          {num(item.repairServerCount)}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3 font-mono font-semibold text-emerald-700">
-                        {rate(item.repairRate)}
-                      </td>
-                      <td className="px-4 py-3 font-mono">
-                        <Link
-                          className="text-blue-700 underline-offset-2 hover:underline"
-                          to={`/doa/repairs?${doaApi.buildQuery(filtersForPeriod(filters, item.period), { replacementOnly: "true" })}`}
-                        >
-                          {num(item.replacementCount)}
-                        </Link>
-                      </td>
-                      <td className="px-4 py-3 font-mono font-semibold text-sky-700">
-                        {rate(item.replacementRate)}
-                      </td>
-                      <td className="px-4 py-3 font-mono">
-                        {num(item.shippedCount)}
-                      </td>
-                    </tr>
-                  ))}
-                  {!data?.trend.length && (
-                    <tr>
-                      <td
-                        colSpan={6}
-                        className="px-4 py-16 text-center text-sm text-slate-500"
-                      >
-                        暂无周期统计数据
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
           </div>
-          <div className="rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-            <div className="flex items-center justify-between">
+          <div className="min-w-0 border-y border-slate-200 bg-white">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-3 py-3 sm:px-4">
               <h2 className="text-sm font-semibold text-slate-900">
-                客户 DOA 表现
+                维度排行
               </h2>
-              <span className="text-xs font-medium text-slate-500">
-                报修率 TOP 20
-              </span>
-            </div>
-            <div className="mt-3 max-h-[440px] overflow-y-auto rounded-md border border-slate-200">
-              <div className="grid grid-cols-[minmax(0,1fr)_90px_90px] border-b border-slate-200 bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-600">
-                <span>客户</span>
-                <span>报修率</span>
-                <span>换件率</span>
+              <div role="group" aria-label="排行维度" className="inline-flex border border-slate-200">
+                <button type="button" aria-pressed={rankingDimension === "customer"} onClick={() => setRankingDimension("customer")} className={`h-8 px-3 text-xs font-medium transition-colors ${rankingDimension === "customer" ? "bg-slate-900 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>客户</button>
+                <button type="button" aria-pressed={rankingDimension === "model"} onClick={() => setRankingDimension("model")} className={`h-8 border-l border-slate-200 px-3 text-xs font-medium transition-colors ${rankingDimension === "model" ? "bg-slate-900 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>机型</button>
               </div>
-              {topCustomers.map((item) => (
+            </div>
+            <div className="grid grid-cols-[minmax(0,1fr)_76px_76px] border-b border-slate-100 px-3 py-2 text-xs font-semibold text-slate-500 sm:px-4">
+              <span>{rankingDimension === "customer" ? "客户" : "机型"}</span>
+              <span>报修率</span>
+              <span>换件率</span>
+            </div>
+            <div className="max-h-[300px] overflow-y-auto">
+              {rankingItems.map((item, index) => (
                 <div
                   key={item.key}
-                  className="grid grid-cols-[minmax(0,1fr)_90px_90px] items-center gap-2 border-b border-slate-100 px-3 py-2.5 text-sm last:border-0 hover:bg-emerald-50/40"
+                  className="grid grid-cols-[minmax(0,1fr)_76px_76px] items-center gap-2 border-b border-slate-100 px-3 py-2.5 text-xs last:border-0 hover:bg-slate-50 sm:px-4"
                 >
-                  <span
-                    className="truncate font-medium text-slate-700"
-                    title={item.key}
-                  >
-                    {item.key}
+                  <span className="flex min-w-0 items-center gap-2">
+                    <span className="w-4 shrink-0 font-mono text-[10px] text-slate-400">{index + 1}</span>
+                    <span className="truncate font-medium text-slate-700" title={item.key}>{item.key}</span>
                   </span>
-                  <span className="font-mono font-semibold text-emerald-700">
-                    {rate(item.repairRate)}
-                  </span>
-                  <span className="font-mono font-semibold text-sky-700">
-                    {rate(item.replacementRate)}
-                  </span>
+                  <span className="font-mono font-semibold text-emerald-700">{rate(item.repairRate)}</span>
+                  <span className="font-mono font-semibold text-sky-700">{rate(item.replacementRate)}</span>
                 </div>
               ))}
-              {!data?.byCustomer.length && (
-                <p className="px-3 py-12 text-center text-sm text-slate-500">
-                  暂无数据
-                </p>
+              {!rankingItems.length && (
+                <p className="px-3 py-12 text-center text-sm text-slate-500">暂无数据</p>
               )}
             </div>
           </div>
         </section>
+        <details className="group border-y border-slate-200 bg-white">
+          <summary className="flex min-h-12 cursor-pointer list-none items-center justify-between gap-3 px-3 text-sm font-semibold text-slate-800 marker:hidden sm:px-4">
+            <span>周期明细</span>
+            <span className="flex items-center gap-2 text-xs font-normal text-slate-500">
+              {num(data?.trend.length ?? 0)} 个周期
+              <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
+            </span>
+          </summary>
+          <div className="overflow-x-auto border-t border-slate-200">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 bg-slate-50">
+                  <th className="px-4 py-3 text-xs font-semibold text-slate-700">时间</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-slate-700">报修服务器数</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-slate-700">报修率</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-slate-700">换件不良数量</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-slate-700">换件率</th>
+                  <th className="px-4 py-3 text-xs font-semibold text-slate-700">当期出货</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {(data?.trend || []).map((item) => (
+                  <tr key={item.period} className="transition-colors hover:bg-emerald-50/40">
+                    <td className="px-4 py-3 font-medium text-slate-800">{item.period}</td>
+                    <td className="px-4 py-3 font-mono">
+                      <Link className="text-blue-700 underline-offset-2 hover:underline" to={`/doa/repairs?${doaApi.buildQuery(filtersForPeriod(filters, item.period))}`}>
+                        {num(item.repairServerCount)}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 font-mono font-semibold text-emerald-700">{rate(item.repairRate)}</td>
+                    <td className="px-4 py-3 font-mono">
+                      <Link className="text-blue-700 underline-offset-2 hover:underline" to={`/doa/repairs?${doaApi.buildQuery(filtersForPeriod(filters, item.period), { replacementOnly: "true" })}`}>
+                        {num(item.replacementCount)}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-3 font-mono font-semibold text-sky-700">{rate(item.replacementRate)}</td>
+                    <td className="px-4 py-3 font-mono">{num(item.shippedCount)}</td>
+                  </tr>
+                ))}
+                {!data?.trend.length && (
+                  <tr><td colSpan={6} className="px-4 py-16 text-center text-sm text-slate-500">暂无周期统计数据</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </details>
         {summary && summary.excludedRepairRecords > 0 && (
           <p className="text-xs text-slate-600">
             <AlertTriangle className="mr-1 inline size-3.5 text-amber-500" />
