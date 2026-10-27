@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import defaultdict
 from typing import Any
 
@@ -132,13 +133,22 @@ async def _load_sources_uncached(
     if any(not identity for identity in identities) or len(set(identities)) != len(identities):
         raise DataGatewayError("订单缺少唯一数据源标识，无法完整分析")
     full_rows: list[dict[str, Any]] = []
-    for index in range(0, len(identities), 1000):
-        batch = await data_gateway.export_rows("orders", identities[index : index + 1000], max_rows=1000)
-        if batch is None:
-            raise DataGatewayError("数据源不支持完整订单读取，无法按实际开始日期分析")
-        full_rows.extend(batch)
+    for index in range(0, len(identities), 4000):
+        batches = await asyncio.gather(
+            *(
+                data_gateway.export_rows("orders", identities[offset : offset + 1000], max_rows=1000)
+                for offset in range(index, min(index + 4000, len(identities)), 1000)
+            ),
+            return_exceptions=True,
+        )
+        for batch in batches:
+            if isinstance(batch, BaseException):
+                raise batch
+            if batch is None:
+                raise DataGatewayError("数据源不支持完整订单读取，无法按实际开始日期分析")
+            full_rows.extend(batch)
     full_by_id = {str(item.get("_id") or ""): item for item in full_rows}
-    if len(full_by_id) != len(identities) or set(full_by_id) != set(identities):
+    if len(full_rows) != len(identities) or set(full_by_id) != set(identities):
         raise DataGatewayError("完整订单数据缺失或重复，请重试")
 
     models, customer_values, base_values = set(product_models or []), set(customers or []), set(bases or [])

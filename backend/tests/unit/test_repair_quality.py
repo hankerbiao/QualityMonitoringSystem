@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock
 
 import pytest
@@ -120,6 +121,46 @@ async def test_analyze_filters_by_actual_start_date_and_dimensions(monkeypatch):
     selected_faults.assert_awaited_once_with({"1"})
     lifecycle_faults.assert_awaited_once_with({"SN-1"})
     assert result["snCount"] == 1
+
+
+@pytest.mark.asyncio
+async def test_order_batches_are_bounded_and_all_results_are_included(monkeypatch):
+    orders = [{"id": str(i), "aufnr": str(i)} for i in range(1, 5001)]
+    active = 0
+    peak = 0
+
+    async def fetch(_resource, keys, *, max_rows):
+        nonlocal active, peak
+        active += 1
+        peak = max(peak, active)
+        await asyncio.sleep(0.01)
+        active -= 1
+        return [
+            {"_id": key, "data": {"AUFNR": key, "ZDATE_STARTED": "20261010"}}
+            for key in keys
+        ]
+
+    monkeypatch.setattr(repair_quality.data_gateway, "all_orders", AsyncMock(return_value=orders))
+    monkeypatch.setattr(repair_quality.data_gateway, "export_rows", fetch)
+    monkeypatch.setattr(repair_quality.rty_gateway, "_faults_for_orders", AsyncMock(return_value=[]))
+
+    selected, repairs, metadata = await repair_quality._load_sources_uncached("2026-10-01", "2026-10-31")
+
+    assert 1 < peak <= 4
+    assert len(selected) == len(metadata) == 5000
+    assert repairs == []
+
+
+@pytest.mark.asyncio
+async def test_duplicate_full_order_rows_are_rejected(monkeypatch):
+    monkeypatch.setattr(repair_quality.data_gateway, "all_orders", AsyncMock(return_value=[{"id": "1"}]))
+    monkeypatch.setattr(
+        repair_quality.data_gateway,
+        "export_rows",
+        AsyncMock(return_value=[{"_id": "1"}, {"_id": "1"}]),
+    )
+    with pytest.raises(DataGatewayError, match="完整订单数据缺失或重复"):
+        await repair_quality._load_sources_uncached("2026-10-01", "2026-10-31")
 
 
 def mock_export_sources(monkeypatch):
