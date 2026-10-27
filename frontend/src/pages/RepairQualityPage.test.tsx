@@ -96,7 +96,7 @@ describe('RepairQualityPage', () => {
     await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalledOnce());
     expect(rtyApi.getRepairQualityExport).toHaveBeenCalledWith(applied);
     const [workbook, filename] = vi.mocked(XLSX.writeFile).mock.calls[0];
-    expect(workbook.SheetNames).toEqual(['维修首修通过率分析表', '销售订单', '维修故障明记录']);
+    expect(workbook.SheetNames).toEqual(['维修首修通过率分析表', '销售订单', '维修故障明细记录']);
     expect(filename).toBe(`维修首修通过率分析_${applied.dateFrom}_${applied.dateTo}.xlsx`);
     fireEvent.click(screen.getByRole('button', { name: '重置' }));
     expect((screen.getByRole('button', { name: /导出维修首修通过率分析表/ }) as HTMLButtonElement).disabled).toBe(true);

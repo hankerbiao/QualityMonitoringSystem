@@ -57,11 +57,11 @@ describe('alert report fault detail export', () => {
     await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalledOnce());
     expect(alertReportApi.getFaultExport).toHaveBeenCalledWith('signed.token');
     const [book, filename] = vi.mocked(XLSX.writeFile).mock.calls[0];
-    expect(book.SheetNames).toEqual(['维修故障明记录']);
-    const sheet = book.Sheets['维修故障明记录'];
+    expect(book.SheetNames).toEqual(['维修故障明细记录']);
+    const sheet = book.Sheets['维修故障明细记录'];
     expect(sheet).toEqual(buildFaultDetailSheet(rows));
     const result = XLSX.read(XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }), { type: 'buffer' });
-    const exported = result.Sheets['维修故障明记录'];
+    const exported = result.Sheets['维修故障明细记录'];
     expect(XLSX.utils.sheet_to_json(exported, { header: 1 })[0])
       .toEqual(FAULT_COLUMNS.map(([, label]) => label));
     expect(exported['!ref']).toBe('A1:AI1002');

@@ -583,7 +583,7 @@ export default function StationPassRatePage() {
       if (type === 'defect') {
         const sheet = buildFaultDetailSheet(rows.map((item) => item.raw || {}));
         const book = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(book, sheet, '维修故障明记录');
+        XLSX.utils.book_append_sheet(book, sheet, '维修故障明细记录');
         XLSX.writeFile(book, `维修SN_${detail.rate.stationCode}_${appliedQuery.dateFrom}_${appliedQuery.dateTo}.xlsx`);
         return;
       }
@@ -727,7 +727,7 @@ export default function StationPassRatePage() {
           </div>
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             <DashboardSwitcher />
-            <button type="button" onClick={() => void exportRows()} disabled={loading || exporting || !hasSearched || matrix.rows.length === 0} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-medium text-slate-700 transition-colors hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-45 sm:px-3" title="导出透视表、销售订单及维修故障明记录" aria-label="导出透视表、销售订单及维修故障明记录"><Download className="size-4" /><span className="hidden sm:inline">{exporting ? '导出中' : '导出'}</span></button>
+            <button type="button" onClick={() => void exportRows()} disabled={loading || exporting || !hasSearched || matrix.rows.length === 0} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-medium text-slate-700 transition-colors hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-45 sm:px-3" title="导出透视表、销售订单及维修故障明细记录" aria-label="导出透视表、销售订单及维修故障明细记录"><Download className="size-4" /><span className="hidden sm:inline">{exporting ? '导出中' : '导出'}</span></button>
           </div>
         </div>
       </header>

@@ -172,7 +172,7 @@ export function appendModelSheets(workbook: XLSX.WorkBook, models: RepairModelSh
 
 export function appendSourceSheets(workbook: XLSX.WorkBook, data: StationPassExport): void {
   XLSX.utils.book_append_sheet(workbook, buildSourceSheet(ORDER_COLUMNS, data.orders), '销售订单');
-  XLSX.utils.book_append_sheet(workbook, buildFaultDetailSheet(data.faults), '维修故障明记录');
+  XLSX.utils.book_append_sheet(workbook, buildFaultDetailSheet(data.faults), '维修故障明细记录');
   appendModelSheets(workbook, data.modelSheets);
 }
 
@@ -197,7 +197,7 @@ export function buildTemplateWorkbook(data: RTYTemplateExport): XLSX.WorkBook {
   const sheets = [
     ['直通率', SUMMARY_COLUMNS, data.summary, false],
     ['销售订单-分母', ORDER_COLUMNS, data.orders, true],
-    ['维修故障明记录-分子', FAULT_COLUMNS, data.faults, true],
+    ['维修故障明细记录-分子', FAULT_COLUMNS, data.faults, true],
     ['TOP问题', TOP_COLUMNS, data.topProblems, false],
   ] as const;
   for (const [name, columns, rows, hasNote] of sheets) {

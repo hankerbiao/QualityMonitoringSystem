@@ -137,7 +137,7 @@ export default function RepairQualityPage() {
             <DashboardSwitcher />
             <button type="button" onClick={() => void exportRows()} disabled={loading || exporting || !appliedQuery || !result?.snCount}
               className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-sm font-medium text-slate-700 transition-colors hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700 disabled:cursor-not-allowed disabled:opacity-45 sm:px-3"
-              title="导出维修首修通过率分析表、销售订单及维修故障明记录" aria-label="导出维修首修通过率分析表、销售订单及维修故障明记录" aria-busy={exporting}>
+              title="导出维修首修通过率分析表、销售订单及维修故障明细记录" aria-label="导出维修首修通过率分析表、销售订单及维修故障明细记录" aria-busy={exporting}>
               <Download className="size-4" /><span className="hidden sm:inline">{exporting ? '导出中' : '导出'}</span>
             </button>
           </div>

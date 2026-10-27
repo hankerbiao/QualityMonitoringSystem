@@ -87,10 +87,10 @@ describe('RTY table export', () => {
     await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalledTimes(1));
     const workbook = vi.mocked(XLSX.writeFile).mock.calls[0][0];
     expect(workbook.SheetNames).toEqual([
-      '直通率', '销售订单-分母', '维修故障明记录-分子', 'TOP问题',
+      '直通率', '销售订单-分母', '维修故障明细记录-分子', 'TOP问题',
     ]);
     expect(workbook.Sheets['销售订单-分母'].C3.v).toBe('000000000001');
     expect(workbook.Sheets['销售订单-分母'].C4.v).toBe('000000000002');
-    expect(workbook.Sheets['维修故障明记录-分子'].E3.v).toBe('CHILD-SN');
+    expect(workbook.Sheets['维修故障明细记录-分子'].E3.v).toBe('CHILD-SN');
   });
 });

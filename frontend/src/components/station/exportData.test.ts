@@ -9,15 +9,15 @@ describe('station pass workbook', () => {
     const snapshot = structuredClone(pivot);
     const workbook = buildStationPassWorkbook(pivot, { orders: [], faults: [] });
 
-    expect(workbook.SheetNames).toEqual(['工位直通率透视表', '销售订单', '维修故障明记录']);
+    expect(workbook.SheetNames).toEqual(['工位直通率透视表', '销售订单', '维修故障明细记录']);
     expect(workbook.Sheets['工位直通率透视表']).toEqual(snapshot);
     const orders = XLSX.utils.sheet_to_json(workbook.Sheets['销售订单'], { header: 1 });
-    const faults = XLSX.utils.sheet_to_json(workbook.Sheets['维修故障明记录'], { header: 1 });
+    const faults = XLSX.utils.sheet_to_json(workbook.Sheets['维修故障明细记录'], { header: 1 });
     expect(orders).toEqual([ORDER_COLUMNS.map(([, label]) => label)]);
     expect(faults).toEqual([FAULT_COLUMNS.map(([, label]) => label)]);
     expect(orders[0]).toHaveLength(18);
     expect(faults[0]).toHaveLength(35);
-    expect(XLSX.utils.sheet_to_json<string[]>(workbook.Sheets['维修故障明记录'], { header: 1 })[0]?.[34]).toBe('订单类型');
+    expect(XLSX.utils.sheet_to_json<string[]>(workbook.Sheets['维修故障明细记录'], { header: 1 })[0]?.[34]).toBe('订单类型');
   });
 
   it('round trips raw values, blank fields, leading zeros and repeated SN repairs', () => {
@@ -34,7 +34,7 @@ describe('station pass workbook', () => {
       type: 'buffer',
     });
     const orders = result.Sheets['销售订单'];
-    const faults = result.Sheets['维修故障明记录'];
+    const faults = result.Sheets['维修故障明细记录'];
     expect(orders.A2).toMatchObject({ t: 's', v: '0000123' });
     expect(orders.C2).toMatchObject({ t: 's', v: '000000000001' });
     expect(orders.F2.v).toBe('X');

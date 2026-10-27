@@ -261,7 +261,7 @@ describe('cycle query and export', () => {
 
     await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalledTimes(1));
     const workbook = vi.mocked(XLSX.writeFile).mock.calls[0][0];
-    expect(workbook.SheetNames).toEqual(['趋势汇总', '销售订单', '维修故障明记录', 'Model A']);
+    expect(workbook.SheetNames).toEqual(['趋势汇总', '销售订单', '维修故障明细记录', 'Model A']);
     expect(workbook.Sheets['Model A'].E2.v).toBe('PN*2');
     expect(workbook.Sheets['Model A'].I2.f).toBe('G2/H2');
     expect(XLSX.utils.sheet_to_json(workbook.Sheets['趋势汇总'])).toEqual([{
@@ -274,10 +274,10 @@ describe('cycle query and export', () => {
     expect(workbook.Sheets['销售订单'].J2).toMatchObject({ t: 'n', v: 0 });
     expect(workbook.Sheets['销售订单'].J1.v).toBe('包装数量');
     expect(workbook.Sheets['销售订单'].R1.v).toBe('最终用户');
-    expect(workbook.Sheets['维修故障明记录'].AH1.v).toBe('RMA复判结论');
-    expect(workbook.Sheets['维修故障明记录'].AI1.v).toBe('订单类型');
-    expect(workbook.Sheets['维修故障明记录'].E2.v).toBe('CHILD-SN');
-    expect(workbook.Sheets['维修故障明记录'].E3.v).toBe('CHILD-SN');
+    expect(workbook.Sheets['维修故障明细记录'].AH1.v).toBe('RMA复判结论');
+    expect(workbook.Sheets['维修故障明细记录'].AI1.v).toBe('订单类型');
+    expect(workbook.Sheets['维修故障明细记录'].E2.v).toBe('CHILD-SN');
+    expect(workbook.Sheets['维修故障明细记录'].E3.v).toBe('CHILD-SN');
   });
 
   it('opens a month cell with the clipped range and exports its selected detail tab', async () => {
@@ -384,6 +384,6 @@ describe('cycle query and export', () => {
     await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalledTimes(1));
     const workbook = vi.mocked(XLSX.writeFile).mock.calls[0][0];
     expect(workbook.Sheets['销售订单']['!ref']).toBe('A1:R1');
-    expect(workbook.Sheets['维修故障明记录']['!ref']).toBe('A1:AI1');
+    expect(workbook.Sheets['维修故障明细记录']['!ref']).toBe('A1:AI1');
   });
 });

@@ -10,7 +10,7 @@ describe('RTY template workbook', () => {
     const workbook = buildTemplateWorkbook(empty);
 
     expect(workbook.SheetNames).toEqual([
-      '直通率', '销售订单-分母', '维修故障明记录-分子', 'TOP问题',
+      '直通率', '销售订单-分母', '维修故障明细记录-分子', 'TOP问题',
     ]);
     const summary = workbook.Sheets['直通率'];
     expect(summary.A1.v).toBe('机型');
@@ -21,7 +21,7 @@ describe('RTY template workbook', () => {
     expect(orders.A2.v).toBe('销售订单');
     expect(orders.J2.v).toBe('包装数量');
     expect(orders.R2.v).toBe('最终用户');
-    const faults = workbook.Sheets['维修故障明记录-分子'];
+    const faults = workbook.Sheets['维修故障明细记录-分子'];
     expect(faults.A2.v).toBe('生产基地');
     expect(faults.AH2.v).toBe('RMA复判结论');
     expect(faults.AI2.v).toBe('订单类型');
@@ -50,10 +50,10 @@ describe('RTY template workbook', () => {
     expect(result.Sheets['销售订单-分母'].C3).toMatchObject({ t: 's', v: '000000000001' });
     expect(result.Sheets['销售订单-分母'].J2.v).toBe('包装数量');
     expect(result.Sheets['销售订单-分母'].J3).toMatchObject({ t: 'n', v: 0 });
-    expect(result.Sheets['维修故障明记录-分子'].E3).toMatchObject({ t: 's', v: '=literal-sn' });
-    expect(result.Sheets['维修故障明记录-分子'].E3.f).toBeUndefined();
-    expect(result.Sheets['维修故障明记录-分子'].K3.v).toBe('张三');
-    expect(result.Sheets['维修故障明记录-分子'].L3).toBeUndefined();
+    expect(result.Sheets['维修故障明细记录-分子'].E3).toMatchObject({ t: 's', v: '=literal-sn' });
+    expect(result.Sheets['维修故障明细记录-分子'].E3.f).toBeUndefined();
+    expect(result.Sheets['维修故障明细记录-分子'].K3.v).toBe('张三');
+    expect(result.Sheets['维修故障明细记录-分子'].L3).toBeUndefined();
     expect(result.Sheets['TOP问题'].H2).toBeUndefined();
     expect(result.Sheets['TOP问题'].L2).toMatchObject({ t: 'n', v: 0, z: '0.00%' });
   });
@@ -67,7 +67,7 @@ describe('RTY template workbook', () => {
         { PCODE: 'SN3', ZNGWD3: '问题B', ZNGWD2: '二级问题B' },
       ],
     });
-    const faults = workbook.Sheets['维修故障明记录-分子'];
+    const faults = workbook.Sheets['维修故障明细记录-分子'];
 
     expect([faults.I3.v, faults.I4.v, faults.I5.v]).toEqual(['问题A', '问题B', '问题B']);
     expect([faults.J3.v, faults.J4.v, faults.J5.v]).toEqual(['二级问题A', '二级问题B', '二级问题B']);
@@ -84,7 +84,7 @@ describe('RTY template workbook', () => {
         { PCODE: 'SN3', ZNGWD3: '问题B', ZNGWD2: '二级问题B' },
       ],
     });
-    const faults = workbook.Sheets['维修故障明记录'];
+    const faults = workbook.Sheets['维修故障明细记录'];
 
     expect([faults.I2.v, faults.I3.v, faults.I4.v]).toEqual(['问题A', '问题B', '问题B']);
     expect([faults.J2.v, faults.J3.v, faults.J4.v]).toEqual(['二级问题A', '二级问题B', '二级问题B']);
@@ -124,7 +124,7 @@ describe('integrated repair model sheets', () => {
         }],
       }],
     });
-    expect(workbook.SheetNames).toEqual(['直通率', '销售订单', '维修故障明记录', '6210 C21']);
+    expect(workbook.SheetNames).toEqual(['直通率', '销售订单', '维修故障明细记录', '6210 C21']);
     const result = XLSX.read(XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }), {
       type: 'buffer', cellNF: true,
     });

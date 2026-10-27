@@ -241,7 +241,7 @@ describe('StationPassRatePage customer filter', () => {
       }],
     });
     render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
-    const exportButton = screen.getByRole('button', { name: '导出透视表、销售订单及维修故障明记录' });
+    const exportButton = screen.getByRole('button', { name: '导出透视表、销售订单及维修故障明细记录' });
     expect((exportButton as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(await screen.findByRole('button', { name: '客户 ID（多选）' }));
     fireEvent.click(await screen.findByRole('checkbox', { name: 'CUST-A' }));
@@ -257,7 +257,7 @@ describe('StationPassRatePage customer filter', () => {
     );
     expect(rtyApi.getStationPassDetails).not.toHaveBeenCalled();
     const workbook = vi.mocked(XLSX.writeFile).mock.calls[0][0];
-    expect(workbook.SheetNames).toEqual(['工位直通率透视表', '销售订单', '维修故障明记录', 'M']);
+    expect(workbook.SheetNames).toEqual(['工位直通率透视表', '销售订单', '维修故障明细记录', 'M']);
     expect(workbook.Sheets.M.E2.v).toBe('PN*2');
     expect(workbook.Sheets.M.L2.f).toBe('J2/K2');
     const pivotRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets['工位直通率透视表']);
@@ -266,7 +266,7 @@ describe('StationPassRatePage customer filter', () => {
       机型: 'M', Total: '80.00%', 过站SN数: 10, 故障数: 2, 工站直通率: '90.00%', OP10: '90.00%',
     });
     expect(Object.keys(pivotRows[0]).filter((key) => key.startsWith('OP'))).toHaveLength(45);
-    expect(XLSX.utils.sheet_to_json(workbook.Sheets['维修故障明记录'])).toHaveLength(2);
+    expect(XLSX.utils.sheet_to_json(workbook.Sheets['维修故障明细记录'])).toHaveLength(2);
   });
 
   it('shows source failures, avoids partial downloads and allows retry', async () => {
@@ -282,7 +282,7 @@ describe('StationPassRatePage customer filter', () => {
       fireEvent.click(await screen.findByRole('button', { name: '客户 ID（多选）' }));
       await screen.findByRole('checkbox', { name: 'CUST-A' });
       fireEvent.click(screen.getByRole('button', { name: '查询' }));
-      const button = screen.getByRole('button', { name: '导出透视表、销售订单及维修故障明记录' });
+      const button = screen.getByRole('button', { name: '导出透视表、销售订单及维修故障明细记录' });
       await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
       fireEvent.click(button);
       expect(await screen.findByRole('alert')).toHaveProperty('textContent', '原始数据查询失败');
@@ -346,8 +346,8 @@ describe('StationPassRatePage customer filter', () => {
     await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalledTimes(1));
 
     const workbook = vi.mocked(XLSX.writeFile).mock.calls[0][0];
-    expect(workbook.SheetNames).toEqual(['维修故障明记录']);
-    const sheet = workbook.Sheets['维修故障明记录'];
+    expect(workbook.SheetNames).toEqual(['维修故障明细记录']);
+    const sheet = workbook.Sheets['维修故障明细记录'];
     expect(sheet.J1.v).toBe('不良现象维度2');
     expect(sheet.J2.v).toBe('维度2');
     expect(sheet.E2.v).toBe('00001');

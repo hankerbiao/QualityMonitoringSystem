@@ -80,7 +80,7 @@ export default function AlertReportPage() {
     try {
       const rows = await alertReportApi.getFaultExport(token);
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, buildFaultDetailSheet(rows), '维修故障明记录');
+      XLSX.utils.book_append_sheet(workbook, buildFaultDetailSheet(rows), '维修故障明细记录');
       const filename = `故障明细_${data.context.productModel || 'report'}_${data.generatedAt}`
         .replace(/[\\/:*?"<>|]/g, '_');
       XLSX.writeFile(workbook, `${filename}.xlsx`);

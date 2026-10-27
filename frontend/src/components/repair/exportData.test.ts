@@ -28,7 +28,7 @@ describe('repair quality Excel export', () => {
     const result = XLSX.read(XLSX.write(book, { type: 'buffer', bookType: 'xlsx' }), {
       type: 'buffer', cellNF: true,
     });
-    expect(result.SheetNames).toEqual(['维修首修通过率分析表', '销售订单', '维修故障明记录']);
+    expect(result.SheetNames).toEqual(['维修首修通过率分析表', '销售订单', '维修故障明细记录']);
     const sheet = result.Sheets['维修首修通过率分析表'];
     expect(sheet.A2).toMatchObject({ t: 's', v: '00001' });
     expect(sheet.C2).toMatchObject({ t: 'n', v: 3 });
@@ -42,12 +42,12 @@ describe('repair quality Excel export', () => {
     expect(sheet.C4.v).toBe(3);
     expect(sheet['!autofilter']?.ref).toBe('A1:V3');
     expect(XLSX.utils.sheet_to_json(result.Sheets['销售订单'], { header: 1 })[0]).toEqual(ORDER_COLUMNS.map(([, label]) => label));
-    expect(XLSX.utils.sheet_to_json(result.Sheets['维修故障明记录'], { header: 1 })[0]).toEqual(FAULT_COLUMNS.map(([, label]) => label));
+    expect(XLSX.utils.sheet_to_json(result.Sheets['维修故障明细记录'], { header: 1 })[0]).toEqual(FAULT_COLUMNS.map(([, label]) => label));
     expect(result.Sheets['销售订单'].A2).toMatchObject({ t: 's', v: '0000123' });
     expect(result.Sheets['销售订单'].J2.v).toBe(0);
-    expect(result.Sheets['维修故障明记录'].E2.v).toBe('00001');
-    expect(result.Sheets['维修故障明记录'].AB2).toMatchObject({ t: 's', v: '=literal' });
-    expect(result.Sheets['维修故障明记录'].AB2.f).toBeUndefined();
+    expect(result.Sheets['维修故障明细记录'].E2.v).toBe('00001');
+    expect(result.Sheets['维修故障明细记录'].AB2).toMatchObject({ t: 's', v: '=literal' });
+    expect(result.Sheets['维修故障明细记录'].AB2.f).toBeUndefined();
   });
 
   it('retains complete headers and zero totals for empty results', () => {
@@ -59,6 +59,6 @@ describe('repair quality Excel export', () => {
     expect(book.Sheets['维修首修通过率分析表'].C2.v).toBe(0);
     expect(book.Sheets['维修首修通过率分析表'].D2.v).toBe(0);
     expect(book.Sheets['销售订单']['!ref']).toBe('A1:R1');
-    expect(book.Sheets['维修故障明记录']['!ref']).toBe('A1:AI1');
+    expect(book.Sheets['维修故障明细记录']['!ref']).toBe('A1:AI1');
   });
 });
