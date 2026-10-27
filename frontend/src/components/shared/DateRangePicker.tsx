@@ -6,10 +6,11 @@ import { MonthQuickPicker } from './MonthQuickPicker';
 interface DateRangePickerProps extends DateRange {
   label: string;
   disabled?: boolean;
+  allowOpenEnded?: boolean;
   onChange: (from: string, to: string) => void;
 }
 
-export function DateRangePicker({ label, from, to, disabled = false, onChange }: DateRangePickerProps) {
+export function DateRangePicker({ label, from, to, disabled = false, allowOpenEnded = false, onChange }: DateRangePickerProps) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<DateRange>({ from, to });
   const root = useRef<HTMLDivElement>(null);
@@ -18,7 +19,10 @@ export function DateRangePicker({ label, from, to, disabled = false, onChange }:
   const id = useId();
   const presets = dateRangePresets();
   const selected = presets.find(item => item.from === from && item.to === to);
-  const valid = Boolean(draft.from && draft.to && draft.from <= draft.to);
+  const valid = (allowOpenEnded || Boolean(draft.from && draft.to))
+    && (!draft.from || !draft.to || draft.from <= draft.to);
+  const displayFrom = from || (allowOpenEnded ? '不限' : '');
+  const displayTo = to || (allowOpenEnded ? '不限' : '');
 
   useEffect(() => {
     if (!open) return;
@@ -55,15 +59,15 @@ export function DateRangePicker({ label, from, to, disabled = false, onChange }:
       <span id={`${id}-label`} className="text-[11px] font-medium text-slate-600">{label}</span>
       <button ref={trigger} type="button" disabled={disabled} aria-labelledby={`${id}-label`} aria-haspopup="dialog"
         aria-expanded={open && !disabled} aria-controls={open && !disabled ? `${id}-dialog` : undefined}
-        title={`${from} 至 ${to}`} onClick={() => { setDraft({ from, to }); setOpen(value => !value); }}
+        title={`${displayFrom} 至 ${displayTo}`} onClick={() => { setDraft({ from, to }); setOpen(value => !value); }}
         className="flex h-9 w-full items-center gap-2 rounded-md border border-slate-300 bg-white px-2.5 text-xs text-slate-700 outline-none hover:border-teal-400 focus:border-teal-600 focus:ring-2 focus:ring-teal-100 disabled:cursor-not-allowed disabled:opacity-50">
         <CalendarDays className="size-4 shrink-0 text-teal-700" aria-hidden="true" />
-        <span className="min-w-0 flex-1 truncate text-left tabular-nums">{from} <span className="px-0.5 text-slate-400">至</span> {to}</span>
+        <span className="min-w-0 flex-1 truncate text-left tabular-nums">{displayFrom} <span className="px-0.5 text-slate-400">至</span> {displayTo}</span>
         {selected && <span className="shrink-0 text-[10px] text-teal-700">{selected.label}</span>}
         <ChevronDown className={`size-3.5 shrink-0 text-slate-400 ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
       </button>
       {open && !disabled && <div id={`${id}-dialog`} role="dialog" aria-label="选择日期范围"
-        className="absolute left-0 top-full z-50 mt-1 w-[min(420px,calc(100vw-2rem))] max-w-[calc(100vw-2rem)] rounded-md border border-slate-200 bg-white shadow-lg"
+        className="absolute left-0 top-full z-50 mt-1 w-full max-w-[calc(100vw-2rem)] rounded-md border border-slate-200 bg-white shadow-lg sm:w-[420px]"
         onKeyDown={event => {
           if (event.key === 'Enter' && event.target instanceof HTMLInputElement) {
             event.preventDefault();
@@ -95,7 +99,9 @@ export function DateRangePicker({ label, from, to, disabled = false, onChange }:
           {!valid && <p role="alert" className="text-[11px] text-red-700">{!draft.from || !draft.to ? '请选择完整的起止日期' : '开始日期不能晚于结束日期'}</p>}
           <MonthQuickPicker from={draft.from} to={draft.to} onChange={(nextFrom, nextTo) => setDraft({ from: nextFrom, to: nextTo })} accent="emerald" defaultExpanded={false} />
         </div>
-        <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-3 py-2">
+        <div className="flex items-center gap-2 border-t border-slate-100 px-3 py-2">
+          {allowOpenEnded && <button type="button" onClick={() => commit({ from: '', to: '' })} className="mr-auto h-8 rounded-md px-2 text-xs text-slate-500 hover:bg-slate-50 hover:text-slate-700">清除日期</button>}
+          <span className="flex-1" />
           <button type="button" onClick={cancel} className="h-8 rounded-md border border-slate-200 px-3 text-xs text-slate-600 hover:bg-slate-50">取消</button>
           <button type="button" disabled={!valid} onClick={() => commit(draft)} className="h-8 rounded-md bg-teal-700 px-3 text-xs font-medium text-white hover:bg-teal-800 disabled:cursor-not-allowed disabled:opacity-50">确定</button>
         </div>

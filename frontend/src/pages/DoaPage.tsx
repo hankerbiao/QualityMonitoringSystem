@@ -46,7 +46,7 @@ function granularityForRange(from: string, to: string): DoaTimeGranularity {
 }
 function defaultFilters(): DoaFilters {
   const now = new Date();
-  const dateFrom = `${now.getFullYear()}-01-01`;
+  const dateFrom = formatLocalDate(new Date(now.getFullYear(), now.getMonth(), 1));
   const dateTo = formatLocalDate(now);
   return {
     dateFrom,

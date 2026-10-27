@@ -49,7 +49,7 @@ function Metric({ label, value, detail, accent }: { label: string; value: string
 export default function MFRPage() {
   const [initialFilters] = useState<MFRFilters>(() => {
     const now = new Date();
-    return { dateFrom: formatLocalDate(new Date(now.getFullYear(), 0, 1)), dateTo: formatLocalDate(now), model: '' };
+    return { dateFrom: formatLocalDate(new Date(now.getFullYear(), now.getMonth(), 1)), dateTo: formatLocalDate(now), model: '' };
   });
   const [draft, setDraft] = useState(initialFilters);
   const [filters, setFilters] = useState(initialFilters);

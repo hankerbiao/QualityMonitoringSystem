@@ -49,12 +49,12 @@ describe('MFR dashboard', () => {
     expect(screen.queryByRole('status')).toBeNull();
   });
 
-  it('loads the current year and shows the aggregated denominator and global coverage', async () => {
+  it('loads the current month and shows the aggregated denominator and global coverage', async () => {
     render(<MemoryRouter><MFRPage /></MemoryRouter>);
     const today = new Date();
     await screen.findByText('在保台月');
     expect(mfrApi.getDashboard).toHaveBeenCalledWith({
-      dateFrom: `${today.getFullYear()}-01-01`, dateTo: formatLocalDate(today), model: '',
+      dateFrom: formatLocalDate(new Date(today.getFullYear(), today.getMonth(), 1)), dateTo: formatLocalDate(today), model: '',
     });
     expect(screen.getByText('各月在保整机快照之和')).toBeTruthy();
     expect(screen.getByText(/全部订单中有 2 个/)).toBeTruthy();

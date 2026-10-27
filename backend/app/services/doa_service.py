@@ -23,7 +23,7 @@ from app.services.data_gateway_client import DataGatewayError, data_gateway
 from app.services.scs_gateway import scs_gateway
 
 DOA_CACHE_TTL_SECONDS = 60.0
-DOA_DASHBOARD_CACHE_TTL_SECONDS = 300.0
+DOA_DASHBOARD_CACHE_TTL_SECONDS = 2 * 60 * 60.0
 _DOA_ORDERS_CACHE = AsyncTTLCache()
 _DOA_SNAPSHOT_CACHE = AsyncTTLCache(max_entries=128)
 _DOA_RAW_CACHE = AsyncTTLCache()

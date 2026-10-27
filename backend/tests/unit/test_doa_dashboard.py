@@ -93,7 +93,7 @@ async def test_unfilled_dimension_drilldown_matches_ranking(monkeypatch):
         assert [item.salesOrder for item in repairs.items] == ["1"]
 
 
-async def test_doa_snapshot_is_keyed_by_filters_and_expires_after_five_minutes(monkeypatch):
+async def test_doa_snapshot_is_keyed_by_filters_and_expires_after_two_hours(monkeypatch):
     from app.services import async_ttl_cache
 
     now = [100.0]
@@ -109,7 +109,10 @@ async def test_doa_snapshot_is_keyed_by_filters_and_expires_after_five_minutes(m
     assert (await doa_service._doa_snapshot(DoaFilters(customer="A")))[2][0]["customer"] == "A"
     assert (await doa_service._doa_snapshot(DoaFilters(customer="A")))[2][0]["customer"] == "A"
     assert (await doa_service._doa_snapshot(DoaFilters(customer="B")))[2][0]["customer"] == "B"
-    now[0] += 300
+    now[0] += 7199
+    assert (await doa_service._doa_snapshot(DoaFilters(customer="A")))[2][0]["customer"] == "A"
+    assert calls == ["A", "B"]
+    now[0] += 1
     assert (await doa_service._doa_snapshot(DoaFilters(customer="A")))[2][0]["customer"] == "A"
     assert calls == ["A", "B", "A"]
 

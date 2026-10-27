@@ -55,6 +55,27 @@ describe('StationPassRatePage customer filter', () => {
   });
   afterEach(cleanup);
 
+  it('applies a date range to the next manual query and invalidates previous results', async () => {
+    context.stationConfig = { selectedStations: ['OP10'], configured: true };
+    vi.mocked(rtyApi.getStationPassRates).mockResolvedValue([{
+      dimensionValue: 'M', stationCode: 'OP10', stationName: '装配',
+      inputCount: 10, defectCount: 1, passRate: 90, totalInputCount: 10, totalDefectCount: 1,
+    }]);
+    render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+    await screen.findByText('已选 1 / 45 个工站');
+    fireEvent.click(screen.getByRole('button', { name: '计划开始日期（GSTRS）' }));
+    fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-01-01' } });
+    fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-01-31' } });
+    fireEvent.click(screen.getByRole('button', { name: '确定' }));
+    expect(rtyApi.getStationPassRates).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('已选 1 / 45 个工站')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+    await waitFor(() => expect(rtyApi.getStationPassRates).toHaveBeenLastCalledWith(
+      expect.objectContaining({ dateFrom: '2026-01-01', dateTo: '2026-01-31' }),
+    ));
+  });
+
   it('uses shared station selection for ordinary users and hides editing', async () => {
     context.stationConfig = { selectedStations: ['OP10'], configured: true };
     vi.mocked(rtyApi.getStationPassRates).mockResolvedValue([

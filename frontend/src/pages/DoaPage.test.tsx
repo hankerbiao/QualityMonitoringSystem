@@ -53,7 +53,8 @@ describe('DoaPage', () => {
     expect(screen.getByRole('button', { name: 'SCS 受理日期' })).toBeTruthy();
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-    expect(doaApi.getDashboard).toHaveBeenCalledWith(expect.objectContaining({ dateFrom: `${now.getFullYear()}-01-01`, dateTo: today }));
+    const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
+    expect(doaApi.getDashboard).toHaveBeenCalledWith(expect.objectContaining({ dateFrom: monthStart, dateTo: today, timeGranularity: 'day' }));
     await screen.findByText('数据源不可用');
   });
 
@@ -198,7 +199,7 @@ describe('DoaPage', () => {
     vi.mocked(doaApi.getDashboard).mockRejectedValue(new Error('数据源不可用'));
     const first = render(<MemoryRouter initialEntries={['/doa?dateFrom=2026-03-01&dateTo=2026-03-31']}><DoaPage /></MemoryRouter>);
     await screen.findByText('数据源不可用');
-    expect(doaApi.getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ timeGranularity: 'day' }));
+    expect(doaApi.getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ dateFrom: '2026-03-01', dateTo: '2026-03-31', timeGranularity: 'day' }));
     first.unmount();
 
     render(<MemoryRouter initialEntries={['/doa?dateFrom=2026-03-01&dateTo=2026-03-31&timeGranularity=month']}><DoaPage /></MemoryRouter>);

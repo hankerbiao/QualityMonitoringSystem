@@ -18,7 +18,7 @@ import * as XLSX from 'xlsx';
 import { rtyApi } from '../api/rtyApi';
 import type { StationGroupBy, StationPassDetail, StationPassQuery, StationPassRate } from '../types';
 import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
-import { MonthQuickPicker } from '../components/shared/MonthQuickPicker';
+import { DateRangePicker } from '../components/shared/DateRangePicker';
 import { customerIdLabel, NO_CUSTOMER_ID } from '../utils/customerId';
 import { StationPassFindings, StationQueryLaunch } from '../components/station/StationPassWorkspace';
 import { buildStationPassWorkbook } from '../components/station/exportData';
@@ -731,7 +731,7 @@ export default function StationPassRatePage() {
 
       <main className="mx-auto flex w-full max-w-[1600px] flex-col gap-3 px-4 py-4 sm:px-6 lg:px-8">
         {exportError && <p role="alert" className="text-sm text-red-600">{exportError}</p>}
-        <section className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
+        <section className="rounded-md border border-slate-200 bg-white shadow-sm">
           <div className="flex flex-col gap-3 border-b border-slate-200 px-4 py-3 xl:flex-row xl:items-center xl:justify-between">
             <div className="flex min-w-0 items-center gap-2"><div className="flex size-7 shrink-0 items-center justify-center rounded-md bg-cyan-50 text-cyan-700"><SlidersHorizontal className="size-4" /></div><h2 className="text-sm font-semibold text-slate-800">{dimensionLabel}工位直通率</h2></div>
             <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
@@ -742,17 +742,8 @@ export default function StationPassRatePage() {
           </div>
 
           <form className={`flex flex-wrap items-end gap-x-2 gap-y-3 bg-slate-50/80 px-4 py-3 ${(loading || error || hasSearched) ? 'border-b border-slate-100' : ''}`} onSubmit={(event) => { event.preventDefault(); void load(); }}>
-            <div className="min-w-[280px] flex-1 xl:max-w-sm">
-              <label className="mb-1 flex items-center text-xs font-medium text-slate-600">
-                计划开始日期（GSTRS）
-                <button type="button" className="ml-1 inline-flex size-4 items-center justify-center text-slate-400 hover:text-slate-600" title="按销售订单计划开始日期 GSTRS 统计" aria-label="计划开始日期说明">?</button>
-              </label>
-              <div className="flex items-center gap-1">
-                <input type="date" value={dateFrom} onChange={(event) => updateField('dateFrom', setDateFrom, event.target.value)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-800 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" />
-                <span className="text-xs text-slate-400">-</span>
-                <input type="date" value={dateTo} onChange={(event) => updateField('dateTo', setDateTo, event.target.value)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2 text-sm text-slate-800 outline-none focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" />
-              </div>
-              <MonthQuickPicker from={dateFrom} to={dateTo} onChange={updateDateRange} accent="cyan" defaultExpanded={false} className="mt-2" />
+            <div className="min-w-0 basis-full flex-1 sm:min-w-[280px] xl:max-w-sm">
+              <DateRangePicker label="计划开始日期（GSTRS）" from={dateFrom} to={dateTo} allowOpenEnded onChange={updateDateRange} />
             </div>
               <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-44">统计维度<select value={groupBy} onChange={(event) => updateField('groupBy', setGroupBy, event.target.value as StationGroupBy)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none transition-colors focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"><option value="salesOrder">销售订单号</option><option value="productionOrder">生产订单号</option><option value="productModel">机型</option></select></label>
               <div className="flex min-w-36 flex-col gap-1 text-xs font-medium text-slate-600"><span>订单范围</span><div className="inline-flex h-9 overflow-hidden rounded-md border border-slate-300 bg-white"><button type="button" onClick={() => updateField('orderScope', setOrderScope, 'normal')} className={`px-3 text-xs ${orderScope === 'normal' ? 'bg-cyan-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>普通订单</button><button type="button" onClick={() => updateField('orderScope', setOrderScope, 'l6')} className={`border-l border-slate-300 px-3 text-xs ${orderScope === 'l6' ? 'bg-cyan-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>L6 订单</button></div></div>

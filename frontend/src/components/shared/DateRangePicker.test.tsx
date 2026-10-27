@@ -44,6 +44,23 @@ describe('DateRangePicker', () => {
     expect(onChange).toHaveBeenCalledExactlyOnceWith('2026-10-05', '2026-10-05');
   });
 
+  it('supports optional bounds and clearing when explicitly enabled', () => {
+    const onChange = vi.fn();
+    render(<DateRangePicker label="计划日期" from="" to="" allowOpenEnded onChange={onChange} />);
+    const trigger = screen.getByRole('button', { name: '计划日期' });
+    expect(trigger.textContent).toContain('不限');
+    fireEvent.click(trigger);
+    fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-10-01' } });
+    fireEvent.click(screen.getByRole('button', { name: '确定' }));
+    expect(onChange).toHaveBeenLastCalledWith('2026-10-01', '');
+    fireEvent.click(trigger);
+    fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-10-10' } });
+    fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-10-01' } });
+    expect((screen.getByRole('button', { name: '确定' }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: '清除日期' }));
+    expect(onChange).toHaveBeenLastCalledWith('', '');
+  });
+
   it('discards drafts on cancel, Escape or outside click and restores focus on Escape', () => {
     const { onChange, trigger } = setup();
     fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2025-01-01' } });
