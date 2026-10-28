@@ -110,7 +110,7 @@ class StationPassRate(BaseModel):
     inputCount: int = Field(..., ge=0, description="该工位去重后的过站 SN 数")
     defectCount: int = Field(..., ge=0, description="该工位匹配到的维修 SN 数，按 SN 去重")
     passRate: float = Field(..., ge=0, le=100, description="过站直通率百分比")
-    totalInputCount: int = Field(..., ge=0, description="该维度订单 WMENG 数量汇总，与 RTY 口径一致")
+    totalInputCount: int = Field(..., ge=0, description="该维度所有工位去重后的过站 SN 数")
     totalDefectCount: int = Field(..., ge=0, description="与 RTY 一致的故障 SN 去重数")
 
 

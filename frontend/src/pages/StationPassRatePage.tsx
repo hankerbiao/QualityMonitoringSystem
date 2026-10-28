@@ -492,7 +492,7 @@ export default function StationPassRatePage() {
       rows: Array.from(groups.entries()).sort(([left], [right]) => left.localeCompare(right, 'zh-CN')).map(([dimensionValue, stationRows]) => {
         const stationValues = Array.from(stationRows.values());
         const total = {
-          // RTY 汇总使用订单数量；单工位数据仍按过站 SN 去重。
+          // 汇总过站 SN 跨工位去重，不能从各工位计数相加推算。
           inputCount: stationValues[0].totalInputCount,
           defectCount: stationValues[0].totalDefectCount,
         };
@@ -670,7 +670,7 @@ export default function StationPassRatePage() {
               <h1 className="truncate text-base font-semibold text-slate-900">工位过站直通率</h1>
               <HelpTooltip label="查看工位直通率计算口径">
                 <p>单工站直通率 =（时间范围内过站唯一 SN - 匹配该工站的维修唯一 SN）÷ 过站唯一 SN × 100%，分子最低按 0 计。过站日期和维修记录日期均使用计划开始时间 GSTRS，工站通过过站记录 SPEC / OPERATION 与维修记录 ZNGGZ 匹配。</p>
-                <p className="mt-1">RTY 汇总列的分母按当前维度汇总订单 WMENG 数量，与整机 RTY 页面一致；日期使用订单计划开始日期 GSTRS。普通订单排除 IF_L6 = X 的订单，L6 范围只统计 IF_L6 = X；过站记录按已筛选订单关联。维修 SN 不限制维修日期，按订单月份、机型和工厂地点分组。</p>
+                <p className="mt-1">RTY 汇总列按当前维度所有工站的过站 SN 去重，并使用订单计划开始日期 GSTRS。普通订单排除 IF_L6 = X 的订单，L6 范围只统计 IF_L6 = X；过站记录按已筛选订单关联。维修 SN 不限制维修日期，按订单月份、机型和工厂地点分组。</p>
                 <p className="mt-1">组合工站直通率是所选单站直通率相乘，不是 RTY 汇总值。RTY 仍以订单产量为分母。</p>
               </HelpTooltip>
             </div>
