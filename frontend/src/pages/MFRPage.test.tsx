@@ -62,10 +62,23 @@ describe('MFR dashboard', () => {
     expect(mfrApi.getDashboard).toHaveBeenCalledWith({
       dateFrom: formatLocalDate(new Date(today.getFullYear(), today.getMonth(), 1)), dateTo: formatLocalDate(today), model: '',
     });
-    expect(screen.getByText('各月在保整机快照之和')).toBeTruthy();
+    const fleetMetricHelp = screen.getByRole('button', { name: '查看在保台月说明' });
+    expect(screen.queryByText('各月在保整机快照之和')).toBeNull();
+    fireEvent.focus(fleetMetricHelp);
+    expect(screen.getByRole('tooltip').textContent).toBe('各月在保整机快照之和');
+    fireEvent.blur(fleetMetricHelp);
     expect(screen.getByText(/全部订单中有 2 个/)).toBeTruthy();
-    expect(screen.getByText(/完整率 80.00%/)).toBeTruthy();
-    expect(screen.getByText('按日展示故障事件；MFR 保持月度口径')).toBeTruthy();
+    const coverageHelp = screen.getByRole('button', { name: '查看日期完整订单说明' });
+    expect(screen.queryByText(/完整率 80.00%/)).toBeNull();
+    fireEvent.focus(coverageHelp);
+    expect(screen.getByRole('tooltip').textContent).toContain('完整率 80.00%');
+    fireEvent.blur(coverageHelp);
+    const trendHelp = screen.getByRole('button', { name: '查看趋势统计方式' });
+    expect(screen.queryByText('此处按日展示故障事件，MFR 保持月度口径。')).toBeNull();
+    fireEvent.focus(trendHelp);
+    expect(screen.getByRole('tooltip').textContent).toBe('此处按日展示故障事件，MFR 保持月度口径。');
+    fireEvent.blur(trendHelp);
+    expect(screen.queryByRole('tooltip')).toBeNull();
     expect(screen.getByTestId('trend-chart').getAttribute('data-periods')).toContain(formatLocalDate(today));
     expect(screen.queryByTestId('mfr-line')).toBeNull();
   });
@@ -78,7 +91,11 @@ describe('MFR dashboard', () => {
     fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-03-31' } });
     fireEvent.click(screen.getByRole('button', { name: '确定' }));
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
-    await screen.findByText('按月展示故障事件及月化故障率');
+    await screen.findByTestId('mfr-line');
+    const trendHelp = screen.getByRole('button', { name: '查看趋势统计方式' });
+    expect(screen.queryByText('此处按月展示故障事件及月化故障率。')).toBeNull();
+    fireEvent.focus(trendHelp);
+    expect(screen.getByRole('tooltip').textContent).toBe('此处按月展示故障事件及月化故障率。');
     expect(screen.getByTestId('trend-chart').getAttribute('data-periods')).toBe('2026-01');
     expect(screen.getByTestId('mfr-line')).toBeTruthy();
   });

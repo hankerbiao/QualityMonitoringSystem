@@ -2,6 +2,7 @@ import {
   Bar, CartesianGrid, Cell, ComposedChart, Line, Pie, PieChart,
   ResponsiveContainer, Tooltip, XAxis, YAxis,
 } from 'recharts';
+import { HelpTooltip } from '../shared/HelpTooltip';
 import type { RepairQualitySummary } from '../../types/rty';
 import { buildRepairQualityChartData, REPAIR_CHART_COLORS } from '../../utils/repairQualityCharts';
 
@@ -15,7 +16,7 @@ export function RepairQualityCharts({ summary }: { summary: RepairQualitySummary
     <section aria-label="维修分析图表" className="grid min-w-0 grid-cols-1 gap-x-4 gap-y-3 border-b border-slate-200 py-2.5 sm:grid-cols-2 xl:grid-cols-3">
       <figure className="min-w-0">
         <figcaption className="flex min-h-11 items-start justify-between gap-2">
-          <div><h2 className="text-xs font-semibold text-slate-800">首修与复修构成</h2><p className="mt-0.5 text-[11px] text-slate-500">维修 SN 占比</p></div>
+          <div className="flex items-center gap-1"><h2 className="text-xs font-semibold text-slate-800">首修与复修构成</h2><HelpTooltip label="查看首修与复修构成说明">按各维修次数对应的 SN 数量展示占比。</HelpTooltip></div>
           <span className="shrink-0 text-[11px] tabular-nums text-slate-500">{summary.snCount.toLocaleString()} 台</span>
         </figcaption>
         <div className="relative h-36" role="img" aria-label="按维修次数划分的首修与复修构成饼图">
@@ -39,7 +40,7 @@ export function RepairQualityCharts({ summary }: { summary: RepairQualitySummary
 
       <figure className="min-w-0 xl:col-span-2">
         <figcaption className="flex min-h-11 flex-wrap items-start justify-between gap-x-2">
-          <div><h2 className="text-xs font-semibold text-slate-800">维修次数分布</h2><p className="mt-0.5 text-[11px] text-slate-500">各次数对应的维修 SN 数和占比</p></div>
+          <div className="flex items-center gap-1"><h2 className="text-xs font-semibold text-slate-800">维修次数分布</h2><HelpTooltip label="查看维修次数分布说明">展示各维修次数对应的 SN 数量和占比。</HelpTooltip></div>
           <div className="flex gap-3 text-[11px] text-slate-600"><span>柱形：SN 数</span><span className="text-blue-700">折线：占比</span></div>
         </figcaption>
         <div className="h-44" role="img" aria-label="维修次数分布数量及占比组合图">

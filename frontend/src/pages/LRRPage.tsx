@@ -6,6 +6,7 @@ import { useNavigate } from 'react-router-dom';
 import { clearLrrApiCache, lrrApi } from '../api/lrrApi';
 import LRRFiltersPanel from '../components/lrr/LRRFilters';
 import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
+import { HelpTooltip } from '../components/shared/HelpTooltip';
 import { LoadingSpinner } from '../components/ui';
 import { ApiRequestError } from '../api/authApi';
 import type { LRRData, LRRFaultDetail, LRRFilters, LRRListResponse, LRRMaterialRank, LRRTrendPoint } from '../types';
@@ -148,41 +149,6 @@ function TrendTooltip({ active, payload, label }: { active?: boolean; payload?: 
       <div className="text-slate-600">故障总数 {formatCount(point.faultCount)}</div>
       <div className={rateText(point.lrrRate)}>LRR {point.lrrRate == null ? '-' : `${point.lrrRate}%`}</div>
     </div>
-  );
-}
-
-function QueryGuide() {
-  const metrics = [
-    ['月度 PN', '每个月、每个物料记一行'],
-    ['使用总数', '订单 BOM 发料数量'],
-    ['故障总数', '按生产订单和物料 PN 匹配维修'],
-    ['综合 LRR', '故障总数 / 使用总数'],
-  ];
-  const boards = [
-    ['月度趋势', '柱子是使用总数，折线是 LRR。故障按维修记录计划生产时间 GSTRS 归属月份。按查询结果的全部月份汇总，不按表格当前页截断。'],
-    ['故障物料', '同一物料各月故障数加总后，从高到低排列。点一行查看当前范围内的故障 SN。'],
-    ['物料明细', '一行对应一个月份的一个 PN。故障率低于 2% 为绿，2% 至 5% 为黄，达到 5% 为红。'],
-  ];
-  return (
-    <section className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
-      <div className="grid grid-cols-2 divide-x divide-y divide-slate-200 lg:grid-cols-4 lg:divide-y-0">
-        {metrics.map(([label, detail]) => (
-          <div key={label} className="px-4 py-3.5">
-            <div className="text-xs text-slate-500">{label}</div>
-            <p className="mt-1 text-sm leading-5 text-slate-700">{detail}</p>
-          </div>
-        ))}
-      </div>
-      <div className="grid divide-y divide-slate-200 border-t border-slate-200 lg:grid-cols-3 lg:divide-x lg:divide-y-0">
-        {boards.map(([title, detail]) => (
-          <div key={title} className="px-4 py-4 sm:px-5">
-            <h2 className="text-sm font-semibold text-slate-800">{title}</h2>
-            <p className="mt-1.5 text-xs leading-5 text-slate-500">{detail}</p>
-          </div>
-        ))}
-      </div>
-      <p className="border-t border-slate-200 px-4 py-3 text-xs leading-5 text-slate-500 sm:px-5">计划日期范围不超过 1 年。选定条件后点查询，或使用本月、近2个月、近3个月、近一年。数量要等生产数据返回后才显示。</p>
-    </section>
   );
 }
 
@@ -396,8 +362,12 @@ export default function LRRPage() {
             <button type="button" onClick={() => navigate('/')} className="inline-flex size-9 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100" aria-label="返回首页"><ArrowLeft className="size-4" /></button>
             <div className="flex size-8 items-center justify-center rounded-md bg-cyan-600 text-white"><BellRing className="size-4" /></div>
             <div>
-              <h1 className="text-base font-semibold">LRR 物料故障率</h1>
-              <p className="hidden text-xs text-slate-500 sm:block">物料 PN 月度故障率</p>
+              <div className="flex items-center gap-1"><h1 className="text-base font-semibold">LRR 物料故障率</h1><HelpTooltip label="查看 LRR 统计说明">
+                <p>月度 PN 按每月、每个物料计一行。使用总数为订单 BOM 发料数量；故障总数按生产订单和物料 PN 匹配维修记录。</p>
+                <p className="mt-1">使用总数 = BWART 261 的 MENGE_A 合计 - BWART 262 的 MENGE_A 合计；BWART 601、602、Z35、Z37 不参与。LRR = 故障总数 ÷ 使用总数 × 100%。</p>
+                <p className="mt-1">趋势柱表示使用总数，折线表示 LRR。故障按维修记录计划生产时间 GSTRS 归属月份，趋势汇总查询结果的全部月份。故障物料按各月故障数总和排序；点击物料可查看当前范围故障 SN。</p>
+                <p className="mt-1">物料明细一行对应一个月份和 PN；故障率低于 2% 为绿，2% 至 5% 为黄，达到 5% 为红。日期范围最多 1 年。</p>
+              </HelpTooltip></div>
             </div>
           </div>
           <div className="flex items-center gap-2">
@@ -414,19 +384,11 @@ export default function LRRPage() {
           {error && <ErrorBanner error={error} onRetry={() => void load(page, filters)} />}
           {exportError && <ErrorBanner error={exportError} onRetry={() => void handleExport()} />}
         </section>
-        <section className="border-l-4 border-cyan-500 bg-cyan-50 px-4 py-3 text-xs leading-5 text-slate-600 sm:px-5">
-          <span className="font-semibold text-slate-800">计算规则：</span>
-          使用总数 = BWART 为 261 的 MENGE_A 合计 - BWART 为 262 的 MENGE_A 合计；
-          BWART 为 601、602、Z35、Z37 的记录不参与计算。LRR = 故障总数 ÷ 使用总数 × 100%。
-        </section>
-
         {loading && !response && (
           <section className="flex min-h-36 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white text-sm text-slate-500 shadow-sm">
             <LoadingSpinner size="sm" />正在计算所选范围的物料 LRR...
           </section>
         )}
-
-        {!loading && !response && <QueryGuide />}
 
         {showDashboard && (
           <>
@@ -440,9 +402,8 @@ export default function LRRPage() {
                 const text = value == null ? (loading ? '…' : '-') : isRate ? `${value}%` : formatCount(value);
                 return (
                   <div key={label} className="px-4 py-3.5">
-                    <div className="text-xs text-slate-500">{label}</div>
+                    <div className="flex items-center gap-1 text-xs text-slate-500"><span>{label}</span><HelpTooltip label={`查看${label}说明`}>{description}</HelpTooltip></div>
                     <div className={`mt-1 truncate font-mono text-xl font-semibold ${isRate ? rateText(typeof value === 'number' ? value : null) : 'text-slate-900'}`}>{text}</div>
-                    <div className="mt-1 truncate text-[11px] text-slate-400" title={description}>{description}</div>
                   </div>
                 );
               })}
@@ -590,7 +551,7 @@ export default function LRRPage() {
         <div className="pointer-events-none fixed inset-x-0 bottom-0 z-40 flex justify-center px-4 pb-4" role="status" aria-live="polite">
           <div className="pointer-events-auto inline-flex items-center gap-2 rounded-md border border-cyan-200 bg-white px-4 py-2.5 text-sm font-medium text-cyan-800 shadow-lg shadow-slate-900/10">
             <LoadingSpinner size="sm" className="border-cyan-600 motion-reduce:animate-none" />
-            <span>数据加载中。目前正在加载数据...</span>
+            <span>数据加载中</span>
             <button type="button" onClick={cancelQuery} className="ml-1 inline-flex size-7 items-center justify-center rounded-sm text-slate-500 hover:bg-slate-100 hover:text-slate-800" title="取消查询" aria-label="取消查询">
               <X className="size-4" />
             </button>

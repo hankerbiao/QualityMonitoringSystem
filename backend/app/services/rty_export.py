@@ -148,6 +148,7 @@ async def _load_orders(
     product_models: list[str] | None = None,
     bases: list[str] | None = None,
     customers: list[str] | None = None,
+    include_all_orders: bool = False,
 ) -> list[dict[str, Any]]:
     if current_base_permissions() == ():
         return []
@@ -199,7 +200,7 @@ async def _load_orders(
                 normalized["aufnr"]
                 and base_allowed(data.get("LGORT") or normalized["data"].get("LGORT"))
                 and start <= planned_date <= end
-                and rty_gateway._eligible(normalized, filters.get("orderScope", "normal"))
+                and (include_all_orders or rty_gateway._eligible(normalized, filters.get("orderScope", "normal")))
                 and (selected_models is None or data.get("MAKTX_TH") in selected_models)
                 and (selected_bases is None or data.get("LGORT") in selected_bases)
                 and (selected_customers is None or customer_matches(data.get("KID")))

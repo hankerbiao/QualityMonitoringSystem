@@ -83,7 +83,11 @@ describe('DoaPage', () => {
     expect(await screen.findByText('SO-404')).toBeTruthy();
     expect(screen.getByText(/未匹配销售订单/)).toBeTruthy();
     expect(screen.getByRole('button', { name: '导出核对数据' })).toBeTruthy();
-    expect(screen.getByText(/订单数量代替出货数量/)).toBeTruthy();
+    const periodHelp = screen.getByRole('button', { name: '查看周期明细说明' });
+    expect(screen.queryByText(/订单数量代替出货数量/)).toBeNull();
+    fireEvent.focus(periodHelp);
+    expect(screen.getByRole('tooltip').textContent).toContain('订单数量代替出货数量');
+    fireEvent.blur(periodHelp);
     fireEvent.click(screen.getByRole('button', { name: '导出未匹配订单' }));
     expect(XLSX.utils.json_to_sheet).toHaveBeenCalledWith([{ 销售订单: 'SO-404', 申报条数: 1083 }]);
     expect(XLSX.utils.book_append_sheet).toHaveBeenCalledWith(expect.anything(), expect.anything(), '未匹配销售订单');

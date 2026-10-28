@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
   ChevronDown,
-  CircleHelp,
   Download,
   Factory,
   FileSearch,
@@ -18,6 +17,7 @@ import * as XLSX from 'xlsx';
 import { rtyApi } from '../api/rtyApi';
 import type { StationGroupBy, StationPassDetail, StationPassQuery, StationPassRate } from '../types';
 import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
+import { HelpTooltip } from '../components/shared/HelpTooltip';
 import { DateRangePicker } from '../components/shared/DateRangePicker';
 import { customerIdLabel, NO_CUSTOMER_ID } from '../utils/customerId';
 import { StationPassFindings, StationQueryLaunch } from '../components/station/StationPassWorkspace';
@@ -83,7 +83,7 @@ const STATION_DESCRIPTIONS: Record<string, string> = {
 };
 const STATION_CODES = Object.keys(STATION_DESCRIPTIONS);
 
-function stationDescription(stationCode: string, _fallback = ''): string {
+function stationDescription(stationCode: string): string {
   return STATION_DESCRIPTIONS[stationCode] ?? '';
 }
 
@@ -252,53 +252,6 @@ function rateTone(rate: number) {
   return 'bg-red-50 text-red-800 hover:bg-red-100 focus-visible:ring-red-500';
 }
 
-function CalculationHelpDialog({ onClose }: { onClose: () => void }) {
-  return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-900/40 p-4" onClick={onClose}>
-      <section role="dialog" aria-modal="true" aria-labelledby="calculation-help-title" className="w-full max-w-2xl overflow-hidden rounded-md border border-slate-200 bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-          <div className="flex items-center gap-2"><CircleHelp className="size-4 text-cyan-700" /><h2 id="calculation-help-title" className="text-sm font-semibold text-slate-900">工位直通率计算口径</h2></div>
-          <button type="button" onClick={onClose} className="inline-flex size-8 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100 hover:text-slate-800" title="关闭" aria-label="关闭说明"><X className="size-4" /></button>
-        </div>
-        <div className="max-h-[75vh] space-y-4 overflow-y-auto px-5 py-4 text-sm leading-6 text-slate-600">
-          <section>
-            <h3 className="font-semibold text-slate-800">单工站直通率</h3>
-            <p>分母 = 该工站时间范围内过站的唯一机器 SN；维修扣减 = 匹配同一工站的唯一维修 SN；分子 = 分母 - 维修扣减，最低按 0 计。</p>
-            <p className="mt-1">直通率 = 分子 ÷ 分母 × 100%。</p>
-          </section>
-          <section>
-            <h3 className="mb-2 font-semibold text-slate-800">字段对照</h3>
-            <div className="overflow-hidden rounded-md border border-slate-200">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 text-slate-600"><tr><th className="border-b border-slate-200 px-3 py-2">用途</th><th className="border-b border-slate-200 px-3 py-2">数据字段</th><th className="border-b border-slate-200 px-3 py-2">中文含义</th></tr></thead>
-                <tbody className="divide-y divide-slate-100">
-                  <tr><td className="px-3 py-2">过站 SN / 分母</td><td className="px-3 py-2 font-mono text-slate-800">station_records_sap.PCODE</td><td className="px-3 py-2">机器序列号，按 SN 去重</td></tr>
-                  <tr><td className="px-3 py-2">过站日期筛选</td><td className="px-3 py-2 font-mono text-slate-800">station_records_sap.GSTRS</td><td className="px-3 py-2">计划开始时间</td></tr>
-                  <tr><td className="px-3 py-2">工站匹配</td><td className="px-3 py-2 font-mono text-slate-800">station_records_sap.SPEC / OPERATION</td><td className="px-3 py-2">过站工站编码</td></tr>
-                  <tr><td className="px-3 py-2">维修 SN / 扣减</td><td className="px-3 py-2 font-mono text-slate-800">repair_records_sap.PCODE</td><td className="px-3 py-2">维修记录对应的机器序列号，按 SN 去重</td></tr>
-                  <tr><td className="px-3 py-2">维修记录日期筛选</td><td className="px-3 py-2 font-mono text-slate-800">repair_records_sap.GSTRS</td><td className="px-3 py-2">计划开始时间，当前统计使用该字段</td></tr>
-                  <tr><td className="px-3 py-2">维修工站匹配</td><td className="px-3 py-2 font-mono text-slate-800">repair_records_sap.ZNGGZ</td><td className="px-3 py-2">维修不良工站</td></tr>
-                </tbody>
-              </table>
-            </div>
-          </section>
-          <section>
-            <h3 className="font-semibold text-slate-800">RTY 汇总列</h3>
-            <p>RTY 汇总列以当前维度所有工站的过站 SN 去重数为分母，同一 SN 在多个工站过站只计一次；订单计划开始日期使用 <span className="font-mono text-slate-800">GSTRS</span>。</p>
-            <p className="mt-1">订单范围筛选对两侧一致：普通订单排除 <span className="font-mono text-slate-800">IF_L6 = X</span> 的 L6 订单；选择 L6 订单时只统计 <span className="font-mono text-slate-800">IF_L6 = X</span>。工位过站记录按生产订单号关联到已筛选的订单，避免过站数据缺少 L6 标记时把另一范围的 SN 混入分母。</p>
-            <p className="mt-1">故障数为所选订单关联的全部故障 SN 去重数量，不限制维修日期或维修年份，与 RTY 页周期统计保持一致。</p>
-            <p className="mt-1">故障数按 RTY 页相同的月份、机型和工厂地点分组后汇总；由于统计范围不同，故障数可能大于过站 SN 数。RTY 页仍以订单产量为分母。</p>
-          </section>
-          <section>
-            <h3 className="font-semibold text-slate-800">组合工站直通率</h3>
-            <p>将已选择工站的单站直通率转为小数后相乘，再转回百分比。它表示选定工站组合表现，不是 RTY 汇总值。</p>
-          </section>
-        </div>
-      </section>
-    </div>
-  );
-}
-
 export default function StationPassRatePage() {
   const navigate = useNavigate();
   const { settings, updateSettings } = useSettings();
@@ -323,7 +276,6 @@ export default function StationPassRatePage() {
   const [selectedStations, setSelectedStations] = useState<string[]>([]);
   const [onlyAvailableStations, setOnlyAvailableStations] = useState(true);
   const [stationConfigOpen, setStationConfigOpen] = useState(false);
-  const [calculationHelpOpen, setCalculationHelpOpen] = useState(false);
   const [stationConfigSaving, setStationConfigSaving] = useState(false);
   const [stationConfigError, setStationConfigError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -707,15 +659,6 @@ export default function StationPassRatePage() {
     return () => document.removeEventListener('keydown', onKeyDown);
   }, [stationConfigOpen]);
 
-  useEffect(() => {
-    if (!calculationHelpOpen) return;
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setCalculationHelpOpen(false);
-    };
-    document.addEventListener('keydown', closeOnEscape);
-    return () => document.removeEventListener('keydown', closeOnEscape);
-  }, [calculationHelpOpen]);
-
   return (
     <div className="station-pass-rate-page min-h-screen bg-[#f6f8fb] text-slate-800">
       <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 px-4 backdrop-blur">
@@ -723,7 +666,14 @@ export default function StationPassRatePage() {
           <div className="flex min-w-0 items-center gap-2.5">
             <button type="button" onClick={() => navigate('/')} className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600" title="返回首页" aria-label="返回首页"><ArrowLeft className="size-4" /></button>
             <div className="flex size-8 shrink-0 items-center justify-center rounded-md bg-cyan-600 text-white"><Factory className="size-4" /></div>
-            <div className="flex min-w-0 items-center gap-1.5"><div className="min-w-0"><h1 className="truncate text-base font-semibold text-slate-900">工位过站直通率</h1><p className="hidden text-xs text-slate-500 sm:block">过站记录与维修工位匹配分析</p></div><button type="button" onClick={() => setCalculationHelpOpen(true)} className="inline-flex size-7 shrink-0 items-center justify-center rounded-full text-slate-400 transition-colors hover:bg-cyan-50 hover:text-cyan-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600" title="查看计算口径" aria-label="查看工位直通率计算口径"><CircleHelp className="size-4" /></button></div>
+            <div className="flex min-w-0 items-center gap-1.5">
+              <h1 className="truncate text-base font-semibold text-slate-900">工位过站直通率</h1>
+              <HelpTooltip label="查看工位直通率计算口径">
+                <p>单工站直通率 =（时间范围内过站唯一 SN - 匹配该工站的维修唯一 SN）÷ 过站唯一 SN × 100%，分子最低按 0 计。过站日期和维修记录日期均使用计划开始时间 GSTRS，工站通过过站记录 SPEC / OPERATION 与维修记录 ZNGGZ 匹配。</p>
+                <p className="mt-1">RTY 汇总列按当前维度所有工站的过站 SN 去重，并使用订单计划开始日期 GSTRS。普通订单排除 IF_L6 = X 的订单，L6 范围只统计 IF_L6 = X；过站记录按已筛选订单关联。维修 SN 不限制维修日期，按订单月份、机型和工厂地点分组。</p>
+                <p className="mt-1">组合工站直通率是所选单站直通率相乘，不是 RTY 汇总值。RTY 仍以订单产量为分母。</p>
+              </HelpTooltip>
+            </div>
           </div>
           <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
             <DashboardSwitcher />
@@ -813,7 +763,7 @@ export default function StationPassRatePage() {
 
           {(loading || error || hasSearched) && <div className="overflow-auto">
             <table className="w-full min-w-max border-separate border-spacing-0 text-left">
-          <thead className="text-xs font-semibold text-slate-600"><tr><th className="sticky left-0 top-0 z-20 min-w-52 border-b border-r border-slate-200 bg-slate-50 px-4 py-3 text-left shadow-[1px_0_0_0_rgb(226_232_240)]">{dimensionLabel}</th><th className="sticky left-52 top-0 z-20 min-w-30 border-b border-r border-slate-200 bg-slate-100 px-3 py-3 text-center shadow-[1px_0_0_0_rgb(226_232_240)]">RTY直通率</th><th className="sticky left-[20.5rem] top-0 z-20 min-w-32 border-b border-r border-slate-200 bg-cyan-50 px-3 py-3 text-center"><span className="inline-flex items-center justify-center gap-1">组合工站直通率<button type="button" onClick={() => setCalculationHelpOpen(true)} className="inline-flex size-5 items-center justify-center rounded-full text-cyan-700 transition-colors hover:bg-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600" title="查看组合工站直通率计算方法" aria-label="查看组合工站直通率计算方法"><CircleHelp className="size-3.5" /></button></span></th>{matrix.stations.map((station) => { const sourceName = rows.find((row) => row.stationCode === station)?.stationName; const description = stationDescription(station, sourceName !== station ? sourceName : ''); return <th key={station} className="sticky top-0 z-10 min-w-32 border-b border-r border-slate-200 bg-slate-50 px-3 py-3 text-center font-mono" title={description}><span className="block text-slate-700">{station}</span><span className="mt-0.5 block max-w-28 truncate font-sans text-[10px] font-medium text-slate-400">{description}</span></th>; })}</tr></thead>
+          <thead className="text-xs font-semibold text-slate-600"><tr><th className="sticky left-0 top-0 z-20 min-w-52 border-b border-r border-slate-200 bg-slate-50 px-4 py-3 text-left shadow-[1px_0_0_0_rgb(226_232_240)]">{dimensionLabel}</th><th className="sticky left-52 top-0 z-20 min-w-30 border-b border-r border-slate-200 bg-slate-100 px-3 py-3 text-center shadow-[1px_0_0_0_rgb(226_232_240)]">RTY直通率</th><th className="sticky left-[20.5rem] top-0 z-20 min-w-32 border-b border-r border-slate-200 bg-cyan-50 px-3 py-3 text-center"><span className="inline-flex items-center justify-center gap-1">组合工站直通率<HelpTooltip label="查看组合工站直通率计算方法">将选中工站的单站直通率转为小数后相乘，再转回百分比。只反映已选工站组合表现，不是 RTY 汇总值。</HelpTooltip></span></th>{matrix.stations.map((station) => { const description = stationDescription(station); return <th key={station} className="sticky top-0 z-10 min-w-32 border-b border-r border-slate-200 bg-slate-50 px-3 py-3 text-center font-mono"><span className="inline-flex items-center justify-center gap-1 text-slate-700">{station}{description && <HelpTooltip label={`查看工位 ${station} 说明`}>{description}</HelpTooltip>}</span></th>; })}</tr></thead>
               <tbody className="text-xs">
                 {loading ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-slate-500"><span className="inline-flex items-center gap-2"><RefreshCw className="size-4 animate-spin text-cyan-600" />正在计算工位过站量与维修记录匹配关系... {formatDuration(loadingElapsedMs)}</span></td></tr> : error ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-red-600">{error}</td></tr> : matrix.rows.length === 0 ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-slate-500">当前条件下暂无工位过站数据</td></tr> : tableRows.length === 0 ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-slate-500">没有落在该区间的记录</td></tr> : tableRows.map((row) => { const combinedRate = combinedStationPassRate(row.stationRows, selectedStations, onlyAvailableStations); return <tr key={row.dimensionValue} className="group"><th className="sticky left-0 z-10 max-w-52 truncate border-b border-r border-slate-200 bg-white px-4 py-3.5 text-left font-mono font-semibold text-slate-800 shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-slate-50" title={row.dimensionValue}>{row.dimensionValue}</th><td className="sticky left-52 z-10 border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-center shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-slate-100/70"><div className="font-mono text-sm font-semibold text-slate-800">{formatRate(row.total.inputCount, row.total.defectCount)}</div><div className="mt-0.5 font-mono text-[11px] text-slate-500">{row.total.defectCount}/{row.total.inputCount}</div></td><td className="sticky left-[20.5rem] z-10 border-b border-r border-slate-200 bg-cyan-50 px-3 py-2 text-center shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-cyan-100/70"><div className="font-mono text-sm font-semibold text-cyan-900">{combinedRate === null ? '-' : `${combinedRate.toFixed(2)}%`}</div><div className="mt-0.5 text-[11px] text-cyan-700">{selectedStations.length ? `${selectedStations.length} 个工站` : '未选择工站'}</div></td>{matrix.stations.map((station) => { const rate = row.stationRows.get(station); return !rate ? <td key={station} className="border-b border-r border-slate-100 bg-slate-50/40 px-3 py-2 text-center text-slate-300">-</td> : <td key={station} className="border-b border-r border-slate-100 p-1.5 text-center"><button type="button" onClick={() => void openDetail(rate)} className={`flex min-h-13 w-full flex-col items-center justify-center rounded-sm px-2 py-1.5 font-mono transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${rateTone(rate.passRate)}`} title={`过站量 ${rate.inputCount}，维修记录 ${rate.defectCount} 条；点击查看明细`}><span className="text-sm font-semibold">{rate.passRate.toFixed(2)}%</span><span className="mt-0.5 text-[11px] font-medium opacity-75">{rate.defectCount}/{rate.inputCount}</span></button></td>; })}</tr>; })}
               </tbody>
@@ -822,9 +772,8 @@ export default function StationPassRatePage() {
         </section>
       </main>
 
-      {calculationHelpOpen && <CalculationHelpDialog onClose={() => setCalculationHelpOpen(false)} />}
 
-      {stationConfigOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={closeStationConfig}><div role="dialog" aria-modal="true" aria-labelledby="station-config-title" className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-md bg-white shadow-xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-slate-200 px-5 py-4"><div><h2 id="station-config-title" className="text-sm font-semibold text-slate-900">配置组合工站</h2><p className="mt-0.5 text-xs text-slate-500">已选择的工站用于计算工站直通率，完成后会长期保存</p></div><button type="button" onClick={closeStationConfig} disabled={stationConfigSaving} aria-label="关闭" title="关闭" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-40"><X className="size-4" /></button></div><div className="flex items-center justify-between border-b border-slate-100 px-5 py-3"><span className="text-xs text-slate-500">已选 {selectedStations.length} / {STATION_CODES.length} 个</span><div className="flex items-center gap-3"><button type="button" onClick={() => setSelectedStations(STATION_CODES)} disabled={stationConfigSaving} className="text-xs font-medium text-cyan-700 hover:text-cyan-800 disabled:opacity-40">全选</button><button type="button" onClick={() => setSelectedStations([])} disabled={!selectedStations.length || stationConfigSaving} className="text-xs font-medium text-slate-500 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40">清空</button></div></div><div className="grid grid-cols-2 gap-x-6 gap-y-2 overflow-y-auto px-5 py-4 sm:grid-cols-3">{STATION_CODES.map((station) => <label key={station} className="inline-flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={selectedStations.includes(station)} disabled={stationConfigSaving} onChange={() => toggleStation(station)} className="size-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" /><span className="font-mono">{station}</span></label>)}</div><div className="flex items-center justify-between border-t border-slate-100 px-5 py-3">{stationConfigError ? <span className="text-xs text-red-600">{stationConfigError}</span> : <span className="text-xs text-slate-400">当前选择将在后续查询中自动恢复</span>}<button type="button" onClick={() => void saveStationConfig()} disabled={stationConfigSaving} className="inline-flex h-9 items-center rounded-md bg-cyan-600 px-4 text-sm font-medium text-white hover:bg-cyan-700 disabled:cursor-wait disabled:opacity-60">{stationConfigSaving ? '保存中...' : '完成'}</button></div></div></div>}
+      {stationConfigOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={closeStationConfig}><div role="dialog" aria-modal="true" aria-labelledby="station-config-title" className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-md bg-white shadow-xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-slate-200 px-5 py-4"><div className="flex items-center gap-1"><h2 id="station-config-title" className="text-sm font-semibold text-slate-900">配置组合工站</h2><HelpTooltip label="查看组合工站说明">当前选择的工站用于计算工站直通率，并会保存供后续查询使用。</HelpTooltip></div><button type="button" onClick={closeStationConfig} disabled={stationConfigSaving} aria-label="关闭" title="关闭" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-40"><X className="size-4" /></button></div><div className="flex items-center justify-between border-b border-slate-100 px-5 py-3"><span className="text-xs text-slate-500">已选 {selectedStations.length} / {STATION_CODES.length} 个</span><div className="flex items-center gap-3"><button type="button" onClick={() => setSelectedStations(STATION_CODES)} disabled={stationConfigSaving} className="text-xs font-medium text-cyan-700 hover:text-cyan-800 disabled:opacity-40">全选</button><button type="button" onClick={() => setSelectedStations([])} disabled={!selectedStations.length || stationConfigSaving} className="text-xs font-medium text-slate-500 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40">清空</button></div></div><div className="grid grid-cols-2 gap-x-6 gap-y-2 overflow-y-auto px-5 py-4 sm:grid-cols-3">{STATION_CODES.map((station) => <label key={station} className="inline-flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={selectedStations.includes(station)} disabled={stationConfigSaving} onChange={() => toggleStation(station)} className="size-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" /><span className="font-mono">{station}</span></label>)}</div><div className="flex items-center justify-between border-t border-slate-100 px-5 py-3">{stationConfigError ? <span className="text-xs text-red-600">{stationConfigError}</span> : <span className="text-xs text-slate-400">当前选择将在后续查询中自动恢复</span>}<button type="button" onClick={() => void saveStationConfig()} disabled={stationConfigSaving} className="inline-flex h-9 items-center rounded-md bg-cyan-600 px-4 text-sm font-medium text-white hover:bg-cyan-700 disabled:cursor-wait disabled:opacity-60">{stationConfigSaving ? '保存中...' : '完成'}</button></div></div></div>}
 
       {detail && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={closeDetail}>

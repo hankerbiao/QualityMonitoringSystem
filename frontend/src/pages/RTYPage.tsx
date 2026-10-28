@@ -11,6 +11,7 @@ import { ExcludedOrdersModal, FilterPanel } from '../components/rty';
 import { buildTemplateWorkbook } from '../components/rty/templateExport';
 import { SortIcon } from '../components/shared/SortIcon';
 import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
+import { HelpTooltip } from '../components/shared/HelpTooltip';
 import { recentDateRange } from '../utils/dateRange';
 
 const DEFAULT_FILTERS: RTYFilterParams = {
@@ -199,7 +200,9 @@ export default function RTYPage() {
             <ArrowLeft className="w-4 h-4" />
           </button>
           <h1 className="truncate text-base font-semibold text-slate-800 sm:text-lg"><span className="hidden lg:inline">QualiBoard 品质看板 — </span>RTY 整机综合直通率</h1>
-          <span className="hidden shrink-0 rounded-sm border border-emerald-200 bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700 xl:inline-flex">2026 · 销售订单 WMENG 入库数量</span>
+          <HelpTooltip label="查看 RTY 指标口径" align="end">
+            2026 年 RTY 使用销售订单 WMENG 入库数量作为分母；订单状态 DLID、RELEASED 及订单类型 C001 已排除，L6 订单单独统计。
+          </HelpTooltip>
         </div>
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
           <DashboardSwitcher />
@@ -208,12 +211,6 @@ export default function RTYPage() {
       </header>
 
       <main className="flex-1 flex flex-col p-4 max-w-[1800px] mx-auto w-full overflow-auto">
-        <section className="mb-4 flex flex-wrap items-center justify-between gap-3 border border-slate-200 bg-white px-4 py-3 shadow-sm">
-          <p className="text-xs text-slate-600">
-            RTY 统计已排除订单状态 DLID、RELEASED 及订单类型 C001；L6 订单单独统计，不与普通订单合并。
-          </p>
-        </section>
-
         <AlertConfigModal
           embedded
           modelTargets={modelTargets}

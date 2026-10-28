@@ -7,6 +7,21 @@ from app.services import lrr_gateway
 from app.services.data_gateway_client import DataGatewayClient, DataGatewayError
 
 
+@pytest.mark.asyncio
+async def test_load_bom_splits_timed_out_gateway_window_without_losing_rows(monkeypatch):
+    async def all_bom_rows(**filters):
+        start, end = filters["dateFrom"], filters["dateTo"]
+        if start != end:
+            raise DataGatewayError("timeout", code="DATA_GATEWAY_TIMEOUT", retryable=True)
+        return [{"id": start, "AUFNR_1": start, "MATNR": "PN", "GSTRS": start}]
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
+
+    rows = await lrr_gateway.load_bom(planned_date_from="2026-01-01", planned_date_to="2026-01-03")
+
+    assert sorted(row["GSTRS"] for row in rows) == ["2026-01-01", "2026-01-02", "2026-01-03"]
+
+
 def test_lrr_normalizers_ignore_non_sap_alias_fields():
     bom = lrr_gateway.normalize_bom(
         {

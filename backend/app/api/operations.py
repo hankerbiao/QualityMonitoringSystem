@@ -9,7 +9,7 @@ from app.api.auth import get_current_user, require_admin
 from app.db.mongodb import get_database
 from app.services.operations_service import build_operations_dashboard, record_page_view
 
-router = APIRouter(dependencies=[Depends(require_admin)])
+router = APIRouter()
 
 
 class UsageEventRequest(BaseModel):
@@ -28,7 +28,9 @@ async def create_usage_event(
 
 @router.get("/dashboard")
 async def get_operations_dashboard(
-    _: Annotated[dict, Depends(get_current_user)],
+    _: Annotated[dict, Depends(require_admin)],
     days: Annotated[int, Query(ge=7, le=90)] = 30,
+    activity_page: Annotated[int, Query(alias="activityPage", ge=1)] = 1,
+    activity_page_size: Annotated[int, Query(alias="activityPageSize", ge=1, le=100)] = 20,
 ):
-    return await build_operations_dashboard(get_database(), days)
+    return await build_operations_dashboard(get_database(), days, activity_page, activity_page_size)

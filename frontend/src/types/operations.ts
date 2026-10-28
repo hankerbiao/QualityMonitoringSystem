@@ -71,4 +71,5 @@ export interface OperationsDashboard {
   };
   syncDataSources: OperationsSyncDataSource[];
   recentActivity: OperationsActivityItem[];
+  activityTotal: number;
 }

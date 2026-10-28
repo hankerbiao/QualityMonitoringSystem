@@ -12,6 +12,7 @@ const Home = lazy(() => import('./pages/Home'));
 const RTYPage = lazy(() => import('./pages/RTYPage'));
 const StationPassRatePage = lazy(() => import('./pages/StationPassRatePage'));
 const RepairQualityPage = lazy(() => import('./pages/RepairQualityPage'));
+const ReinsertRatePage = lazy(() => import('./pages/ReinsertRatePage'));
 const LRRPage = lazy(() => import('./pages/LRRPage'));
 const ProcessRecordsPage = lazy(() => import('./pages/ProcessRecordsPage'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
@@ -130,6 +131,7 @@ function AppContent() {
         <Route path="/rty" element={<DashboardAccess permission="rty"><DashboardStatusAccess dashboardId="rty"><RTYPage /></DashboardStatusAccess></DashboardAccess>} />
         <Route path="/station-pass-rate" element={<DashboardAccess permission="station-pass-rate"><DashboardStatusAccess dashboardId="station-pass-rate"><StationPassRatePage /></DashboardStatusAccess></DashboardAccess>} />
         <Route path="/repair-quality" element={<DashboardAccess permission="repair-quality"><DashboardStatusAccess dashboardId="repair-quality"><RepairQualityPage /></DashboardStatusAccess></DashboardAccess>} />
+        <Route path="/reinsert-rate" element={<DashboardAccess permission="reinsert-rate"><DashboardStatusAccess dashboardId="reinsert-rate"><ReinsertRatePage /></DashboardStatusAccess></DashboardAccess>} />
         <Route path="/lrr" element={<DashboardAccess permission="lrr"><DashboardStatusAccess dashboardId="lrr"><LRRPage /></DashboardStatusAccess></DashboardAccess>} />
           <Route path="/process-records" element={<DashboardAccess permission="process-records"><ProcessRecordsPage /></DashboardAccess>} />
           <Route path="/operations" element={<DashboardAccess permission="admin"><OperationsPage /></DashboardAccess>} />

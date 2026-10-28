@@ -36,6 +36,7 @@ class TestGetAllSettings:
             "rty": "available",
             "station-pass-rate": "available",
             "repair-quality": "admin-only",
+            "reinsert-rate": "admin-only",
             "lrr": "available",
             "doa": "available",
             "mfr": "admin-only",

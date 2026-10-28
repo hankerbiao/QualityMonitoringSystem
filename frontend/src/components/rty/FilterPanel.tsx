@@ -3,6 +3,7 @@ import { BarChart3, CalendarDays, ChevronDown, Download, RotateCcw, Search, X } 
 import { rtyApi } from '../../api/rtyApi';
 import type { RTYFilterParams } from '../../types';
 import { MonthQuickPicker } from '../shared/MonthQuickPicker';
+import { HelpTooltip } from '../shared/HelpTooltip';
 import { customerIdLabel, NO_CUSTOMER_ID } from '../../utils/customerId';
 
 const COMPOSITE_MODELS = new Set(['6210 C21 BOX', '6215 C32']);
@@ -90,7 +91,6 @@ function DateRangePicker({ value, onChange }: { value: DateRange; onChange: (ran
           <div className="flex items-start justify-between border-b border-slate-100 bg-slate-50 px-3 py-2.5">
             <div>
               <p className="text-xs font-semibold text-slate-700">时间范围</p>
-              <p className="mt-0.5 text-[11px] text-slate-500">销售订单计划开始日期</p>
             </div>
             <button type="button" onClick={() => setOpen(false)} className="-mr-1 -mt-1 inline-flex size-7 items-center justify-center rounded text-slate-400 hover:bg-slate-200 hover:text-slate-700" aria-label="关闭时间范围选择" title="关闭">
               <X className="size-3.5" />
@@ -233,21 +233,15 @@ export function FilterPanel({
   return (
     <div className="flex-shrink-0 bg-white p-3 rounded-md border border-slate-200 shadow-sm mb-4">
       <div className="flex flex-col gap-3">
-        <p className="text-[11px] text-slate-500">
-          统计范围已排除订单状态 DLID、RELEASED 及订单类型 C001；L6 订单按范围单独统计。
-        </p>
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex-1 min-w-[200px] max-w-xs">
-            <label className="block text-[11px] font-semibold text-slate-500 uppercase tracking-wider mb-1.5">
-              时间范围
-              <button
-                type="button"
-                className="ml-1 text-slate-400 hover:text-slate-600 cursor-help"
-                title="销售订单计划开始日期（GSTRS），仅支持 2026 年"
-              >
-                ?
-              </button>
-            </label>
+            <div className="mb-1.5 flex items-center gap-1">
+              <label className="text-[11px] font-semibold uppercase tracking-wider text-slate-500">时间范围</label>
+              <HelpTooltip label="查看 RTY 时间与订单口径">
+                <p>按销售订单计划开始日期（GSTRS）筛选，仅支持 2026 年。</p>
+                <p className="mt-1">统计排除订单状态 DLID、RELEASED 及订单类型 C001；L6 订单按订单范围单独统计。</p>
+              </HelpTooltip>
+            </div>
             <DateRangePicker value={filters.dateRange} onChange={(dateRange) => update({ dateRange })} />
           </div>
 

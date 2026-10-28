@@ -10,6 +10,7 @@ ALL_DASHBOARD_PERMISSIONS: Final[tuple[str, ...]] = (
     "rty",
     "station-pass-rate",
     "repair-quality",
+    "reinsert-rate",
     "lrr",
     "process-records",
     "doa",
@@ -21,6 +22,7 @@ DASHBOARD_LABELS: Final[dict[str, str]] = {
     "rty": "RTY 整机直通率",
     "station-pass-rate": "工位过站直通率",
     "repair-quality": "维修通过率分析",
+    "reinsert-rate": "重插率分析",
     "lrr": "LRR 部件故障率",
     "process-records": "关键工位影像追溯",
     "doa": "DOA 报修率",
@@ -32,7 +34,7 @@ DASHBOARD_LABELS: Final[dict[str, str]] = {
 def normalize_dashboard_permissions(values: list[str] | tuple[str, ...] | None) -> list[str]:
     allowed = set(ALL_DASHBOARD_PERMISSIONS)
     if values is None:
-        return list(ALL_DASHBOARD_PERMISSIONS)
+        return [value for value in ALL_DASHBOARD_PERMISSIONS if value != "reinsert-rate"]
     normalized = []
     for value in values:
         if value in allowed and value not in normalized:

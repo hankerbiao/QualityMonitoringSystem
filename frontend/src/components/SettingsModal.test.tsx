@@ -81,6 +81,7 @@ describe('settings pages by role', () => {
         rty: 'available',
         'station-pass-rate': 'available',
         'repair-quality': 'admin-only',
+        'reinsert-rate': 'admin-only',
         lrr: 'available',
         doa: 'admin-only',
         mfr: 'admin-only',

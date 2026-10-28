@@ -11,6 +11,47 @@ class TestOperationsDashboard:
         response = await client.get("/api/operations/dashboard?days=30")
         assert response.status_code == 401
 
+    async def test_user_can_report_but_cannot_read_dashboard(self, client, db_clean, make_test_access_token):
+        await db_clean.users.insert_one(
+            {"username": "bob", "itcode": "bob", "role": "user", "isActive": True}
+        )
+        headers = {"Authorization": f"Bearer {make_test_access_token('bob')}"}
+        response = await client.post(
+            "/api/operations/events", headers=headers,
+            json={"event_type": "page_view", "path": "/mfr"},
+        )
+        assert response.status_code == 204
+        assert (await db_clean.usage_events.find_one({"itcode": "bob"}))["module"] == "mfr"
+        assert (await client.get("/api/operations/dashboard", headers=headers)).status_code == 403
+
+    async def test_historical_paths_and_paginated_activity(self, client, db_clean, make_test_access_token):
+        now = datetime.now(timezone.utc)
+        await db_clean.users.insert_one(
+            {"username": "alice", "itcode": "alice", "role": "admin", "isActive": True}
+        )
+        for path in ("/station-pass-rate", "/repair-quality", "/mfr", "/reinsert-rate"):
+            await db_clean.usage_events.insert_one({
+                "eventType": "page_view", "itcode": "alice", "module": "other",
+                "path": path, "timestamp": now,
+            })
+        await db_clean.usage_events.insert_one({
+            "eventType": "api_request", "itcode": "alice", "module": "rty",
+            "path": "/api/rty/repair-quality", "statusCode": 200, "timestamp": now,
+        })
+        headers = {"Authorization": f"Bearer {make_test_access_token('alice')}"}
+        response = await client.get(
+            "/api/operations/dashboard?days=30&activityPage=2&activityPageSize=2", headers=headers,
+        )
+        assert response.status_code == 200
+        data = response.json()
+        modules = {item["key"]: item for item in data["modules"]}
+        for key in ("station-pass-rate", "repair-quality", "mfr", "reinsert-rate"):
+            assert modules[key]["pageViews"] == 1
+        assert modules["repair-quality"]["apiRequests"] == 1
+        assert data["activityTotal"] == 4
+        assert len(data["recentActivity"]) == 2
+        assert all(item["module"] != "其他功能" for item in data["recentActivity"])
+
     async def test_tracks_and_aggregates_usage(self, client, db_clean, make_test_access_token):
         now = datetime.now(timezone.utc)
         token = make_test_access_token("alice")

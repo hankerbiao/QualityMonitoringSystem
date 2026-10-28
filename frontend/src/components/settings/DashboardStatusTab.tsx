@@ -15,6 +15,7 @@ const icons = {
   rty: Activity,
   'station-pass-rate': Factory,
   'repair-quality': Wrench,
+  'reinsert-rate': Wrench,
   lrr: AlertTriangle,
   doa: Wrench,
   mfr: BarChart3,

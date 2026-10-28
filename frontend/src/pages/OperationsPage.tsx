@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Activity,
@@ -6,6 +6,8 @@ import {
   ArrowLeft,
   ArrowUpRight,
   CircleGauge,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   Database,
   Eye,
@@ -31,6 +33,7 @@ import type {
   OperationsDays,
   OperationsSummary,
 } from '../types';
+import { HelpTooltip } from '../components/shared/HelpTooltip';
 
 const PERIODS: OperationsDays[] = [7, 30, 90];
 
@@ -86,7 +89,7 @@ function SummaryCell({
   return (
     <div className="min-w-0 px-5 py-4 lg:px-6">
       <div className="mb-3 flex items-center justify-between gap-3">
-        <span className="text-xs font-medium text-slate-500">{label}</span>
+        <span className="flex items-center gap-1 text-xs font-medium text-slate-500">{label}<HelpTooltip label={`查看${label}说明`}>{detail}</HelpTooltip></span>
         <span className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-md ${accent}`}>
           <Icon className="h-4 w-4" />
         </span>
@@ -94,7 +97,6 @@ function SummaryCell({
       <div className="flex items-end justify-between gap-3">
         <div className="min-w-0">
           <p className="text-2xl font-semibold text-slate-900">{value}</p>
-          <p className="mt-1 truncate text-xs text-slate-400">{detail}</p>
         </div>
         <ChangeIndicator value={change} />
       </div>
@@ -121,7 +123,7 @@ function ModuleRanking({ data }: { data: OperationsDashboard['modules'] }) {
     <section className="border-t border-slate-200 bg-white">
       <div className="border-b border-slate-100 px-5 py-4">
         <h2 className="text-sm font-semibold text-slate-800">功能使用排行</h2>
-        <p className="mt-1 text-xs text-slate-400">页面访问与业务接口调用的综合热度</p>
+        <HelpTooltip label="查看功能使用排行说明">综合页面访问次数与业务接口调用次数统计热度。</HelpTooltip>
       </div>
       <div className="divide-y divide-slate-100 px-5">
         {data.map((item, index) => {
@@ -204,7 +206,7 @@ function SyncDataSources({ items }: { items: OperationsDashboard['syncDataSource
       <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
         <div>
           <h2 className="text-sm font-semibold text-slate-800">同步数据源</h2>
-          <p className="mt-1 text-xs text-slate-400">已成功写入数据库的最近同步与数据时间</p>
+          <HelpTooltip label="查看同步数据源说明">展示已成功写入数据库的最近同步时间与数据时间。</HelpTooltip>
         </div>
         <Database className="h-4 w-4 text-slate-400" />
       </div>
@@ -237,13 +239,16 @@ function SyncDataSources({ items }: { items: OperationsDashboard['syncDataSource
   );
 }
 
-function RecentActivity({ items }: { items: OperationsDashboard['recentActivity'] }) {
+function RecentActivity({ items, total, page, loading, onPageChange }: {
+  items: OperationsDashboard['recentActivity']; total: number; page: number;
+  loading: boolean; onPageChange: (page: number) => void;
+}) {
   return (
     <section className="overflow-hidden rounded-md border border-slate-200 bg-white">
       <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
         <div>
           <h2 className="text-sm font-semibold text-slate-800">最近访问</h2>
-          <p className="mt-1 text-xs text-slate-400">最新登录与页面访问记录</p>
+          <div className="flex items-center gap-1"><span className="text-xs text-slate-400">共 {formatNumber(total)} 条</span><HelpTooltip label="查看最近访问说明">展示最新登录与页面访问记录。</HelpTooltip></div>
         </div>
         <Eye className="h-4 w-4 text-slate-400" />
       </div>
@@ -283,6 +288,13 @@ function RecentActivity({ items }: { items: OperationsDashboard['recentActivity'
           </table>
         </div>
       )}
+      {total > 0 && (
+        <div className="flex items-center justify-end gap-2 border-t border-slate-100 px-5 py-3 text-xs text-slate-500">
+          <span>第 {page} / {Math.max(1, Math.ceil(total / 20))} 页</span>
+          <button type="button" aria-label="上一页" title="上一页" disabled={loading || page <= 1} onClick={() => onPageChange(page - 1)} className="rounded p-1 hover:bg-slate-100 disabled:opacity-40"><ChevronLeft className="h-4 w-4" /></button>
+          <button type="button" aria-label="下一页" title="下一页" disabled={loading || page * 20 >= total} onClick={() => onPageChange(page + 1)} className="rounded p-1 hover:bg-slate-100 disabled:opacity-40"><ChevronRight className="h-4 w-4" /></button>
+        </div>
+      )}
     </section>
   );
 }
@@ -290,21 +302,25 @@ function RecentActivity({ items }: { items: OperationsDashboard['recentActivity'
 export default function OperationsPage() {
   const navigate = useNavigate();
   const [days, setDays] = useState<OperationsDays>(30);
+  const [page, setPage] = useState(1);
   const [data, setData] = useState<OperationsDashboard | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const requestId = useRef(0);
 
   const load = useCallback(async () => {
+    const id = ++requestId.current;
     setLoading(true);
     setError('');
     try {
-      setData(await operationsApi.getDashboard(days));
+      const result = await operationsApi.getDashboard(days, page);
+      if (id === requestId.current) setData(result);
     } catch (err) {
-      setError(err instanceof Error ? err.message : '运营数据加载失败');
+      if (id === requestId.current) setError(err instanceof Error ? err.message : '运营数据加载失败');
     } finally {
-      setLoading(false);
+      if (id === requestId.current) setLoading(false);
     }
-  }, [days]);
+  }, [days, page]);
 
   useEffect(() => {
     load();
@@ -334,13 +350,13 @@ export default function OperationsPage() {
             </span>
             <div className="min-w-0">
               <h1 className="truncate text-lg font-semibold text-slate-900">运营监控</h1>
-              <p className="truncate text-xs text-slate-400">QualiBoard 使用情况与服务运行状态</p>
+              <HelpTooltip label="查看运营监控说明">QualiBoard 使用情况与服务运行状态。</HelpTooltip>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <div className="flex h-9 items-center rounded-md border border-slate-200 bg-slate-50 p-1" aria-label="统计周期">
               {PERIODS.map((period) => (
-                <button key={period} onClick={() => setDays(period)} className={`h-7 px-3 text-xs font-medium transition-colors ${days === period ? 'rounded bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>
+                <button key={period} onClick={() => { setPage(1); setDays(period); }} className={`h-7 px-3 text-xs font-medium transition-colors ${days === period ? 'rounded bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-800'}`}>
                   {period} 天
                 </button>
               ))}
@@ -370,7 +386,7 @@ export default function OperationsPage() {
                   <div className="flex flex-col gap-3 border-b border-slate-100 px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                       <h2 className="text-sm font-semibold text-slate-800">使用趋势</h2>
-                      <p className="mt-1 text-xs text-slate-400">按日统计活跃用户与页面浏览量</p>
+                      <HelpTooltip label="查看使用趋势说明">按日统计活跃用户与页面浏览量。</HelpTooltip>
                     </div>
                     <div className="flex items-center gap-4 text-xs text-slate-500">
                       <span className="flex items-center gap-1.5"><span className="h-2 w-2 bg-blue-500" />页面浏览</span>
@@ -398,10 +414,10 @@ export default function OperationsPage() {
 
             <SyncDataSources items={data.syncDataSources} />
 
-            <RecentActivity items={data.recentActivity} />
+            <RecentActivity items={data.recentActivity} total={data.activityTotal} page={page} loading={loading} onPageChange={setPage} />
 
             <div className="flex flex-col gap-1 px-1 pb-2 text-[11px] text-slate-400 sm:flex-row sm:items-center sm:justify-between">
-              <span>页面访问与接口状态从运营监控功能上线后开始累计，原始事件保留 180 天。</span>
+              <HelpTooltip label="查看数据留存说明">页面访问与接口状态从运营监控功能上线后开始累计，原始事件保留 180 天。</HelpTooltip>
               <span>更新于 {formatTime(data.period.generatedAt)}</span>
             </div>
           </>

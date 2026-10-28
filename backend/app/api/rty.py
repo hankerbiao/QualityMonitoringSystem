@@ -21,7 +21,7 @@ from app.schemas.rty import (
     StationPassExport,
     StationPassRate,
 )
-from app.services import cycle_details, repair_quality, rty_export, rty_gateway
+from app.services import cycle_details, reinsert_rate, repair_quality, rty_export, rty_gateway
 from app.services.rty_shared import YEAR_END, YEAR_START, validate_date
 from app.services.settings_service import SettingsService
 
@@ -35,6 +35,58 @@ CalculationMethodQuery = Annotated[
 ]
 StationGroupBy = Literal["salesOrder", "productionOrder", "productModel"]
 StationGroupByQuery = Annotated[StationGroupBy, Query(description="统计维度")]
+
+
+async def require_reinsert_access(
+    user: Annotated[dict, Depends(dashboard_dependency("reinsert-rate"))],
+):
+    if user.get("role") != "admin":
+        statuses = await SettingsService(get_database()).get_dashboard_statuses()
+        if statuses["reinsert-rate"] == "admin-only":
+            raise HTTPException(status_code=403, detail="重插率分析仅管理员可见")
+    return user
+
+
+@router.get("/reinsert-rate/options", dependencies=[Depends(require_reinsert_access)])
+async def get_reinsert_options():
+    return Response(success=True, data=await repair_quality.options())
+
+
+@router.get("/reinsert-rate", dependencies=[Depends(require_reinsert_access)])
+async def get_reinsert_rate(
+    dateFrom: str, dateTo: str,
+    productModels: Annotated[list[str] | None, Query()] = None,
+    customers: Annotated[list[str] | None, Query()] = None,
+    bases: Annotated[list[str] | None, Query()] = None,
+):
+    orders, faults, usage, _ = await reinsert_rate.load_sources(
+        dateFrom, dateTo, productModels, customers, bases
+    )
+    return Response(success=True, data=reinsert_rate.aggregate(orders, faults, usage, dateFrom, dateTo))
+
+
+@router.get("/reinsert-rate/details", dependencies=[Depends(require_reinsert_access)])
+async def get_reinsert_details(
+    dateFrom: str, dateTo: str,
+    kind: Literal["reinsert", "repairs", "orders", "postings", "invalid"],
+    base: str = "", month: str = "", component: str = "", pn: str = "",
+    productModels: Annotated[list[str] | None, Query()] = None,
+    customers: Annotated[list[str] | None, Query()] = None,
+    bases: Annotated[list[str] | None, Query()] = None,
+    page: int = Query(1, ge=1), pageSize: int = Query(50, ge=1, le=200),
+):
+    if kind != "invalid" and (not base or month not in reinsert_rate._months(
+        validate_date(dateFrom), validate_date(dateTo)
+    )):
+        raise HTTPException(status_code=422, detail="请选择有效的基地和月份")
+    if kind == "postings" and (not component or not pn):
+        raise HTTPException(status_code=422, detail="发料明细需要部件和PN")
+    orders, faults, usage, postings = await reinsert_rate.load_sources(
+        dateFrom, dateTo, productModels, customers, bases
+    )
+    return Response(success=True, data=reinsert_rate.details(
+        orders, faults, usage, postings, base, month, component, pn, kind, page, pageSize
+    ))
 
 
 async def require_repair_quality_access(

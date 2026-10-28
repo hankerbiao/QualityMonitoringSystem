@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
-import { AlertCircle, ArrowLeft, CheckCircle2, CircleHelp, Download, RotateCcw, Search, Wrench } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Download, RotateCcw, Search, Wrench } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
 import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
+import { HelpTooltip } from '../components/shared/HelpTooltip';
 import { DateRangePicker } from '../components/shared/DateRangePicker';
 import { MultiSelect } from '../components/shared/MultiSelect';
 import { RepairQualityCharts } from '../components/repair/RepairQualityCharts';
@@ -131,7 +132,10 @@ export default function RepairQualityPage() {
           <div className="flex min-w-0 items-center gap-2.5">
             <button type="button" onClick={() => navigate('/')} className="inline-flex size-9 shrink-0 items-center justify-center rounded-md text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600" title="返回首页" aria-label="返回首页"><ArrowLeft className="size-4" /></button>
             <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700"><Wrench className="size-4" /></span>
-            <div className="min-w-0"><h1 className="truncate text-base font-semibold text-slate-900">维修通过率分析</h1><p className="hidden text-xs text-slate-500 sm:block">首修表现与复修次数分析</p></div>
+            <div className="flex min-w-0 items-center gap-1"><h1 className="truncate text-base font-semibold text-slate-900">维修通过率分析</h1><HelpTooltip label="查看维修通过率分析说明">
+              <p>分析首修通过率及维修 SN 的完整生命周期复修次数。</p>
+              <p className="mt-1">按订单实际开始日期筛选 SN；维修次数统计这些 SN 的完整生命周期 NG 记录。默认周期为最近 7 天。</p>
+            </HelpTooltip></div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <DashboardSwitcher />
@@ -157,14 +161,13 @@ export default function RepairQualityPage() {
               <button type="button" onClick={reset} disabled={loading || exporting} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"><RotateCcw className="size-3.5" />重置</button>
             </div>
           </div>
-          <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-slate-500"><CircleHelp className="size-3" />按订单实际开始日期筛选 SN；维修次数统计这些 SN 的完整生命周期 NG 记录。</p>
           {optionsError && <p role="alert" className="mt-2 text-xs text-amber-700">筛选项加载失败：{optionsError}</p>}
         </form>
 
         {error && <div role="alert" className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800"><AlertCircle className="size-4 shrink-0" />{error}</div>}
         {exportError && <div role="alert" className="flex items-center gap-2 rounded-md border border-red-200 bg-red-50 px-3 py-2.5 text-sm text-red-800"><AlertCircle className="size-4 shrink-0" />导出失败：{exportError}</div>}
         {!result && !error && <div className="flex min-h-64 flex-col items-center justify-center border-y border-slate-200 text-center text-slate-500">
-          {loading ? <><div className="size-8 animate-spin rounded-full border-2 border-teal-700 border-t-transparent" /><p className="mt-3 text-sm font-medium text-slate-700">正在分析维修记录</p><p className="mt-1 text-xs text-slate-400">按订单实际开始日期筛选，并汇总 SN 完整维修记录</p></> : <><Wrench className="size-8 text-teal-700" /><p className="mt-3 text-sm font-medium text-slate-700">选择日期和筛选条件查看维修表现</p><p className="mt-1 text-xs text-slate-400">默认周期为最近 7 天</p></>}
+          {loading ? <><div className="size-8 animate-spin rounded-full border-2 border-teal-700 border-t-transparent" /><p className="mt-3 text-sm font-medium text-slate-700">正在分析维修记录</p></> : <><Wrench className="size-8 text-teal-700" /><p className="mt-3 text-sm font-medium text-slate-700">选择日期和筛选条件查看维修表现</p></>}
         </div>}
         {result && <>
           <section aria-label="关键指标" className="grid grid-cols-2 gap-x-3 gap-y-2 border-y border-slate-200 bg-white px-3 py-2.5 sm:grid-cols-3 xl:grid-cols-6">
@@ -181,7 +184,7 @@ export default function RepairQualityPage() {
 
             <section>
               <div className="flex flex-wrap items-center justify-between gap-2 py-2">
-                <div><h2 className="text-xs font-semibold text-slate-900">客户 / 基地维修表现</h2><p className="mt-0.5 text-[10px] text-slate-500">客户与基地来自维修记录对应生产订单；占比以本组维修 SN 为分母。</p></div>
+                <div className="flex items-center gap-1"><h2 className="text-xs font-semibold text-slate-900">客户 / 基地维修表现</h2><HelpTooltip label="查看客户与基地统计说明">客户与基地来自维修记录对应的生产订单；各次数占比以本组维修 SN 为分母。</HelpTooltip></div>
                 <div className="flex items-center gap-2 text-[10px] text-slate-500"><span className="rounded-sm bg-emerald-100 px-1.5 py-0.5 text-emerald-800">高 ≥80%</span><span className="rounded-sm bg-amber-100 px-1.5 py-0.5 text-amber-800">中 50–79%</span><span className="rounded-sm bg-rose-100 px-1.5 py-0.5 text-rose-800">低 &lt;50%</span></div>
               </div>
               <div className="max-h-[62vh] overflow-auto border border-slate-300 bg-white shadow-sm">
@@ -211,5 +214,5 @@ function FragmentCells({ count, percentage, style, label, disabled, onOpen }: { 
 
 function Metric({ label, value, detail, tone = 'slate' }: { label: string; value: string; detail: string; tone?: 'slate' | 'emerald' | 'orange' }) {
   const palette = tone === 'emerald' ? 'text-emerald-800' : tone === 'orange' ? 'text-orange-700' : 'text-slate-900';
-  return <article className="border-l-2 border-teal-200 py-0.5 pl-2.5"><p className="text-[10px] font-medium text-slate-500">{label}</p><p className={`mt-0.5 text-xl font-semibold tabular-nums ${palette}`}>{value}</p><p className="mt-0.5 flex items-center gap-1 text-[10px] leading-tight text-slate-400"><CheckCircle2 className="size-2.5 shrink-0" />{detail}</p></article>;
+  return <article className="border-l-2 border-teal-200 py-0.5 pl-2.5"><div className="flex items-center gap-1"><p className="text-[10px] font-medium text-slate-500">{label}</p><HelpTooltip label={`查看${label}说明`}>{detail}</HelpTooltip></div><p className={`mt-0.5 text-xl font-semibold tabular-nums ${palette}`}>{value}</p></article>;
 }

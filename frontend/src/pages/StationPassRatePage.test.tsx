@@ -131,16 +131,26 @@ describe('StationPassRatePage customer filter', () => {
 
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
 
-    const stationTable = (await screen.findByRole('columnheader', { name: /OP10.*组装/ })).closest('table');
+    const stationTable = (await screen.findByRole('columnheader', { name: /OP10/ })).closest('table');
     expect(stationTable).not.toBeNull();
     const headers = within(stationTable as HTMLTableElement).getAllByRole('columnheader');
-    const stationHeaders = headers.slice(3).map((header) => header.textContent ?? '');
+    const stationHeaders = headers.slice(3);
     for (const [code, name] of descriptions) {
-      expect(stationHeaders.some((header) => header.includes(code) && (!name || header.includes(name)))).toBe(true);
+      const stationHeader = stationHeaders.find((header) => header.textContent?.includes(code));
+      expect(stationHeader).toBeTruthy();
+      expect(stationHeader?.textContent).not.toContain(name);
+      if (name) {
+        const help = within(stationHeader as HTMLElement).getByRole('button', { name: `查看工位 ${code} 说明` });
+        fireEvent.focus(help);
+        expect(screen.getByRole('tooltip').textContent).toBe(name);
+        fireEvent.blur(help);
+      } else {
+        expect(within(stationHeader as HTMLElement).queryByRole('button')).toBeNull();
+      }
     }
-    expect(stationHeaders.some((header) => header.includes('OP999'))).toBe(false);
+    expect(stationHeaders.some((header) => header.textContent?.includes('OP999'))).toBe(false);
     expect(descriptions).toHaveLength(45);
-    expect(stationHeaders.filter((header) => /^OP/.test(header.trim()))).toHaveLength(descriptions.length);
+    expect(stationHeaders.filter((header) => /^OP/.test(header.textContent?.trim() ?? '')).length).toBe(descriptions.length);
   });
 
   it('allows administrators to persist station selection', async () => {

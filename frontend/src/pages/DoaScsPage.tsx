@@ -17,6 +17,7 @@ import {
 import { doaApi } from '../api/doaApi';
 import { Modal } from '../components/ui/Modal';
 import { MonthQuickPicker } from '../components/shared/MonthQuickPicker';
+import { HelpTooltip } from '../components/shared/HelpTooltip';
 import type { DoaRawDashboard, DoaRawFilters, DoaRawItem } from '../types/doa';
 
 const EMPTY_RAW_FILTERS: DoaRawFilters = {};
@@ -79,7 +80,7 @@ function StatCard({
         </span>
       </div>
       <p className="mt-3 font-mono text-2xl font-semibold text-slate-900">{value}</p>
-      <p className="mt-1 text-xs text-slate-400">{detail}</p>
+      <HelpTooltip label={`查看${label}说明`}>{detail}</HelpTooltip>
     </div>
   );
 }
@@ -166,7 +167,7 @@ export default function DoaScsPage() {
             <span className="flex size-9 shrink-0 items-center justify-center rounded-md bg-emerald-600 text-white"><Database className="size-5" /></span>
             <div className="min-w-0">
               <h1 className="truncate text-lg font-semibold text-slate-900">SCS 数据明细</h1>
-              <p className="truncate text-xs text-slate-400">仅显示 is_5000=true 的 DOA 原始数据</p>
+              <HelpTooltip label="查看 SCS 数据范围说明">仅显示 is_5000=true 的 DOA 原始数据。</HelpTooltip>
             </div>
           </div>
         </div>
@@ -214,7 +215,7 @@ export default function DoaScsPage() {
             </section>
             <section className="relative overflow-hidden rounded-md border border-slate-200 bg-white">
               {loading && <div className="absolute inset-0 z-10 flex items-center justify-center bg-white/65 backdrop-blur-[1px]" role="status" aria-live="polite"><div className="flex items-center gap-2 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-600 shadow-sm"><LoaderCircle className="size-4 animate-spin text-emerald-600 motion-reduce:animate-none" /><span>正在刷新 DOA 数据</span></div></div>}
-              <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4"><div><h2 className="text-sm font-semibold text-slate-800">DOA 明细</h2><p className="mt-1 text-xs text-slate-400">按受理时间倒序，点击记录查看完整字段</p></div><FileSearch className="size-4 text-slate-400" /></div>
+              <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-4"><div className="flex items-center gap-1"><h2 className="text-sm font-semibold text-slate-800">DOA 明细</h2><HelpTooltip label="查看 DOA 明细说明">按受理时间倒序排列；点击记录可查看完整字段。</HelpTooltip></div><FileSearch className="size-4 text-slate-400" /></div>
               {data.items.length === 0 ? <div className="px-5 py-16 text-center text-sm text-slate-400">暂无 DOA 数据</div> : <div className="overflow-x-auto"><table className="w-full min-w-[1040px] text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-400"><tr><th className="px-5 py-2.5 font-medium">服务单号</th><th className="px-5 py-2.5 font-medium">受理时间</th><th className="px-5 py-2.5 font-medium">客户</th><th className="px-5 py-2.5 font-medium">产品/备件</th><th className="px-5 py-2.5 font-medium">DOA 类型</th><th className="px-5 py-2.5 font-medium">判定</th><th className="px-5 py-2.5 font-medium">处理状态</th><th className="px-5 py-2.5 font-medium">销售订单</th></tr></thead><tbody className="divide-y divide-slate-100">{data.items.map((item) => { const serviceNo = dataValue(item, '服务单号', '服务单号_id'); const acceptedAt = dataValue(item, '受理时间', '受理日期'); const customer = dataValue(item, '客户全称', '客户'); const product = dataValue(item, '产品/备件名称', '产品名称', '备件名称'); const salesOrder = dataValue(item, '销售订单号', '销售订单'); return <tr key={item.id} onClick={() => setSelected(item)} className="cursor-pointer text-slate-600 hover:bg-emerald-50/40"><td className="max-w-[180px] truncate px-5 py-3 font-medium text-slate-700" title={displayValue(serviceNo)}>{displayValue(serviceNo)}</td><td className="whitespace-nowrap px-5 py-3 text-xs">{formatDate(acceptedAt)}</td><td className="max-w-[160px] truncate px-5 py-3" title={displayValue(customer)}>{displayValue(customer)}</td><td className="max-w-[220px] truncate px-5 py-3" title={displayValue(product)}>{displayValue(product)}</td><td className="px-5 py-3">{displayValue(dataValue(item, 'DOA类型'))}</td><td className="px-5 py-3">{displayValue(dataValue(item, '判定结果'))}</td><td className="px-5 py-3">{displayValue(dataValue(item, '处理状态'))}</td><td className="px-5 py-3 font-mono text-xs">{displayValue(salesOrder)}</td></tr>; })}</tbody></table></div>}
               <div className="flex items-center justify-between border-t border-slate-100 px-5 py-3"><span className="text-xs text-slate-400">第 {pagination.page} 页 · 共 {formatNumber(pagination.total)} 条</span><div className="flex items-center gap-2"><button type="button" onClick={() => load(page - 1, filters)} disabled={loading || page <= 1} className="flex size-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40" title="上一页" aria-label="上一页"><ChevronLeft className="size-4" /></button><button type="button" onClick={() => load(page + 1, filters)} disabled={loading || !pagination.hasMore} className="flex size-8 items-center justify-center rounded-md border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-40" title="下一页" aria-label="下一页"><ChevronRight className="size-4" /></button></div></div>
             </section>

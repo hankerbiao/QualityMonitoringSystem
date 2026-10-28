@@ -13,30 +13,42 @@ DISPLAY_TZ = ZoneInfo("Asia/Shanghai")
 MODULE_LABELS = {
     "home": "系统首页",
     "rty": "RTY 质量看板",
+    "station-pass-rate": "工位过站直通率",
+    "repair-quality": "维修通过率分析",
+    "reinsert-rate": "重插率分析",
     "lrr": "LRR 故障率",
     "process-records": "关键工位影像",
     "settings": "系统配置",
     "alert-report": "预警报告",
     "operations": "运营监控",
     "doa": "DOA 报修率",
+    "mfr": "MFR 现网月化故障率",
     "other": "其他功能",
 }
 
 PAGE_MODULES = {
     "/": "home",
     "/rty": "rty",
+    "/station-pass-rate": "station-pass-rate",
+    "/repair-quality": "repair-quality",
+    "/reinsert-rate": "reinsert-rate",
     "/lrr": "lrr",
     "/process-records": "process-records",
     "/operations": "operations",
     "/doa/raw": "doa",
     "/doa": "doa",
     "/doa/repairs": "doa",
+    "/mfr": "mfr",
 }
 
 BUSINESS_MODULES = (
     "rty",
+    "station-pass-rate",
+    "repair-quality",
+    "reinsert-rate",
     "lrr",
     "doa",
+    "mfr",
     "process-records",
     "settings",
     "alert-report",
@@ -59,10 +71,14 @@ def module_from_path(path: str) -> str:
         ("/api/process-records", "process-records"),
         ("/api/alert-report", "alert-report"),
         ("/api/settings", "settings"),
+        ("/api/rty/station-pass", "station-pass-rate"),
+        ("/api/rty/repair-quality", "repair-quality"),
+        ("/api/rty/reinsert-rate", "reinsert-rate"),
         ("/api/fault", "rty"),
         ("/api/rty", "rty"),
         ("/api/lrr", "lrr"),
         ("/api/doa", "doa"),
+        ("/api/mfr", "mfr"),
         ("/api/mes", "rty"),
     )
     for prefix, module in api_prefixes:
@@ -191,7 +207,9 @@ async def record_page_view(db: Any, itcode: str, path: str) -> None:
     )
 
 
-async def build_operations_dashboard(db: Any, days: int) -> dict[str, Any]:
+async def build_operations_dashboard(
+    db: Any, days: int, activity_page: int = 1, activity_page_size: int = 20
+) -> dict[str, Any]:
     now = datetime.now(timezone.utc)
     local_today = now.astimezone(DISPLAY_TZ).date()
     current_start_local = datetime.combine(
@@ -218,9 +236,9 @@ async def build_operations_dashboard(db: Any, days: int) -> dict[str, Any]:
     )
     users_cursor = _project(db.users.find({}), {"itcode": 1, "profile": 1})
     events, sessions, users, total_users, sync_data_sources = await asyncio.gather(
-        events_cursor.to_list(length=200_000),
-        sessions_cursor.to_list(length=100_000),
-        users_cursor.to_list(length=20_000),
+        events_cursor.to_list(length=None),
+        sessions_cursor.to_list(length=None),
+        users_cursor.to_list(length=None),
         db.users.count_documents({}),
         _sync_data_sources(db),
     )
@@ -338,7 +356,8 @@ async def build_operations_dashboard(db: Any, days: int) -> dict[str, Any]:
         lambda: {"pageViews": 0, "apiRequests": 0, "activeUsers": set()}
     )
     for event in current_events:
-        module = event.get("module") or module_from_path(str(event.get("path", "")))
+        path_module = module_from_path(str(event.get("path", "")))
+        module = path_module if path_module != "other" else event.get("module") or "other"
         if module not in BUSINESS_MODULES:
             continue
         stat = module_stats[module]
@@ -381,7 +400,12 @@ async def build_operations_dashboard(db: Any, days: int) -> dict[str, Any]:
                 "itcode": itcode,
                 "displayName": _display_name(profile_by_itcode.get(itcode, {}), itcode),
                 "action": "访问页面",
-                "module": MODULE_LABELS.get(str(event.get("module")), "其他功能"),
+                "module": MODULE_LABELS.get(
+                    module_from_path(str(event.get("path", "")))
+                    if module_from_path(str(event.get("path", ""))) != "other"
+                    else str(event.get("module")),
+                    "其他功能",
+                ),
                 "timestamp": (_as_datetime(event.get("timestamp")) or now).isoformat(),
                 "status": "success",
             }
@@ -423,5 +447,8 @@ async def build_operations_dashboard(db: Any, days: int) -> dict[str, Any]:
             "lastEventAt": last_event.isoformat() if last_event else None,
         },
         "syncDataSources": sync_data_sources,
-        "recentActivity": recent_items[:10],
+        "recentActivity": recent_items[
+            (activity_page - 1) * activity_page_size : activity_page * activity_page_size
+        ],
+        "activityTotal": len(recent_items),
     }

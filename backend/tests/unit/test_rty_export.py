@@ -181,6 +181,16 @@ async def test_export_applies_order_exclusions_scope_and_date_bounds(monkeypatch
 
 
 @pytest.mark.asyncio
+async def test_order_loader_can_include_all_order_types_for_reinsert_analysis(monkeypatch):
+    source(monkeypatch, [
+        order("1"), order("2", ZSTAT="DLID"), order("3", AUART="C001"),
+        order("4", IF_L6="X"),
+    ])
+    rows = await rty_export._load_orders(FILTERS, include_all_orders=True)
+    assert [row["AUFNR"] for row in rows] == ["1", "2", "3", "4"]
+
+
+@pytest.mark.asyncio
 async def test_export_joins_order_faults_without_repair_date_filters(monkeypatch):
     loader = source(
         monkeypatch,

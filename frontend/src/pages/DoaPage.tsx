@@ -10,7 +10,6 @@ import {
   Download,
   Filter,
   Home,
-  Info,
   RotateCcw,
 } from "lucide-react";
 import {
@@ -31,6 +30,7 @@ import type {
 } from "../types/doa";
 import { DashboardSwitcher } from "../components/shared/DashboardSwitcher";
 import { DashboardLoading } from "../components/shared/DashboardLoading";
+import { HelpTooltip } from "../components/shared/HelpTooltip";
 import { DateRangePicker } from "../components/shared/DateRangePicker";
 import { MultiSelect } from "../components/shared/MultiSelect";
 import { useAuth } from "../context/AuthContext";
@@ -120,17 +120,20 @@ function Stat({
   value,
   detail,
   accent,
+  help,
 }: {
   label: string;
   value: ReactNode;
   detail: ReactNode;
   accent: string;
+  help?: ReactNode;
 }) {
   return (
     <div className="min-w-0 px-3 py-3 sm:px-4">
-      <p className="flex items-center gap-2 text-xs font-semibold text-slate-600">
+      <p className="flex items-center gap-1 text-xs font-semibold text-slate-600">
         <span className={`h-2 w-2 rounded-full ${accent}`} />
         {label}
+        {help && <HelpTooltip label={`查看${label}说明`}>{help}</HelpTooltip>}
       </p>
       <p className="mt-1 font-mono text-xl font-semibold tabular-nums text-slate-950 sm:text-2xl">
         {value}
@@ -359,13 +362,13 @@ export default function DoaPage() {
         {!error && (loading ? <DashboardLoading dashboard="DOA" /> : <>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <h2 className="text-sm font-semibold text-slate-950">质量概览</h2>
-          <p className="text-xs text-slate-500">基于筛选范围内已匹配的 SCS 申报及销售订单</p>
+          <HelpTooltip label="查看 DOA 质量概览说明">指标基于筛选范围内已匹配的 SCS 申报及销售订单。</HelpTooltip>
         </div>
         <section aria-label="质量概览指标" className="grid grid-cols-2 divide-x divide-y divide-slate-200 border border-slate-200 bg-white lg:grid-cols-4 lg:divide-y-0">
           <Stat
             label="DOA 报修率"
             value={loading ? "…" : rate(summary?.repairRate ?? null)}
-            detail={loading ? "问题批次数量 ÷ 订单数量" : (
+            detail={loading ? "加载中" : (
               <>
                 报修数据{" "}
                 <Link
@@ -374,15 +377,15 @@ export default function DoaPage() {
                 >
                   {num(summary?.repairCount ?? 0)}
                 </Link>
-                {" "}· 问题批次数量 / 订单数量
               </>
             )}
+            help="问题批次数量 ÷ 匹配订单数量。"
             accent="bg-emerald-600"
           />
           <Stat
             label="DOA 换件率"
             value={loading ? "…" : rate(summary?.replacementRate ?? null)}
-            detail={loading ? "换件不良数量 ÷ 订单数量" : (
+            detail={loading ? "加载中" : (
               <>
                 换件不良{" "}
                 <Link
@@ -394,13 +397,15 @@ export default function DoaPage() {
                 {" "}· 已换件 {num(summary?.replacementRecordCount ?? 0)} 条
               </>
             )}
+            help="有效换件的问题批次数量 ÷ 匹配订单数量。"
             accent="bg-sky-600"
           />
           <Stat
             label="匹配订单数量"
             value={loading ? "…" : num(summary?.shippedCount ?? 0)}
-            detail="作为出货数量代理值"
+            detail=""
             accent="bg-indigo-500"
+            help="订单数量仅作为出货数量代理值，并非实际发货数量。"
           />
           <Stat
             label="已匹配 DOA"
@@ -415,6 +420,7 @@ export default function DoaPage() {
             <AlertTriangle className="size-4 shrink-0 text-amber-700" />
             <span className="font-semibold">未匹配销售订单：{loading ? "…" : num(data?.unmatchedOrders?.length ?? 0)} 个，{loading ? "…" : num(summary?.excludedRepairRecords ?? 0)} 条申报</span>
             <span className="text-xs text-amber-800">不参与指标计算</span>
+            <HelpTooltip label="查看未匹配订单说明">未匹配记录没有订单客户或机型，列表不受这两个筛选条件影响。</HelpTooltip>
             <ChevronDown className="ml-auto size-4 transition-transform group-open:rotate-180" />
           </summary>
           <div className="max-h-60 overflow-auto border-t border-amber-200">
@@ -423,7 +429,6 @@ export default function DoaPage() {
               {!loading && !data?.unmatchedOrders.length && <tr><td colSpan={2} className="px-4 py-4 text-xs text-amber-800">当前没有未匹配订单</td></tr>}
             </tbody></table>
           </div>
-          <p className="px-4 py-2 text-xs text-amber-800">未匹配记录没有订单客户或机型，列表不受这两个筛选条件影响。</p>
         </details>
           <button type="button" onClick={exportUnmatchedOrders} disabled={loading || !data?.unmatchedOrders.length} className="absolute right-3 top-2 inline-flex items-center gap-1.5 rounded-md border border-amber-300 bg-white px-2.5 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50">
             <Download className="size-4" />导出未匹配订单
@@ -436,9 +441,7 @@ export default function DoaPage() {
                 <h2 className="text-sm font-semibold text-slate-900">
                   <BarChart3 className="mr-2 inline size-4 text-emerald-700" />报修与换件趋势
                 </h2>
-                <p className="mt-1 text-xs leading-5 text-slate-600">
-                  按 DOA 受理日期统计，订单数量在各周期内去重
-                </p>
+                <HelpTooltip label="查看报修与换件趋势说明">按 DOA 受理日期统计，订单数量在各周期内去重。</HelpTooltip>
               </div>
               <div className="flex items-center gap-3 text-xs font-medium">
                 <span className="inline-flex items-center gap-1.5 text-emerald-700">
@@ -531,7 +534,7 @@ export default function DoaPage() {
               </div>
             </div>
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-3 py-2 sm:px-4">
-              <span className="text-xs text-slate-500">前 10 项 · 按所选指标降序</span>
+              <HelpTooltip label="查看客户与机型排行说明">最多显示前 10 项，按所选指标降序排列。</HelpTooltip>
               <div role="group" aria-label="排行指标" className="inline-flex rounded border border-slate-200 text-xs">
                 <button type="button" aria-pressed={rankingMetric === "repairRate"} onClick={() => setRankingMetric("repairRate")} className={`px-2.5 py-1 ${rankingMetric === "repairRate" ? "bg-emerald-700 text-white" : "text-slate-600 hover:bg-slate-50"}`}>报修率</button>
                 <button type="button" aria-pressed={rankingMetric === "replacementRate"} onClick={() => setRankingMetric("replacementRate")} className={`border-l border-slate-200 px-2.5 py-1 ${rankingMetric === "replacementRate" ? "bg-emerald-700 text-white" : "text-slate-600 hover:bg-slate-50"}`}>换件率</button>
@@ -584,7 +587,12 @@ export default function DoaPage() {
         </section>
         <section className="border border-slate-200 bg-white">
           <div className="flex min-h-14 flex-wrap items-center justify-between gap-2 px-3 sm:px-4">
-            <div><h2 className="text-sm font-semibold text-slate-900">周期明细</h2><p className="mt-1 text-xs text-slate-500">各周期订单独立去重，点击数量查看明细</p></div>
+            <div className="flex items-center gap-1"><h2 className="text-sm font-semibold text-slate-900">周期明细</h2><HelpTooltip label="查看周期明细说明">
+              <p>各周期的销售订单独立去重；趋势周期合计可能大于整体。</p>
+              <p className="mt-1">点击报修数量或换件数量可查看明细。</p>
+              <p className="mt-1">仅统计 SCS 5000 公司且判定为“是”的申报，并按销售订单号关联订单。订单数量代替出货数量；报修率 = 问题批次数量 ÷ 匹配订单数量，换件率 = 有效换件的问题批次数量 ÷ 匹配订单数量。未匹配订单不参与计算。</p>
+              <p className="mt-1">按受理日期统计；同一销售订单的多条订单行数量相加，同一订单在整个筛选范围内只计一次。客户或机型不唯一时归为未填写，其他客户或机型筛选不会纳入此类记录。</p>
+            </HelpTooltip></div>
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-xs text-slate-500">{loading ? "加载中…" : `${num(data?.trend.length ?? 0)} 个周期`}</span>
               {canExportAudit && <button type="button" onClick={exportAudit} disabled={exporting || loading} className="inline-flex items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"><Download className="size-4" />{exporting ? "导出中…" : "导出核对数据"}</button>}
@@ -628,18 +636,6 @@ export default function DoaPage() {
             </table>
           </div>
         </section>
-        <details className="group border border-slate-200 bg-white">
-          <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-semibold text-slate-700 marker:hidden">
-            <Info className="size-4 text-slate-500" />计算口径
-            <span className="text-xs font-normal text-slate-500">订单数量为出货数量代理值</span>
-            <ChevronDown className="ml-auto size-4 text-slate-500 transition-transform group-open:rotate-180" />
-          </summary>
-          <div className="space-y-2 border-t border-slate-100 px-4 py-3 text-xs leading-5 text-slate-600">
-            <p>SCS 5000 公司且判定为“是”的申报，按销售订单号关联订单看板；订单数量代替出货数量，并非实际发货数量。报修率为问题批次数量 ÷ 匹配订单数量，换件率为有效换件的问题批次数量 ÷ 匹配订单数量。未匹配订单不参与计算。</p>
-            <p>按受理日期统计；同一销售订单的多条订单行数量相加，同一订单在筛选范围内只计一次，趋势中每个周期分别去重，周期合计可能大于总体。客户、机型不唯一时归为未填写；其他客户或机型筛选不会纳入此类记录。</p>
-            <Link to="/doa/raw" className="inline-flex items-center gap-1 font-medium text-emerald-700 hover:underline">查看 SCS 原始数据 <ArrowRight className="size-3" /></Link>
-          </div>
-        </details>
         </>)}
       </main>
     </div>

@@ -145,6 +145,27 @@ async def load_bom(
         "materialCode": _norm_material_number(material_number),
     }
     raw_rows: list[dict[str, Any]] = []
+
+    async def read_bom(**filters: str) -> list[dict[str, Any]]:
+        try:
+            return await data_gateway.all_bom_rows(require_bwart=True, **filters)
+        except DataGatewayError as exc:
+            if exc.code != "DATA_GATEWAY_TIMEOUT":
+                raise
+            try:
+                start = date.fromisoformat(filters.get("dateFrom", ""))
+                end = date.fromisoformat(filters.get("dateTo", ""))
+            except ValueError:
+                raise exc from None
+            if start >= end:
+                raise
+            middle = start + timedelta(days=(end - start).days // 2)
+            first = await read_bom(**{**filters, "dateTo": middle.isoformat()})
+            second = await read_bom(
+                **{**filters, "dateFrom": (middle + timedelta(days=1)).isoformat()}
+            )
+            return first + second
+
     # A material-specific range is selective but the gateway can still scan
     # the whole date interval before applying the material index. Daily
     # requests keep each source scan narrow and run concurrently. Restrict
@@ -168,8 +189,7 @@ async def load_bom(
 
         async def read_day(day: date, term: str) -> list[dict[str, Any]]:
             async with semaphore:
-                return await data_gateway.all_bom_rows(
-                    require_bwart=True,
+                return await read_bom(
                     **{
                         **base_filters,
                         "dateFrom": day.isoformat(),
@@ -197,8 +217,7 @@ async def load_bom(
 
             async def read_month(window_start: date, window_end: date, term: str) -> list[dict[str, Any]]:
                 async with semaphore:
-                    return await data_gateway.all_bom_rows(
-                        require_bwart=True,
+                    return await read_bom(
                         **{
                             **base_filters,
                             "dateFrom": window_start.isoformat(),
@@ -214,16 +233,14 @@ async def load_bom(
             ]
         else:
             requests = [
-                data_gateway.all_bom_rows(
-                    require_bwart=True,
+                read_bom(
                     **{**base_filters, "dateFrom": date_start, "dateTo": date_end, "keyword": term},
                 )
                 for term in terms
             ]
     else:
         requests = [
-            data_gateway.all_bom_rows(
-                require_bwart=True,
+            read_bom(
                 **{**base_filters, "dateFrom": date_start, "dateTo": date_end, "keyword": term},
             )
             for term in terms

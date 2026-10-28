@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { ChevronDown } from 'lucide-react';
+import { HelpTooltip } from '../shared/HelpTooltip';
 import {
   datePresetRange,
   matchingDatePreset,
@@ -147,9 +148,9 @@ export function StationQueryLaunch({
             {orderScope === 'l6' ? 'L6 订单' : '普通订单'}
             {!loading && <span className="font-mono text-slate-700"> · {formatCount(total)}</span>}
           </p>
-          <p className="mt-1 text-xs leading-5 text-slate-500">
-            统计周期：2026-01-01 至 2026-12-31，按订单计划开始时间（GSTRS）归属年度。
-          </p>
+          <HelpTooltip label="查看年度订单产量统计口径">
+            统计周期为 2026-01-01 至 2026-12-31，按订单计划开始时间（GSTRS）归属年度。
+          </HelpTooltip>
         </div>
         <div className="flex flex-wrap gap-1">
           {datePresets.map((preset) => {

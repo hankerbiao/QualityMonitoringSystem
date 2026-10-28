@@ -7,6 +7,7 @@ import { mfrApi } from '../api/mfrApi';
 import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
 import { DashboardLoading } from '../components/shared/DashboardLoading';
 import { DateRangePicker } from '../components/shared/DateRangePicker';
+import { HelpTooltip } from '../components/shared/HelpTooltip';
 import type { MFRDashboard, MFRFilters } from '../types/mfr';
 import { formatLocalDate } from '../utils/dateRange';
 
@@ -40,9 +41,8 @@ function exportStatistics(data: MFRDashboard, filters: MFRFilters) {
 
 function Metric({ label, value, detail, accent }: { label: string; value: string; detail: string; accent: string }) {
   return <div className="min-w-0 border-b border-slate-100 px-4 py-3 odd:border-r lg:border-b-0 lg:border-r lg:last:border-r-0">
-    <p className="text-xs font-medium text-slate-500">{label}</p>
+    <div className="flex items-center gap-1"><p className="text-xs font-medium text-slate-500">{label}</p><HelpTooltip label={`查看${label}说明`}>{detail}</HelpTooltip></div>
     <p className={`mt-1 font-mono text-2xl font-semibold tabular-nums ${accent}`}>{value}</p>
-    <p className="mt-1 text-xs text-slate-500">{detail}</p>
   </div>;
 }
 
@@ -106,7 +106,7 @@ export default function MFRPage() {
         <div className="flex min-w-0 items-center gap-2">
           <Link to="/" className="flex size-9 shrink-0 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100" aria-label="返回首页" title="返回首页"><ArrowLeft className="size-4" /></Link>
           <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-teal-700 text-white"><Activity className="size-4" /></span>
-          <div className="min-w-0"><h1 className="truncate text-sm font-semibold text-slate-900 sm:text-base">MFR 整机现网月化故障率</h1><p className="hidden text-xs text-slate-500 sm:block">现网质量 · 月度分析</p></div>
+          <div className="flex min-w-0 items-center gap-1"><h1 className="truncate text-sm font-semibold text-slate-900 sm:text-base">MFR 整机现网月化故障率</h1><HelpTooltip label="查看 MFR 看板说明">现网质量的月度分析指标。</HelpTooltip></div>
         </div>
         <DashboardSwitcher />
       </div>
@@ -135,7 +135,12 @@ export default function MFRPage() {
       {loading && <DashboardLoading dashboard="MFR" />}
       {data && summary && <>
         <section className="rounded-md border border-slate-200 bg-white">
-          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3"><h2 className="text-sm font-semibold">质量概览</h2><span className="text-xs text-slate-500">按所选日期与机型统计</span></div>
+          <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3"><div className="flex items-center gap-1"><h2 className="text-sm font-semibold">质量概览</h2><HelpTooltip label="查看 MFR 统计口径与数据来源">
+            <p>综合 MFR = 所选范围内故障事件数 ÷ 各月在保整机快照之和 × 100%。在保台月不是去重整机数；同一整机在多个月份在保时会分别计入。</p>
+            <p className="mt-1">故障事件为关联销售订单的有效“换上”或“换上-up”记录，已排除撤销记录。分母按订单数量及完整的出厂、过保日期计算。</p>
+            <p className="mt-1">快照取各月月末，尚未结束的月份取当前日期（UTC）。选中非完整月份时，故障事件仅取所选日期内的数据，分母仍按该月快照计算。订单日期完整率基于全部订单，不随机型筛选变化。</p>
+            <p className="mt-1">数据来自销售订单、SCS 服务单和换件记录。</p>
+          </HelpTooltip></div><span className="text-xs text-slate-500">{filters.dateFrom} 至 {filters.dateTo} · {filters.model || '全部机型'}</span></div>
           <div className="grid grid-cols-2 lg:grid-cols-4">
             <Metric label="综合 MFR" value={rate(summary.mfrRate)} detail="故障事件 ÷ 在保台月" accent="text-teal-700" />
             <Metric label="故障事件" value={number(summary.faultCount)} detail="有效换件记录" accent="text-slate-900" />
@@ -148,7 +153,7 @@ export default function MFRPage() {
         <section className="grid gap-3 lg:grid-cols-[minmax(0,1.65fr)_minmax(320px,1fr)]">
           <div className="min-w-0 rounded-md border border-slate-200 bg-white">
             <div className="flex flex-wrap items-start justify-between gap-2 border-b border-slate-100 px-4 py-3">
-              <div><h2 className="flex items-center gap-2 text-sm font-semibold"><BarChart3 className="size-4 text-teal-700" />现网故障趋势</h2><p className="mt-1 text-xs text-slate-500">{dailyTrend ? '按日展示故障事件；MFR 保持月度口径' : '按月展示故障事件及月化故障率'}</p></div>
+              <div className="flex items-center gap-1"><h2 className="flex items-center gap-2 text-sm font-semibold"><BarChart3 className="size-4 text-teal-700" />现网故障趋势</h2><HelpTooltip label="查看趋势统计方式">{dailyTrend ? '此处按日展示故障事件，MFR 保持月度口径。' : '此处按月展示故障事件及月化故障率。'}</HelpTooltip></div>
               <div className="flex gap-3 text-xs text-slate-500"><span><span className="mr-1 inline-block size-2 rounded-sm bg-teal-600" />故障事件</span>{!dailyTrend && <span><span className="mr-1 inline-block size-2 rounded-full bg-rose-500" />MFR</span>}</div>
             </div>
             <div className="h-[310px] px-1 py-4 sm:px-3">{chartTrend.length ? <ResponsiveContainer width="100%" height="100%"><ComposedChart data={chartTrend} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>
@@ -162,7 +167,7 @@ export default function MFRPage() {
             </ComposedChart></ResponsiveContainer> : <div className="flex h-full items-center justify-center text-sm text-slate-400">暂无趋势数据</div>}</div>
           </div>
           <div className="min-w-0 rounded-md border border-slate-200 bg-white">
-            <div className="flex items-start justify-between gap-2 border-b border-slate-100 px-4 py-3"><div><h2 className="text-sm font-semibold">机型排行</h2><p className="mt-1 text-xs text-slate-500">按 MFR 从高到低 · 前 10 项</p></div><span className="text-xs text-slate-500">{number(data.byModel.length)} 个机型</span></div>
+            <div className="flex items-start justify-between gap-2 border-b border-slate-100 px-4 py-3"><div className="flex items-center gap-1"><h2 className="text-sm font-semibold">机型排行</h2><HelpTooltip label="查看机型排行说明">按 MFR 从高到低排列，最多显示前 10 项。</HelpTooltip></div><span className="text-xs text-slate-500">{number(data.byModel.length)} 个机型</span></div>
             <div className="px-4">{rankedModels.length ? rankedModels.map((item, index) => <div key={item.key} className="border-b border-slate-100 last:border-0">
               <button type="button" aria-expanded={expandedModel === item.key} onClick={() => setExpandedModel(expandedModel === item.key ? null : item.key)} className="flex w-full items-center gap-3 py-3 text-left hover:bg-slate-50">
                 <span className="flex size-6 shrink-0 items-center justify-center rounded bg-slate-100 font-mono text-xs text-slate-500">{String(index + 1).padStart(2, '0')}</span>
@@ -175,19 +180,10 @@ export default function MFRPage() {
         </section>
 
         <section className="overflow-hidden rounded-md border border-slate-200 bg-white">
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3"><div><h2 className="flex items-center gap-2 text-sm font-semibold"><CalendarDays className="size-4 text-teal-700" />周期明细</h2><p className="mt-1 text-xs text-slate-500">共 {data.trend.length} 个统计月</p></div><button type="button" onClick={() => exportStatistics(data, filters)} className="flex h-9 items-center gap-1.5 rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"><Download className="size-4" />导出统计数据</button></div>
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-4 py-3"><div className="flex items-center gap-1"><h2 className="flex items-center gap-2 text-sm font-semibold"><CalendarDays className="size-4 text-teal-700" />周期明细</h2><HelpTooltip label="查看周期明细说明">{data.trend.length} 个统计月。</HelpTooltip></div><button type="button" onClick={() => exportStatistics(data, filters)} className="flex h-9 items-center gap-1.5 rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:bg-slate-50"><Download className="size-4" />导出统计数据</button></div>
           <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-600"><tr><th className="px-4 py-3">统计月份</th><th className="px-4 py-3 text-right">故障事件</th><th className="px-4 py-3 text-right">在保整机（快照）</th><th className="px-4 py-3 text-right">MFR</th></tr></thead><tbody className="divide-y divide-slate-100">{data.trend.map(item => <tr key={item.period} className="hover:bg-slate-50"><td className="px-4 py-3 font-mono">{item.period}</td><td className="px-4 py-3 text-right font-mono">{number(item.faultCount)}</td><td className="px-4 py-3 text-right font-mono">{number(item.fleetCount)}</td><td className="px-4 py-3 text-right font-mono font-semibold text-teal-700">{rate(item.mfrRate)}</td></tr>)}{!data.trend.length && <tr><td colSpan={4} className="px-4 py-12 text-center text-slate-400">暂无周期数据</td></tr>}</tbody></table></div>
         </section>
 
-        <details className="rounded-md border border-slate-200 bg-white">
-          <summary className="cursor-pointer px-4 py-3 text-sm font-semibold">统计口径与数据来源</summary>
-          <div className="space-y-2 border-t border-slate-100 px-4 py-3 text-xs leading-5 text-slate-600">
-            <p>综合 MFR = 所选范围内故障事件数 ÷ 各月在保整机快照之和 × 100%。在保台月不是去重整机数；同一整机在多个月份在保时会分别计入。</p>
-            <p>故障事件为关联销售订单的有效“换上”或“换上-up”记录，已排除撤销记录；同一机器的多次事件分别计数。分母按订单数量及完整的出厂、过保日期计算。</p>
-            <p>快照取各月月末，尚未结束的月份取当前日期（UTC）。选中非完整月份时，故障事件仅取所选日期内的数据，分母仍按该月快照计算。</p>
-            <p>订单日期完整率基于全部订单，不随机型筛选变化。数据来自销售订单、SCS 服务单和换件记录。</p>
-          </div>
-        </details>
       </>}
     </main>
   </div>;

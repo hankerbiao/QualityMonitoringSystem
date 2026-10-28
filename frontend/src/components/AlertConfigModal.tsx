@@ -22,6 +22,7 @@ import { appendSourceSheets } from './rty/templateExport';
 import CycleDetailModal from './rty/CycleDetailModal';
 import { customerIdLabel, NO_CUSTOMER_ID } from '../utils/customerId';
 import type { RTYCycleDetailQuery } from '../types/rty';
+import { HelpTooltip } from './shared/HelpTooltip';
 
 interface AlertConfigModalProps {
   onClose?: () => void;
@@ -278,8 +279,12 @@ function CycleTimeRangePicker({
       {open && (
         <div role="dialog" aria-label="选择统计日期" className="absolute right-0 top-full z-40 mt-1.5 w-[min(340px,calc(100vw-2rem))] overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg shadow-slate-900/10">
           <div className="border-b border-slate-100 bg-slate-50 px-3 py-2.5">
-            <p className="text-xs font-semibold text-slate-700">统计日期</p>
-            <p className="mt-0.5 text-[11px] text-slate-500">按订单计划开始日期筛选，图表仍按月汇总</p>
+            <div className="flex items-center gap-1">
+              <p className="text-xs font-semibold text-slate-700">统计日期</p>
+              <HelpTooltip label="查看周期筛选说明">
+                按订单计划开始日期筛选；图表按自然月汇总。
+              </HelpTooltip>
+            </div>
           </div>
           <div className="grid grid-cols-2 gap-2 p-3">
             {presets.map((preset) => {
@@ -1118,7 +1123,6 @@ export default function AlertConfigModal({
                   </table>
                 </div>
                 
-                <p className="text-[10px] text-slate-400 mt-2">单元格上方为 RTY，下方为故障数/产量（WMENG）</p>
               </div>
             )}
           </div>

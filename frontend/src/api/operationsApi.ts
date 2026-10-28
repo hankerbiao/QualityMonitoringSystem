@@ -6,8 +6,9 @@ let lastTrackedPath = '';
 let lastTrackedAt = 0;
 
 export const operationsApi = {
-  async getDashboard(days: OperationsDays): Promise<OperationsDashboard> {
-    return requestJson<OperationsDashboard>(`${API_BASE_URL}/operations/dashboard?days=${days}`);
+  async getDashboard(days: OperationsDays, page?: number): Promise<OperationsDashboard> {
+    const pagination = page === undefined ? '' : `&activityPage=${page}&activityPageSize=20`;
+    return requestJson<OperationsDashboard>(`${API_BASE_URL}/operations/dashboard?days=${days}${pagination}`);
   },
 
   async trackPageView(path: string): Promise<void> {

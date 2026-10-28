@@ -15,6 +15,7 @@ import {
 } from 'lucide-react';
 import { apiFetch } from '../api/authApi';
 import { processRecordsApi } from '../api/processRecordsApi';
+import { HelpTooltip } from '../components/shared/HelpTooltip';
 import type {
   ProcessRecordItem,
   ProcessRecordFilterOptions,
@@ -296,7 +297,7 @@ export default function ProcessRecordsPage() {
           </div>
           <div className="min-w-0">
             <h1 className="text-base font-semibold truncate">关键工位影像追溯</h1>
-            <p className="text-xs text-slate-400 truncate">实时查询工序扫码拍照与装配关键工位记录</p>
+            <HelpTooltip label="查看工序记录说明">查询工序扫码拍照与装配关键工位记录。</HelpTooltip>
           </div>
         </div>
 
@@ -403,7 +404,7 @@ export default function ProcessRecordsPage() {
                   {result?.error || '数据源查询失败'}
                 </p>
               ))}
-              {Boolean(data?.rows.length) && <p className="text-xs">当前仅显示查询成功的数据源记录。</p>}
+              {Boolean(data?.rows.length) && <HelpTooltip label="查看数据源结果说明">当前仅显示查询成功的数据源记录。</HelpTooltip>}
             </div>
             <button
               type="button"

@@ -9,6 +9,7 @@ const dashboards = [
   { path: '/rty', id: 'rty', label: '整机直通率', description: '整机综合直通率' },
   { path: '/station-pass-rate', id: 'station-pass-rate', label: '工位直通率', description: '工位过站直通率' },
   { path: '/repair-quality', id: 'repair-quality', label: '维修通过率', description: '维修通过率分析' },
+  { path: '/reinsert-rate', id: 'reinsert-rate', label: '重插率', description: '重插率分析' },
   { path: '/lrr', id: 'lrr', label: '部件故障率', description: '工厂阶段部件故障率' },
   { path: '/doa', id: 'doa', label: '开箱报修率', description: 'DOA 报修率' },
   { path: '/mfr', id: 'mfr', label: '现网月化故障率', description: 'MFR 整机故障率' },
@@ -59,6 +60,7 @@ export function DashboardSwitcher() {
             const isCurrent = dashboard.path === pathname;
             const status = settings.dashboardStatuses[dashboard.id] ?? DEFAULT_DASHBOARD_STATUSES[dashboard.id];
             if (status === 'admin-only' && !isAdmin) return null;
+            if (dashboard.id === 'reinsert-rate' && !isAdmin && !user?.dashboardPermissions?.includes(dashboard.id)) return null;
             return (
               <Link
                 key={dashboard.path}
