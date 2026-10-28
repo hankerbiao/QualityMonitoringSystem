@@ -14,13 +14,17 @@ vi.mock('recharts', () => ({
 }));
 
 const cell = { reinsertCount: 2, repairCount: 3, plannedQuantity: 100, plannedRate: 2, usageQuantity: 200, usageRate: 1, usageReason: '' };
-const result = { months: ['2026-01'], invalidCount: 1, invalidReinsertCount: 1, bases: [{
+const bases = [{
   base: 'B1', months: { '2026-01': cell }, topPns: [{ pn: 'PN1', months: { '2026-01': cell } }],
   components: [{ component: 'CPU', months: { '2026-01': cell }, pns: [{ pn: 'PN1', months: { '2026-01': cell } }] }],
 }, {
   base: 'B2', months: { '2026-01': { ...cell, reinsertCount: 4 } }, topPns: [],
   components: [{ component: '主板', months: { '2026-01': cell }, pns: [] }],
-}] };
+}];
+const result = { months: ['2026-01'], invalidCount: 1, invalidReinsertCount: 1, bases, models: [
+  { model: 'M1', bases },
+  { model: 'M2', bases: [{ ...bases[0], components: [] }] },
+] };
 
 describe('重插率分析', () => {
   beforeEach(() => {
@@ -40,13 +44,13 @@ describe('重插率分析', () => {
 
   it('expands component PN and opens the correct detail with applied filters', async () => {
     render(<MemoryRouter><ReinsertRatePage /></MemoryRouter>);
-    fireEvent.click(await screen.findByRole('button', { name: '查看B1基地详情' }));
+    fireEvent.click(await screen.findByRole('button', { name: '查看M1 B1基地详情' }));
     fireEvent.click(await screen.findByRole('button', { name: 'CPU' }));
     fireEvent.click(screen.getByRole('button', { name: 'B1 PN1 2026-01 PN使用重插率明细' }));
     const dialog = screen.getByRole('dialog', { name: '重插事件' });
     await within(dialog).findByText('S1');
     expect(reinsertApi.details).toHaveBeenCalledWith(expect.objectContaining({
-      base: 'B1', month: '2026-01', component: 'CPU', pn: 'PN1', kind: 'reinsert',
+      model: 'M1', base: 'B1', month: '2026-01', component: 'CPU', pn: 'PN1', kind: 'reinsert',
     }), 1);
     fireEvent.keyDown(document, { key: 'Escape' });
     expect(screen.queryByRole('dialog')).toBeNull();
@@ -54,20 +58,21 @@ describe('重插率分析', () => {
 
   it('shows all bases in the overview and switches between individual base views', async () => {
     render(<MemoryRouter><ReinsertRatePage /></MemoryRouter>);
-    const first = await screen.findByRole('button', { name: '查看B1基地详情' });
-    expect(screen.getByRole('button', { name: '查看B2基地详情' })).toBeTruthy();
+    const first = await screen.findByRole('button', { name: '查看M1 B1基地详情' });
+    expect(screen.getByRole('button', { name: '查看M1 B2基地详情' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '查看M2 B1基地详情' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'CPU' })).toBeNull();
     fireEvent.click(first);
     expect(screen.getByRole('button', { name: 'CPU' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: '主板' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '基地汇总' }));
-    fireEvent.click(screen.getByRole('button', { name: '查看B2基地详情' }));
+    fireEvent.click(screen.getByRole('button', { name: '机型与基地汇总' }));
+    fireEvent.click(screen.getByRole('button', { name: '查看M1 B2基地详情' }));
     expect(screen.getByRole('button', { name: '主板' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: 'CPU' })).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: '基地汇总' }));
-    fireEvent.click(screen.getByRole('button', { name: 'B2 2026-01 重插数明细' }));
+    fireEvent.click(screen.getByRole('button', { name: '机型与基地汇总' }));
+    fireEvent.click(screen.getByRole('button', { name: 'M2 B1 2026-01 重插数明细' }));
     await waitFor(() => expect(reinsertApi.details).toHaveBeenCalledWith(expect.objectContaining({
-      base: 'B2', month: '2026-01', kind: 'reinsert',
+      model: 'M2', base: 'B1', month: '2026-01', kind: 'reinsert',
     }), 1));
   });
 
@@ -76,6 +81,6 @@ describe('重插率分析', () => {
     render(<MemoryRouter><ReinsertRatePage /></MemoryRouter>);
     expect((await screen.findByRole('alert')).textContent).toContain('数据源不可用');
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: '查看B1基地详情' })).toBeTruthy());
+    await waitFor(() => expect(screen.getByRole('button', { name: '查看M1 B1基地详情' })).toBeTruthy());
   });
 });

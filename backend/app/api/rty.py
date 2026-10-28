@@ -69,7 +69,7 @@ async def get_reinsert_rate(
 async def get_reinsert_details(
     dateFrom: str, dateTo: str,
     kind: Literal["reinsert", "repairs", "orders", "postings", "invalid"],
-    base: str = "", month: str = "", component: str = "", pn: str = "",
+    base: str = "", month: str = "", component: str = "", pn: str = "", model: str | None = None,
     productModels: Annotated[list[str] | None, Query()] = None,
     customers: Annotated[list[str] | None, Query()] = None,
     bases: Annotated[list[str] | None, Query()] = None,
@@ -85,7 +85,7 @@ async def get_reinsert_details(
         dateFrom, dateTo, productModels, customers, bases
     )
     return Response(success=True, data=reinsert_rate.details(
-        orders, faults, usage, postings, base, month, component, pn, kind, page, pageSize
+        orders, faults, usage, postings, base, month, component, pn, kind, page, pageSize, model
     ))
 
 

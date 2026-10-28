@@ -29,6 +29,7 @@ export interface ReinsertBase {
 export interface ReinsertDashboard {
   months: string[];
   bases: ReinsertBase[];
+  models: { model: string; bases: ReinsertBase[] }[];
   invalidCount: number;
   invalidReinsertCount: number;
 }
@@ -39,6 +40,7 @@ export interface DetailQuery extends ReinsertQuery {
   month?: string;
   component?: string;
   pn?: string;
+  model?: string;
 }
 export interface DetailResult {
   items: Record<string, unknown>[];
@@ -51,7 +53,7 @@ function params(query: ReinsertQuery | DetailQuery) {
   const qs = new URLSearchParams();
   Object.entries(query).forEach(([key, value]) => {
     if (Array.isArray(value)) value.forEach(item => qs.append(key, item));
-    else if (value) qs.set(key, value);
+    else if (value || (key === 'model' && value === '')) qs.set(key, value);
   });
   return qs;
 }

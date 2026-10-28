@@ -16,6 +16,7 @@ from app.services.lrr_normalization import compact_date
 from app.services.rty_shared import normalize_order, order_variants, validate_date
 
 _CACHE = AsyncTTLCache(max_entries=8)
+SOURCE_CACHE_TTL_SECONDS = 60 * 60
 UNKNOWN_COMPONENT = "未填写部件"
 UNKNOWN_PN = "未填写PN"
 
@@ -174,7 +175,7 @@ async def load_sources(
             usage.setdefault(number, repair_integration.OrderUsage())
         return orders, faults, usage, [row for rows in posting_groups.values() for row in rows]
 
-    return await _CACHE.get_or_set(key, load, ttl_seconds=60)
+    return await _CACHE.get_or_set(key, load, ttl_seconds=SOURCE_CACHE_TTL_SECONDS)
 
 
 def _prepare(orders: list[dict], faults: list[dict]) -> tuple[dict, dict]:
@@ -280,7 +281,7 @@ def _group_cells(
     }
 
 
-def aggregate(orders: list[dict], faults: list[dict], usage: dict, start: str, end: str) -> dict:
+def _aggregate_scope(orders: list[dict], faults: list[dict], usage: dict, start: str, end: str) -> dict:
     by_order, associated = _prepare(orders, faults)
     months = _months(start, end)
     bases = sorted({_text(row.get("LGORT")) or "未知基地" for row in orders})
@@ -379,6 +380,27 @@ def aggregate(orders: list[dict], faults: list[dict], usage: dict, start: str, e
     }
 
 
+def aggregate(orders: list[dict], faults: list[dict], usage: dict, start: str, end: str) -> dict:
+    result = _aggregate_scope(orders, faults, usage, start, end)
+    model_orders: dict[str, list[dict]] = defaultdict(list)
+    model_faults: dict[str, list[dict]] = defaultdict(list)
+    order_models = {}
+    for order in orders:
+        model = _text(order.get("MAKTX_TH"))
+        model_orders[model].append(order)
+        order_models[normalize_order(order.get("AUFNR"))] = model
+    for fault in faults:
+        model_faults[order_models[fault["_order"]]].append(fault)
+    result["models"] = [
+        {
+            "model": model,
+            "bases": _aggregate_scope(rows, model_faults[model], usage, start, end)["bases"],
+        }
+        for model, rows in sorted(model_orders.items())
+    ]
+    return result
+
+
 def details(
     orders: list[dict],
     faults: list[dict],
@@ -391,7 +413,12 @@ def details(
     kind: str,
     page: int,
     page_size: int,
+    model: str | None = None,
 ) -> dict:
+    if model is not None:
+        orders = [row for row in orders if _text(row.get("MAKTX_TH")) == model]
+        order_numbers = {normalize_order(row.get("AUFNR")) for row in orders}
+        faults = [row for row in faults if row["_order"] in order_numbers]
     by_order, associated = _prepare(orders, faults)
     if kind == "invalid" and not base and not month:
         items = [row for row in faults if not _event(row)]

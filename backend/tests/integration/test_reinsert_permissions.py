@@ -80,3 +80,22 @@ async def test_reinsert_requires_permission_status_and_base_scope(
             },
         )
     ).status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_reinsert_detail_model_scope_including_empty_model(admin_client, monkeypatch):
+    orders = [
+        {"AUFNR": "1", "GSTRS": "20260115", "MAKTX_TH": "M1", "LGORT": "1000", "GAMNG": "10"},
+        {"AUFNR": "2", "GSTRS": "20260115", "MAKTX_TH": "", "LGORT": "1000", "GAMNG": "20"},
+    ]
+    monkeypatch.setattr(
+        reinsert_rate, "load_sources", AsyncMock(return_value=(orders, [], {}, []))
+    )
+    url = (
+        "/api/rty/reinsert-rate/details?dateFrom=2026-01-01&dateTo=2026-01-31"
+        "&base=1000&month=2026-01&kind=orders"
+    )
+    for suffix, expected in [("", ["1", "2"]), ("&model=M1", ["1"]), ("&model=", ["2"])]:
+        response = await admin_client.get(url + suffix)
+        assert response.status_code == 200
+        assert [item["AUFNR"] for item in response.json()["data"]["items"]] == expected

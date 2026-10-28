@@ -1,11 +1,12 @@
 from decimal import Decimal
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
 from app.auth_permissions import normalize_dashboard_permissions
 from app.base_access import base_access_scope
-from app.services import reinsert_rate, repair_integration
+from app.services import async_ttl_cache, reinsert_rate, repair_integration
 
 
 def order(number, month, model="M1", base="B1", quantity="100"):
@@ -90,6 +91,56 @@ def test_missing_and_zero_denominators_are_not_fabricated():
     )
     cell = zero["bases"][0]["components"][0]["pns"][0]["months"]["2026-01"]
     assert cell["plannedRate"] is None and cell["usageRate"] is None
+
+
+def test_model_base_groups_and_details_keep_their_own_orders_and_events():
+    orders = [
+        order("1", "01", "M1", "B1", "100"),
+        order("2", "01", "M1", "B2", "200"),
+        order("3", "01", "M2", "B1", "300"),
+        order("4", "01", "", "B1", "400"),
+    ]
+    faults = [fault(str(i), sn=f"SN{i}") for i in range(1, 5)]
+    amounts = {str(i): usage(str(i * 10)) for i in range(1, 5)}
+    data = reinsert_rate.aggregate(orders, faults, amounts, "2026-01-01", "2026-01-31")
+    groups = {item["model"]: {base["base"]: base for base in item["bases"]} for item in data["models"]}
+    assert set(groups["M1"]) == {"B1", "B2"}
+    assert groups["M1"]["B1"]["months"]["2026-01"]["plannedQuantity"] == 100
+    assert groups["M1"]["B2"]["months"]["2026-01"]["plannedQuantity"] == 200
+    assert groups["M2"]["B1"]["months"]["2026-01"]["plannedQuantity"] == 300
+    assert groups[""]["B1"]["months"]["2026-01"]["plannedQuantity"] == 400
+    for model, number in [("M1", "1"), ("M2", "3"), ("", "4")]:
+        event_detail = reinsert_rate.details(
+            orders, faults, amounts, [], "B1", "2026-01", "", "", "reinsert", 1, 50, model
+        )
+        order_detail = reinsert_rate.details(
+            orders, faults, amounts, [], "B1", "2026-01", "", "", "orders", 1, 50, model
+        )
+        assert event_detail["total"] == 1
+        assert event_detail["items"][0]["SN"] == f"SN{number}"
+        assert [row["AUFNR"] for row in order_detail["items"]] == [number]
+        pn_cell = groups[model]["B1"]["components"][0]["pns"][0]["months"]["2026-01"]
+        assert pn_cell["usageQuantity"] == int(number) * 10
+
+
+@pytest.mark.asyncio
+async def test_sources_cache_expires_after_one_hour(monkeypatch):
+    now = [10000.0]
+    monkeypatch.setattr(async_ttl_cache, "time", SimpleNamespace(monotonic=lambda: now[0]))
+    monkeypatch.setattr(reinsert_rate, "_CACHE", reinsert_rate.AsyncTTLCache())
+    loader = AsyncMock(return_value=[])
+    monkeypatch.setattr(reinsert_rate.rty_export, "_load_orders", loader)
+
+    async def load():
+        return await reinsert_rate.load_sources("2026-01-01", "2026-01-31", [], [], [])
+
+    await load()
+    now[0] += 3599
+    await load()
+    assert loader.await_count == 1
+    now[0] += 1
+    await load()
+    assert loader.await_count == 2
 
 
 @pytest.mark.asyncio

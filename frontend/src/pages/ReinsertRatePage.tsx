@@ -31,7 +31,7 @@ export default function ReinsertRatePage() {
   const [optionsError, setOptionsError] = useState('');
   const [loading, setLoading] = useState(false);
   const [detail, setDetail] = useState<DetailQuery | null>(null);
-  const [selectedBase, setSelectedBase] = useState<string | null>(null);
+  const [selectedBase, setSelectedBase] = useState<{ model: string; base: string } | null>(null);
   const request = useRef(0);
 
   const load = useCallback(async (query: ReinsertQuery) => {
@@ -61,10 +61,10 @@ export default function ReinsertRatePage() {
     }
     void load(draft);
   };
-  const open = (kind: DetailKind, base = '', month = '', component = '', pn = '') =>
-    setDetail({ ...applied, kind, base, month, component, pn });
+  const open = (kind: DetailKind, base = '', month = '', component = '', pn = '', model?: string) =>
+    setDetail({ ...applied, kind, base, month, component, pn, model });
   const close = useCallback(() => setDetail(null), []);
-  const activeBase = data?.bases.find(base => base.base === selectedBase);
+  const activeBase = data?.models.find(item => item.model === selectedBase?.model)?.bases.find(base => base.base === selectedBase?.base);
 
   return <div className="min-h-screen bg-slate-50 text-slate-800">
     <header className="sticky top-0 z-30 border-b border-slate-200 bg-white/95 px-4 backdrop-blur">
@@ -72,7 +72,7 @@ export default function ReinsertRatePage() {
         <div className="flex min-w-0 items-center gap-2.5">
           <button type="button" onClick={() => navigate('/')} title="返回首页" aria-label="返回首页" className="inline-flex size-9 items-center justify-center rounded-md text-slate-500 hover:bg-slate-100"><ArrowLeft className="size-4" /></button>
           <span className="flex size-8 items-center justify-center rounded-md bg-teal-50 text-teal-700"><Wrench className="size-4" /></span>
-          <div className="flex items-center gap-1"><h1 className="text-base font-semibold text-slate-900">重插率分析</h1><HelpTooltip label="查看重插率分析维度">按基地、部件和物料 PN 展示重插表现。</HelpTooltip></div>
+          <div className="flex items-center gap-1"><h1 className="text-base font-semibold text-slate-900">重插率分析</h1><HelpTooltip label="查看重插率分析维度">按机型、基地、部件和物料 PN 展示重插表现。</HelpTooltip></div>
         </div>
         <DashboardSwitcher />
       </div>
@@ -94,32 +94,33 @@ export default function ReinsertRatePage() {
           <div><h2 className="text-sm font-semibold">月度重插表现</h2><p className="mt-1 text-xs text-slate-500">{applied.dateFrom} 至 {applied.dateTo} · 订单计划月</p></div>
           {data.invalidCount > 0 && <button type="button" onClick={() => open('invalid')} className="inline-flex items-center gap-1.5 rounded border border-amber-200 bg-amber-50 px-2 py-1.5 text-xs text-amber-800 underline decoration-dotted"><AlertTriangle className="size-3.5" />{data.invalidCount} 条记录缺少 SN 或工站（重插 {data.invalidReinsertCount} 条）</button>}
         </div>
-        {!data.bases.length ? <div className="py-16 text-center text-sm text-slate-500">当前筛选条件下没有订单数据</div>
-          : activeBase ? <BaseSection key={activeBase.base} base={activeBase} months={data.months} open={open} onBack={() => setSelectedBase(null)} />
-            : <BaseOverview bases={data.bases} months={data.months} open={open} onSelect={setSelectedBase} />}
+        {!data.models.length ? <div className="py-16 text-center text-sm text-slate-500">当前筛选条件下没有订单数据</div>
+          : activeBase && selectedBase ? <BaseSection key={JSON.stringify(selectedBase)} model={selectedBase.model} base={activeBase} months={data.months} open={(kind, base, month, component, pn) => open(kind, base, month, component, pn, selectedBase.model)} onBack={() => setSelectedBase(null)} />
+            : <BaseOverview models={data.models} months={data.months} open={open} onSelect={setSelectedBase} />}
       </>}
     </main>
     {detail && <DetailDialog query={detail} onClose={close} />}
   </div>;
 }
 
-type OpenDetail = (kind: DetailKind, base?: string, month?: string, component?: string, pn?: string) => void;
+type OpenDetail = (kind: DetailKind, base?: string, month?: string, component?: string, pn?: string, model?: string) => void;
 
-function BaseOverview({ bases, months, open, onSelect }: { bases: ReinsertBase[]; months: string[]; open: OpenDetail; onSelect: (base: string) => void }) {
+function BaseOverview({ models, months, open, onSelect }: { models: ReinsertDashboard['models']; months: string[]; open: OpenDetail; onSelect: (selection: { model: string; base: string }) => void }) {
   return <section aria-labelledby="base-overview-title">
     <div className="flex items-baseline justify-between gap-3 py-2">
-      <h2 id="base-overview-title" className="text-sm font-semibold text-slate-900">基地汇总</h2>
-      <span className="text-xs text-slate-500">{bases.length} 个基地</span>
+      <h2 id="base-overview-title" className="text-sm font-semibold text-slate-900">机型与基地汇总</h2>
+      <span className="text-xs text-slate-500">{models.length} 个机型</span>
     </div>
     <div className="overflow-auto border border-slate-300 bg-white">
       <table className="w-full min-w-max border-collapse text-right text-xs tabular-nums">
         <thead className="bg-slate-100 text-slate-700">
-          <tr><th rowSpan={2} className="sticky left-0 z-10 min-w-44 border border-slate-300 bg-slate-100 px-3 py-2 text-left">基地</th>{months.map(month => <th key={month} colSpan={4} className="border border-slate-300 px-2 py-2 text-center">{month}</th>)}</tr>
+          <tr><th rowSpan={2} className="sticky left-0 z-10 min-w-36 border border-slate-300 bg-slate-100 px-3 py-2 text-left">机型</th><th rowSpan={2} className="min-w-36 border border-slate-300 px-3 py-2 text-left">基地</th>{months.map(month => <th key={month} colSpan={4} className="border border-slate-300 px-2 py-2 text-center">{month}</th>)}</tr>
           <tr>{months.flatMap(month => ['重插数', '维修数', '计划量', '整机重插率'].map(label => <th key={`${month}-${label}`} className="border border-slate-300 px-2 py-1.5">{label}</th>))}</tr>
         </thead>
-        <tbody>{bases.map(base => <tr key={base.base} className="hover:bg-teal-50/40">
-          <th className="sticky left-0 z-[1] border border-slate-200 bg-white px-3 py-2 text-left font-medium">
-            <button type="button" onClick={() => onSelect(base.base)} aria-label={`查看${base.base}基地详情`} className="inline-flex items-center gap-1 text-teal-800 hover:underline">
+        <tbody>{models.flatMap(({ model, bases }) => bases.map((base, index) => <tr key={JSON.stringify([model, base.base])} className="hover:bg-teal-50/40">
+          {index === 0 && <th scope="rowgroup" rowSpan={bases.length} className="sticky left-0 z-[1] border border-slate-200 bg-white px-3 py-2 text-left font-medium">{model || '未填写机型'}</th>}
+          <th scope="row" className="border border-slate-200 bg-white px-3 py-2 text-left font-medium">
+            <button type="button" onClick={() => onSelect({ model, base: base.base })} aria-label={`查看${model || '未填写机型'} ${base.base}基地详情`} className="inline-flex items-center gap-1 text-teal-800 hover:underline">
               <ChevronRight className="size-4 shrink-0" />{base.base}
             </button>
           </th>
@@ -130,16 +131,16 @@ function BaseOverview({ bases, months, open, onSelect }: { bases: ReinsertBase[]
               [number(value.plannedQuantity), 'orders', '计划量'], [rate(value.plannedRate), 'reinsert', '整机重插率'],
             ];
             return cells.map(([text, kind, title]) => <td key={`${month}-${title}`} className="border border-slate-200 px-2 py-2" title={text === '—' ? '计划量缺失或不大于零' : undefined}>
-              {text === '—' ? <span className="text-slate-400">—</span> : <button type="button" aria-label={`${base.base} ${month} ${title}明细`} onClick={() => open(kind, base.base, month)} className="underline decoration-dotted underline-offset-2 hover:text-teal-700">{text}</button>}
+              {text === '—' ? <span className="text-slate-400">—</span> : <button type="button" aria-label={`${model || '未填写机型'} ${base.base} ${month} ${title}明细`} onClick={() => open(kind, base.base, month, '', '', model)} className="underline decoration-dotted underline-offset-2 hover:text-teal-700">{text}</button>}
             </td>);
           })}
-        </tr>)}</tbody>
+        </tr>))}</tbody>
       </table>
     </div>
   </section>;
 }
 
-function BaseSection({ base, months, open, onBack }: { base: ReinsertBase; months: string[]; open: OpenDetail; onBack: () => void }) {
+function BaseSection({ model, base, months, open, onBack }: { model: string; base: ReinsertBase; months: string[]; open: OpenDetail; onBack: () => void }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const chart = months.map(month => ({ month, count: base.months[month].reinsertCount, rate: base.months[month].plannedRate }));
   const pnChart = months.map(month => Object.fromEntries([['month', month], ...base.topPns.map((item, index) => [`pn${index}`, item.months[month].plannedRate])]));
@@ -150,9 +151,9 @@ function BaseSection({ base, months, open, onBack }: { base: ReinsertBase; month
   });
   return <section className="border-b border-slate-300 pb-5">
     <div className="flex flex-wrap items-center gap-3 py-2">
-      <button type="button" onClick={onBack} className="inline-flex items-center gap-1 text-xs text-teal-700 hover:underline"><ArrowLeft className="size-3.5" />基地汇总</button>
+      <button type="button" onClick={onBack} className="inline-flex items-center gap-1 text-xs text-teal-700 hover:underline"><ArrowLeft className="size-3.5" />机型与基地汇总</button>
       <span className="h-4 w-px bg-slate-300" />
-      <h2 className="text-sm font-semibold text-slate-900">{base.base}</h2>
+      <h2 className="text-sm font-semibold text-slate-900">{model || '未填写机型'} / {base.base}</h2>
     </div>
     <div className="grid min-w-0 grid-cols-1 gap-5 py-2 xl:grid-cols-2">
       <figure className="min-w-0"><figcaption className="mb-2 flex items-center gap-1 text-xs font-semibold">月度重插数与整机口径重插率<HelpTooltip label="查看整机口径重插率说明">柱线图展示每月重插数量与整机计划量口径的重插率。</HelpTooltip></figcaption>
@@ -271,7 +272,7 @@ function DetailDialog({ query, onClose }: { query: DetailQuery; onClose: () => v
   };
   return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-3" onMouseDown={event => { if (event.target === event.currentTarget) onClose(); }}>
     <div ref={dialog} role="dialog" aria-modal="true" aria-labelledby="reinsert-detail-title" className="flex max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-md bg-white shadow-xl">
-      <header className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3"><div><h2 id="reinsert-detail-title" className="font-semibold">{labels[query.kind]}</h2><p className="mt-1 text-xs text-slate-500">{[query.base, query.month, query.component, query.pn].filter(Boolean).join(' / ') || `${query.dateFrom} 至 ${query.dateTo}`}</p></div><button ref={close} type="button" onClick={onClose} title="关闭" aria-label="关闭明细" className="rounded p-1 hover:bg-slate-100"><X className="size-5" /></button></header>
+      <header className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3"><div><h2 id="reinsert-detail-title" className="font-semibold">{labels[query.kind]}</h2><p className="mt-1 text-xs text-slate-500">{[query.model === undefined ? '' : query.model || '未填写机型', query.base, query.month, query.component, query.pn].filter(Boolean).join(' / ') || `${query.dateFrom} 至 ${query.dateTo}`}</p></div><button ref={close} type="button" onClick={onClose} title="关闭" aria-label="关闭明细" className="rounded p-1 hover:bg-slate-100"><X className="size-5" /></button></header>
       <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2 text-xs"><span>{loading ? '加载中...' : `共 ${data?.total ?? 0} 条`}</span><button type="button" onClick={() => void exportRows()} disabled={loading || !data?.total || exporting} className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1.5 disabled:opacity-40"><Download className="size-4" />{exporting ? '导出中' : '导出明细'}</button></div>
       {error && <p role="alert" className="bg-red-50 px-4 py-2 text-sm text-red-700">{error} <button type="button" className="underline" onClick={() => setRetry(value => value + 1)}>重试</button></p>}
       <div className="min-h-40 overflow-auto">{data && !data.items.length ? <p className="p-8 text-center text-sm text-slate-500">暂无明细</p> : data && <table className="w-full min-w-[720px] text-left text-xs"><thead className="bg-slate-50"><tr>{columns.map(column => <th key={column} className="px-3 py-2">{column}</th>)}</tr></thead><tbody>{data.items.map((row, index) => <tr key={index} className="border-t border-slate-200">{columns.map(column => <td key={column} className="max-w-md whitespace-pre-wrap break-all px-3 py-2">{display(row[column])}</td>)}</tr>)}</tbody></table>}</div>
