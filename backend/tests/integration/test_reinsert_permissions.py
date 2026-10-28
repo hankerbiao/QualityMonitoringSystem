@@ -45,7 +45,15 @@ async def test_reinsert_requires_permission_status_and_base_scope(
 
     monkeypatch.setattr(reinsert_rate, "load_sources", AsyncMock(side_effect=load))
     assert (await admin_client.get(url, headers=headers)).status_code == 200
+    assert (await admin_client.get(
+        "/api/rty/reinsert-rate/details?dateFrom=2026-01-01&dateTo=2026-01-31&kind=faults",
+        headers=headers,
+    )).status_code == 200
     assert (await admin_client.get(f"{url}&bases=3000", headers=headers)).status_code == 403
+    assert (await admin_client.get(
+        "/api/rty/reinsert-rate/details?dateFrom=2026-01-01&dateTo=2026-01-31&kind=faults&bases=3000",
+        headers=headers,
+    )).status_code == 403
     assert (
         await admin_client.get(
             "/api/rty/reinsert-rate/details?dateFrom=2026-01-01&dateTo=2026-01-31"
@@ -80,6 +88,10 @@ async def test_reinsert_requires_permission_status_and_base_scope(
             },
         )
     ).status_code == 403
+    assert (await admin_client.get(
+        "/api/rty/reinsert-rate/details?dateFrom=2026-01-01&dateTo=2026-01-31&kind=faults",
+        headers={"Authorization": f"Bearer {login.json()['access_token']}"},
+    )).status_code == 403
 
 
 @pytest.mark.asyncio
@@ -99,3 +111,20 @@ async def test_reinsert_detail_model_scope_including_empty_model(admin_client, m
         response = await admin_client.get(url + suffix)
         assert response.status_code == 200
         assert [item["AUFNR"] for item in response.json()["data"]["items"]] == expected
+
+
+@pytest.mark.asyncio
+async def test_fault_export_includes_invalid_records_and_paginates(admin_client, monkeypatch):
+    orders = [{"AUFNR": "1", "GSTRS": "20260115", "MAKTX_TH": "M1", "LGORT": "1000"}]
+    faults = [
+        {"_order": "1", "PCODE": "SN1", "ZNGGZ": "OP1", "ZNGWD3": "故障一"},
+        {"_order": "1", "PCODE": "", "ZNGGZ": "OP1", "ZNGWD3": "故障二"},
+    ]
+    monkeypatch.setattr(reinsert_rate, "load_sources", AsyncMock(return_value=(orders, faults, {}, [])))
+    url = "/api/rty/reinsert-rate/details?dateFrom=2026-01-01&dateTo=2026-01-31&kind=faults&pageSize=1"
+    first = await admin_client.get(url + "&page=1")
+    second = await admin_client.get(url + "&page=2")
+    assert first.status_code == second.status_code == 200
+    assert first.json()["data"]["total"] == 2
+    assert first.json()["data"]["items"][0]["ZNGWD3"] == "故障一"
+    assert second.json()["data"]["items"][0]["ZNGWD3"] == "故障二"

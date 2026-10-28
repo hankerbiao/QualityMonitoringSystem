@@ -297,6 +297,7 @@ def _aggregate_scope(orders: list[dict], faults: list[dict], usage: dict, start:
     daily_orders: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
     daily_faults: dict[tuple[str, str], list[dict]] = defaultdict(list)
     daily_pns: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
+    daily_component_events: dict[tuple[str, str, str], set[tuple[str, str]]] = defaultdict(set)
     days = []
     if len(months) == 1:
         current, last = date.fromisoformat(start), date.fromisoformat(end)
@@ -320,6 +321,8 @@ def _aggregate_scope(orders: list[dict], faults: list[dict], usage: dict, start:
             day = _day(order.get("GSTRS"))
             daily_faults[(base, day)].append(row)
             daily_pns[(base, day, pn)].append(row)
+            if _is_reinsert(row) and (event := _event(row)):
+                daily_component_events[(base, day, component)].add(event)
     result = []
     for base in bases:
         base_faults = [
@@ -357,6 +360,10 @@ def _aggregate_scope(orders: list[dict], faults: list[dict], usage: dict, start:
                     ],
                 }
             )
+            if days:
+                groups[-1]["dailyReinsertCounts"] = {
+                    day: len(daily_component_events[(base, day, component)]) for day in days
+                }
         totals = {
             month: _cell(
                 fault_index.get((base, month, "", ""), []),
@@ -425,6 +432,13 @@ def _aggregate_scope(orders: list[dict], faults: list[dict], usage: dict, start:
 
 def aggregate(orders: list[dict], faults: list[dict], usage: dict, start: str, end: str) -> dict:
     result = _aggregate_scope(orders, faults, usage, start, end)
+    responsibilities: dict[str, int] = defaultdict(int)
+    for fault in faults:
+        responsibilities[_text(fault.get("ZZRFL")) or "未填写"] += 1
+    result["defectResponsibilities"] = [
+        {"name": name, "count": count}
+        for name, count in sorted(responsibilities.items(), key=lambda item: (-item[1], item[0]))
+    ]
     model_orders: dict[str, list[dict]] = defaultdict(list)
     model_faults: dict[str, list[dict]] = defaultdict(list)
     order_models = {}
@@ -458,6 +472,13 @@ def details(
     page_size: int,
     model: str | None = None,
 ) -> dict:
+    if kind == "faults":
+        return {
+            "items": faults[(page - 1) * page_size : page * page_size],
+            "total": len(faults),
+            "page": page,
+            "pageSize": page_size,
+        }
     if model is not None:
         orders = [row for row in orders if _text(row.get("MAKTX_TH")) == model]
         order_numbers = {normalize_order(row.get("AUFNR")) for row in orders}

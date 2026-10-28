@@ -19,7 +19,7 @@ export interface ReinsertCell {
   usageReason: string;
 }
 export interface ReinsertPN { pn: string; months: Record<string, ReinsertCell>; days?: Record<string, ReinsertCell> }
-export interface ReinsertComponent { component: string; months: Record<string, ReinsertCell>; pns: ReinsertPN[] }
+export interface ReinsertComponent { component: string; months: Record<string, ReinsertCell>; dailyReinsertCounts?: Record<string, number>; pns: ReinsertPN[] }
 export interface ReinsertBase {
   base: string;
   months: Record<string, ReinsertCell>;
@@ -33,6 +33,7 @@ export interface ReinsertDashboard {
   models: { model: string; bases: ReinsertBase[] }[];
   invalidCount: number;
   invalidReinsertCount: number;
+  defectResponsibilities: { name: string; count: number }[];
 }
 export type DetailKind = 'reinsert' | 'repairs' | 'orders' | 'postings' | 'invalid';
 export interface DetailQuery extends ReinsertQuery {
@@ -50,7 +51,7 @@ export interface DetailResult {
   pageSize: number;
 }
 
-function params(query: ReinsertQuery | DetailQuery) {
+function params(query: ReinsertQuery | DetailQuery | (ReinsertQuery & { kind: 'faults' })) {
   const qs = new URLSearchParams();
   Object.entries(query).forEach(([key, value]) => {
     if (Array.isArray(value)) value.forEach(item => qs.append(key, item));
@@ -65,7 +66,7 @@ export const reinsertApi = {
   ),
   dashboard: (query: ReinsertQuery) =>
     requestData<ReinsertDashboard>(`${API_BASE_URL}/rty/reinsert-rate?${params(query)}`),
-  details: (query: DetailQuery, page = 1, pageSize = 50) => {
+  details: (query: DetailQuery | (ReinsertQuery & { kind: 'faults' }), page = 1, pageSize = 50) => {
     const qs = params(query);
     qs.set('page', String(page));
     qs.set('pageSize', String(pageSize));

@@ -68,17 +68,19 @@ async def get_reinsert_rate(
 @router.get("/reinsert-rate/details", dependencies=[Depends(require_reinsert_access)])
 async def get_reinsert_details(
     dateFrom: str, dateTo: str,
-    kind: Literal["reinsert", "repairs", "orders", "postings", "invalid"],
+    kind: Literal["reinsert", "repairs", "orders", "postings", "invalid", "faults"],
     base: str = "", month: str = "", component: str = "", pn: str = "", model: str | None = None,
     productModels: Annotated[list[str] | None, Query()] = None,
     customers: Annotated[list[str] | None, Query()] = None,
     bases: Annotated[list[str] | None, Query()] = None,
     page: int = Query(1, ge=1), pageSize: int = Query(50, ge=1, le=200),
 ):
-    if kind != "invalid" and (not base or month not in reinsert_rate._months(
+    if kind not in {"invalid", "faults"} and (not base or month not in reinsert_rate._months(
         validate_date(dateFrom), validate_date(dateTo)
     )):
         raise HTTPException(status_code=422, detail="请选择有效的基地和月份")
+    if kind == "faults" and (base or month or component or pn or model is not None):
+        raise HTTPException(status_code=422, detail="故障导出不支持明细维度筛选")
     if kind == "postings" and (not component or not pn):
         raise HTTPException(status_code=422, detail="发料明细需要部件和PN")
     orders, faults, usage, postings = await reinsert_rate.load_sources(

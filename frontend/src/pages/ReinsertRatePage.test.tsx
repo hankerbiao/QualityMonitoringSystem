@@ -11,8 +11,9 @@ vi.mock('../api/reinsertApi', () => ({ reinsertApi: { options: vi.fn(), dashboar
 vi.mock('../components/shared/DashboardSwitcher', () => ({ DashboardSwitcher: () => null }));
 vi.mock('recharts', () => ({
   ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  ComposedChart: ({ data }: { data: unknown }) => <div data-testid="count-chart">{JSON.stringify(data)}</div>, LineChart: ({ data }: { data: unknown }) => <div data-testid="pn-chart">{JSON.stringify(data)}</div>, Bar: () => null, Line: () => null,
+  ComposedChart: ({ data, children }: { data: unknown; children: React.ReactNode }) => <div data-testid="count-chart">{JSON.stringify(data)}{children}</div>, LineChart: ({ data, children }: { data: Record<string, unknown>[]; children: React.ReactNode }) => <div data-testid={data.some(row => 'component0' in row) ? 'component-chart' : 'pn-chart'}>{JSON.stringify(data)}{children}</div>, Bar: ({ dataKey }: { dataKey: string }) => <span data-series={dataKey} />, Line: ({ dataKey }: { dataKey: string }) => <span data-series={dataKey} />,
   CartesianGrid: () => null, Tooltip: () => null, XAxis: () => null, YAxis: () => null,
+  PieChart: ({ children }: { children: React.ReactNode }) => <div>{children}</div>, Pie: () => null, Cell: () => null,
 }));
 
 const cell = { reinsertCount: 2, repairCount: 3, plannedQuantity: 100, plannedRate: 2, usageQuantity: 200, usageRate: 1, usageReason: '' };
@@ -23,7 +24,7 @@ const bases = [{
   base: 'B2', months: { '2026-01': { ...cell, reinsertCount: 4 } }, topPns: [],
   components: [{ component: '主板', months: { '2026-01': cell }, pns: [] }],
 }];
-const result = { months: ['2026-01'], invalidCount: 1, invalidReinsertCount: 1, bases, models: [
+const result = { months: ['2026-01'], invalidCount: 1, invalidReinsertCount: 1, defectResponsibilities: [{ name: '生产', count: 2 }, { name: '未填写', count: 1 }], bases, models: [
   { model: 'M1', bases },
   { model: 'M2', bases: [{ ...bases[0], components: [] }] },
 ] };
@@ -35,6 +36,121 @@ describe('重插率分析', () => {
     vi.mocked(reinsertApi.details).mockResolvedValue({ items: [{ SN: 'S1', NG工站: 'OP1', 记录数: 1, 维修记录: [] }], total: 1, page: 1, pageSize: 50 });
   });
   afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); });
+
+  it('shows fault responsibility counts and percentages for the applied results', async () => {
+    render(<MemoryRouter><ReinsertRatePage /></MemoryRouter>);
+    expect(await screen.findByRole('img', { name: '维修故障缺陷责任分类饼图' })).toBeTruthy();
+    expect(screen.getByText('2 条 · 66.7%')).toBeTruthy();
+    expect(screen.getByText('1 条 · 33.3%')).toBeTruthy();
+  });
+
+  it('plots each selected base component using monthly reinsert counts', async () => {
+    const trendBase = { ...bases[0], months: { '2026-01': cell, '2026-02': cell }, components: [
+      { ...bases[0].components[0], months: { '2026-01': cell, '2026-02': { ...cell, reinsertCount: 7 } } },
+      { component: '内存', months: { '2026-01': { ...cell, reinsertCount: 4 }, '2026-02': cell }, pns: [] },
+    ] };
+    vi.mocked(reinsertApi.dashboard).mockResolvedValue({ ...result, months: ['2026-01', '2026-02'], models: [{ model: 'M1', bases: [trendBase] }] });
+    render(<MemoryRouter><ReinsertRatePage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: '查看M1 B1基地详情' }));
+    expect(screen.getByRole('img', { name: 'B1部件月度重插数趋势' })).toBeTruthy();
+    expect(JSON.parse(screen.getByTestId('component-chart').textContent || '[]')).toEqual([
+      { period: '2026-01', component0: 2, component1: 4 },
+      { period: '2026-02', component0: 7, component1: 2 },
+    ]);
+  });
+
+  it('independently toggles chart series without changing the table', async () => {
+    render(<MemoryRouter><ReinsertRatePage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: '查看M1 B1基地详情' }));
+    const metrics = screen.getByRole('group', { name: '选择重插指标' });
+    const pns = screen.getByRole('group', { name: '选择 PN' });
+    const components = screen.getByRole('group', { name: '选择部件' });
+    fireEvent.click(within(metrics).getByRole('checkbox', { name: '重插数' }));
+    fireEvent.click(within(pns).getByRole('checkbox', { name: 'PN1' }));
+    fireEvent.click(within(components).getByRole('checkbox', { name: 'CPU' }));
+    expect(screen.getByTestId('count-chart').querySelector('[data-series="count"]')).toBeNull();
+    expect(screen.getByTestId('count-chart').querySelector('[data-series="rate"]')).toBeTruthy();
+    expect(screen.getByTestId('pn-chart').querySelector('[data-series="pn0"]')).toBeNull();
+    expect(screen.getByTestId('component-chart').querySelector('[data-series="component0"]')).toBeNull();
+    expect(screen.getByRole('button', { name: 'CPU' })).toBeTruthy();
+    fireEvent.click(within(components).getByRole('checkbox', { name: 'CPU' }));
+    expect(screen.getByTestId('component-chart').querySelector('[data-series="component0"]')).toBeTruthy();
+  });
+
+  it('plots components by day for a single-month query', async () => {
+    const dailyBase = { ...bases[0], days: { '2026-01-01': cell, '2026-01-02': cell }, components: [
+      { ...bases[0].components[0], dailyReinsertCounts: { '2026-01-01': 3, '2026-01-02': 0 } },
+    ] };
+    vi.mocked(reinsertApi.dashboard).mockResolvedValue({ ...result, models: [{ model: 'M1', bases: [dailyBase] }] });
+    render(<MemoryRouter><ReinsertRatePage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: '查看M1 B1基地详情' }));
+    expect(screen.getByRole('img', { name: 'B1部件每日重插数趋势' })).toBeTruthy();
+    expect(JSON.parse(screen.getByTestId('component-chart').textContent || '[]')).toEqual([
+      { period: '2026-01-01', component0: 3 }, { period: '2026-01-02', component0: 0 },
+    ]);
+  });
+
+  it('exports the applied results with monthly summaries and component and PN data', async () => {
+    const incomplete = { ...cell, plannedRate: null, usageQuantity: null, usageRate: null, usageReason: '缺少发料' };
+    const exportBase = { ...bases[0], components: [{ component: 'CPU', months: { '2026-01': cell }, pns: [{ pn: 'PN1', months: { '2026-01': incomplete } }] }] };
+    vi.mocked(reinsertApi.dashboard).mockResolvedValue({ ...result, models: [{ model: '', bases: [exportBase] }, { model: 'M2', bases: [bases[1]] }] });
+    render(<MemoryRouter><ReinsertRatePage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: '导出 Excel' }));
+    await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalledOnce());
+    const workbook = vi.mocked(XLSX.writeFile).mock.calls[0][0];
+    const summary = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets['机型基地汇总']);
+    expect(summary).toEqual(expect.arrayContaining([
+      expect.objectContaining({ 机型: '未填写机型', 基地: 'B1', 月份: '2026-01', 重插数: 2, 整机重插率: 2 }),
+      expect.objectContaining({ 机型: 'M2', 基地: 'B2', 月份: '2026-01', 重插数: 4 }),
+    ]));
+    const details = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets['部件PN汇总'], { defval: null });
+    expect(details).toEqual(expect.arrayContaining([
+      expect.objectContaining({ 机型: '未填写机型', 基地: 'B1', 部件: 'CPU', PN: 'PN1', 整机重插率: null, PN净发料: null, PN使用重插率: null, 说明: '缺少发料' }),
+    ]));
+  });
+
+  it('exports the last applied filters and daily chart data even when the date draft changes', async () => {
+    const dailyBase = { ...bases[0], days: { '2026-01-01': cell }, topPns: [{ pn: 'PN1', months: { '2026-01': cell }, days: { '2026-01-01': cell } }] };
+    vi.mocked(reinsertApi.dashboard).mockResolvedValue({ ...result, models: [{ model: 'M1', bases: [dailyBase] }] });
+    render(<MemoryRouter><ReinsertRatePage /></MemoryRouter>);
+    await screen.findByRole('button', { name: '查看M1 B1基地详情' });
+    const initial = vi.mocked(reinsertApi.dashboard).mock.calls[0][0];
+    fireEvent.click(screen.getByRole('button', { name: '订单计划日期' }));
+    fireEvent.click(screen.getByRole('button', { name: '昨天' }));
+    fireEvent.click(screen.getByRole('button', { name: '导出 Excel' }));
+    await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalledOnce());
+    const [workbook, filename] = vi.mocked(XLSX.writeFile).mock.calls[0];
+    expect(filename).toBe(`重插率分析_${initial.dateFrom}_${initial.dateTo}.xlsx`);
+    expect(XLSX.utils.sheet_to_json(workbook.Sheets['每日趋势'])).toEqual([
+      expect.objectContaining({ 机型: 'M1', 基地: 'B1', 日期: '2026-01-01', 类型: '基地', 重插数: 2 }),
+      expect.objectContaining({ 类型: 'PN Top 5', PN: 'PN1', 整机重插率: 2 }),
+    ]);
+  });
+
+  it('exports every page of fault records using the applied query', async () => {
+    vi.mocked(reinsertApi.details)
+      .mockResolvedValueOnce({ items: [{ PCODE: 'SN1', ZNGWD3: '故障一', source: { site: 'MES' } }], total: 2, page: 1, pageSize: 200 })
+      .mockResolvedValueOnce({ items: [{ PCODE: '', ZNGWD3: '故障二' }], total: 2, page: 2, pageSize: 200 });
+    render(<MemoryRouter><ReinsertRatePage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: '导出 Excel' }));
+    await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalledOnce());
+    const applied = vi.mocked(reinsertApi.dashboard).mock.calls[0][0];
+    expect(reinsertApi.details).toHaveBeenNthCalledWith(1, { ...applied, kind: 'faults' }, 1, 200);
+    expect(reinsertApi.details).toHaveBeenNthCalledWith(2, { ...applied, kind: 'faults' }, 2, 200);
+    const workbook = vi.mocked(XLSX.writeFile).mock.calls[0][0];
+    expect(XLSX.utils.sheet_to_json(workbook.Sheets['故障明细'])).toEqual([
+      { PCODE: 'SN1', ZNGWD3: '故障一', 'source.site': 'MES' },
+      { PCODE: '', ZNGWD3: '故障二' },
+    ]);
+  });
+
+  it('does not export a partial workbook when fault details fail', async () => {
+    vi.mocked(reinsertApi.details).mockRejectedValueOnce(new Error('故障数据不可用'));
+    render(<MemoryRouter><ReinsertRatePage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: '导出 Excel' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('故障数据不可用');
+    expect(XLSX.writeFile).not.toHaveBeenCalled();
+  });
 
   it('defaults to the most recent 7 days, including today', () => {
     vi.useFakeTimers();

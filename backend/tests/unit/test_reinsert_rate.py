@@ -37,6 +37,23 @@ def usage(amount):
     )
 
 
+def test_defect_responsibility_counts_all_fault_records_including_missing_values():
+    faults = [
+        {**fault("1"), "ZZRFL": " 生产 "},
+        {**fault("1", sn=""), "ZZRFL": "生产"},
+        {**fault("1", action="更换"), "ZZRFL": "供应商"},
+        fault("1"),
+        {**fault("1"), "ZZRFL": " "},
+    ]
+    data = reinsert_rate.aggregate([order("1", "01")], faults, {}, "2026-01-01", "2026-01-31")
+    assert data["defectResponsibilities"] == [
+        {"name": "未填写", "count": 2},
+        {"name": "生产", "count": 2},
+        {"name": "供应商", "count": 1},
+    ]
+    assert reinsert_rate.aggregate([], [], {}, "2026-01-01", "2026-01-31")["defectResponsibilities"] == []
+
+
 def test_monthly_distinct_events_and_range_wide_model_denominators():
     orders = [order("1", "01"), order("2", "02"), order("3", "01", "M2", quantity="50")]
     faults = [
@@ -207,6 +224,7 @@ def test_single_month_daily_trends_use_planned_order_dates_and_daily_denominator
         {"_order": "1", "PCODE": "S1", "ZNGGZ": "OP1", "ZBJ": "CPU", "ZCCLH": "PN1", "ZWXWD3": "重插", "T_FIND": "2026-01-03"},
         {"_order": "1", "PCODE": "S1", "ZNGGZ": "OP1", "ZBJ": "CPU", "ZCCLH": "PN1", "ZWXWD3": "重插"},
         {"_order": "2", "PCODE": "S2", "ZNGGZ": "OP1", "ZBJ": "CPU", "ZCCLH": "PN1", "ZWXWD3": "重插"},
+        {"_order": "3", "PCODE": "S3", "ZNGGZ": "OP1", "ZBJ": "CPU", "ZCCLH": "PN1", "ZWXWD3": "重插"},
     ]
     result = reinsert_rate.aggregate(orders, faults, {}, "2026-01-01", "2026-01-03")
     base = result["models"][0]["bases"][0]
@@ -216,6 +234,10 @@ def test_single_month_daily_trends_use_planned_order_dates_and_daily_denominator
     assert base["days"]["2026-01-02"]["plannedRate"] is None
     assert base["days"]["2026-01-03"]["plannedRate"] == 5
     assert base["topPns"][0]["days"]["2026-01-01"]["plannedRate"] == 10
+    assert base["components"][0]["dailyReinsertCounts"] == {
+        "2026-01-01": 1, "2026-01-02": 0, "2026-01-03": 1,
+    }
     assert base["months"]["2026-01"]["plannedRate"] == 6.67
     across_months = reinsert_rate.aggregate(orders, faults, {}, "2026-01-01", "2026-02-01")
     assert "days" not in across_months["models"][0]["bases"][0]
+    assert "dailyReinsertCounts" not in across_months["models"][0]["bases"][0]["components"][0]
