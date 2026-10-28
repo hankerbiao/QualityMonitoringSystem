@@ -13,6 +13,7 @@ vi.mock('recharts', () => ({
   ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   ComposedChart: ({ data, children }: { data: unknown; children: React.ReactNode }) => <div data-testid="count-chart">{JSON.stringify(data)}{children}</div>, LineChart: ({ data, children }: { data: Record<string, unknown>[]; children: React.ReactNode }) => <div data-testid={data.some(row => 'component0' in row) ? 'component-chart' : 'pn-chart'}>{JSON.stringify(data)}{children}</div>, Bar: ({ dataKey }: { dataKey: string }) => <span data-series={dataKey} />, Line: ({ dataKey }: { dataKey: string }) => <span data-series={dataKey} />,
   CartesianGrid: () => null, Tooltip: () => null, XAxis: () => null, YAxis: () => null,
+  BarChart: ({ data, children }: { data: unknown; children: React.ReactNode }) => <div data-testid="base-comparison-chart">{JSON.stringify(data)}{children}</div>,
   PieChart: ({ children }: { children: React.ReactNode }) => <div>{children}</div>, Pie: () => null, Cell: () => null,
 }));
 
@@ -57,6 +58,26 @@ describe('重插率分析', () => {
       { period: '2026-01', component0: 2, component1: 4 },
       { period: '2026-02', component0: 7, component1: 2 },
     ]);
+  });
+
+  it('compares the aggregated bases by month and switches between counts and rates', async () => {
+    const aggregateBases = [
+      { ...bases[0], months: { '2026-01': cell, '2026-02': { ...cell, reinsertCount: 5, plannedRate: null } } },
+      { ...bases[1], months: { '2026-01': { ...cell, reinsertCount: 7, plannedRate: 3.5 }, '2026-02': cell } },
+    ];
+    vi.mocked(reinsertApi.dashboard).mockResolvedValue({ ...result, bases: aggregateBases, models: [{ model: 'M1', bases: aggregateBases }], months: ['2026-01', '2026-02'] });
+    render(<MemoryRouter><ReinsertRatePage /></MemoryRouter>);
+    const chart = await screen.findByTestId('base-comparison-chart');
+    expect(JSON.parse(chart.textContent || '[]')).toEqual([
+      { base: 'B1', month0: 2, month1: 5 }, { base: 'B2', month0: 7, month1: 2 },
+    ]);
+    fireEvent.change(screen.getByLabelText('对比指标'), { target: { value: 'plannedRate' } });
+    expect(JSON.parse(chart.textContent || '[]')).toEqual([
+      { base: 'B1', month0: 2, month1: null }, { base: 'B2', month0: 3.5, month1: 2 },
+    ]);
+    fireEvent.click(within(screen.getByRole('group', { name: '选择月份' })).getByRole('checkbox', { name: '2026-01' }));
+    expect(chart.querySelector('[data-series="month0"]')).toBeNull();
+    expect(chart.querySelector('[data-series="month1"]')).toBeTruthy();
   });
 
   it('independently toggles chart series without changing the table', async () => {

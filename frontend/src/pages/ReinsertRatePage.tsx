@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { AlertTriangle, ArrowLeft, ChevronDown, ChevronRight, Download, RotateCcw, Search, Wrench, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { Bar, CartesianGrid, Cell, ComposedChart, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Cell, ComposedChart, Line, LineChart, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import * as XLSX from 'xlsx';
 import { reinsertApi, type DetailKind, type DetailQuery, type DetailResult, type ReinsertBase, type ReinsertCell, type ReinsertDashboard, type ReinsertQuery } from '../api/reinsertApi';
 import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
@@ -129,7 +129,7 @@ export default function ReinsertRatePage() {
         </div>
         {!data.models.length ? <div className="py-16 text-center text-sm text-slate-500">当前筛选条件下没有订单数据</div>
           : activeBase && selectedBase ? <BaseSection key={JSON.stringify(selectedBase)} model={selectedBase.model} base={activeBase} months={data.months} open={(kind, base, month, component, pn) => open(kind, base, month, component, pn, selectedBase.model)} onBack={() => setSelectedBase(null)} />
-            : <><DefectResponsibilityChart items={data.defectResponsibilities ?? []} /><BaseOverview models={data.models} months={data.months} open={open} onSelect={setSelectedBase} /></>}
+            : <><div className="grid min-w-0 grid-cols-1 gap-4 lg:grid-cols-2"><DefectResponsibilityChart items={data.defectResponsibilities ?? []} /><BaseComparisonChart bases={data.bases} months={data.months} /></div><BaseOverview models={data.models} months={data.months} open={open} onSelect={setSelectedBase} /></>}
       </>}
     </main>
     {detail && <DetailDialog query={detail} onClose={close} />}
@@ -140,31 +140,61 @@ type OpenDetail = (kind: DetailKind, base?: string, month?: string, component?: 
 
 function DefectResponsibilityChart({ items }: { items: ReinsertDashboard['defectResponsibilities'] }) {
   const total = items.reduce((sum, item) => sum + item.count, 0);
-  return <figure className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-    <div className="mx-auto min-w-0 max-w-2xl">
-      <figcaption className="flex min-h-11 items-start justify-between gap-2">
-        <div className="flex items-center gap-1"><h2 className="text-xs font-semibold text-slate-800">维修故障缺陷责任分类</h2><HelpTooltip label="查看缺陷责任分类说明">按当前筛选条件内的维修故障记录数量统计，包含缺少 SN 或工站的记录。</HelpTooltip></div>
-        <span className="shrink-0 text-[11px] tabular-nums text-slate-500">{total.toLocaleString()} 条</span>
+  return <figure className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+    <div className="min-w-0">
+      <figcaption className="flex min-h-11 flex-wrap items-start justify-between gap-2">
+        <div><div className="flex items-center gap-1"><h2 className="text-sm font-semibold text-slate-800">维修故障缺陷责任分类</h2><HelpTooltip label="查看缺陷责任分类说明">按当前筛选条件内的维修故障记录数量统计，包含缺少 SN 或工站的记录。</HelpTooltip></div><p className="mt-1 text-xs text-slate-500">按故障记录统计 · 分类占比</p></div>
+        <span className="rounded-md bg-slate-50 px-2 py-1 text-[11px] tabular-nums text-slate-600">共 {total.toLocaleString()} 条</span>
       </figcaption>
       {total === 0 ? <p className="py-12 text-center text-sm text-slate-500">当前筛选条件下没有维修故障记录</p> :
-      <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 sm:justify-start">
-        <div className="relative h-36 w-36 shrink-0" role="img" aria-label="维修故障缺陷责任分类饼图">
+      <div className="mt-3 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 sm:justify-start">
+        <div className="relative h-56 w-40 shrink-0" role="img" aria-label="维修故障缺陷责任分类饼图">
           <ResponsiveContainer width="100%" height="100%" minWidth={0}>
             <PieChart>
               <Pie data={items} dataKey="count" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={59} isAnimationActive={false}>{items.map((item, index) => <Cell key={item.name} fill={REPAIR_CHART_COLORS[index % REPAIR_CHART_COLORS.length]} />)}</Pie>
               <Tooltip contentStyle={{ borderRadius: 4, border: '1px solid #cbd5e1', fontSize: 12 }} formatter={value => [`${value} 条`, '故障记录']} />
             </PieChart>
           </ResponsiveContainer>
-          <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-[54px] text-center">
+          <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-[94px] text-center">
             <p className="text-sm font-semibold leading-5 tabular-nums text-emerald-800">{total.toLocaleString()}</p>
             <p className="mt-0.5 text-[10px] text-slate-500">故障记录</p>
           </div>
         </div>
-        <ul className="flex min-w-0 flex-1 basis-48 flex-wrap gap-x-4 gap-y-2 text-[11px] tabular-nums text-slate-600">
-          {items.map((item, index) => <li key={item.name} className="inline-flex max-w-full items-center gap-1"><span className="size-2 shrink-0 rounded-sm" style={{ backgroundColor: REPAIR_CHART_COLORS[index % REPAIR_CHART_COLORS.length] }} /><span className="min-w-0 break-words">{item.name}</span><span className="shrink-0 whitespace-nowrap">{item.count.toLocaleString()} 条 · {(item.count / total * 100).toFixed(1)}%</span></li>)}
+        <ul className="min-w-0 flex-1 basis-48 space-y-2 text-xs tabular-nums text-slate-600">
+          {items.map((item, index) => <li key={item.name} className="flex max-w-full flex-wrap items-center gap-x-2 gap-y-0.5"><span className="size-2 shrink-0 rounded-sm" style={{ backgroundColor: REPAIR_CHART_COLORS[index % REPAIR_CHART_COLORS.length] }} /><span className="min-w-0 break-words">{item.name}</span><span className="whitespace-nowrap text-slate-500">{item.count.toLocaleString()} 条 · {(item.count / total * 100).toFixed(1)}%</span></li>)}
         </ul>
       </div>}
     </div>
+  </figure>;
+}
+
+function BaseComparisonChart({ bases, months }: { bases: ReinsertBase[]; months: string[] }) {
+  const [metric, setMetric] = useState<'reinsertCount' | 'plannedRate'>('reinsertCount');
+  const [hiddenMonths, setHiddenMonths] = useState<Set<string>>(new Set());
+  const chart = bases.map(base => Object.fromEntries([
+    ['base', base.base],
+    ...months.map((month, index) => [`month${index}`, base.months[month]?.[metric] ?? null]),
+  ]));
+  return <figure className="min-w-0 rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+    <figcaption className="flex flex-wrap items-start justify-between gap-3">
+      <div><div className="flex items-center gap-1"><h2 className="text-sm font-semibold text-slate-800">基地月度重插对比</h2><HelpTooltip label="查看基地对比说明">按订单计划月汇总当前筛选范围内各基地的重插事件数和整机计划量口径重插率；基地汇总按 SN 和工站去重。</HelpTooltip></div><p className="mt-1 text-xs text-slate-500">按订单计划月 · 各基地汇总</p></div>
+      <label className="flex items-center gap-2 text-xs text-slate-600">对比指标<select value={metric} onChange={event => setMetric(event.target.value as typeof metric)} className="h-8 rounded-md border border-slate-300 bg-white px-2 text-xs text-slate-700"><option value="reinsertCount">重插数</option><option value="plannedRate">整机重插率</option></select></label>
+    </figcaption>
+    {bases.length ? <>
+      <div className="mt-3 overflow-x-auto">
+        <div className="h-56" style={{ minWidth: Math.max(320, bases.length * 100) }} role="img" aria-label={`基地月度${metric === 'reinsertCount' ? '重插数' : '整机重插率'}对比柱状图`}>
+          <ResponsiveContainer width="100%" height="100%" minWidth={0}><BarChart data={chart} margin={{ top: 8, left: 0, right: 8 }}>
+            <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 4" vertical={false} />
+            <XAxis dataKey="base" axisLine={false} tickLine={false} tickMargin={10} tick={{ fontSize: 11, fill: '#64748b' }} />
+            <YAxis allowDecimals={metric === 'plannedRate'} width={48} axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={value => metric === 'plannedRate' ? `${value}%` : String(value)} />
+            <Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', fontSize: 12 }} formatter={(value, name) => [metric === 'plannedRate' ? `${value}%` : `${value} 次`, name]} />
+            {months.map((month, index) => !hiddenMonths.has(month) && <Bar key={month} dataKey={`month${index}`} name={month} fill={componentColors[index % componentColors.length]} maxBarSize={32} radius={[4, 4, 0, 0]} isAnimationActive={false} />)}
+          </BarChart></ResponsiveContainer>
+        </div>
+      </div>
+      <ChartSeriesSelector label="选择月份" items={months.map((month, index) => ({ id: month, label: month, color: componentColors[index % componentColors.length] }))} hidden={hiddenMonths} setHidden={setHiddenMonths} />
+      {metric === 'plannedRate' && <p className="mt-2 text-xs text-slate-500">计划量缺失或不大于零时不显示重插率。</p>}
+    </> : <p className="py-12 text-center text-sm text-slate-500">当前筛选条件下没有基地数据</p>}
   </figure>;
 }
 
