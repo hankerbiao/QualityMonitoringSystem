@@ -1163,7 +1163,7 @@ async def test_station_rates_summary_uses_pass_sns_and_rty_faults(monkeypatch):
 
     assert len(rows) == 1
     assert rows[0].inputCount == 1
-    assert rows[0].totalInputCount == 1
+    assert rows[0].totalInputCount == 101
     assert rows[0].totalDefectCount == 2
     assert faults.await_args.kwargs == {
         "production_orders": ["000000000001", "1"],
@@ -1270,7 +1270,7 @@ async def test_station_rty_matches_cycle_for_repairs_outside_selected_order_date
     )
 
     assert len(cycle_rows) == len(station_rows) == 1
-    assert station_rows[0].totalInputCount == 1
+    assert station_rows[0].totalInputCount == 1258
     assert cycle_rows[0].inputCount == 1258
     assert station_rows[0].totalDefectCount == cycle_rows[0].defectCount == 6
     assert list_rows["items"][0].defectCount == 6
@@ -1284,7 +1284,7 @@ async def test_station_rty_matches_cycle_for_repairs_outside_selected_order_date
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("group_by", ["productModel", "salesOrder", "productionOrder"])
-async def test_station_summary_deduplicates_pass_sns_across_months_and_stations(monkeypatch, group_by):
+async def test_station_summary_uses_order_quantities_across_months_and_stations(monkeypatch, group_by):
     gateway = rty_gateway.data_gateway
     order_values = [
         ("1", "2026-07-01", "B1"),
@@ -1366,10 +1366,10 @@ async def test_station_summary_deduplicates_pass_sns_across_months_and_stations(
     if group_by == "productionOrder":
         assert {
             row.dimensionValue: (row.totalInputCount, row.totalDefectCount) for row in station_rows
-        } == {"1": (2, 1), "2": (1, 1), "3": (1, 1), "4": (1, 1)}
+        } == {"1": (10, 1), "2": (10, 1), "3": (10, 1), "4": (10, 1)}
     else:
         assert len(station_rows) == 2
-        assert all(row.totalInputCount == 2 for row in station_rows)
+        assert all(row.totalInputCount == sum(item.inputCount for item in cycle_rows) for row in station_rows)
         assert all(row.totalDefectCount == sum(item.defectCount for item in cycle_rows) for row in station_rows)
     assert next(row for row in station_rows if row.dimensionValue == (
         "1" if group_by == "productionOrder" else "SO-1" if group_by == "salesOrder" else "6210 C21"
@@ -1459,7 +1459,7 @@ async def test_station_rates_customer_filter_scopes_station_and_rty_counts(monke
     assert repairs.await_args.args[0] == {"SN-A"}
     assert len(rows) == 1
     assert rows[0].inputCount == 1
-    assert rows[0].totalInputCount == 1
+    assert rows[0].totalInputCount == 10
     assert rows[0].totalDefectCount == 1
 
 

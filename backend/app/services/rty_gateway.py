@@ -898,12 +898,11 @@ async def station_rates(
         _station_repairs_for_sns(all_sns, date_from=start, date_to=end),
         _rty_order_groups(orders, group_by=group_by),
     )
+    summary_inputs: dict[str, int] = defaultdict(int)
     summary_faults: dict[str, int] = defaultdict(int)
     for (dimension, _month, _model, _base), group in rty_groups.items():
+        summary_inputs[dimension] += round(group["input"])
         summary_faults[dimension] += len(group["defects"])
-    summary_sns: dict[str, set[str]] = defaultdict(set)
-    for (dimension, _station), value in by_station.items():
-        summary_sns[dimension].update(value["sns"])
     defect_by_station: dict[tuple[str, str], set[str]] = defaultdict(set)
     for row in repairs:
         repair_station = normalize_station_code(str(row.get("ZNGGZ") or ""))
@@ -939,7 +938,7 @@ async def station_rates(
             )
             if value["sns"]
             else 100.0,
-            totalInputCount=len(summary_sns[dimension_value]),
+            totalInputCount=summary_inputs[dimension_value],
             totalDefectCount=summary_faults[dimension_value],
         )
         for (dimension_value, station), value in sorted(by_station.items())
