@@ -9,6 +9,7 @@ import { HelpTooltip } from '../components/shared/HelpTooltip';
 import { DateRangePicker } from '../components/shared/DateRangePicker';
 import { MultiSelect } from '../components/shared/MultiSelect';
 import { recentDateRange } from '../utils/dateRange';
+import { REPAIR_CHART_COLORS } from '../utils/repairQualityCharts';
 import { buildReinsertWorkbook } from './reinsertExport';
 
 const colors = ['#0f766e', '#2563eb', '#d97706', '#be185d', '#7c3aed'];
@@ -140,20 +141,30 @@ type OpenDetail = (kind: DetailKind, base?: string, month?: string, component?: 
 function DefectResponsibilityChart({ items }: { items: ReinsertDashboard['defectResponsibilities'] }) {
   const total = items.reduce((sum, item) => sum + item.count, 0);
   return <figure className="rounded-xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
-    <figcaption className="flex items-center gap-1 text-sm font-semibold text-slate-800">维修故障缺陷责任分类<HelpTooltip label="查看缺陷责任分类说明">按当前筛选条件内的维修故障记录数量统计，包含缺少 SN 或工站的记录。</HelpTooltip></figcaption>
-    <p className="mt-1 text-xs text-slate-500">按故障记录统计 · 共 {total.toLocaleString()} 条</p>
-    {total === 0 ? <p className="py-12 text-center text-sm text-slate-500">当前筛选条件下没有维修故障记录</p> :
-      <div className="mt-3 flex flex-wrap items-center gap-x-8 gap-y-3">
-        <div className="h-48 w-48 shrink-0" role="img" aria-label="维修故障缺陷责任分类饼图">
-          <ResponsiveContainer width="100%" height="100%" minWidth={0}><PieChart>
-            <Pie data={items} dataKey="count" nameKey="name" innerRadius={48} outerRadius={78} isAnimationActive={false}>{items.map((item, index) => <Cell key={item.name} fill={colors[index % colors.length]} />)}</Pie>
-            <Tooltip formatter={value => [`${value} 条`, '故障记录']} />
-          </PieChart></ResponsiveContainer>
+    <div className="mx-auto min-w-0 max-w-2xl">
+      <figcaption className="flex min-h-11 items-start justify-between gap-2">
+        <div className="flex items-center gap-1"><h2 className="text-xs font-semibold text-slate-800">维修故障缺陷责任分类</h2><HelpTooltip label="查看缺陷责任分类说明">按当前筛选条件内的维修故障记录数量统计，包含缺少 SN 或工站的记录。</HelpTooltip></div>
+        <span className="shrink-0 text-[11px] tabular-nums text-slate-500">{total.toLocaleString()} 条</span>
+      </figcaption>
+      {total === 0 ? <p className="py-12 text-center text-sm text-slate-500">当前筛选条件下没有维修故障记录</p> :
+      <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-3 sm:justify-start">
+        <div className="relative h-36 w-36 shrink-0" role="img" aria-label="维修故障缺陷责任分类饼图">
+          <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+            <PieChart>
+              <Pie data={items} dataKey="count" nameKey="name" cx="50%" cy="50%" innerRadius={40} outerRadius={59} isAnimationActive={false}>{items.map((item, index) => <Cell key={item.name} fill={REPAIR_CHART_COLORS[index % REPAIR_CHART_COLORS.length]} />)}</Pie>
+              <Tooltip contentStyle={{ borderRadius: 4, border: '1px solid #cbd5e1', fontSize: 12 }} formatter={value => [`${value} 条`, '故障记录']} />
+            </PieChart>
+          </ResponsiveContainer>
+          <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-[54px] text-center">
+            <p className="text-sm font-semibold leading-5 tabular-nums text-emerald-800">{total.toLocaleString()}</p>
+            <p className="mt-0.5 text-[10px] text-slate-500">故障记录</p>
+          </div>
         </div>
-        <ul className="grid min-w-0 flex-1 gap-x-6 gap-y-2 text-xs text-slate-600 sm:grid-cols-2 lg:grid-cols-3">
-          {items.map((item, index) => <li key={item.name} className="flex min-w-0 items-center gap-2"><span className="size-2.5 shrink-0 rounded-sm" style={{ backgroundColor: colors[index % colors.length] }} /><span className="min-w-0 break-words">{item.name}</span><span className="ml-auto whitespace-nowrap tabular-nums">{item.count.toLocaleString()} 条 · {(item.count / total * 100).toFixed(1)}%</span></li>)}
+        <ul className="flex min-w-0 flex-1 basis-48 flex-wrap gap-x-4 gap-y-2 text-[11px] tabular-nums text-slate-600">
+          {items.map((item, index) => <li key={item.name} className="inline-flex max-w-full items-center gap-1"><span className="size-2 shrink-0 rounded-sm" style={{ backgroundColor: REPAIR_CHART_COLORS[index % REPAIR_CHART_COLORS.length] }} /><span className="min-w-0 break-words">{item.name}</span><span className="shrink-0 whitespace-nowrap">{item.count.toLocaleString()} 条 · {(item.count / total * 100).toFixed(1)}%</span></li>)}
         </ul>
       </div>}
+    </div>
   </figure>;
 }
 
