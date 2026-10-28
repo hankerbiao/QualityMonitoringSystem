@@ -4,12 +4,14 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { reinsertApi } from '../api/reinsertApi';
 import ReinsertRatePage from './ReinsertRatePage';
+import * as XLSX from 'xlsx';
 
+vi.mock('xlsx', async importOriginal => ({ ...await importOriginal<typeof import('xlsx')>(), writeFile: vi.fn() }));
 vi.mock('../api/reinsertApi', () => ({ reinsertApi: { options: vi.fn(), dashboard: vi.fn(), details: vi.fn() } }));
 vi.mock('../components/shared/DashboardSwitcher', () => ({ DashboardSwitcher: () => null }));
 vi.mock('recharts', () => ({
   ResponsiveContainer: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  ComposedChart: () => null, LineChart: () => null, Bar: () => null, Line: () => null,
+  ComposedChart: ({ data }: { data: unknown }) => <div data-testid="count-chart">{JSON.stringify(data)}</div>, LineChart: ({ data }: { data: unknown }) => <div data-testid="pn-chart">{JSON.stringify(data)}</div>, Bar: () => null, Line: () => null,
   CartesianGrid: () => null, Tooltip: () => null, XAxis: () => null, YAxis: () => null,
 }));
 
@@ -34,12 +36,12 @@ describe('重插率分析', () => {
   });
   afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); });
 
-  it('defaults to the most recent 30 days, including today', () => {
+  it('defaults to the most recent 7 days, including today', () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date(2026, 2, 31, 12));
+    vi.setSystemTime(new Date(2026, 0, 3, 12));
     render(<MemoryRouter><ReinsertRatePage /></MemoryRouter>);
-    expect(reinsertApi.dashboard).toHaveBeenCalledWith({ dateFrom: '2026-03-02', dateTo: '2026-03-31' });
-    expect(screen.getByRole('button', { name: '订单计划日期' }).getAttribute('title')).toBe('2026-03-02 至 2026-03-31');
+    expect(reinsertApi.dashboard).toHaveBeenCalledWith({ dateFrom: '2025-12-28', dateTo: '2026-01-03' });
+    expect(screen.getByRole('button', { name: '订单计划日期' }).getAttribute('title')).toBe('2025-12-28 至 2026-01-03');
   });
 
   it('expands component PN and opens the correct detail with applied filters', async () => {
@@ -82,5 +84,42 @@ describe('重插率分析', () => {
     expect((await screen.findByRole('alert')).textContent).toContain('数据源不可用');
     fireEvent.click(screen.getByRole('button', { name: '重试' }));
     await waitFor(() => expect(screen.getByRole('button', { name: '查看M1 B1基地详情' })).toBeTruthy());
+  });
+
+  it('uses daily trend data for a single month and keeps monthly table data', async () => {
+    const dailyBase = { ...bases[0], days: { '2026-01-01': cell, '2026-01-02': { ...cell, reinsertCount: 0, plannedRate: null } }, topPns: [{ pn: 'PN1', months: { '2026-01': cell }, days: { '2026-01-01': cell, '2026-01-02': { ...cell, plannedRate: null } } }] };
+    vi.mocked(reinsertApi.dashboard).mockResolvedValue({ ...result, models: [{ model: 'M1', bases: [dailyBase] }] });
+    render(<MemoryRouter><ReinsertRatePage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: '查看M1 B1基地详情' }));
+    expect(screen.getByText('每日重插数与整机口径重插率')).toBeTruthy();
+    expect(screen.getByText('PN Top 5 每日重插率')).toBeTruthy();
+    expect(JSON.parse(screen.getByTestId('count-chart').textContent || '[]')).toEqual([
+      { period: '2026-01-01', count: 2, rate: 2 }, { period: '2026-01-02', count: 0, rate: null },
+    ]);
+    expect(JSON.parse(screen.getByTestId('pn-chart').textContent || '[]')[1].pn0).toBeNull();
+    expect(screen.getByText('2026-01')).toBeTruthy();
+  });
+
+  it('shows repair descriptions and exports each original record across pages', async () => {
+    const first = { PCODE: 'S1', ZNGWD3: '内存数量比对报错', ZWXWD3: '重插内存', AUFNR: '0001', extra: { source: 'MES' } };
+    const second = { PCODE: 'S1', ZNGWD3: '故障二', ZWXWD3: '重插部件', AUFNR: '0002', additional: '原始字段' };
+    const group = { SN: 'S1', NG工站: 'OP1', 记录数: 2, 维修记录: [first, second] };
+    vi.mocked(reinsertApi.details).mockResolvedValueOnce({ items: [group], total: 2, page: 1, pageSize: 50 })
+      .mockResolvedValueOnce({ items: [group], total: 2, page: 1, pageSize: 200 })
+      .mockResolvedValueOnce({ items: [{ SN: 'S2', NG工站: 'OP2', 记录数: 1, 维修记录: [{ PCODE: 'S2', ZWXWD3: '重插' }] }], total: 2, page: 2, pageSize: 200 });
+    render(<MemoryRouter><ReinsertRatePage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: 'M1 B1 2026-01 重插数明细' }));
+    const dialog = screen.getByRole('dialog', { name: '重插事件' });
+    expect(await within(dialog).findByText('内存数量比对报错')).toBeTruthy();
+    expect(within(dialog).getByText('重插内存')).toBeTruthy();
+    expect(within(dialog).getByText('故障二')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: '导出明细' }));
+    await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalledOnce());
+    const workbook = vi.mocked(XLSX.writeFile).mock.calls[0][0];
+    expect(XLSX.utils.sheet_to_json(workbook.Sheets['明细'])).toEqual([
+      { PCODE: 'S1', ZNGWD3: '内存数量比对报错', ZWXWD3: '重插内存', AUFNR: '0001', 'extra.source': 'MES' },
+      { PCODE: 'S1', ZNGWD3: '故障二', ZWXWD3: '重插部件', AUFNR: '0002', additional: '原始字段' },
+      { PCODE: 'S2', ZWXWD3: '重插' },
+    ]);
   });
 });

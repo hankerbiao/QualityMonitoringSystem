@@ -16,7 +16,7 @@ const number = (value: number | null) => value == null ? '—' : value.toLocaleS
 const rate = (value: number | null) => value == null ? '—' : `${value.toFixed(2)}%`;
 
 function initialQuery(): ReinsertQuery {
-  const { from, to } = recentDateRange();
+  const { from, to } = recentDateRange(7);
   return { dateFrom: from, dateTo: to };
 }
 
@@ -107,20 +107,20 @@ type OpenDetail = (kind: DetailKind, base?: string, month?: string, component?: 
 
 function BaseOverview({ models, months, open, onSelect }: { models: ReinsertDashboard['models']; months: string[]; open: OpenDetail; onSelect: (selection: { model: string; base: string }) => void }) {
   return <section aria-labelledby="base-overview-title">
-    <div className="flex items-baseline justify-between gap-3 py-2">
-      <h2 id="base-overview-title" className="text-sm font-semibold text-slate-900">机型与基地汇总</h2>
-      <span className="text-xs text-slate-500">{models.length} 个机型</span>
+    <div className="flex flex-wrap items-center justify-between gap-2 py-3">
+      <div><h2 id="base-overview-title" className="text-sm font-semibold text-slate-900">机型与基地汇总</h2><p className="mt-1 text-xs text-slate-500">点击基地查看趋势，点击数值查看明细</p></div>
+      <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500"><span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-amber-500" />有重插记录</span><span className="rounded-full bg-slate-200/70 px-2.5 py-1 font-medium text-slate-600">{models.length} 个机型</span></div>
     </div>
-    <div className="overflow-auto border border-slate-300 bg-white">
+    <div className="overflow-auto rounded-lg border border-slate-200 bg-white shadow-sm">
       <table className="w-full min-w-max border-collapse text-right text-xs tabular-nums">
-        <thead className="bg-slate-100 text-slate-700">
-          <tr><th rowSpan={2} className="sticky left-0 z-10 min-w-36 border border-slate-300 bg-slate-100 px-3 py-2 text-left">机型</th><th rowSpan={2} className="min-w-36 border border-slate-300 px-3 py-2 text-left">基地</th>{months.map(month => <th key={month} colSpan={4} className="border border-slate-300 px-2 py-2 text-center">{month}</th>)}</tr>
-          <tr>{months.flatMap(month => ['重插数', '维修数', '计划量', '整机重插率'].map(label => <th key={`${month}-${label}`} className="border border-slate-300 px-2 py-1.5">{label}</th>))}</tr>
+        <thead className="bg-slate-50 text-slate-600">
+          <tr><th rowSpan={2} className="sticky left-0 z-10 min-w-36 border border-slate-200 bg-slate-50 px-3 py-2.5 text-left">机型</th><th rowSpan={2} className="min-w-36 border border-slate-200 px-3 py-2.5 text-left">基地</th>{months.map(month => <th key={month} colSpan={4} className="border border-slate-200 bg-cyan-50 px-2 py-2.5 text-center font-semibold text-cyan-900">{month}</th>)}</tr>
+          <tr>{months.flatMap(month => ['重插数', '维修数', '计划量', '整机重插率'].map(label => <th key={`${month}-${label}`} className={`border border-slate-200 px-2 py-2 ${label === '整机重插率' ? 'bg-cyan-50/50 text-cyan-900' : ''}`}>{label}</th>))}</tr>
         </thead>
-        <tbody>{models.flatMap(({ model, bases }) => bases.map((base, index) => <tr key={JSON.stringify([model, base.base])} className="hover:bg-teal-50/40">
-          {index === 0 && <th scope="rowgroup" rowSpan={bases.length} className="sticky left-0 z-[1] border border-slate-200 bg-white px-3 py-2 text-left font-medium">{model || '未填写机型'}</th>}
-          <th scope="row" className="border border-slate-200 bg-white px-3 py-2 text-left font-medium">
-            <button type="button" onClick={() => onSelect({ model, base: base.base })} aria-label={`查看${model || '未填写机型'} ${base.base}基地详情`} className="inline-flex items-center gap-1 text-teal-800 hover:underline">
+        <tbody>{models.flatMap(({ model, bases }) => bases.map((base, index) => <tr key={JSON.stringify([model, base.base])} className="group hover:bg-cyan-50/50">
+          {index === 0 && <th scope="rowgroup" rowSpan={bases.length} className="sticky left-0 z-[1] border border-slate-200 bg-slate-50 px-3 py-2 text-left font-semibold text-slate-700">{model || '未填写机型'}</th>}
+          <th scope="row" className="border border-slate-200 px-3 py-2 text-left font-medium">
+            <button type="button" onClick={() => onSelect({ model, base: base.base })} aria-label={`查看${model || '未填写机型'} ${base.base}基地详情`} className="inline-flex items-center gap-1 rounded-md bg-teal-50 px-2 py-1 text-teal-800 transition-colors hover:bg-teal-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600">
               <ChevronRight className="size-4 shrink-0" />{base.base}
             </button>
           </th>
@@ -130,8 +130,8 @@ function BaseOverview({ models, months, open, onSelect }: { models: ReinsertDash
               [number(value.reinsertCount), 'reinsert', '重插数'], [number(value.repairCount), 'repairs', '维修数'],
               [number(value.plannedQuantity), 'orders', '计划量'], [rate(value.plannedRate), 'reinsert', '整机重插率'],
             ];
-            return cells.map(([text, kind, title]) => <td key={`${month}-${title}`} className="border border-slate-200 px-2 py-2" title={text === '—' ? '计划量缺失或不大于零' : undefined}>
-              {text === '—' ? <span className="text-slate-400">—</span> : <button type="button" aria-label={`${model || '未填写机型'} ${base.base} ${month} ${title}明细`} onClick={() => open(kind, base.base, month, '', '', model)} className="underline decoration-dotted underline-offset-2 hover:text-teal-700">{text}</button>}
+            return cells.map(([text, kind, title]) => <td key={`${month}-${title}`} className={`border border-slate-200 px-2 py-2 ${title === '整机重插率' ? 'bg-cyan-50/30' : ''}`} title={text === '—' ? '计划量缺失或不大于零' : undefined}>
+              {text === '—' ? <span className="text-slate-400">—</span> : <button type="button" aria-label={`${model || '未填写机型'} ${base.base} ${month} ${title}明细`} onClick={() => open(kind, base.base, month, '', '', model)} className={`rounded px-1.5 py-0.5 underline decoration-dotted underline-offset-2 transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-600 ${value.reinsertCount > 0 && (title === '重插数' || title === '整机重插率') ? 'bg-amber-50 font-semibold text-amber-800 hover:bg-amber-100' : 'text-slate-600 hover:bg-cyan-100 hover:text-cyan-800'}`}>{text}</button>}
             </td>);
           })}
         </tr>))}</tbody>
@@ -142,8 +142,10 @@ function BaseOverview({ models, months, open, onSelect }: { models: ReinsertDash
 
 function BaseSection({ model, base, months, open, onBack }: { model: string; base: ReinsertBase; months: string[]; open: OpenDetail; onBack: () => void }) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const chart = months.map(month => ({ month, count: base.months[month].reinsertCount, rate: base.months[month].plannedRate }));
-  const pnChart = months.map(month => Object.fromEntries([['month', month], ...base.topPns.map((item, index) => [`pn${index}`, item.months[month].plannedRate])]));
+  const daily = months.length === 1 && !!base.days;
+  const periods = daily ? Object.keys(base.days!) : months;
+  const chart = periods.map(period => ({ period, count: (daily ? base.days![period] : base.months[period]).reinsertCount, rate: (daily ? base.days![period] : base.months[period]).plannedRate }));
+  const pnChart = periods.map(period => Object.fromEntries([['period', period], ...base.topPns.map((item, index) => [`pn${index}`, (daily ? item.days?.[period] : item.months[period])?.plannedRate ?? null])]));
   const toggle = (component: string) => setExpanded(current => {
     const next = new Set(current);
     if (next.has(component)) next.delete(component); else next.add(component);
@@ -155,21 +157,22 @@ function BaseSection({ model, base, months, open, onBack }: { model: string; bas
       <span className="h-4 w-px bg-slate-300" />
       <h2 className="text-sm font-semibold text-slate-900">{model || '未填写机型'} / {base.base}</h2>
     </div>
-    <div className="grid min-w-0 grid-cols-1 gap-5 py-2 xl:grid-cols-2">
-      <figure className="min-w-0"><figcaption className="mb-2 flex items-center gap-1 text-xs font-semibold">月度重插数与整机口径重插率<HelpTooltip label="查看整机口径重插率说明">柱线图展示每月重插数量与整机计划量口径的重插率。</HelpTooltip></figcaption>
-        <div className="h-52" role="img" aria-label={`${base.base}月度重插数与重插率`}>
-          <ResponsiveContainer width="100%" height="100%" minWidth={0}><ComposedChart data={chart} margin={{ left: 0, right: 5 }}>
-            <CartesianGrid stroke="#e2e8f0" vertical={false} /><XAxis dataKey="month" tick={{ fontSize: 10 }} /><YAxis yAxisId="count" allowDecimals={false} width={38} tick={{ fontSize: 10 }} /><YAxis yAxisId="rate" orientation="right" width={48} tick={{ fontSize: 10 }} tickFormatter={v => `${v}%`} /><Tooltip formatter={(value, name) => name === '重插率' ? [`${value}%`, name] : [value, name]} /><Bar yAxisId="count" dataKey="count" name="重插数" fill="#0f766e" maxBarSize={28} isAnimationActive={false} /><Line yAxisId="rate" dataKey="rate" name="重插率" stroke="#d97706" strokeWidth={2} connectNulls={false} isAnimationActive={false} />
+    <div className="grid min-w-0 grid-cols-1 gap-4 py-2 xl:grid-cols-2">
+      <figure className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"><figcaption className="mb-4 flex items-center gap-1 text-sm font-semibold text-slate-800">{daily ? '每日' : '月度'}重插数与整机口径重插率<HelpTooltip label="查看整机口径重插率说明">按订单计划{daily ? '日' : '月'}展示重插数量与整机计划量口径的重插率。</HelpTooltip></figcaption>
+        <div className="h-56" role="img" aria-label={`${base.base}${daily ? '每日' : '月度'}重插数与重插率`}>
+          <ResponsiveContainer width="100%" height="100%" minWidth={0}><ComposedChart data={chart} margin={{ top: 8, left: 0, right: 5 }}>
+            <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 4" vertical={false} /><XAxis dataKey="period" tickFormatter={value => daily ? value.slice(5) : value} axisLine={false} tickLine={false} tickMargin={10} tick={{ fontSize: 11, fill: '#64748b' }} /><YAxis yAxisId="count" allowDecimals={false} width={38} axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8' }} /><YAxis yAxisId="rate" orientation="right" width={48} axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={v => `${v}%`} /><Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 8px 24px rgba(15, 23, 42, 0.08)', fontSize: 12 }} formatter={(value, name) => name === '重插率' ? [`${value}%`, name] : [value, name]} /><Bar yAxisId="count" dataKey="count" name="重插数" fill="#0f766e" radius={[6, 6, 0, 0]} maxBarSize={28} isAnimationActive={false} /><Line yAxisId="rate" type="monotone" dataKey="rate" name="重插率" stroke="#d97706" strokeWidth={2.5} strokeLinecap="round" dot={{ r: 4, fill: '#fff', strokeWidth: 2 }} activeDot={{ r: 6 }} connectNulls={false} isAnimationActive={false} />
           </ComposedChart></ResponsiveContainer>
         </div>
+        <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-xs text-slate-600"><span className="inline-flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-sm bg-teal-700" />重插数</span><span className="inline-flex items-center gap-2"><span className="h-1 w-4 rounded-full bg-amber-600" />整机重插率</span></div>
       </figure>
-      <figure className="min-w-0"><figcaption className="mb-2 flex items-center gap-1 text-xs font-semibold">PN Top 5 月度重插率<HelpTooltip label="查看 PN 月度重插率说明">展示基地内重插率排名前五的 PN 在各月份的重插率。</HelpTooltip></figcaption>
-        <div className="h-52" role="img" aria-label={`${base.base} PN前五月度重插率`}>
-          {base.topPns.length ? <ResponsiveContainer width="100%" height="100%" minWidth={0}><LineChart data={pnChart} margin={{ left: 0, right: 5 }}>
-            <CartesianGrid stroke="#e2e8f0" vertical={false} /><XAxis dataKey="month" tick={{ fontSize: 10 }} /><YAxis width={48} tick={{ fontSize: 10 }} tickFormatter={v => `${v}%`} /><Tooltip formatter={(value, name) => [`${value}%`, name]} />{base.topPns.map((item, index) => <Line key={item.pn} dataKey={`pn${index}`} name={item.pn} stroke={colors[index]} strokeWidth={2} connectNulls={false} isAnimationActive={false} />)}
+      <figure className="min-w-0 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5"><figcaption className="mb-4 flex items-center gap-1 text-sm font-semibold text-slate-800">PN Top 5 {daily ? '每日' : '月度'}重插率<HelpTooltip label="查看 PN 重插率说明">按订单计划{daily ? '日' : '月'}展示基地内重插数量排名前五的 PN 的整机口径重插率。</HelpTooltip></figcaption>
+        <div className="h-56" role="img" aria-label={`${base.base} PN前五${daily ? '每日' : '月度'}重插率`}>
+          {base.topPns.length ? <ResponsiveContainer width="100%" height="100%" minWidth={0}><LineChart data={pnChart} margin={{ top: 8, left: 0, right: 8 }}>
+            <CartesianGrid stroke="#e2e8f0" strokeDasharray="3 4" vertical={false} /><XAxis dataKey="period" tickFormatter={value => daily ? value.slice(5) : value} axisLine={false} tickLine={false} tickMargin={10} tick={{ fontSize: 11, fill: '#64748b' }} /><YAxis width={48} axisLine={false} tickLine={false} tick={{ fontSize: 11, fill: '#94a3b8' }} tickFormatter={v => `${v}%`} /><Tooltip contentStyle={{ borderRadius: 12, border: '1px solid #e2e8f0', boxShadow: '0 8px 24px rgba(15, 23, 42, 0.08)', fontSize: 12 }} formatter={(value, name) => [`${value}%`, name]} />{base.topPns.map((item, index) => <Line key={item.pn} type="monotone" dataKey={`pn${index}`} name={item.pn} stroke={colors[index]} strokeWidth={2.5} strokeLinecap="round" dot={{ r: 4, fill: '#fff', strokeWidth: 2 }} activeDot={{ r: 6 }} connectNulls={false} isAnimationActive={false} />)}
           </LineChart></ResponsiveContainer> : <div className="flex h-full items-center justify-center text-xs text-slate-400">暂无 PN 数据</div>}
         </div>
-        <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">{base.topPns.map((item, index) => <span key={item.pn} className="inline-flex items-center gap-1 text-slate-600"><span className="size-2 rounded-sm" style={{ backgroundColor: colors[index] }} />{item.pn}</span>)}</div>
+        <div className="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-xs">{base.topPns.map((item, index) => <span key={item.pn} className="inline-flex items-center gap-1.5 text-slate-600"><span className="size-2.5 rounded-full" style={{ backgroundColor: colors[index] }} />{item.pn}</span>)}</div>
       </figure>
     </div>
     <div className="mt-4 overflow-auto border border-slate-300 bg-white">
@@ -212,6 +215,26 @@ function TableRow({ label, base, months, values, component = '', pn = '', expand
 function display(value: unknown): string {
   if (value == null) return '—';
   return typeof value === 'object' ? JSON.stringify(value) : String(value);
+}
+
+function repairRecords(value: unknown): Record<string, unknown>[] {
+  return Array.isArray(value) ? value.filter((item): item is Record<string, unknown> => item !== null && typeof item === 'object' && !Array.isArray(item)) : [];
+}
+
+function flattenRecord(record: Record<string, unknown>, prefix = ''): Record<string, string | number | boolean | null> {
+  const result: Record<string, string | number | boolean | null> = {};
+  for (const [key, value] of Object.entries(record)) {
+    const name = prefix ? `${prefix}.${key}` : key;
+    if (Array.isArray(value)) {
+      if (value.length === 0) result[name] = null;
+      else value.forEach((item, index) => {
+        if (item !== null && typeof item === 'object') Object.assign(result, flattenRecord(item as Record<string, unknown>, `${name}.${index + 1}`));
+        else result[`${name}.${index + 1}`] = item ?? null;
+      });
+    } else if (value !== null && typeof value === 'object') Object.assign(result, flattenRecord(value as Record<string, unknown>, name));
+    else result[name] = value as string | number | boolean | null;
+  }
+  return result;
 }
 
 function DetailDialog({ query, onClose }: { query: DetailQuery; onClose: () => void }) {
@@ -263,7 +286,9 @@ function DetailDialog({ query, onClose }: { query: DetailQuery; onClose: () => v
         if (!result.items.length && items.length < total) throw new Error('明细分页不完整');
         items.push(...result.items);
       }
-      const rows = items.map(item => Object.fromEntries(columns.map(column => [column, display(item[column])])));
+      const rows = query.kind === 'reinsert' || query.kind === 'repairs'
+        ? items.flatMap(item => repairRecords(item['维修记录']).map(record => flattenRecord(record)))
+        : items.map(item => flattenRecord(item));
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), '明细');
       XLSX.writeFile(workbook, `${labels[query.kind]}_${query.dateFrom}_${query.dateTo}.xlsx`);
@@ -275,7 +300,7 @@ function DetailDialog({ query, onClose }: { query: DetailQuery; onClose: () => v
       <header className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3"><div><h2 id="reinsert-detail-title" className="font-semibold">{labels[query.kind]}</h2><p className="mt-1 text-xs text-slate-500">{[query.model === undefined ? '' : query.model || '未填写机型', query.base, query.month, query.component, query.pn].filter(Boolean).join(' / ') || `${query.dateFrom} 至 ${query.dateTo}`}</p></div><button ref={close} type="button" onClick={onClose} title="关闭" aria-label="关闭明细" className="rounded p-1 hover:bg-slate-100"><X className="size-5" /></button></header>
       <div className="flex items-center justify-between border-b border-slate-200 px-4 py-2 text-xs"><span>{loading ? '加载中...' : `共 ${data?.total ?? 0} 条`}</span><button type="button" onClick={() => void exportRows()} disabled={loading || !data?.total || exporting} className="inline-flex items-center gap-1 rounded border border-slate-300 px-2 py-1.5 disabled:opacity-40"><Download className="size-4" />{exporting ? '导出中' : '导出明细'}</button></div>
       {error && <p role="alert" className="bg-red-50 px-4 py-2 text-sm text-red-700">{error} <button type="button" className="underline" onClick={() => setRetry(value => value + 1)}>重试</button></p>}
-      <div className="min-h-40 overflow-auto">{data && !data.items.length ? <p className="p-8 text-center text-sm text-slate-500">暂无明细</p> : data && <table className="w-full min-w-[720px] text-left text-xs"><thead className="bg-slate-50"><tr>{columns.map(column => <th key={column} className="px-3 py-2">{column}</th>)}</tr></thead><tbody>{data.items.map((row, index) => <tr key={index} className="border-t border-slate-200">{columns.map(column => <td key={column} className="max-w-md whitespace-pre-wrap break-all px-3 py-2">{display(row[column])}</td>)}</tr>)}</tbody></table>}</div>
+      <div className="min-h-40 overflow-auto">{data && !data.items.length ? <p className="p-8 text-center text-sm text-slate-500">暂无明细</p> : data && <table className="w-full min-w-[720px] text-left text-xs"><thead className="bg-slate-50"><tr>{columns.map(column => <th key={column} className="px-3 py-2">{column}</th>)}</tr></thead><tbody>{data.items.map((row, index) => <tr key={index} className="border-t border-slate-200">{columns.map(column => <td key={column} className="max-w-md whitespace-pre-wrap break-words px-3 py-2 align-top">{column === '维修记录' ? <table className="w-full min-w-[320px] overflow-hidden rounded border border-slate-200 text-left"><thead className="bg-slate-50 text-slate-600"><tr><th className="px-2 py-1.5">故障描述（ZNGWD3）</th><th className="px-2 py-1.5">维修描述（ZWXWD3）</th></tr></thead><tbody>{repairRecords(row[column]).length ? repairRecords(row[column]).map((record, recordIndex) => <tr key={recordIndex} className="border-t border-slate-200"><td className="px-2 py-1.5">{display(record.ZNGWD3)}</td><td className="px-2 py-1.5">{display(record.ZWXWD3)}</td></tr>) : <tr><td colSpan={2} className="px-2 py-1.5 text-slate-400">暂无维修记录</td></tr>}</tbody></table> : display(row[column])}</td>)}</tr>)}</tbody></table>}</div>
       <footer className="flex justify-end gap-3 border-t border-slate-200 px-4 py-3 text-xs"><button type="button" disabled={loading || page <= 1} onClick={() => setPage(value => value - 1)} className="rounded border px-3 py-1.5 disabled:opacity-40">上一页</button><span className="py-1.5">第 {page} / {Math.max(1, Math.ceil((data?.total ?? 0) / (data?.pageSize ?? 50)))} 页</span><button type="button" disabled={loading || !data || page * data.pageSize >= data.total} onClick={() => setPage(value => value + 1)} className="rounded border px-3 py-1.5 disabled:opacity-40">下一页</button></footer>
     </div>
   </div>;

@@ -197,3 +197,25 @@ async def test_sources_filter_orders_validate_postings_and_keep_base_scope(monke
 def test_legacy_users_do_not_receive_new_permission():
     assert "reinsert-rate" not in normalize_dashboard_permissions(None)
     assert "reinsert-rate" in normalize_dashboard_permissions(["reinsert-rate"])
+def test_single_month_daily_trends_use_planned_order_dates_and_daily_denominators():
+    orders = [
+        {"AUFNR": "1", "LGORT": "B1", "MAKTX_TH": "M1", "GSTRS": "2026-01-01", "GAMNG": 10},
+        {"AUFNR": "2", "LGORT": "B1", "MAKTX_TH": "M1", "GSTRS": "20260103", "GAMNG": 20},
+        {"AUFNR": "3", "LGORT": "B1", "MAKTX_TH": "M2", "GSTRS": "2026-01-01", "GAMNG": 100},
+    ]
+    faults = [
+        {"_order": "1", "PCODE": "S1", "ZNGGZ": "OP1", "ZBJ": "CPU", "ZCCLH": "PN1", "ZWXWD3": "重插", "T_FIND": "2026-01-03"},
+        {"_order": "1", "PCODE": "S1", "ZNGGZ": "OP1", "ZBJ": "CPU", "ZCCLH": "PN1", "ZWXWD3": "重插"},
+        {"_order": "2", "PCODE": "S2", "ZNGGZ": "OP1", "ZBJ": "CPU", "ZCCLH": "PN1", "ZWXWD3": "重插"},
+    ]
+    result = reinsert_rate.aggregate(orders, faults, {}, "2026-01-01", "2026-01-03")
+    base = result["models"][0]["bases"][0]
+    assert list(base["days"]) == ["2026-01-01", "2026-01-02", "2026-01-03"]
+    assert base["days"]["2026-01-01"]["reinsertCount"] == 1
+    assert base["days"]["2026-01-01"]["plannedRate"] == 10
+    assert base["days"]["2026-01-02"]["plannedRate"] is None
+    assert base["days"]["2026-01-03"]["plannedRate"] == 5
+    assert base["topPns"][0]["days"]["2026-01-01"]["plannedRate"] == 10
+    assert base["months"]["2026-01"]["plannedRate"] == 6.67
+    across_months = reinsert_rate.aggregate(orders, faults, {}, "2026-01-01", "2026-02-01")
+    assert "days" not in across_months["models"][0]["bases"][0]

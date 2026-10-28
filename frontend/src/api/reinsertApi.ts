@@ -18,11 +18,12 @@ export interface ReinsertCell {
   usageRate: number | null;
   usageReason: string;
 }
-export interface ReinsertPN { pn: string; months: Record<string, ReinsertCell> }
+export interface ReinsertPN { pn: string; months: Record<string, ReinsertCell>; days?: Record<string, ReinsertCell> }
 export interface ReinsertComponent { component: string; months: Record<string, ReinsertCell>; pns: ReinsertPN[] }
 export interface ReinsertBase {
   base: string;
   months: Record<string, ReinsertCell>;
+  days?: Record<string, ReinsertCell>;
   components: ReinsertComponent[];
   topPns: ReinsertPN[];
 }

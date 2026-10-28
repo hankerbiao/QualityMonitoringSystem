@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections import defaultdict
+from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
@@ -28,6 +29,11 @@ def _text(value: Any) -> str:
 def _month(value: Any) -> str:
     value = compact_date(value)
     return f"{value[:4]}-{value[4:6]}" if len(value) >= 6 else ""
+
+
+def _day(value: Any) -> str:
+    value = compact_date(value)
+    return f"{value[:4]}-{value[4:6]}-{value[6:8]}" if len(value) >= 8 else ""
 
 
 def _months(start: str, end: str) -> list[str]:
@@ -288,9 +294,20 @@ def _aggregate_scope(orders: list[dict], faults: list[dict], usage: dict, start:
     order_index: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
     fault_index: dict[tuple[str, str, str, str], list[dict]] = defaultdict(list)
     pn_index: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
+    daily_orders: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
+    daily_faults: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    daily_pns: dict[tuple[str, str, str], list[dict]] = defaultdict(list)
+    days = []
+    if len(months) == 1:
+        current, last = date.fromisoformat(start), date.fromisoformat(end)
+        while current <= last:
+            days.append(current.isoformat())
+            current += timedelta(days=1)
     for row in orders:
         base = _text(row.get("LGORT")) or "未知基地"
         order_index[(base, _month(row.get("GSTRS")), _text(row.get("MAKTX_TH")))].append(row)
+        if days:
+            daily_orders[(base, _day(row.get("GSTRS")), _text(row.get("MAKTX_TH")))].append(row)
     for row in faults:
         order = by_order[row["_order"]]
         base = _text(order.get("LGORT")) or "未知基地"
@@ -299,6 +316,10 @@ def _aggregate_scope(orders: list[dict], faults: list[dict], usage: dict, start:
         fault_index[(base, month, component, "")].append(row)
         fault_index[(base, month, component, pn)].append(row)
         pn_index[(base, month, pn)].append(row)
+        if days:
+            day = _day(order.get("GSTRS"))
+            daily_faults[(base, day)].append(row)
+            daily_pns[(base, day, pn)].append(row)
     result = []
     for base in bases:
         base_faults = [
@@ -370,8 +391,30 @@ def _aggregate_scope(orders: list[dict], faults: list[dict], usage: dict, start:
                     row for model in pn_models for row in order_index.get((base, month, model), [])
                 ]
                 trend[month] = _cell(matching, selected, usage, pn)
-            pn_trends.append({"pn": pn, "months": trend})
-        result.append({"base": base, "months": totals, "components": groups, "topPns": pn_trends})
+            pn_trend = {"pn": pn, "months": trend}
+            if days:
+                pn_trend["days"] = {
+                    day: _cell(
+                        daily_pns.get((base, day, pn), []),
+                        [row for model in pn_models for row in daily_orders.get((base, day, model), [])],
+                        usage,
+                        pn,
+                    )
+                    for day in days
+                }
+            pn_trends.append(pn_trend)
+        entry = {"base": base, "months": totals, "components": groups, "topPns": pn_trends}
+        if days:
+            entry["days"] = {
+                day: _cell(
+                    daily_faults.get((base, day), []),
+                    [row for (item_base, item_day, _), rows in daily_orders.items()
+                     if item_base == base and item_day == day for row in rows],
+                    usage,
+                )
+                for day in days
+            }
+        result.append(entry)
     return {
         "months": months,
         "bases": result,
