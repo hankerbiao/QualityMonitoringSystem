@@ -152,6 +152,42 @@ function TrendTooltip({ active, payload, label }: { active?: boolean; payload?: 
   );
 }
 
+function LRREmptyOverview() {
+  return (
+    <section className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm" aria-label="物料质量概览">
+      <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+        <div className="flex items-center gap-2">
+          <BarChart3 className="size-4 text-cyan-700" />
+          <h2 className="text-sm font-semibold">物料质量概览</h2>
+        </div>
+        <span className="text-xs text-slate-400">待查询</span>
+      </div>
+      <div className="grid grid-cols-2 divide-x divide-y divide-slate-100 lg:grid-cols-4 lg:divide-y-0">
+        {['月度 PN', '使用总数', '故障总数', '综合 LRR'].map((label) => (
+          <div key={label} className="px-5 py-4">
+            <p className="text-xs text-slate-500">{label}</p>
+            <p className="mt-2 text-xl font-semibold text-slate-300">--</p>
+          </div>
+        ))}
+      </div>
+      <div className="grid border-t border-slate-100 lg:grid-cols-[minmax(0,1.45fr)_minmax(240px,0.72fr)]">
+        <div className="px-5 py-4">
+          <h3 className="text-sm font-semibold text-slate-700">月度趋势</h3>
+          <div className="mt-4 flex h-32 items-center justify-center border-b border-l border-slate-200 bg-[repeating-linear-gradient(to_bottom,transparent_0,transparent_41px,#f1f5f9_42px)]">
+            <span className="bg-white px-3 text-xs text-slate-400">待查询</span>
+          </div>
+        </div>
+        <div className="border-t border-slate-100 px-5 py-4 lg:border-l lg:border-t-0">
+          <h3 className="text-sm font-semibold text-slate-700">故障物料</h3>
+          <div className="mt-4 flex h-32 items-center justify-center text-xs text-slate-400">
+            待查询
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 export default function LRRPage() {
   const navigate = useNavigate();
   const [filters, setFilters] = useState<LRRFilters>(EMPTY_FILTERS);
@@ -384,6 +420,7 @@ export default function LRRPage() {
           {error && <ErrorBanner error={error} onRetry={() => void load(page, filters)} />}
           {exportError && <ErrorBanner error={exportError} onRetry={() => void handleExport()} />}
         </section>
+        {!searched && !loading && <LRREmptyOverview />}
         {loading && !response && (
           <section className="flex min-h-36 items-center justify-center gap-2 rounded-md border border-slate-200 bg-white text-sm text-slate-500 shadow-sm">
             <LoadingSpinner size="sm" />正在计算所选范围的物料 LRR...
