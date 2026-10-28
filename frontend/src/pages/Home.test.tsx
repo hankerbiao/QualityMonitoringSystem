@@ -97,6 +97,35 @@ describe('home administrator settings access', () => {
     expect(screen.getByText('MFR（现网月化故障率）')).toBeTruthy();
   });
 
+  it('groups repair dashboards separately and supports category filtering and search', async () => {
+    vi.mocked(getCurrentUser).mockResolvedValue(response('admin'));
+    await act(async () => {
+      render(<MemoryRouter><AuthProvider><Home /></AuthProvider></MemoryRouter>);
+    });
+    const repairSection = await screen.findByRole('region', { name: '维修过程质量' });
+    const coreSection = screen.getByRole('region', { name: '核心质量看板' });
+    expect(within(repairSection).getByRole('link', { name: /维修通过率分析/ }).getAttribute('href')).toBe('/repair-quality');
+    expect(within(repairSection).getByRole('link', { name: /重插率分析/ }).getAttribute('href')).toBe('/reinsert-rate');
+    expect(within(coreSection).queryByText('维修通过率分析')).toBeNull();
+    expect(within(coreSection).queryByText('重插率分析')).toBeNull();
+    fireEvent.click(screen.getByRole('tab', { name: '维修过程质量' }));
+    expect(screen.queryByRole('region', { name: '核心质量看板' })).toBeNull();
+    fireEvent.change(screen.getByRole('searchbox', { name: '搜索功能' }), { target: { value: '重插' } });
+    expect(screen.getByText('重插率分析')).toBeTruthy();
+    expect(screen.queryByText('维修通过率分析')).toBeNull();
+  });
+
+  it('only shows repair dashboards permitted to the user', async () => {
+    testDashboardStatuses['repair-quality'] = 'available';
+    testDashboardStatuses['reinsert-rate'] = 'available';
+    await act(async () => {
+      render(<MemoryRouter><AuthProvider><Home /></AuthProvider></MemoryRouter>);
+    });
+    const section = await screen.findByRole('region', { name: '维修过程质量' });
+    expect(within(section).getByText('维修通过率分析')).toBeTruthy();
+    expect(within(section).queryByText('重插率分析')).toBeNull();
+  });
+
   it('hides the field quality section when the user has no visible dashboards in it', async () => {
     vi.mocked(getCurrentUser).mockResolvedValue({
       itcode: 'alice',

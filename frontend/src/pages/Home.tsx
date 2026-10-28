@@ -19,6 +19,7 @@ import {
   fieldQualityModules,
   managementModules,
   qualityModules,
+  repairProcessModules,
   toolModules,
 } from '../config/homeModules';
 import type { HomeModuleDefinition } from '../config/homeModules';
@@ -26,11 +27,12 @@ import { useAuth } from '../context/AuthContext';
 import { useSettings } from '../context/SettingsContext';
 import appPackage from '../../package.json';
 
-type ModuleFilter = 'all' | 'quality' | 'field-quality' | 'tools' | 'management';
+type ModuleFilter = 'all' | 'quality' | 'repair-process' | 'field-quality' | 'tools' | 'management';
 
 const moduleFilters = [
   { id: 'all', label: '全部', icon: LayoutGrid },
   { id: 'quality', label: '质量看板', icon: BarChart3 },
+  { id: 'repair-process', label: '维修过程质量', icon: Wrench },
   { id: 'field-quality', label: '交付与现网质量', icon: Boxes },
   { id: 'tools', label: '关键工位影像追溯', icon: Wrench },
   { id: 'management', label: '运营监控', icon: Settings2, adminOnly: true },
@@ -76,10 +78,12 @@ export default function Home() {
       }))
       .filter((module) => canView(module.id) && (isAdmin || module.status !== 'admin-only'));
   const visibleQualityModules = visibleDashboards(qualityModules);
+  const visibleRepairProcessModules = visibleDashboards(repairProcessModules);
   const visibleFieldQualityModules = visibleDashboards(fieldQualityModules);
   const visibleToolModules = toolModules.filter((module) => canView(module.id));
   const visibleModules = [
     ...visibleQualityModules,
+    ...visibleRepairProcessModules,
     ...visibleFieldQualityModules,
     ...visibleToolModules,
     ...(isAdmin ? managementModules : []),
@@ -96,16 +100,19 @@ export default function Home() {
         .includes(normalizedQuery),
     );
   const filteredQualityModules = filterModules(visibleQualityModules);
+  const filteredRepairProcessModules = filterModules(visibleRepairProcessModules);
   const filteredFieldQualityModules = filterModules(visibleFieldQualityModules);
   const filteredToolModules = filterModules(visibleToolModules);
   const filteredManagementModules = filterModules(managementModules);
   const showQuality = activeFilter === 'all' || activeFilter === 'quality';
+  const showRepairProcess = activeFilter === 'all' || activeFilter === 'repair-process';
   const showFieldQuality = activeFilter === 'all' || activeFilter === 'field-quality';
   const showTools = activeFilter === 'all' || activeFilter === 'tools';
   const showManagement = isAdmin && (activeFilter === 'all' || activeFilter === 'management');
   const hasToolResults = showTools && filteredToolModules.length > 0;
   const resultCount =
     (showQuality ? filteredQualityModules.length : 0) +
+    (showRepairProcess ? filteredRepairProcessModules.length : 0) +
     (showFieldQuality ? filteredFieldQualityModules.length : 0) +
     (showTools ? filteredToolModules.length : 0) +
     (showManagement ? filteredManagementModules.length : 0);
@@ -269,6 +276,16 @@ export default function Home() {
               title="核心质量看板"
               description="覆盖生产阶段的关键质量表现。"
               modules={filteredQualityModules}
+              variant="primary"
+            />
+          )}
+
+          {showRepairProcess && filteredRepairProcessModules.length > 0 && (
+            <HomeSection
+              id="repair-process-dashboards"
+              title="维修过程质量"
+              description="关注维修通过表现与部件重插情况。"
+              modules={filteredRepairProcessModules}
               variant="primary"
             />
           )}

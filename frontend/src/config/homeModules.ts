@@ -56,6 +56,19 @@ export const qualityModules: readonly HomeModuleDefinition[] = [
     status: 'available',
   },
   {
+    id: 'lrr',
+    code: 'LRR',
+    title: 'LRR（工厂阶段部件故障率）',
+    description: '基于订单 BOM 发料与故障看板，按生产订单、销售订单和库存点分析部件故障率。',
+    icon: AlertTriangle,
+    accent: 'amber',
+    path: '/lrr',
+    status: 'available',
+  },
+];
+
+export const repairProcessModules: readonly HomeModuleDefinition[] = [
+  {
     id: 'repair-quality',
     code: 'REPAIR PASS RATE',
     title: '维修通过率分析',
@@ -74,16 +87,6 @@ export const qualityModules: readonly HomeModuleDefinition[] = [
     accent: 'cyan',
     path: '/reinsert-rate',
     status: 'admin-only',
-  },
-  {
-    id: 'lrr',
-    code: 'LRR',
-    title: 'LRR（工厂阶段部件故障率）',
-    description: '基于订单 BOM 发料与故障看板，按生产订单、销售订单和库存点分析部件故障率。',
-    icon: AlertTriangle,
-    accent: 'amber',
-    path: '/lrr',
-    status: 'available',
   },
 ];
 
