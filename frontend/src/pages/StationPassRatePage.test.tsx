@@ -273,7 +273,7 @@ describe('StationPassRatePage customer filter', () => {
     const pivotRows = XLSX.utils.sheet_to_json<Record<string, unknown>>(workbook.Sheets['工位直通率透视表']);
     expect(pivotRows).toHaveLength(1);
     expect(pivotRows[0]).toMatchObject({
-      机型: 'M', Total: '80.00%', 过站SN数: 10, 故障数: 2, 工站直通率: '90.00%', OP10: '90.00%',
+      机型: 'M', Total: '80.00%', 订单数量: 10, 故障数: 2, 工站直通率: '90.00%', OP10: '90.00%',
     });
     expect(Object.keys(pivotRows[0]).filter((key) => key.startsWith('OP'))).toHaveLength(45);
     expect(XLSX.utils.sheet_to_json(workbook.Sheets['维修故障明细记录'])).toHaveLength(2);

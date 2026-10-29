@@ -4,7 +4,7 @@ export const RTY_EXPORT_COLUMNS: Record<string, string> = {
   customer: '客户 ID',
   base: '基地',
   defectCount: '故障机器数',
-  inputCount: '产量（WMENG）',
+  inputCount: '订单数量（GAMNG）',
   rtyRate: '直通率(%)',
   targetRate: '直通率指标(%)',
   status: '达成状况',

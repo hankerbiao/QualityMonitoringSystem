@@ -9,7 +9,7 @@ export const SUMMARY_COLUMNS: readonly Column[] = [
   ['completedQuantity', '完工数量'],
   ['defectCount', '非直通数'],
   ['inputRate', '投入直通率'],
-  ['completionRate', '完工直通率'],
+  ['completionRate', '订单数量直通率'],
   ['initialDefects', '初检非直通数'],
   ['initialRate', '初检直通率'],
   ['pretestDefects', '初检前测非直通数'],

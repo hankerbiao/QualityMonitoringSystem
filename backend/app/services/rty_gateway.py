@@ -74,7 +74,8 @@ def normalize_order_row(item: dict[str, Any]) -> dict[str, Any]:
         "MAKTX_TH": item.get("productionModel"),
         "LGORT": item.get("inventoryLocation"),
         "GSTRS": item.get("plannedStartDate"),
-        "WMENG": item.get("orderQuantity"),
+        "GAMNG": item.get("orderQuantity"),
+        "WMENG": item.get("storageQuantity"),
     }.items():
         if key not in data and value is not None:
             data[key] = value
@@ -513,7 +514,7 @@ async def _build_rty_list(
         group = groups.setdefault(
             key, {"first": row, "input": 0.0, "orders": set(), "sales": set(), "customers": set()}
         )
-        group["input"] += _num(data.get("WMENG"))
+        group["input"] += _num(data.get("GAMNG"))
         group["orders"].add(row["aufnr"])
         group["sales"].add(str(data.get("VBELN") or "").strip())
         group["customers"].add(str(data.get("KID") or "").strip())
@@ -635,7 +636,7 @@ async def _rty_order_groups(
         model = str(data.get("MAKTX_TH") or "")
         key = (dimension, row["gstrs_date"][:7], model, str(data.get("LGORT") or ""))
         group = groups.setdefault(key, {"input": 0.0, "orders": set(), "model": model})
-        group["input"] += _num(data.get("WMENG"))
+        group["input"] += _num(data.get("GAMNG"))
         group["orders"].add(row["aufnr"])
     normal_orders = {
         order
@@ -899,11 +900,10 @@ async def station_rates(
         _rty_order_groups(orders, group_by=group_by),
     )
     summary_faults: dict[str, int] = defaultdict(int)
+    summary_quantity: dict[str, int] = defaultdict(int)
     for (dimension, _month, _model, _base), group in rty_groups.items():
         summary_faults[dimension] += len(group["defects"])
-    summary_sns: dict[str, set[str]] = defaultdict(set)
-    for (dimension, _station), value in by_station.items():
-        summary_sns[dimension].update(value["sns"])
+        summary_quantity[dimension] += round(group["input"])
     defect_by_station: dict[tuple[str, str], set[str]] = defaultdict(set)
     for row in repairs:
         repair_station = normalize_station_code(str(row.get("ZNGGZ") or ""))
@@ -939,7 +939,7 @@ async def station_rates(
             )
             if value["sns"]
             else 100.0,
-            totalInputCount=len(summary_sns[dimension_value]),
+            totalInputCount=summary_quantity[dimension_value],
             totalDefectCount=summary_faults[dimension_value],
         )
         for (dimension_value, station), value in sorted(by_station.items())
@@ -1211,7 +1211,7 @@ async def sales_order_summary(
         orders = {row["aufnr"] for row in rows}
         model = str((rows[0]["data"] or {}).get("MAKTX_TH") or "") if rows else None
         faults = await _fault_sns_by_orders(orders, model=model)
-        inp = round(sum(_num((row["data"] or {}).get("WMENG")) for row in rows))
+        inp = round(sum(_num((row["data"] or {}).get("GAMNG")) for row in rows))
         defect_sns = set().union(*(faults.get(normalize_order(o), set()) for o in orders))
         result.append(
             SalesOrderSummary(

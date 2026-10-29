@@ -23,7 +23,7 @@ const ORDER_COLUMNS = [
   ['NAME1_ZU', '最终用户'],
   ['LGORT', '基地'],
   ['GSTRS', '计划开始时间'],
-  ['WMENG', '订单产量'],
+  ['GAMNG', '订单数量'],
   ['AUART', '订单类型'],
 ] as const;
 

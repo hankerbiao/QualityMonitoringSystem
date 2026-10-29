@@ -228,7 +228,7 @@ export const rtyApi = {
     const dateFrom = options.dateFrom || '';
     const dateTo = options.dateTo || '';
     const customers = [...new Set([...(Array.isArray(customer) ? customer : customer ? [customer] : [])])].sort();
-    const key = scopedKey(`cycle-data:${orderScope}:${customers.join(',')}:${dateFrom}:${dateTo}`);
+    const key = scopedKey(`cycle-data-gamng:${orderScope}:${customers.join(',')}:${dateFrom}:${dateTo}`);
     if (options.forceRefresh) {
       rtyCycleCache.delete(key);
       removeStoredCycleData(key);

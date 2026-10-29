@@ -8,7 +8,7 @@ vi.mock('./authApi', () => ({ requestData: vi.fn(), requestJson: vi.fn() }));
 const HOUR = 60 * 60 * 1_000;
 const now = new Date('2026-10-15T13:56:21+08:00').getTime();
 const options = { dateFrom: '2026-10-05', dateTo: '2026-10-11' };
-const storageKey = 'qualiboard:rty-cycle-data:v2:cycle-data:normal::2026-10-05:2026-10-11';
+const storageKey = 'qualiboard:rty-cycle-data:v2:cycle-data-gamng:normal::2026-10-05:2026-10-11';
 
 describe('RTY cycle cache lifetime', () => {
   beforeEach(() => {
@@ -25,6 +25,15 @@ describe('RTY cycle cache lifetime', () => {
     clearRtyApiCache();
     window.localStorage.clear();
     vi.useRealTimers();
+  });
+
+  it('ignores cached data calculated using the previous denominator', async () => {
+    const oldKey = 'qualiboard:rty-cycle-data:v2:cycle-data:normal::2026-10-05:2026-10-11';
+    window.localStorage.setItem(oldKey, JSON.stringify({
+      data: [{ inputCount: 441 }], cachedAt: now, expiresAt: now + HOUR,
+    }));
+    expect((await rtyApi.getCycleData('normal', undefined, options)).cached).toBe(false);
+    expect(requestData).toHaveBeenCalledTimes(1);
   });
 
   it('reuses cycle data for one hour and fetches again at the expiry boundary', async () => {

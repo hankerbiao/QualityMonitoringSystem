@@ -579,7 +579,7 @@ async def build_template_export(
             )
             top_groups[group].add(head_sn)
 
-    quantities = {model: _sum_quantity(rows, "WMENG") for model, rows in by_model.items()}
+    quantities = {model: _sum_quantity(rows, "GAMNG") for model, rows in by_model.items()}
     summary = []
     for model in sorted(by_model):
         count = None if "" in defect_sns[model] else len(defect_sns[model])
@@ -588,7 +588,7 @@ async def build_template_export(
             {
                 "model": model,
                 "plannedQuantity": _sum_quantity(by_model[model], "GAMNG"),
-                "completedQuantity": quantities[model],
+                "completedQuantity": _sum_quantity(by_model[model], "WMENG"),
                 "defectCount": count,
                 "completionRate": 1 - rate if rate is not None else None,
             }

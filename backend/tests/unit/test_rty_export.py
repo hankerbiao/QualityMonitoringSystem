@@ -335,7 +335,7 @@ async def test_unavailable_or_zero_denominator_never_becomes_a_fabricated_rate(
     monkeypatch,
     quantity,
 ):
-    source(monkeypatch, [order(WMENG=quantity)], [fault()])
+    source(monkeypatch, [order(GAMNG=quantity)], [fault()])
     result = await rty_export.build_template_export(FILTERS)
     assert result.summary[0]["completionRate"] is None
     assert result.topProblems[0]["machineFaultRate"] is None
@@ -822,7 +822,7 @@ async def test_packaging_counts_distinct_hosts_per_order_without_changing_statis
     assert all("packagingQuantity" not in row for row in models.await_args.args[0])
     if builder is rty_export.build_template_export:
         assert result.summary[0]["completedQuantity"] == 40
-        assert result.summary[0]["completionRate"] == 0.975
+        assert result.summary[0]["completionRate"] == pytest.approx(47 / 48)
     assert {normalize_order(value) for value in stations.await_args.args[0]} == {"1", "2", "3"}
 
 

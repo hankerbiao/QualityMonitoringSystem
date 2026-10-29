@@ -13,12 +13,12 @@ class RTYDataBase(BaseModel):
     """RTY 数据基础模型"""
 
     time: str = Field(..., description="统计时间 (YYYY-MM-DD)")
-    model: str = Field(..., description="数据口径: 销售订单 WMENG 入库数量")
+    model: str = Field(..., description="机型类别")
     productModel: str = Field(..., description="生产机型 (sales_orders_sap.data.MAKTX_TH)")
     customer: str = Field("", description="客户 ID (sales_orders_sap.data.KID)")
     base: str = Field(..., description="基地/库位 (sales_orders_sap.data.LGORT)")
     defectCount: int = Field(..., ge=0, description="故障数量")
-    inputCount: int = Field(..., ge=0, description="生产数量 (sales_orders_sap.data.WMENG 汇总)")
+    inputCount: int = Field(..., ge=0, description="订单数量 (sales_orders_sap.data.GAMNG 汇总)")
     rtyRate: float = Field(..., ge=0, le=100, description="直通率百分比, 如 98.5")
     targetRate: float = Field(..., ge=0, le=100, description="目标直通率百分比")
     salesOrder: str = Field("", description="销售订单号 (sales_orders_sap.data.VBELN)")
