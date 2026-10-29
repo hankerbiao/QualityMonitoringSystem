@@ -8,7 +8,7 @@ import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
 import { DashboardLoading } from '../components/shared/DashboardLoading';
 import { DateRangePicker } from '../components/shared/DateRangePicker';
 import { HelpTooltip } from '../components/shared/HelpTooltip';
-import type { MFRDashboard, MFRFilters } from '../types/mfr';
+import type { MFRDashboard, MFRExport, MFRFilters } from '../types/mfr';
 import { formatLocalDate } from '../utils/dateRange';
 
 const number = (value: number) => new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(value);
@@ -21,7 +21,7 @@ const deviceIssueLabels: Record<string, string> = {
 const sameFilters = (a: MFRFilters, b: MFRFilters) =>
   a.dateFrom === b.dateFrom && a.dateTo === b.dateTo && (a.model ?? '') === (b.model ?? '');
 
-function exportStatistics(data: MFRDashboard, filters: MFRFilters) {
+function exportStatistics(data: MFRExport, filters: MFRFilters) {
   const workbook = XLSX.utils.book_new();
   const overview = [
     { 指标: '统计开始日期', 数值: filters.dateFrom },
@@ -43,6 +43,11 @@ function exportStatistics(data: MFRDashboard, filters: MFRFilters) {
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(data.byModel.map(item => ({
     机型: item.key, 故障事件: item.faultCount, DOA设备数: item.fleetCount, 'MFR（%）': item.mfrRate,
   }))), '机型汇总');
+  const headers = ['机型', '计划开始日期', '生产订单号', '设备SN', '服务单号', '换件记录ID', '换件类型', '换件时间', '物料编码', '部件SN', '部件名称', '客户'];
+  const rows = data.faultDetails.map(item => [item.model, item.plannedDate, item.productionOrder,
+    item.deviceSn, item.serviceOrder, item.changeId, item.changeType, item.occurredAt,
+    item.partNumber, item.partSn, item.partName, item.customer]);
+  XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([headers, ...rows]), '故障明细');
   XLSX.writeFile(workbook, `MFR统计_${filters.dateFrom}_${filters.dateTo}.xlsx`);
 }
 
@@ -64,6 +69,8 @@ export default function MFRPage() {
   const [modelOptions, setModelOptions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState('');
   const [expandedModel, setExpandedModel] = useState<string | null>(null);
   const [filtersExpanded, setFiltersExpanded] = useState(true);
   const requestId = useRef(0);
@@ -108,6 +115,18 @@ export default function MFRPage() {
   const pending = !sameFilters(draft, filters);
   const dailyTrend = filters.dateFrom.slice(0, 7) === filters.dateTo.slice(0, 7) && Boolean(data?.dailyTrend?.length);
   const chartTrend = dailyTrend ? data?.dailyTrend ?? [] : data?.trend ?? [];
+  const exportCurrent = async () => {
+    setExporting(true);
+    setExportError('');
+    try {
+      const result = await mfrApi.getExport(filters);
+      exportStatistics(result, result.filters);
+    } catch (err) {
+      setExportError(err instanceof Error ? err.message : '导出失败');
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return <div className="min-h-screen bg-[#f4f6f5] text-slate-800">
     <header className="border-b border-slate-200 bg-white">
@@ -190,7 +209,8 @@ export default function MFRPage() {
         </section>
 
         <section className="border border-slate-200 bg-white">
-          <div className="flex min-h-11 flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-3 sm:px-4"><div className="flex items-center gap-1"><h2 className="flex items-center gap-2 text-sm font-semibold"><CalendarDays className="size-4 text-indigo-700" />周期明细</h2><HelpTooltip label="查看周期明细说明">{data.trend.length} 个统计月。</HelpTooltip></div><button type="button" onClick={() => exportStatistics(data, filters)} className="flex h-8 items-center gap-1.5 rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:bg-indigo-50"><Download className="size-4" />导出统计数据</button></div>
+          <div className="flex min-h-11 flex-wrap items-center justify-between gap-3 border-b border-slate-100 px-3 sm:px-4"><div className="flex items-center gap-1"><h2 className="flex items-center gap-2 text-sm font-semibold"><CalendarDays className="size-4 text-indigo-700" />周期明细</h2><HelpTooltip label="查看周期明细说明">{data.trend.length} 个统计月。</HelpTooltip></div><button type="button" onClick={() => void exportCurrent()} disabled={exporting} className="flex h-8 items-center gap-1.5 rounded-md border border-slate-300 px-3 text-xs font-medium text-slate-700 hover:bg-indigo-50 disabled:opacity-60"><Download className="size-4" />{exporting ? '正在导出…' : '导出统计数据'}</button></div>
+          {exportError && <p role="alert" className="px-4 py-2 text-sm text-red-700">{exportError}</p>}
           <div className="overflow-x-auto"><table className="w-full min-w-[560px] text-left text-sm"><thead className="bg-slate-50 text-xs text-slate-600"><tr><th className="px-4 py-2">统计月份</th><th className="px-4 py-2 text-right">故障事件</th><th className="px-4 py-2 text-right">DOA 设备数</th><th className="px-4 py-2 text-right">MFR</th></tr></thead><tbody className="divide-y divide-slate-100">{data.trend.map(item => <tr key={item.period} className="hover:bg-indigo-50/40"><td className="px-4 py-2 font-mono">{item.period}</td><td className="px-4 py-2 text-right font-mono">{number(item.faultCount)}</td><td className="px-4 py-2 text-right font-mono">{number(item.fleetCount)}</td><td className="px-4 py-2 text-right font-mono font-semibold text-indigo-700">{rate(item.mfrRate)}</td></tr>)}{!data.trend.length && <tr><td colSpan={4} className="px-4 py-12 text-center text-slate-400">暂无周期数据</td></tr>}</tbody></table></div>
         </section>
 

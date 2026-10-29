@@ -102,6 +102,13 @@ async def test_groups_devices_and_all_associated_replacements_by_plan_date(monke
     )
     assert result.summary.selectedDeviceCount == 3
     assert result.summary.faultCount == 3
+    assert len(result.faultDetails) == result.summary.faultCount
+    assert [(row.model, row.deviceSn, row.serviceOrder, row.plannedDate, row.occurredAt)
+            for row in result.faultDetails] == [
+        ("M1", "SN1", "S1", "2026-01-10", "2026-12-01"),
+        ("M2", "SN2", "S2", "2026-02-11", "2026-12-01"),
+        ("M1", "SN1", "S1", "2026-01-10", "2026-12-01"),
+    ]
     assert result.summary.mfrRate is None
     assert result.summary.unmatchedChangeCount == 2
     assert result.summary.deviceIssues["lifecycleDateIncomplete"] == 3
@@ -115,6 +122,8 @@ async def test_groups_devices_and_all_associated_replacements_by_plan_date(monke
         MFRFilters(dateFrom="2026-02-01", dateTo="2026-02-28", model="M2")
     )
     assert one_model.summary.fleetCount == 2
+    assert len(one_model.faultDetails) == 1
+    assert one_model.faultDetails[0].deviceSn == "SN2"
     assert one_model.dailyTrend[10].faultCount == 1
     assert sum(item.faultCount for item in one_model.dailyTrend) == 1
     service.scs_gateway.all.assert_any_await("SCS_CHANGE", changeType="换上")

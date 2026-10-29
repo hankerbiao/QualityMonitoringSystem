@@ -11,6 +11,7 @@ from app.schemas.mfr import (
     MFRDailyTrendItem,
     MFRDashboardResponse,
     MFRDimensionItem,
+    MFRFaultDetail,
     MFRFilters,
     MFRSummary,
     MFRTrendItem,
@@ -107,6 +108,7 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
             service_devices[service].add(device["deviceKey"])
 
     faults: Counter[str] = Counter()
+    fault_details: list[MFRFaultDetail] = []
     unmatched_changes = 0
     affected_devices: set[str] = set()
     for change in [*change_up, *change_up_up]:
@@ -129,6 +131,17 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
         key = next(iter(keys))
         if key in selected_by_key:
             faults[key] += 1
+            device = selected_by_key[key]
+            fault_details.append(MFRFaultDetail(
+                model=device["orderModel"], plannedDate=device["plannedDate"].isoformat(),
+                productionOrder=str(device["productionOrder"].get("value") or ""),
+                deviceSn=str(device.get("deviceSn") or ""),
+                serviceOrder=str(change.get("service_order") or ""),
+                changeId=str(change.get("id") or ""), changeType=str(change.get("change_type") or ""),
+                occurredAt=str(change.get("create_at") or ""),
+                partNumber=str(change.get("part_number") or ""), partSn=str(change.get("part_sn") or ""),
+                partName=str(change.get("part_name") or ""), customer=str(change.get("customer") or ""),
+            ))
 
     model_counts: dict[str, list[int]] = defaultdict(lambda: [0, 0])
     period_counts: dict[str, list[int]] = defaultdict(lambda: [0, 0])
@@ -194,4 +207,5 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
         trend=trend,
         dailyTrend=daily,
         byModel=model_rows,
+        faultDetails=fault_details,
     )

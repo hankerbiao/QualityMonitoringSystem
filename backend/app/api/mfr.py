@@ -12,12 +12,25 @@ from app.services.mfr_service import build_mfr_dashboard
 router = APIRouter(dependencies=[Depends(dashboard_dependency("mfr"))])
 
 
-@router.get("/dashboard", response_model=MFRDashboardResponse)
+@router.get("/dashboard", response_model=MFRDashboardResponse, response_model_exclude={"faultDetails"})
 async def mfr_dashboard(
     _: Annotated[dict, Depends(get_current_user)],
     dateFrom: str = Query(..., description="统计开始日期 YYYY-MM-DD"),
     dateTo: str = Query(..., description="统计结束日期 YYYY-MM-DD"),
     model: str = Query("", description="机型"),
+):
+    try:
+        return await build_mfr_dashboard(MFRFilters(dateFrom=dateFrom, dateTo=dateTo, model=model))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/export", response_model=MFRDashboardResponse)
+async def mfr_export(
+    _: Annotated[dict, Depends(get_current_user)],
+    dateFrom: str = Query(...),
+    dateTo: str = Query(...),
+    model: str = Query(""),
 ):
     try:
         return await build_mfr_dashboard(MFRFilters(dateFrom=dateFrom, dateTo=dateTo, model=model))

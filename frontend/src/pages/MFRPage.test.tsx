@@ -11,11 +11,12 @@ import MFRPage from './MFRPage';
 const xlsx = vi.hoisted(() => ({
   book_new: vi.fn(() => ({})),
   json_to_sheet: vi.fn((rows: unknown) => rows),
+  aoa_to_sheet: vi.fn((rows: unknown) => rows),
   book_append_sheet: vi.fn(),
   writeFile: vi.fn(),
 }));
 vi.mock('xlsx', () => ({ utils: xlsx, writeFile: xlsx.writeFile }));
-vi.mock('../api/mfrApi', () => ({ mfrApi: { getDashboard: vi.fn() } }));
+vi.mock('../api/mfrApi', () => ({ mfrApi: { getDashboard: vi.fn(), getExport: vi.fn() } }));
 vi.mock('../components/shared/DashboardSwitcher', () => ({ DashboardSwitcher: () => null }));
 vi.mock('recharts', () => ({
   ResponsiveContainer: ({ children }: { children: ReactNode }) => children,
@@ -41,6 +42,11 @@ describe('MFR dashboard', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(mfrApi.getDashboard).mockImplementation(async filters => fixture(filters));
+    vi.mocked(mfrApi.getExport).mockImplementation(async filters => ({ ...fixture(filters), faultDetails: [{
+      model: 'Model A', plannedDate: '2026-01-10', productionOrder: '123', deviceSn: 'SN1',
+      serviceOrder: 'S1', changeId: 'C1', changeType: '换上', occurredAt: '2026-12-01',
+      partNumber: 'PN1', partSn: 'PS1', partName: '部件', customer: '客户',
+    }] }));
   });
   afterEach(cleanup);
 
@@ -131,8 +137,17 @@ describe('MFR dashboard', () => {
   it('exports the applied overview, monthly and model data', async () => {
     render(<MemoryRouter><MFRPage /></MemoryRouter>);
     await screen.findByText('Model A');
+    fireEvent.change(screen.getByLabelText('机型'), { target: { value: 'Model A' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+    await waitFor(() => expect(mfrApi.getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'Model A' })));
+    await screen.findByText('Model A');
     fireEvent.click(within(screen.getByRole('button', { name: '导出统计数据' })).getByText('导出统计数据'));
-    expect(xlsx.book_append_sheet.mock.calls.map(call => call[2])).toEqual(['质量概览', '月度明细', '机型汇总']);
+    await waitFor(() => expect(xlsx.writeFile).toHaveBeenCalled());
+    expect(mfrApi.getExport).toHaveBeenCalledWith(expect.objectContaining({ model: 'Model A' }));
+    expect(xlsx.book_append_sheet.mock.calls.map(call => call[2])).toEqual(['质量概览', '月度明细', '机型汇总', '故障明细']);
+    expect(xlsx.aoa_to_sheet).toHaveBeenCalledWith(expect.arrayContaining([
+      ['Model A', '2026-01-10', '123', 'SN1', 'S1', 'C1', '换上', '2026-12-01', 'PN1', 'PS1', '部件', '客户'],
+    ]));
     expect(xlsx.json_to_sheet).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ 统计月份: '2026-01', 故障事件: 12, DOA设备数: 400 })]));
     expect(xlsx.writeFile).toHaveBeenCalledWith(expect.anything(), expect.stringMatching(/^MFR统计_.*\.xlsx$/));
   });

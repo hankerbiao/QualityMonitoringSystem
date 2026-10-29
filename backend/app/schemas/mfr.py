@@ -38,9 +38,25 @@ class MFRSummary(BaseModel):
     unmatchedChangeCount: int = 0
 
 
+class MFRFaultDetail(BaseModel):
+    model: str
+    plannedDate: str
+    productionOrder: str
+    deviceSn: str
+    serviceOrder: str
+    changeId: str
+    changeType: str
+    occurredAt: str
+    partNumber: str
+    partSn: str
+    partName: str
+    customer: str
+
+
 class MFRDashboardResponse(BaseModel):
     filters: MFRFilters
     summary: MFRSummary
     trend: list[MFRTrendItem] = Field(default_factory=list)
     dailyTrend: list[MFRDailyTrendItem] = Field(default_factory=list)
     byModel: list[MFRDimensionItem] = Field(default_factory=list)
+    faultDetails: list[MFRFaultDetail] = Field(default_factory=list)

@@ -35,3 +35,22 @@ export interface MFRDashboard {
   dailyTrend: MFRDailyTrendItem[];
   byModel: MFRDimensionItem[];
 }
+
+export interface MFRFaultDetail {
+  model: string;
+  plannedDate: string;
+  productionOrder: string;
+  deviceSn: string;
+  serviceOrder: string;
+  changeId: string;
+  changeType: string;
+  occurredAt: string;
+  partNumber: string;
+  partSn: string;
+  partName: string;
+  customer: string;
+}
+
+export interface MFRExport extends MFRDashboard {
+  faultDetails: MFRFaultDetail[];
+}
