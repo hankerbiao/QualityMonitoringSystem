@@ -57,8 +57,23 @@ async def test_cycle_data_passes_validated_daily_range_to_gateway(monkeypatch):
         customers=["customer-2", "__NO_CUSTOMER_ID__"],
         date_from="2026-04-14",
         date_to="2026-04-20",
+        order_type=None,
+        order_types=None,
     )
     assert response.success
+
+
+@pytest.mark.asyncio
+async def test_cycle_and_station_forward_multiple_order_types(monkeypatch):
+    cycle = AsyncMock(return_value=[])
+    station = AsyncMock(return_value=[])
+    monkeypatch.setattr(rty_gateway, 'cycle_data', cycle)
+    monkeypatch.setattr(rty_gateway, 'station_rates', station)
+    monkeypatch.setattr(rty, '_targets', AsyncMock(return_value={}))
+    await rty.get_rty_cycle_data(orderTypes=['PP01', 'G001'])
+    await rty.get_station_pass_rates(orderTypes=['PP01', 'G001'])
+    assert cycle.await_args.kwargs['order_types'] == ['PP01', 'G001']
+    assert station.await_args.kwargs['order_types'] == ['PP01', 'G001']
 
 
 @pytest.mark.asyncio

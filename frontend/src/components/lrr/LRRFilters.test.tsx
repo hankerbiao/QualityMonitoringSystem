@@ -11,6 +11,17 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 
+it('defaults to all order types and submits selected types', async () => {
+  vi.mocked(lrrApi.getOptions).mockResolvedValue({ materialNumbers: [], productModels: [], bases: [], customerIds: [], orderTypes: ['PP01', 'G001'] });
+  const onSearch = vi.fn();
+  render(<LRRFilters filters={{ plannedDateFrom: '2026-03-01', plannedDateTo: '2026-03-31' }} onSearch={onSearch} onReset={vi.fn()} />);
+  fireEvent.click(await screen.findByRole('button', { name: '全部订单类型' }));
+  fireEvent.click(screen.getByRole('option', { name: 'PP01' }));
+  fireEvent.click(screen.getByRole('option', { name: 'G001' }));
+  fireEvent.click(screen.getByRole('button', { name: '查询' }));
+  expect(onSearch).toHaveBeenCalledWith(expect.objectContaining({ orderTypes: ['PP01', 'G001'] }));
+});
+
 it('edits optional dates without searching until the form is submitted', async () => {
   const onSearch = vi.fn();
   render(<LRRFilters filters={{}} onSearch={onSearch} onReset={vi.fn()} />);

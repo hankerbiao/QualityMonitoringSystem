@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect, useCallback, useRef } from 'react';
+import { useState, useMemo, useEffect, useLayoutEffect, useCallback, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { X, Bell, CalendarDays, Check, ChevronDown, Loader2, FileText, Search, RefreshCw, Download, ListFilter } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -23,6 +23,9 @@ import CycleDetailModal from './rty/CycleDetailModal';
 import { customerIdLabel, NO_CUSTOMER_ID } from '../utils/customerId';
 import type { RTYCycleDetailQuery } from '../types/rty';
 import { HelpTooltip } from './shared/HelpTooltip';
+import { MonthQuickPicker } from './shared/MonthQuickPicker';
+import { dateRangePresets } from '../utils/dateRange';
+import { CycleMultiSelect, type CycleFilterOption } from './rty/CycleMultiSelect';
 
 interface AlertConfigModalProps {
   onClose?: () => void;
@@ -32,6 +35,9 @@ interface AlertConfigModalProps {
   orderScope?: RTYFilterParams['orderScope'];
   onOrderScopeChange?: (scope: RTYFilterParams['orderScope']) => void;
   onExcludedOrdersOpen?: () => void;
+  selectedOrderTypes?: string[];
+  orderTypes?: string[];
+  onOrderTypesChange?: (orderTypes: string[]) => void;
   exportContainer?: HTMLElement | null;
 }
 
@@ -57,119 +63,11 @@ type CycleDetailSelection = {
 };
 
 // 预定义一些颜色，用于图表中的不同机型
+const EMPTY_ORDER_TYPES: string[] = [];
 const COLORS = ['#3b82f6', '#f59e0b', '#10b981', '#8b5cf6', '#ef4444', '#ec4899', '#14b8a6', '#f97316', '#6366f1', '#84cc16'];
 
-type CycleFilterOption = {
-  value: string;
-  label?: string;
-};
-
-/** 与销售订单看板一致的可搜索多选下拉控件。 */
-function CycleMultiSelect({
-  label,
-  placeholder,
-  options,
-  selected,
-  onChange,
-  multiple = true,
-}: {
-  label: string;
-  placeholder: string;
-  options: CycleFilterOption[];
-  selected: string[];
-  onChange: (values: string[]) => void;
-  multiple?: boolean;
-}) {
-  const [open, setOpen] = useState(false);
-  const [query, setQuery] = useState('');
-  const containerRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    const handler = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
-  }, []);
-
-  const normalizedQuery = query.trim().toLocaleLowerCase();
-  const filteredOptions = normalizedQuery
-    ? options.filter((option) => (option.label || option.value).toLocaleLowerCase().includes(normalizedQuery))
-    : options;
-
-  return (
-    <div className="relative" ref={containerRef}>
-      <button
-        type="button"
-        onClick={() => {
-          setOpen((current) => {
-            if (!current) setQuery('');
-            return !current;
-          });
-        }}
-        className={`flex h-9 min-w-40 items-center justify-between gap-2 rounded-md border bg-white px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 ${
-          selected.length > 0 ? 'border-blue-400 text-slate-800' : 'border-slate-200 text-slate-500 hover:border-slate-300'
-        }`}
-      >
-        <span className="truncate">{selected.length > 0 ? `${label} (${selected.length})` : placeholder}</span>
-        <ChevronDown className={`size-4 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} />
-      </button>
-
-      {open && (
-        <div className="absolute left-0 top-full z-30 mt-1 w-72 overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg shadow-slate-900/10">
-          <div className="flex items-center justify-between border-b border-slate-100 bg-slate-50 px-3 py-2">
-            <span className="text-xs font-medium text-slate-500">{label}</span>
-            <div className="flex items-center gap-3 text-xs">
-              {multiple && (
-                <button type="button" onClick={() => onChange([...new Set([...selected, ...options.map((option) => option.value)])])} className="font-medium text-blue-600 hover:text-blue-700">
-                  全选
-                </button>
-              )}
-              <button type="button" onClick={() => onChange([])} className="font-medium text-slate-500 hover:text-slate-700">
-                清空
-              </button>
-            </div>
-          </div>
-          <div className="border-b border-slate-100 px-3 py-2">
-            <div className="relative">
-              <Search className="pointer-events-none absolute left-2.5 top-1/2 size-3.5 -translate-y-1/2 text-slate-400" aria-hidden="true" />
-              <input
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder={`搜索${label}…`}
-                className="h-8 w-full rounded-md border border-slate-200 bg-slate-50 pl-8 pr-3 text-xs text-slate-700 outline-none transition-colors placeholder:text-slate-400 focus:border-blue-400 focus:bg-white focus:ring-2 focus:ring-blue-500/15"
-              />
-            </div>
-          </div>
-          <div className="max-h-60 overflow-y-auto py-1">
-            {options.length === 0 ? (
-              <p className="px-3 py-4 text-center text-xs text-slate-400">暂无可选项目</p>
-            ) : filteredOptions.length === 0 ? (
-              <p className="px-3 py-4 text-center text-xs text-slate-400">无匹配“{query.trim()}”的项目</p>
-            ) : (
-              filteredOptions.map((option) => (
-                <label key={option.value} className="flex cursor-pointer items-center gap-2.5 px-3 py-1.5 text-sm text-slate-700 transition-colors hover:bg-blue-50/60">
-                  <input
-                    type={multiple ? 'checkbox' : 'radio'}
-                    checked={selected.includes(option.value)}
-                    onChange={() => onChange(multiple ? (selected.includes(option.value) ? selected.filter((value) => value !== option.value) : [...selected, option.value]) : [option.value])}
-                    className="size-3.5 rounded border-slate-300 accent-blue-600"
-                  />
-                  <span className="truncate font-mono text-xs">{option.label || option.value}</span>
-                </label>
-              ))
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-type CycleTimePreset = '30d' | '90d' | '6m' | 'ytd' | 'custom';
+type CycleTimePreset = '今天' | '昨天' | '近 7 天' | '近 30 天' | '本周' | '上周'
+  | '本月' | '上月' | '本季度' | '今年' | '90d' | '6m' | 'custom';
 type CycleDateRange = { start: string; end: string };
 
 function formatDate(date: Date): string {
@@ -192,8 +90,10 @@ function monthRange(month: string, range: CycleDateRange): CycleDateRange {
 function getPresetRange(preset: Exclude<CycleTimePreset, 'custom'>): CycleDateRange {
   const end = new Date();
   const start = new Date(end);
-  if (preset === '30d' || preset === '90d') {
-    start.setDate(start.getDate() - (preset === '30d' ? 29 : 89));
+  const shared = dateRangePresets(end).find(item => item.label === preset);
+  if (shared) return { start: shared.from, end: shared.to };
+  if (preset === '90d') {
+    start.setDate(start.getDate() - 89);
   } else if (preset === '6m') {
     const day = start.getDate();
     start.setDate(1);
@@ -226,11 +126,11 @@ function CycleTimeRangePicker({
 }) {
   const [open, setOpen] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
   const presets = [
-    { value: '30d' as const, label: '近30天', detail: '含今天，共30天' },
-    { value: '90d' as const, label: '近90天', detail: '含今天，共90天' },
-    { value: '6m' as const, label: '近6个月', detail: '滚动日期范围' },
-    { value: 'ytd' as const, label: '本年度', detail: '从1月1日至今' },
+    ...dateRangePresets().map(item => ({ value: item.label as Exclude<CycleTimePreset, 'custom'>, label: item.label })),
+    { value: '90d' as const, label: '近90天' },
+    { value: '6m' as const, label: '近6个月' },
   ];
   const selectedLabel = value === 'custom'
     ? '自定义日期'
@@ -240,7 +140,8 @@ function CycleTimeRangePicker({
 
   useEffect(() => {
     const closeOnOutsideClick = (event: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)
+        && !dialogRef.current?.contains(event.target as Node)) {
         setOpen(false);
       }
     };
@@ -254,6 +155,30 @@ function CycleTimeRangePicker({
       document.removeEventListener('keydown', closeOnEscape);
     };
   }, []);
+
+  useLayoutEffect(() => {
+    if (!open) return;
+    const positionDialog = () => {
+      const trigger = containerRef.current;
+      const dialog = dialogRef.current;
+      if (!trigger || !dialog) return;
+      const anchor = trigger.getBoundingClientRect();
+      const width = Math.min(420, Math.max(0, window.innerWidth - 16));
+      const height = Math.min(dialog.offsetHeight, Math.max(0, window.innerHeight - 16));
+      dialog.style.left = `${Math.max(8, Math.min(anchor.right - width, window.innerWidth - width - 8))}px`;
+      dialog.style.top = `${Math.max(8, Math.min(anchor.bottom + 6, window.innerHeight - height - 8))}px`;
+    };
+    positionDialog();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(positionDialog);
+    if (dialogRef.current) observer?.observe(dialogRef.current);
+    window.addEventListener('resize', positionDialog);
+    window.addEventListener('scroll', positionDialog, true);
+    return () => {
+      window.removeEventListener('resize', positionDialog);
+      window.removeEventListener('scroll', positionDialog, true);
+      observer?.disconnect();
+    };
+  }, [open]);
 
   return (
     <div className="relative w-full sm:w-auto" ref={containerRef}>
@@ -276,8 +201,8 @@ function CycleTimeRangePicker({
         <ChevronDown className={`size-4 shrink-0 text-slate-400 transition-transform ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
       </button>
 
-      {open && (
-        <div role="dialog" aria-label="选择统计日期" className="absolute right-0 top-full z-40 mt-1.5 w-[min(340px,calc(100vw-2rem))] overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg shadow-slate-900/10">
+      {open && createPortal(
+        <div ref={dialogRef} role="dialog" aria-label="选择统计日期" className="fixed z-[100] max-h-[calc(100vh-1rem)] w-[min(420px,calc(100vw-1rem))] overflow-y-auto rounded-md border border-slate-200 bg-white shadow-lg shadow-slate-900/10">
           <div className="border-b border-slate-100 bg-slate-50 px-3 py-2.5">
             <div className="flex items-center gap-1">
               <p className="text-xs font-semibold text-slate-700">统计日期</p>
@@ -286,7 +211,7 @@ function CycleTimeRangePicker({
               </HelpTooltip>
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-2 p-3">
+          <div className="grid grid-cols-3 gap-1.5 p-3 sm:grid-cols-5" aria-label="日期快捷筛选">
             {presets.map((preset) => {
               const active = value === preset.value;
               return (
@@ -297,13 +222,12 @@ function CycleTimeRangePicker({
                     onPresetChange(preset.value);
                     setOpen(false);
                   }}
-                  className={`relative rounded-md border px-3 py-2.5 text-left transition-colors ${
+                  aria-pressed={active}
+                  className={`h-8 rounded-md border px-1 text-center text-[11px] font-medium transition-colors ${
                     active ? 'border-blue-500 bg-blue-50 text-blue-800' : 'border-slate-200 bg-white text-slate-700 hover:border-blue-200 hover:bg-blue-50/50'
                   }`}
                 >
-                  <span className="block text-xs font-semibold">{preset.label}</span>
-                  <span className="mt-0.5 block text-[10px] text-slate-500">{preset.detail}</span>
-                  {active && <Check className="absolute right-2 top-2 size-3.5 text-blue-600" aria-label="已选择" />}
+                  {preset.label}
                 </button>
               );
             })}
@@ -335,6 +259,14 @@ function CycleTimeRangePicker({
                 />
               </label>
             </div>
+            <MonthQuickPicker
+              from={draftStart}
+              to={draftEnd}
+              onChange={(start, end) => onCustomRangeChange({ start, end })}
+              accent="blue"
+              defaultExpanded={false}
+              className="mt-3 border-t border-slate-100 pt-3"
+            />
             <div className="mt-2 flex min-h-8 items-center justify-between gap-2">
               <p className={`text-[10px] ${hasInvalidOrder ? 'text-rose-600' : 'text-slate-400'}`} aria-live="polite">
                 {hasInvalidOrder ? '开始日期不能晚于结束日期' : '包含开始日和结束日'}
@@ -353,7 +285,7 @@ function CycleTimeRangePicker({
               </button>
             </div>
           </div>
-        </div>
+        </div>, document.body
       )}
     </div>
   );
@@ -378,6 +310,9 @@ export default function AlertConfigModal({
   orderScope = 'normal',
   onOrderScopeChange,
   onExcludedOrdersOpen,
+  selectedOrderTypes = EMPTY_ORDER_TYPES,
+  orderTypes = [],
+  onOrderTypesChange,
   exportContainer,
 }: AlertConfigModalProps) {
   const { settings, updateSettings } = useSettings();
@@ -396,6 +331,8 @@ export default function AlertConfigModal({
   const [showScopeSummaries, setShowScopeSummaries] = useState(true);
   const [appliedRange, setAppliedRange] = useState<CycleDateRange>(() => getPresetRange('6m'));
   const [draftRange, setDraftRange] = useState<CycleDateRange>(appliedRange);
+  const [searchRevision, setSearchRevision] = useState(0);
+  const forceNextSearch = useRef(false);
   
   // 独立数据拉取（不受主表单影响）
   const [scopeRawData, setScopeRawData] = useState<Record<RTYFilterParams['orderScope'], RTYData[]>>({
@@ -405,7 +342,7 @@ export default function AlertConfigModal({
   const allRawData = scopeRawData[orderScope];
   const latestFetchId = useRef(0);
   const [loadedQueryKey, setLoadedQueryKey] = useState<string | null>(null);
-  const queryKey = JSON.stringify([orderScope, selectedCustomers.slice().sort(), appliedRange.start, appliedRange.end]);
+  const queryKey = JSON.stringify([orderScope, selectedOrderTypes.slice().sort(), selectedCustomers.slice().sort(), appliedRange.start, appliedRange.end]);
   const [fetchError, setFetchError] = useState('');
   const [exportError, setExportError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -428,6 +365,7 @@ export default function AlertConfigModal({
           dateFrom: appliedRange.start,
           dateTo: appliedRange.end,
           forceRefresh,
+          ...(selectedOrderTypes.length ? { orderTypes: selectedOrderTypes } : {}),
         })),
       );
       if (fetchId !== latestFetchId.current) return;
@@ -448,12 +386,14 @@ export default function AlertConfigModal({
     } finally {
       if (fetchId === latestFetchId.current) setLoading(false);
     }
-  }, [queryKey, selectedCustomers, appliedRange.start, appliedRange.end]);
+  }, [queryKey, selectedOrderTypes, selectedCustomers, appliedRange.start, appliedRange.end]);
 
   useEffect(() => {
-    void fetchAllData();
+    const forceRefresh = forceNextSearch.current;
+    forceNextSearch.current = false;
+    void fetchAllData(forceRefresh);
     return () => { latestFetchId.current += 1; };
-  }, [fetchAllData]);
+  }, [fetchAllData, searchRevision]);
 
   const cacheTimeLabel = cycleCacheInfo.cachedAt
     ? new Date(cycleCacheInfo.cachedAt).toLocaleString('zh-CN', { hour12: false })
@@ -484,9 +424,14 @@ export default function AlertConfigModal({
     setAppliedRange(range);
   };
 
-  const applyCustomRange = () => {
-    setTimeFilter('custom');
+  const searchCurrentFilters = (customDate = false) => {
+    if (!draftRange.start || !draftRange.end || draftRange.start > draftRange.end) return;
+    if (customDate || draftRange.start !== appliedRange.start || draftRange.end !== appliedRange.end) {
+      setTimeFilter('custom');
+    }
+    forceNextSearch.current = true;
     setAppliedRange(draftRange);
+    setSearchRevision(revision => revision + 1);
   };
   
   const filteredData = useMemo(() => {
@@ -535,6 +480,7 @@ export default function AlertConfigModal({
         customers: selectedCustomers.length ? selectedCustomers : undefined,
         productModels: selectedModels?.size ? Array.from(selectedModels) : undefined,
         bases: selectedBases?.size ? Array.from(selectedBases) : undefined,
+        ...(selectedOrderTypes.length ? { orderTypes: selectedOrderTypes } : {}),
       });
       const book = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(summaryData), '趋势汇总');
@@ -612,6 +558,7 @@ export default function AlertConfigModal({
           : undefined,
       bases: selectedBases?.size ? Array.from(selectedBases) : undefined,
       customers: selectedCustomers.length ? selectedCustomers : undefined,
+      ...(selectedOrderTypes.length ? { orderTypes: selectedOrderTypes } : {}),
     };
     setCycleDetailSelection({ title, query, inputCount, defectCount });
   };
@@ -835,14 +782,17 @@ export default function AlertConfigModal({
                   </div>
                 )}
                 {onExcludedOrdersOpen && (
-                  <button
-                    type="button"
-                    onClick={onExcludedOrdersOpen}
-                    className="inline-flex h-7 items-center gap-1 rounded-sm border border-amber-300 bg-amber-50 px-2 text-[11px] font-medium text-amber-900 transition-colors hover:bg-amber-100"
-                  >
-                    <ListFilter className="size-3.5" />
-                    筛选订单
-                  </button>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={onExcludedOrdersOpen}
+                      className="inline-flex h-7 items-center gap-1 rounded-sm border border-amber-300 bg-amber-50 px-2 text-[11px] font-medium text-amber-900 transition-colors hover:bg-amber-100"
+                    >
+                      <ListFilter className="size-3.5" />
+                      筛选订单
+                    </button>
+                    <span className="text-xs text-slate-600">过滤条件：订单状态为 DLID、RELEASED，或订单类型为 C001。</span>
+                  </div>
                 )}
               </div>
               <div className="flex flex-wrap items-center gap-3">
@@ -899,6 +849,11 @@ export default function AlertConfigModal({
                   selected={selectedCustomers}
                   onChange={setSelectedCustomers}
                 />
+                {onOrderTypesChange && (
+                  <CycleMultiSelect label="订单类型" placeholder="全部订单类型" selected={selectedOrderTypes}
+                    options={[...new Set(['PP01', ...orderTypes, ...selectedOrderTypes])].sort().map(value => ({ value }))}
+                    onChange={onOrderTypesChange} />
+                )}
                 
                 <CycleTimeRangePicker
                   value={timeFilter}
@@ -908,15 +863,24 @@ export default function AlertConfigModal({
                   appliedEnd={appliedRange.end}
                   onPresetChange={handlePresetRange}
                   onCustomRangeChange={setDraftRange}
-                  onCustomRangeApply={applyCustomRange}
+                  onCustomRangeApply={() => searchCurrentFilters(true)}
                 />
+                <button
+                  type="button"
+                  onClick={() => searchCurrentFilters()}
+                  disabled={loading || !draftRange.start || !draftRange.end || draftRange.start > draftRange.end}
+                  className="inline-flex h-9 items-center gap-1.5 rounded-md bg-blue-600 px-3 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Search className="size-4" aria-hidden="true" />
+                  搜索
+                </button>
               </div>
             </div>
 
             {trendData && trendData.length > 0 && viewMode === 'chart' && (
               <div className="mb-8 border border-slate-200 rounded-sm p-4 bg-white">
                 <div className="flex justify-between items-center mb-3">
-                  <h5 className="text-xs font-semibold text-slate-700">产量（WMENG）与直通率（RTY）</h5>
+                  <h5 className="text-xs font-semibold text-slate-700">订单数量（GAMNG）与直通率（RTY）</h5>
                   <span className="text-[10px] text-slate-400">柱：台 · 线：%</span>
                 </div>
                 <div className="h-72 text-xs">

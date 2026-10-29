@@ -193,6 +193,8 @@ def _order_filters(
     order_scope: OrderScope = "normal",
     calculation_method: CalculationMethod | None = None,
     overseas: str = "",
+    order_type: str | None = None,
+    order_types: list[str] | None = None,
 ) -> dict[str, str]:
     result = {
         "salesOrder": sales_order or "",
@@ -208,6 +210,10 @@ def _order_filters(
     }
     if overseas:
         result["overseas"] = overseas
+    if order_type:
+        result["orderType"] = order_type.strip()
+    if order_types:
+        result["orderTypes"] = ",".join(sorted({value.strip() for value in order_types if value.strip()}))
     return result
 
 
@@ -227,6 +233,8 @@ async def get_rty_cycle_data(
     customers: Annotated[list[str] | None, Query()] = None,
     dateFrom: str | None = None,
     dateTo: str | None = None,
+    orderType: str | None = None,
+    orderTypes: Annotated[list[str] | None, Query()] = None,
 ):
     date_from = validate_date(dateFrom) if dateFrom else YEAR_START
     date_to = validate_date(dateTo) if dateTo else YEAR_END
@@ -240,6 +248,8 @@ async def get_rty_cycle_data(
         customers=customers,
         date_from=date_from,
         date_to=date_to,
+        order_type=orderType,
+        order_types=orderTypes,
     )
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 条周期统计数据")
 
@@ -262,6 +272,7 @@ async def get_station_pass_rates(
     groupBy: StationGroupByQuery = "salesOrder",
     orderScope: OrderScopeQuery = "normal",
     overseas: bool = False,
+    orderTypes: Annotated[list[str] | None, Query()] = None,
 ):
     rows = await rty_gateway.station_rates(
         dateFrom,
@@ -273,6 +284,7 @@ async def get_station_pass_rates(
         orderScope,
         customers=[*(customers or []), *([customer] if customer else [])],
         overseas=overseas,
+        order_types=orderTypes,
     )
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 个工位")
 
@@ -298,6 +310,7 @@ async def get_station_pass_details(
     dimensionValue: str | None = None,
     orderScope: OrderScopeQuery = "normal",
     overseas: bool = False,
+    orderTypes: Annotated[list[str] | None, Query()] = None,
 ):
     rows = await rty_gateway.station_details(
         stationCode.strip(),
@@ -312,6 +325,7 @@ async def get_station_pass_details(
         order_scope=orderScope,
         customers=[*(customers or []), *([customer] if customer else [])],
         overseas=overseas,
+        order_types=orderTypes,
     )
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 条明细")
 
@@ -335,6 +349,7 @@ async def get_station_pass_export(
     base: str | None = None,
     orderScope: OrderScopeQuery = "normal",
     overseas: bool = False,
+    orderTypes: Annotated[list[str] | None, Query()] = None,
 ):
     del request
     data = await rty_export.build_export_response(
@@ -348,6 +363,7 @@ async def get_station_pass_export(
             date_to=dateTo,
             order_scope=orderScope,
             overseas="true" if overseas else "",
+            order_types=orderTypes,
         ),
         product_models=productModels,
         bases=bases,
@@ -373,6 +389,8 @@ async def get_cycle_details(
     productModels: Annotated[list[str] | None, Query()] = None,
     bases: Annotated[list[str] | None, Query()] = None,
     customers: Annotated[list[str] | None, Query()] = None,
+    orderType: str | None = None,
+    orderTypes: Annotated[list[str] | None, Query()] = None,
 ):
     del request
     data = await cycle_details.build_cycle_details(
@@ -381,6 +399,8 @@ async def get_cycle_details(
             date_to=dateTo,
             customer=customer,
             order_scope=orderScope,
+            order_type=orderType,
+            order_types=orderTypes,
         ),
         product_models=productModels,
         bases=bases,
@@ -408,6 +428,8 @@ async def get_cycle_export(
     productModels: Annotated[list[str] | None, Query()] = None,
     bases: Annotated[list[str] | None, Query()] = None,
     customers: Annotated[list[str] | None, Query()] = None,
+    orderType: str | None = None,
+    orderTypes: Annotated[list[str] | None, Query()] = None,
 ):
     del request
     data = await rty_export.build_export_response(
@@ -417,6 +439,8 @@ async def get_cycle_export(
             date_to=dateTo,
             customer=customer,
             order_scope=orderScope,
+            order_type=orderType,
+            order_types=orderTypes,
         ),
         product_models=productModels,
         bases=bases,
@@ -448,6 +472,8 @@ async def get_rty_template_export(
     productModels: Annotated[list[str] | None, Query()] = None,
     bases: Annotated[list[str] | None, Query()] = None,
     customers: Annotated[list[str] | None, Query()] = None,
+    orderType: str | None = None,
+    orderTypes: Annotated[list[str] | None, Query()] = None,
 ):
     del request
     data = await rty_export.build_export_response(
@@ -463,6 +489,8 @@ async def get_rty_template_export(
             date_to=dateTo,
             order_scope=orderScope,
             calculation_method=calculationMethod,
+            order_type=orderType,
+            order_types=orderTypes,
         ),
         product_models=productModels,
         bases=bases,
@@ -496,6 +524,8 @@ async def get_rty_list(
     productModels: Annotated[list[str] | None, Query()] = None,
     bases: Annotated[list[str] | None, Query()] = None,
     customers: Annotated[list[str] | None, Query()] = None,
+    orderType: str | None = None,
+    orderTypes: Annotated[list[str] | None, Query()] = None,
 ):
     del request
     return await rty_gateway.rty_list(
@@ -510,6 +540,8 @@ async def get_rty_list(
             date_to=dateTo,
             order_scope=orderScope,
             calculation_method=calculationMethod,
+            order_type=orderType,
+            order_types=orderTypes,
         ), "_productModels": productModels or [], "_bases": bases or [], "_customers": customers or []},
         page,
         limit,
@@ -539,6 +571,8 @@ async def get_excluded_orders(
     productModels: Annotated[list[str] | None, Query()] = None,
     bases: Annotated[list[str] | None, Query()] = None,
     customers: Annotated[list[str] | None, Query()] = None,
+    orderType: str | None = None,
+    orderTypes: Annotated[list[str] | None, Query()] = None,
 ):
     del request
     return await rty_gateway.excluded_orders(
@@ -552,6 +586,8 @@ async def get_excluded_orders(
             date_from=dateFrom,
             date_to=dateTo,
             order_scope=orderScope,
+            order_type=orderType,
+            order_types=orderTypes,
         ), "_productModels": productModels or [], "_bases": bases or [], "_customers": customers or []},
         page,
         limit,
@@ -579,6 +615,8 @@ async def get_defect_details_by_filters(
     productModels: Annotated[list[str] | None, Query()] = None,
     bases: Annotated[list[str] | None, Query()] = None,
     customers: Annotated[list[str] | None, Query()] = None,
+    orderType: str | None = None,
+    orderTypes: Annotated[list[str] | None, Query()] = None,
 ):
     del request, calculationMethod
     filters = _order_filters(
@@ -591,6 +629,8 @@ async def get_defect_details_by_filters(
         date_from=dateFrom,
         date_to=dateTo,
         order_scope=orderScope,
+        order_type=orderType,
+        order_types=orderTypes,
     )
     filters.update(
         _productModels=productModels or [],
@@ -729,6 +769,7 @@ async def get_filter_options(orderScope: OrderScopeQuery = "normal"):
             ],
             "bases": [{"base": key, "count": round(value)} for key, value in sorted(bases.items())],
             "customers": sorted(_option_totals(rows, "KID")),
+            "orderTypes": sorted({str(row["data"].get("AUART") or "").strip() for row in rows if row["data"].get("AUART")}),
         },
     )
 

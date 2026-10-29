@@ -67,6 +67,10 @@ function buildQuery(filters: LRRFilters, extra?: Record<string, unknown>): strin
   const params: Record<string, unknown> = { ...filters, ...extra };
   for (const [k, v] of Object.entries(params)) {
     if (v === undefined || v === null || v === '' || v === 'all' || v === 'none') continue;
+    if (k === 'orderTypes' && Array.isArray(v)) {
+      v.forEach(value => qs.append('orderTypes', value));
+      continue;
+    }
     if (Array.isArray(v) && ['customerIds', 'productModels', 'bases'].includes(k)) {
       const param = ({ customerIds: 'customerId', productModels: 'productModel', bases: 'base' } as const)[k as 'customerIds' | 'productModels' | 'bases'];
       v.forEach((value) => qs.append(param, value));

@@ -10,6 +10,7 @@ export interface LRRFilters {
   productModels?: string[] | null;
   bases?: string[] | null;
   customerIds?: string[] | null;
+  orderTypes?: string[] | null;
   month?: string | null;
   sortBy?: LRRSortField;
   sortDir?: LRRSortDir;
@@ -64,6 +65,7 @@ export interface LRROptions {
   productModels: string[];
   bases: string[];
   customerIds: string[];
+  orderTypes?: string[];
 }
 
 export interface LRRFaultDetail {

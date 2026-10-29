@@ -28,6 +28,7 @@ export interface DoaTrendItem extends DoaDimensionItem {
 
 export interface DoaDashboard {
   filters: DoaFilters;
+  cacheExpiresAt?: string | null;
   summary: {
     shippedCount: number;
     repairCount: number;
@@ -37,12 +38,32 @@ export interface DoaDashboard {
     replacementRecordCount: number;
     matchedRepairRecords: number;
     excludedRepairRecords: number;
+    unmatchedRepairRecords: number;
+    missingQuantityRecords: number;
+    unmatchedPlannedRecords: number;
+    unmatchedPlannedQuantity: number;
     latestDataAt: string | null;
   };
   trend: DoaTrendItem[];
   byCustomer: DoaDimensionItem[];
   byModel: DoaDimensionItem[];
   unmatchedOrders: { salesOrder: string; recordCount: number }[];
+}
+
+export interface DoaOrderItem {
+  salesOrder: string;
+  productionOrder: string;
+  customer: string;
+  model: string;
+  plannedStartDate: string;
+  quantity: number;
+}
+export interface DoaOrdersResponse {
+  items: DoaOrderItem[];
+  total: number;
+  totalQuantity: number;
+  page: number;
+  limit: number;
 }
 
 export interface DoaAudit {
@@ -56,11 +77,14 @@ export interface DoaRepairItem {
   salesOrder: string;
   materialSerial: string;
   acceptedAt: string;
+  plannedAt: string;
+  gstrsStatus: string;
   customer: string;
   model: string;
   shippedDate: string;
   shippedCount: number;
   repairCount: number;
+  missingQuantity: boolean;
   data: Record<string, unknown>;
 }
 

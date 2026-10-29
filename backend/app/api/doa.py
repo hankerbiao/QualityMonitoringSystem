@@ -16,6 +16,7 @@ from app.services.doa_service import (
     build_doa_dashboard,
     get_doa_audit,
     get_doa_options,
+    get_doa_orders,
     get_doa_raw,
     get_doa_repairs,
 )
@@ -91,6 +92,41 @@ async def doa_raw(
 
 
 @router.get(
+    "/orders",
+    dependencies=[Depends(dashboard_dependency("doa"))],
+)
+async def doa_orders(
+    _: Annotated[dict, Depends(get_current_user)],
+    dateFrom: str | None = Query(None),
+    dateTo: str | None = Query(None),
+    customer: str | None = Query(None),
+    model: str | None = Query(None),
+    timeGranularity: str = Query("month"),
+    acceptedDateFrom: str | None = Query(None),
+    acceptedDateTo: str | None = Query(None),
+    customers: Annotated[list[str] | None, Query()] = None,
+    models: Annotated[list[str] | None, Query()] = None,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=1000),
+):
+    return await get_doa_orders(
+        _filters(
+            dateFrom,
+            dateTo,
+            customer,
+            model,
+            timeGranularity,
+            acceptedDateFrom,
+            acceptedDateTo,
+            customers,
+            models,
+        ),
+        page,
+        limit,
+    )
+
+
+@router.get(
     "/dashboard",
     response_model=DoaDashboardResponse,
     dependencies=[Depends(dashboard_dependency("doa"))],
@@ -139,7 +175,17 @@ async def doa_audit(
     models: Annotated[list[str] | None, Query()] = None,
 ):
     return await get_doa_audit(
-        _filters(dateFrom, dateTo, customer, model, timeGranularity, acceptedDateFrom, acceptedDateTo, customers, models)
+        _filters(
+            dateFrom,
+            dateTo,
+            customer,
+            model,
+            timeGranularity,
+            acceptedDateFrom,
+            acceptedDateTo,
+            customers,
+            models,
+        )
     )
 
 
@@ -162,6 +208,7 @@ async def doa_repairs(
     page: int = Query(1, ge=1),
     limit: int = Query(50, ge=1, le=50000),
     replacementOnly: bool = Query(False),
+    unmatchedOnly: bool = Query(False),
 ):
     return await get_doa_repairs(
         _filters(
@@ -178,4 +225,5 @@ async def doa_repairs(
         page,
         limit,
         replacement_only=replacementOnly,
+        unmatched_only=unmatchedOnly,
     )

@@ -43,10 +43,13 @@ export function ExcludedOrdersModal({ filters, onClose }: ExcludedOrdersModalPro
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="excluded-orders-title">
       <div className="flex max-h-[85vh] w-full max-w-[1280px] flex-col overflow-hidden rounded-md border border-slate-200 bg-white shadow-xl">
-        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-3">
-          <div className="flex items-center gap-2">
-            <h2 id="excluded-orders-title" className="text-base font-semibold text-slate-800">已过滤订单</h2>
-            {!loading && <span className="rounded-sm bg-amber-50 px-2 py-0.5 text-xs text-amber-800">{total} 条</span>}
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <h2 id="excluded-orders-title" className="text-base font-semibold text-slate-800">已过滤订单</h2>
+              {!loading && <span className="rounded-sm bg-amber-50 px-2 py-0.5 text-xs text-amber-800">{total} 条</span>}
+            </div>
+            <p className="mt-1 text-xs text-slate-600">过滤条件：订单状态为 DLID、RELEASED，或订单类型为 C001。</p>
           </div>
           <button type="button" onClick={onClose} className="rounded-sm p-1 text-slate-500 transition-colors hover:bg-slate-100" title="关闭" aria-label="关闭">
             <X className="h-4 w-4" />

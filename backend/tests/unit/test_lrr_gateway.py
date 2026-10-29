@@ -8,6 +8,32 @@ from app.services.data_gateway_client import DataGatewayClient, DataGatewayError
 
 
 @pytest.mark.asyncio
+async def test_lrr_bom_filters_multiple_order_types_using_order_metadata(monkeypatch):
+    async def all_bom_rows(**_filters):
+        return [{"id": str(i), "AUFNR_1": str(i), "GSTRS": "20260301", "MATNR": "PN", "MENGE_A": 1} for i in range(1, 5)]
+
+    async def all_orders(**_filters):
+        return [{"aufnr": str(i), "inventoryLocation": "1000", "raw": {"data": {"AUART": kind}}}
+                for i, kind in [(1, "PP01"), (2, "G001"), (3, "PP02")]]
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_orders", all_orders)
+    filtered = await lrr_gateway.load_bom(planned_date_from="2026-03-01", planned_date_to="2026-03-31", order_types=("PP01", "G001"))
+    assert {int(row['AUFNR_1']) for row in filtered} == {1, 2}
+    all_types = await lrr_gateway.load_bom(planned_date_from="2026-03-01", planned_date_to="2026-03-31")
+    assert {int(row['AUFNR_1']) for row in all_types} == {1, 2, 3, 4}
+
+
+def test_lrr_order_type_filter_excludes_faults_without_verified_order():
+    from app.api.lrr import _faults_in_selected_orders
+
+    bom = [{"AUFNR_1": "1"}]
+    faults = [{"AUFNR": "1"}, {"AUFNR": "2"}, {"AUFNR": ""}]
+    assert _faults_in_selected_orders(bom, faults, ("PP01",)) == [faults[0]]
+    assert _faults_in_selected_orders(bom, faults, ()) == faults
+
+
+@pytest.mark.asyncio
 async def test_load_bom_splits_timed_out_gateway_window_without_losing_rows(monkeypatch):
     async def all_bom_rows(**filters):
         start, end = filters["dateFrom"], filters["dateTo"]
@@ -633,6 +659,9 @@ async def test_options_uses_orders_without_loading_entire_bom(monkeypatch):
 
     monkeypatch.setattr(lrr_gateway.data_gateway, "order_options", order_options)
     monkeypatch.setattr(lrr_gateway.data_gateway, "all_view", fail_all_view)
+    async def all_orders(**_filters):
+        return [{"inventoryLocation": "BASE-A", "raw": {"data": {"AUART": "PP01"}}}]
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_orders", all_orders)
     result = await lrr_gateway.options()
     assert "productionOrders" not in result
     assert "salesOrders" not in result
@@ -640,6 +669,7 @@ async def test_options_uses_orders_without_loading_entire_bom(monkeypatch):
     assert result["customerIds"] == ["C-1"]
     assert result["materialNumbers"] == ["MAT-1"]
     assert result["productModels"] == ["MODEL-1"]
+    assert result["orderTypes"] == ["PP01"]
 
 
 @pytest.mark.asyncio
@@ -664,6 +694,7 @@ async def test_options_falls_back_when_unused_order_options_exceed_limit(monkeyp
             "productModels": ["M1", "M2"],
             "bases": ["1000", "3000"],
             "customerIds": ["C1", "C2"],
+            "orderTypes": [],
         }
 
 
@@ -690,6 +721,7 @@ async def test_options_fallback_enforces_base_permissions_even_if_gateway_return
             "productModels": ["allowed"],
             "bases": ["1000"],
             "customerIds": ["C1"],
+            "orderTypes": [],
         }
 
 

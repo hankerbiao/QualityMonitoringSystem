@@ -58,6 +58,8 @@ export interface RTYCycleDetailQuery {
   productModels?: string[];
   customers?: string[];
   bases?: string[];
+  orderType?: string;
+  orderTypes?: string[];
 }
 
 export interface RTYCycleDetails {
@@ -85,6 +87,7 @@ export interface StationPassQuery {
   productModels?: string[];
   customers?: string[];
   bases?: string[];
+  orderTypes?: string[];
   productModel?: string;
   customer?: string;
   base?: string;
@@ -205,6 +208,8 @@ export interface RTYFilterParams {
   productionOrder: string;
   serialNumber: string;
   orderScope: 'normal' | 'l6';
+  orderType?: string;
+  orderTypes?: string[];
   calculationMethod?: 'normal' | 'composite';
   productModels?: string[];
   bases?: string[];

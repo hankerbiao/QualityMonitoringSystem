@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx';
 import { rtyApi, type CycleDataResult } from '../api/rtyApi';
 import type { RTYData } from '../types';
 import AlertConfigModal from './AlertConfigModal';
+import { dateRangePresets } from '../utils/dateRange';
 
 vi.mock('../api/rtyApi', () => ({
   rtyApi: {
@@ -54,6 +55,146 @@ describe('cycle query and export', () => {
     });
   });
   afterEach(cleanup);
+
+  it('renders the order type list outside the clipped statistics panel', async () => {
+    const view = render(<AlertConfigModal embedded selectedOrderTypes={['PP01']} orderTypes={['PP01', 'G001']} onOrderTypesChange={vi.fn()} />);
+    await screen.findByRole('row', { name: /Model A/ });
+    fireEvent.click(screen.getByRole('button', { name: '订单类型 (1)' }));
+    const choice = screen.getByRole('checkbox', { name: 'G001' });
+    expect(view.container.contains(choice)).toBe(false);
+    expect(choice.closest('[role="dialog"]')?.parentElement).toBe(document.body);
+    fireEvent.mouseDown(choice);
+    expect(screen.getByRole('checkbox', { name: 'G001' })).toBeTruthy();
+  });
+
+  it('filters cycle queries, details and exports by the selected order type', async () => {
+    const changeOrderType = vi.fn();
+    render(<AlertConfigModal embedded selectedOrderTypes={['PP01']} orderTypes={['PP01', 'G001']} onOrderTypesChange={changeOrderType} />);
+    await screen.findByRole('row', { name: /Model A/ });
+    expect(screen.getByRole('button', { name: '订单类型 (1)' })).toBeTruthy();
+    expect(rtyApi.getCycleData).toHaveBeenCalledWith('normal', [], expect.objectContaining({ orderTypes: ['PP01'] }));
+    const modelRow = screen.getByRole('row', { name: /Model A/ });
+    fireEvent.click(within(modelRow).getAllByRole('cell')[1].querySelector('button')!);
+    await waitFor(() => expect(rtyApi.getCycleDetails).toHaveBeenCalledWith(expect.objectContaining({ orderTypes: ['PP01'] })));
+    fireEvent.click(screen.getByRole('button', { name: '关闭明细' }));
+    fireEvent.click(screen.getByRole('button', { name: '导出' }));
+    await waitFor(() => expect(rtyApi.getCycleExport).toHaveBeenCalledWith(expect.objectContaining({ orderTypes: ['PP01'] })));
+    fireEvent.click(screen.getByRole('button', { name: '订单类型 (1)' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'G001' }));
+    expect(changeOrderType).toHaveBeenCalledWith(['PP01', 'G001']);
+  });
+
+  it('offers station-style date shortcuts and applies a selected shortcut', async () => {
+    render(<AlertConfigModal embedded />);
+    await screen.findByRole('row', { name: /Model A/ });
+    fireEvent.click(screen.getByRole('button', { name: /近6个月/ }));
+    const dialog = screen.getByRole('dialog', { name: '选择统计日期' });
+    for (const { label } of dateRangePresets()) {
+      expect(within(dialog).getByRole('button', { name: label })).toBeTruthy();
+    }
+    const preset = dateRangePresets().find(item => item.label === '上月')!;
+    fireEvent.click(within(dialog).getByRole('button', { name: '上月' }));
+    await waitFor(() => expect(rtyApi.getCycleData).toHaveBeenCalledWith('normal', [], expect.objectContaining({
+      dateFrom: preset.from, dateTo: preset.to,
+    })));
+  });
+
+  it('uses the month shortcut to prepare a full month before applying', async () => {
+    render(<AlertConfigModal embedded />);
+    await screen.findByRole('row', { name: /Model A/ });
+    fireEvent.click(screen.getByRole('button', { name: /近6个月/ }));
+    fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2024-01-01' } });
+    fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2024-01-31' } });
+    fireEvent.click(screen.getByRole('button', { name: '展开月份快捷筛选' }));
+    fireEvent.click(screen.getByRole('button', { name: '2' }));
+    expect((screen.getByLabelText('开始日期') as HTMLInputElement).value).toBe('2024-02-01');
+    expect((screen.getByLabelText('结束日期') as HTMLInputElement).value).toBe('2024-02-29');
+    fireEvent.click(screen.getByRole('button', { name: '应用日期' }));
+    await waitFor(() => expect(rtyApi.getCycleData).toHaveBeenCalledWith('normal', [], expect.objectContaining({
+      dateFrom: '2024-02-01', dateTo: '2024-02-29', forceRefresh: true,
+    })));
+  });
+
+  it('searches with the current date draft and selected filters', async () => {
+    vi.mocked(rtyApi.getCustomers).mockResolvedValue(['Customer 1']);
+    vi.mocked(rtyApi.getCycleData).mockResolvedValue({
+      ...result, data: [row, { ...row, productModel: 'Model B', base: 'D' }],
+    });
+    render(<AlertConfigModal embedded />);
+    await screen.findByRole('row', { name: /Model A/ });
+    fireEvent.click(screen.getByRole('button', { name: '选择机型' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Model A' }));
+    fireEvent.click(screen.getByRole('button', { name: '选择基地' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'B' }));
+    fireEvent.click(screen.getByRole('button', { name: '选择客户' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Customer 1' }));
+    await waitFor(() => expect(rtyApi.getCycleData).toHaveBeenCalledWith('normal', ['Customer 1'], expect.anything()));
+    fireEvent.click(screen.getByRole('button', { name: /近6个月/ }));
+    fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-09-01' } });
+    fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-09-30' } });
+    fireEvent.click(screen.getByRole('button', { name: '搜索' }));
+    await waitFor(() => expect(rtyApi.getCycleData).toHaveBeenCalledWith('normal', ['Customer 1'], {
+      dateFrom: '2026-09-01', dateTo: '2026-09-30', forceRefresh: true,
+    }));
+    expect(screen.queryByRole('row', { name: /Model B/ })).toBeNull();
+    expect(screen.getByRole('row', { name: /Model A/ })).toBeTruthy();
+  });
+
+  it('searches again when applying an unchanged custom date range', async () => {
+    render(<AlertConfigModal embedded />);
+    await screen.findByRole('row', { name: /Model A/ });
+    fireEvent.click(screen.getByRole('button', { name: /近6个月/ }));
+    fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-09-01' } });
+    fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-09-30' } });
+    fireEvent.click(screen.getByRole('button', { name: '应用日期' }));
+    await waitFor(() => expect(rtyApi.getCycleData).toHaveBeenCalledWith('normal', [], {
+      dateFrom: '2026-09-01', dateTo: '2026-09-30', forceRefresh: true,
+    }));
+    vi.mocked(rtyApi.getCycleData).mockClear();
+    fireEvent.click(screen.getByRole('button', { name: /自定义日期/ }));
+    fireEvent.click(screen.getByRole('button', { name: '应用日期' }));
+    await waitFor(() => expect(rtyApi.getCycleData).toHaveBeenCalledWith('normal', [], {
+      dateFrom: '2026-09-01', dateTo: '2026-09-30', forceRefresh: true,
+    }));
+  });
+
+  it('keeps the date dialog outside the clipped statistics container and applies dates', async () => {
+    const view = render(<AlertConfigModal embedded />);
+    await screen.findByRole('row', { name: /Model A/ });
+    fireEvent.click(screen.getByRole('button', { name: /近6个月/ }));
+    const dialog = screen.getByRole('dialog', { name: '选择统计日期' });
+    expect(view.container.contains(dialog)).toBe(false);
+    expect(dialog.parentElement).toBe(document.body);
+    fireEvent.mouseDown(within(dialog).getByLabelText('开始日期'));
+    fireEvent.change(within(dialog).getByLabelText('开始日期'), { target: { value: '2026-09-01' } });
+    fireEvent.change(within(dialog).getByLabelText('结束日期'), { target: { value: '2026-09-30' } });
+    fireEvent.click(within(dialog).getByRole('button', { name: '应用日期' }));
+    expect(screen.queryByRole('dialog', { name: '选择统计日期' })).toBeNull();
+    expect(screen.getByRole('button', { name: /2026-09-01 至 2026-09-30/ })).toBeTruthy();
+  });
+
+  it('positions the date dialog within a short viewport and updates on resize', async () => {
+    vi.stubGlobal('innerHeight', 300);
+    const height = vi.spyOn(HTMLElement.prototype, 'offsetHeight', 'get').mockReturnValue(284);
+    try {
+      render(<AlertConfigModal embedded />);
+      await screen.findByRole('row', { name: /Model A/ });
+      const trigger = screen.getByRole('button', { name: /近6个月/ });
+      vi.spyOn(trigger.parentElement!, 'getBoundingClientRect').mockReturnValue({
+        right: 500, bottom: 270,
+      } as DOMRect);
+      fireEvent.click(trigger);
+      const dialog = screen.getByRole('dialog', { name: '选择统计日期' });
+      expect(dialog.style.top).toBe('8px');
+      expect(dialog.className).toContain('overflow-y-auto');
+      vi.stubGlobal('innerHeight', 600);
+      fireEvent(window, new Event('resize'));
+      expect(dialog.style.top).toBe('276px');
+    } finally {
+      height.mockRestore();
+      vi.unstubAllGlobals();
+    }
+  });
 
   it.each([
     { name: 'configured target', target: 92, sourceTarget: 100, input: 360, defects: 8, rate: '97.78%', color: 'text-green-700' },

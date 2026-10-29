@@ -55,6 +55,27 @@ describe('StationPassRatePage customer filter', () => {
   });
   afterEach(cleanup);
 
+  it('defaults to all order types and sends multiple selected types to queries and details', async () => {
+    vi.mocked(rtyApi.getFilterOptions).mockResolvedValue({ productModels: [], bases: [], customers: [], orderTypes: ['PP01', 'G001'] });
+    vi.mocked(rtyApi.getStationPassRates).mockResolvedValue([{
+      dimensionValue: 'M', stationCode: 'OP10', stationName: '装配', inputCount: 2,
+      defectCount: 0, passRate: 100, totalInputCount: 2, totalDefectCount: 0,
+    }]);
+    render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
+    expect(screen.getByRole('button', { name: '订单类型（多选）' }).textContent).toContain('全部订单类型');
+    expect(screen.queryByLabelText('服务器 SN')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+    await waitFor(() => expect(rtyApi.getStationPassRates).toHaveBeenCalledWith(expect.not.objectContaining({ orderTypes: expect.anything() })));
+    fireEvent.click(screen.getByRole('button', { name: '订单类型（多选）' }));
+    fireEvent.click(await screen.findByRole('checkbox', { name: 'PP01' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: 'G001' }));
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+    await waitFor(() => expect(rtyApi.getStationPassRates).toHaveBeenLastCalledWith(expect.objectContaining({ orderTypes: ['PP01', 'G001'] })));
+    expect(vi.mocked(rtyApi.getStationPassRates).mock.lastCall?.[0]).not.toHaveProperty('serialNumber');
+    fireEvent.click(await screen.findByRole('button', { name: /100.00%.*0\/2/ }));
+    await waitFor(() => expect(rtyApi.getStationPassDetails).toHaveBeenCalledWith('OP10', expect.objectContaining({ orderTypes: ['PP01', 'G001'] }), 'input'));
+  });
+
   it('applies a date range to the next manual query and invalidates previous results', async () => {
     context.stationConfig = { selectedStations: ['OP10'], configured: true };
     vi.mocked(rtyApi.getStationPassRates).mockResolvedValue([{

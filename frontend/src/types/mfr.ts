@@ -26,9 +26,10 @@ export interface MFRDashboard {
     faultCount: number;
     fleetCount: number;
     mfrRate: number | null;
-    warrantyDateCoverage: number;
-    ordersWithWarrantyDates: number;
-    ordersMissingWarrantyDates: number;
+    sourceDeviceCount: number;
+    selectedDeviceCount: number;
+    deviceIssues: Record<string, number>;
+    unmatchedChangeCount: number;
   };
   trend: MFRTrendItem[];
   dailyTrend: MFRDailyTrendItem[];

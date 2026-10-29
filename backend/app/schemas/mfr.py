@@ -29,9 +29,13 @@ class MFRSummary(BaseModel):
     faultCount: int = 0
     fleetCount: float = 0
     mfrRate: float | None = None
-    warrantyDateCoverage: float = 0
-    ordersWithWarrantyDates: int = 0
-    ordersMissingWarrantyDates: int = 0
+    warrantyDateCoverage: float | None = None
+    ordersWithWarrantyDates: int | None = None
+    ordersMissingWarrantyDates: int | None = None
+    sourceDeviceCount: int = 0
+    selectedDeviceCount: int = 0
+    deviceIssues: dict[str, int] = Field(default_factory=dict)
+    unmatchedChangeCount: int = 0
 
 
 class MFRDashboardResponse(BaseModel):

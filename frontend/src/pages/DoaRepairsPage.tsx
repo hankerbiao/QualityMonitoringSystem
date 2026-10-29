@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router-dom";
 import { ArrowLeft, Download, FileSearch, X } from "lucide-react";
 import * as XLSX from "xlsx";
 import { doaApi } from "../api/doaApi";
+import { HelpTooltip } from "../components/shared/HelpTooltip";
 import type { DoaFilters, DoaRepairItem } from "../types/doa";
 
 function filtersFrom(params: URLSearchParams): DoaFilters {
@@ -38,17 +39,20 @@ export default function DoaRepairsPage() {
   const [params] = useSearchParams();
   const filters = filtersFrom(params);
   const replacementOnly = params.get("replacementOnly") === "true";
+  const unmatchedOnly = params.get("unmatchedOnly") === "true";
   const [items, setItems] = useState<DoaRepairItem[]>([]);
   const [total, setTotal] = useState(0);
   const [totalRepairCount, setTotalRepairCount] = useState<number | null>(null);
   const [page, setPage] = useState(1);
   const [selected, setSelected] = useState<DoaRepairItem | null>(null);
   const [loading, setLoading] = useState(true);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
   const limit = 50;
   useEffect(() => {
     setLoading(true);
     doaApi
-      .getRepairs(filters, page, limit, replacementOnly)
+      .getRepairs(filters, page, limit, replacementOnly, unmatchedOnly)
       .then((r) => {
         setItems(r.items);
         setTotal(r.total);
@@ -59,36 +63,41 @@ export default function DoaRepairsPage() {
       .finally(() => setLoading(false));
   }, [page, replacementOnly, params.toString()]);
   const exportRows = async () => {
-    const response = await doaApi.getRepairs(
-      filters,
-      1,
-      50000,
-      replacementOnly,
-    );
-    const rows = response.items.map((item) => ({
-      销售订单: item.salesOrder,
-      序列号: item.materialSerial,
-      受理日期: item.acceptedAt,
-      客户: item.customer,
-      机型: item.model,
-      订单计划开始日期: item.shippedDate,
-      匹配订单数量: item.shippedCount,
-      问题批次数量: item.repairCount,
-      ...item.data,
-    }));
-    const ws = XLSX.utils.json_to_sheet(rows);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(
-      wb,
-      ws,
-      replacementOnly ? "DOA换件明细" : "DOA报修明细",
-    );
-    XLSX.writeFile(
-      wb,
-      `${replacementOnly ? "DOA换件明细" : "DOA报修明细"}_${new Date().toISOString().slice(0, 10)}.xlsx`,
-    );
+    setExporting(true);
+    setExportError("");
+    try {
+      const items = await doaApi.getAllRepairs(filters, replacementOnly, 1000, unmatchedOnly);
+      const rows = items.map((item) => ({
+        ...item.data,
+        销售订单: item.salesOrder,
+        序列号: item.materialSerial,
+        受理日期: item.acceptedAt,
+        生产订单计划日期: item.plannedAt,
+        计划日期匹配状态: item.gstrsStatus,
+        客户: item.customer,
+        机型: item.model,
+        订单计划开始日期: item.shippedDate,
+        匹配订单数量: item.shippedCount,
+        问题批次数量: item.repairCount,
+      }));
+      const ws = XLSX.utils.json_to_sheet(rows);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(
+        wb,
+        ws,
+        replacementOnly ? "DOA换件明细" : "DOA报修明细",
+      );
+      XLSX.writeFile(
+        wb,
+        `${replacementOnly ? "DOA换件明细" : "DOA报修明细"}_${new Date().toISOString().slice(0, 10)}.xlsx`,
+      );
+    } catch (error) {
+      setExportError(error instanceof Error ? error.message : "导出失败，请重试");
+    } finally {
+      setExporting(false);
+    }
   };
-  const pageTitle = replacementOnly ? "DOA 换件不良明细" : "DOA 报修明细";
+  const pageTitle = unmatchedOnly ? "DOA 未匹配计划日期明细（不受日期筛选）" : replacementOnly ? "DOA 换件不良明细" : "DOA 报修明细";
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
       <header className="border-b border-slate-200 bg-white">
@@ -102,9 +111,13 @@ export default function DoaRepairsPage() {
               <ArrowLeft className="size-5" />
             </Link>
             <div>
-              <p className="text-lg font-semibold text-slate-950">
-                {pageTitle}
-              </p>
+              <div className="flex items-center gap-1"><p className="text-lg font-semibold text-slate-950">{pageTitle}</p>
+                <HelpTooltip label="查看报修明细计算说明">
+                  <p>有效报修为 5000 公司中判定结果为“是”、非待受理且问题批次数量非空的申报；条数为申报记录数，问题批次数量为各条数量之和。</p>
+                  <p className="mt-1">{unmatchedOnly ? "无法确定生产订单计划日期的申报不受日期筛选，不计入当前报修率；仍受客户、机型筛选。" : "按生产订单计划开始日期 GSTRS、客户和机型筛选；无法确定计划日期的申报单独展示，不计入当前报修率。"}</p>
+                  {replacementOnly && <p className="mt-1">换件明细仅包括同一服务单有未撤销“换上”或“换上-up”记录的有效报修，每条报修只计一次。</p>}
+                </HelpTooltip>
+              </div>
               <p className="text-xs text-slate-400">
                 当前筛选命中 {total.toLocaleString()} 条，问题批次数量{" "}
                 {totalRepairCount?.toLocaleString() ?? "—"}
@@ -114,14 +127,16 @@ export default function DoaRepairsPage() {
           <button
             type="button"
             onClick={exportRows}
+            disabled={exporting}
             className="inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-2 text-sm font-medium text-white hover:bg-blue-700"
           >
             <Download className="size-4" />
-            导出 Excel
+            {exporting ? "导出中…" : "导出 Excel"}
           </button>
         </div>
       </header>
       <main className="mx-auto max-w-7xl px-4 py-5 sm:px-6 lg:px-8">
+        {exportError && <p role="alert" className="mb-3 text-sm text-red-700">{exportError}</p>}
         <section className="overflow-hidden rounded-md border border-slate-200 bg-white">
           <div className="flex items-center gap-2 border-b border-slate-100 px-4 py-3 text-sm font-semibold text-slate-700">
             <FileSearch className="size-4 text-blue-600" />
@@ -140,6 +155,7 @@ export default function DoaRepairsPage() {
                       "销售订单",
                       "序列号",
                       "受理日期",
+                      "生产订单计划日期",
                       "客户",
                       "机型",
                       "订单计划开始日期",
@@ -167,6 +183,7 @@ export default function DoaRepairsPage() {
                       <td className="px-4 py-3 text-xs">
                         {value(item.acceptedAt)}
                       </td>
+                      <td className="px-4 py-3 text-xs">{value(item.plannedAt)}</td>
                       <td className="max-w-[220px] truncate px-4 py-3">
                         {value(item.customer)}
                       </td>

@@ -451,6 +451,16 @@ def _canonical_lrr_cache_query(query: LRRListQuery) -> LRRListQuery:
     return replace(query, page=1, limit=0)
 
 
+def _faults_in_selected_orders(
+    bom: list[dict[str, Any]], faults: list[dict[str, Any]], order_types: tuple[str, ...]
+) -> list[dict[str, Any]]:
+    if not order_types:
+        return faults
+    orders = {normalize_production_order(row.get("AUFNR_1")) for row in bom}
+    orders.discard("")
+    return [row for row in faults if normalize_production_order(row.get("AUFNR")) in orders]
+
+
 def _requires_full_fault_sort(query: LRRListQuery) -> bool:
     """Fault-derived sort keys require counts for every material/month row."""
     return query.sort_by in {"faultCount", "lrrRate"}
@@ -471,6 +481,7 @@ def _has_filter_criteria(query: LRRListQuery) -> bool:
             query.product_model,
             query.base,
             query.customer_ids,
+            query.order_types,
         )
     )
 
@@ -482,6 +493,7 @@ async def _load(query: LRRListQuery) -> LRRListResponse:
         product_models=[*query.product_models, *([query.product_model] if query.product_model else [])],
         bases=[*query.bases, *([query.base] if query.base else [])],
         customer_ids=query.customer_ids,
+        order_types=query.order_types,
         planned_date_from=query.planned_date_from,
         planned_date_to=query.planned_date_to,
     )
@@ -497,7 +509,7 @@ async def _load(query: LRRListQuery) -> LRRListResponse:
             date_to=query.ng_date_to or query.planned_date_to,
             include_details=False,
         )
-        rows = aggregate_lrr(bom, faults, include_details=False)[0]
+        rows = aggregate_lrr(bom, _faults_in_selected_orders(bom, faults, query.order_types), include_details=False)[0]
         response = _full_response(rows, query)
         fault_scope = "full"
     else:
@@ -571,6 +583,7 @@ async def get_lrr_list(
     productModel: Annotated[list[str] | None, Query()] = None,
     base: Annotated[list[str] | None, Query()] = None,
     customerId: Annotated[list[str] | None, Query()] = None,
+    orderTypes: Annotated[list[str] | None, Query()] = None,
     sortBy: str = "month",
     sortDir: str = "asc",
 ):
@@ -600,6 +613,7 @@ async def get_lrr_list(
         bases=tuple(sorted(set(base or []))),
         base_permissions=current_base_permissions(),
         customer_ids=tuple(sorted(set(customerId or []))),
+        order_types=tuple(sorted(set(orderTypes or []))),
         sort_by=sortBy,
         sort_dir=sortDir,
     )
@@ -629,6 +643,7 @@ async def get_lrr_fault_details(
     productModel: Annotated[list[str] | None, Query()] = None,
     base: Annotated[list[str] | None, Query()] = None,
     customerId: Annotated[list[str] | None, Query()] = None,
+    orderTypes: Annotated[list[str] | None, Query()] = None,
     month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
     limit: int = Query(50000, ge=1, le=50000),
 ):
@@ -652,6 +667,7 @@ async def get_lrr_fault_details(
         product_models=productModel,
         bases=base,
         customer_ids=tuple(sorted(set(customerId or []))),
+        order_types=tuple(sorted(set(orderTypes or []))),
         month=month,
         planned_date_from=plannedDateFrom,
         planned_date_to=plannedDateTo,
@@ -665,7 +681,7 @@ async def get_lrr_fault_details(
         date_from=ngDateFrom or plannedDateFrom,
         date_to=ngDateTo or plannedDateTo,
     )
-    details = aggregate_lrr(bom, faults)[1]
+    details = aggregate_lrr(bom, _faults_in_selected_orders(bom, faults, tuple(orderTypes or [])))[1]
     return LRRFaultDetailsResponse(
         items=details[:limit], total=len(details), truncated=len(details) > limit
     )

@@ -26,7 +26,7 @@ vi.mock('recharts', () => ({
 
 const fixture = (filters: MFRFilters): MFRDashboard => ({
   filters,
-  summary: { faultCount: 12, fleetCount: 400, mfrRate: 3, warrantyDateCoverage: 80, ordersWithWarrantyDates: 8, ordersMissingWarrantyDates: 2 },
+  summary: { faultCount: 12, fleetCount: 400, mfrRate: 3, sourceDeviceCount: 402, selectedDeviceCount: 400, deviceIssues: { planDateUnresolved: 2 }, unmatchedChangeCount: 1 },
   trend: [{ period: '2026-01', key: '2026-01', faultCount: 12, fleetCount: 400, mfrRate: 3 }],
   dailyTrend: filters.dateFrom.slice(0, 7) === filters.dateTo.slice(0, 7)
     ? [{ period: filters.dateFrom, faultCount: 4 }, { period: filters.dateTo, faultCount: 8 }]
@@ -55,47 +55,59 @@ describe('MFR dashboard', () => {
     expect(screen.queryByRole('status')).toBeNull();
   });
 
-  it('loads the current month and shows the aggregated denominator and global coverage', async () => {
+  it('loads the current month and explains the device denominator and unresolved evidence', async () => {
     render(<MemoryRouter><MFRPage /></MemoryRouter>);
     const today = new Date();
-    await screen.findByText('在保台月');
+    await screen.findAllByText('DOA 设备数');
     expect(mfrApi.getDashboard).toHaveBeenCalledWith({
       dateFrom: formatLocalDate(new Date(today.getFullYear(), today.getMonth(), 1)), dateTo: formatLocalDate(today), model: '',
     });
-    const fleetMetricHelp = screen.getByRole('button', { name: '查看在保台月说明' });
-    expect(screen.queryByText('各月在保整机快照之和')).toBeNull();
+    const fleetMetricHelp = screen.getByRole('button', { name: '查看DOA 设备数说明' });
     fireEvent.focus(fleetMetricHelp);
-    expect(screen.getByRole('tooltip').textContent).toBe('各月在保整机快照之和');
+    expect(screen.getByRole('tooltip').textContent).toContain('不判断是否在保');
     fireEvent.blur(fleetMetricHelp);
-    expect(screen.getByText(/全部订单中有 2 个/)).toBeTruthy();
-    const coverageHelp = screen.getByRole('button', { name: '查看日期完整订单说明' });
-    expect(screen.queryByText(/完整率 80.00%/)).toBeNull();
+    expect(screen.getByText(/数据源中有 2 台设备/)).toBeTruthy();
+    const coverageHelp = screen.getByRole('button', { name: '查看未归属设备说明' });
     fireEvent.focus(coverageHelp);
-    expect(screen.getByRole('tooltip').textContent).toContain('完整率 80.00%');
+    expect(screen.getByRole('tooltip').textContent).toContain('不受当前日期和机型筛选');
     fireEvent.blur(coverageHelp);
     const trendHelp = screen.getByRole('button', { name: '查看趋势统计方式' });
-    expect(screen.queryByText('此处按日展示故障事件，MFR 保持月度口径。')).toBeNull();
+    expect(screen.queryByText('此处按生产订单计划日期逐日展示关联换件事件，MFR 保持月度口径。')).toBeNull();
     fireEvent.focus(trendHelp);
-    expect(screen.getByRole('tooltip').textContent).toBe('此处按日展示故障事件，MFR 保持月度口径。');
+    expect(screen.getByRole('tooltip').textContent).toBe('此处按生产订单计划日期逐日展示关联换件事件，MFR 保持月度口径。');
     fireEvent.blur(trendHelp);
     expect(screen.queryByRole('tooltip')).toBeNull();
     expect(screen.getByTestId('trend-chart').getAttribute('data-periods')).toContain(formatLocalDate(today));
     expect(screen.queryByTestId('mfr-line')).toBeNull();
   });
 
+  it('collapses and reopens filters without discarding pending selections', async () => {
+    render(<MemoryRouter><MFRPage /></MemoryRouter>);
+    await screen.findAllByText('DOA 设备数');
+    fireEvent.change(screen.getByLabelText('机型'), { target: { value: 'Model A' } });
+    const toggle = screen.getByRole('button', { name: /筛选条件/ });
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByLabelText('机型')).toBeNull();
+    expect(toggle.textContent).toContain('待应用');
+    fireEvent.click(toggle);
+    expect((screen.getByLabelText('机型') as HTMLInputElement).value).toBe('Model A');
+    expect(mfrApi.getDashboard).toHaveBeenCalledTimes(1);
+  });
+
   it('switches back to the monthly fault and MFR trend for a multi-month range', async () => {
     render(<MemoryRouter><MFRPage /></MemoryRouter>);
     await screen.findByText('Model A');
-    fireEvent.click(screen.getByRole('button', { name: '统计日期' }));
+    fireEvent.click(screen.getByRole('button', { name: '生产订单计划日期' }));
     fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-01-01' } });
     fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-03-31' } });
     fireEvent.click(screen.getByRole('button', { name: '确定' }));
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
     await screen.findByTestId('mfr-line');
     const trendHelp = screen.getByRole('button', { name: '查看趋势统计方式' });
-    expect(screen.queryByText('此处按月展示故障事件及月化故障率。')).toBeNull();
+    expect(screen.queryByText(/设备和关联换件事件均按生产订单计划日期归月/)).toBeNull();
     fireEvent.focus(trendHelp);
-    expect(screen.getByRole('tooltip').textContent).toBe('此处按月展示故障事件及月化故障率。');
+    expect(screen.getByRole('tooltip').textContent).toContain('设备和关联换件事件均按生产订单计划日期归月');
     expect(screen.getByTestId('trend-chart').getAttribute('data-periods')).toBe('2026-01');
     expect(screen.getByTestId('mfr-line')).toBeTruthy();
   });
@@ -104,10 +116,10 @@ describe('MFR dashboard', () => {
     render(<MemoryRouter><MFRPage /></MemoryRouter>);
     await screen.findByText('Model A');
     fireEvent.click(screen.getByRole('button', { name: /Model A/ }));
-    expect(screen.getByText('故障事件 10 · 在保台月 200')).toBeTruthy();
+    expect(screen.getByText('故障事件 10 · DOA 设备数 200')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '查看该机型趋势' }));
     await waitFor(() => expect(mfrApi.getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'Model A' })));
-    await screen.findByText(/全部订单中有/);
+    await screen.findByText(/数据源中有/);
     expect((screen.getByLabelText('机型') as HTMLInputElement).value).toBe('Model A');
     expect(document.querySelectorAll('#mfr-model-options option')).toHaveLength(2);
     const reset = screen.getByRole('button', { name: '重置筛选' }) as HTMLButtonElement;
@@ -121,7 +133,7 @@ describe('MFR dashboard', () => {
     await screen.findByText('Model A');
     fireEvent.click(within(screen.getByRole('button', { name: '导出统计数据' })).getByText('导出统计数据'));
     expect(xlsx.book_append_sheet.mock.calls.map(call => call[2])).toEqual(['质量概览', '月度明细', '机型汇总']);
-    expect(xlsx.json_to_sheet).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ 统计月份: '2026-01', 故障事件: 12, 在保整机快照: 400 })]));
+    expect(xlsx.json_to_sheet).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ 统计月份: '2026-01', 故障事件: 12, DOA设备数: 400 })]));
     expect(xlsx.writeFile).toHaveBeenCalledWith(expect.anything(), expect.stringMatching(/^MFR统计_.*\.xlsx$/));
   });
 

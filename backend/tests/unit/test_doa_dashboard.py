@@ -36,9 +36,12 @@ def doa(
         "judgment": judgment,
         "repair_count": repair_count,
         "accepted_at": "2026-09-02",
+        "planned_at": "2026-09-15",
+        "gstrs_status": "matched",
         "service_order": record_id,
         "host_sn": f"SN-{record_id}",
         "part_sn": "",
+        "product": "M1",
         "raw": {},
     }
 
@@ -53,7 +56,14 @@ async def test_dashboard_filters_multiple_customers_and_models(monkeypatch):
         ]
 
     async def all_rows(view_id, **_filters):
-        return [doa(str(i), str(i), "是", i) for i in range(1, 5)] if view_id == "SCS_DOA" else []
+        return (
+            [
+                {**doa(str(i), str(i), "是", i), "product": {1: "M1", 2: "M2", 3: "M1", 4: "M3"}[i]}
+                for i in range(1, 5)
+            ]
+            if view_id == "SCS_DOA"
+            else []
+        )
 
     monkeypatch.setattr(doa_service, "_DOA_ORDERS_CACHE", doa_service.AsyncTTLCache())
     monkeypatch.setattr(doa_service, "_DOA_SNAPSHOT_CACHE", doa_service.AsyncTTLCache())
@@ -77,7 +87,11 @@ async def test_unfilled_dimension_drilldown_matches_ranking(monkeypatch):
         ]
 
     async def all_rows(view_id, **_filters):
-        return [doa("one", "1", "是", 2), doa("two", "2", "是", 3)] if view_id == "SCS_DOA" else []
+        return (
+            [{**doa("one", "1", "是", 2), "product": ""}, doa("two", "2", "是", 3)]
+            if view_id == "SCS_DOA"
+            else []
+        )
 
     monkeypatch.setattr(doa_service, "_DOA_ORDERS_CACHE", doa_service.AsyncTTLCache())
     monkeypatch.setattr(doa_service, "_DOA_SNAPSHOT_CACHE", doa_service.AsyncTTLCache())
@@ -85,10 +99,11 @@ async def test_unfilled_dimension_drilldown_matches_ranking(monkeypatch):
     monkeypatch.setattr(doa_service.scs_gateway, "all", all_rows)
     dashboard = await doa_service._build_doa_dashboard(DoaFilters())
     for dimension in ("customers", "models"):
-        filters = DoaFilters(**{dimension: ["未填写"]})
+        key = "未填写" if dimension == "customers" else "未匹配机型"
+        filters = DoaFilters(**{dimension: [key]})
         repairs = await doa_service.get_doa_repairs(filters, 1, 50)
         ranking = dashboard.byCustomer if dimension == "customers" else dashboard.byModel
-        unfilled = next(item for item in ranking if item.key == "未填写")
+        unfilled = next(item for item in ranking if item.key == key)
         assert repairs.totalRepairCount == unfilled.repairCount == 2
         assert [item.salesOrder for item in repairs.items] == ["1"]
 
@@ -185,7 +200,7 @@ async def test_snapshot_keeps_only_orders_and_changes_relevant_to_eligible_repai
 
     orders, _, repairs, changes = await doa_service._load_doa_snapshot(DoaFilters())
 
-    assert [order["sales_order"] for order in orders] == ["0001", "1"]
+    assert [order["sales_order"] for order in orders] == ["0001", "1", "2"]
     assert [change["service_order"] for change in changes] == ["one"]
     assert repairs[0]["shipped_count"] == 30
     assert repairs[0]["has_change"] is True
@@ -194,9 +209,26 @@ async def test_snapshot_keeps_only_orders_and_changes_relevant_to_eligible_repai
 async def test_dashboard_uses_matched_order_quantities_once_per_period(monkeypatch):
     async def all_orders(**_filters):
         return [
-            {"salesOrder": "0001", "orderQuantity": 60, "productionModel": "M1", "finalUser": "A"},
-            {"salesOrder": "0001", "orderQuantity": 40, "productionModel": "M1", "finalUser": "A"},
-            {"salesOrder": "9999", "orderQuantity": 500, "productionModel": "M2"},
+            {
+                "salesOrder": "0001",
+                "orderQuantity": 60,
+                "productionModel": "M1",
+                "finalUser": "A",
+                "plannedStartDate": "2026-09-01",
+            },
+            {
+                "salesOrder": "0001",
+                "orderQuantity": 40,
+                "productionModel": "M1",
+                "finalUser": "A",
+                "plannedStartDate": "2026-09-01",
+            },
+            {
+                "salesOrder": "9999",
+                "orderQuantity": 500,
+                "productionModel": "M2",
+                "plannedStartDate": "2026-10-01",
+            },
         ]
 
     async def all_rows(view_id, **_filters):
@@ -206,32 +238,47 @@ async def test_dashboard_uses_matched_order_quantities_once_per_period(monkeypat
         second = doa("two", "0001", "是", 3)
         third = doa("three", "1", "是", 1)
         third["accepted_at"] = "2026-10-02"
+        third["planned_at"] = "2026-10-02"
         return [first, second, third, doa("missing", "404", "是", 7)]
 
     monkeypatch.setattr(doa_service.data_gateway, "all_orders", all_orders)
     monkeypatch.setattr(doa_service.scs_gateway, "all", all_rows)
 
     result = await doa_service._build_doa_dashboard(DoaFilters(timeGranularity="month"))
-    assert result.summary.shippedCount == 100
-    assert result.summary.repairCount == 6
-    assert result.summary.repairRate == 6
-    assert result.summary.excludedRepairRecords == 1
+    assert result.summary.shippedCount == 600
+    assert result.summary.repairCount == 13
+    assert result.summary.repairRate == 2.17
+    assert result.summary.unmatchedRepairRecords == 1
     assert [(row.period, row.shippedCount, row.repairCount) for row in result.trend] == [
-        ("2026-09", 100, 5),
-        ("2026-10", 100, 1),
+        ("2026-09", 100, 12),
+        ("2026-10", 500, 1),
     ]
     assert result.unmatchedOrders[0].salesOrder == "404"
 
 
 async def test_audit_includes_unmatched_scs_and_matched_original_orders(monkeypatch):
     async def all_orders(**_filters):
-        return [{"id": "order-1", "salesOrder": "1", "orderQuantity": 20, "aufnr": "P1"}]
+        return [
+            {
+                "id": "order-1",
+                "salesOrder": "1",
+                "orderQuantity": 20,
+                "aufnr": "P1",
+                "plannedStartDate": "2026-09-15",
+            }
+        ]
 
     async def all_rows(view_id, **_filters):
         if view_id == "SCS_DOA":
             return [doa("matched", "1", "是", 2), doa("missing", "404", "是", 3)]
-        return [{"service_order": "matched", "change_type": "换上", "is_revoked": False,
-                 "raw": {"service_order": "matched", "change_type": "换上"}}]
+        return [
+            {
+                "service_order": "matched",
+                "change_type": "换上",
+                "is_revoked": False,
+                "raw": {"service_order": "matched", "change_type": "换上"},
+            }
+        ]
 
     async def export_rows(_resource, _keys, **_kwargs):
         return [{"_id": "order-1", "data": {"SAP_FIELD": "original"}}]
@@ -249,33 +296,54 @@ async def test_audit_includes_unmatched_scs_and_matched_original_orders(monkeypa
     assert result["changes"][0]["change_type"] == "换上"
 
 
-async def test_drilldown_intersects_date_ranges_and_does_not_mark_filtered_orders_unmatched(monkeypatch):
+async def test_drilldown_intersects_date_ranges_and_does_not_mark_filtered_orders_unmatched(
+    monkeypatch,
+):
     seen = {}
 
     async def all_orders(**_filters):
         return [
-            {"salesOrder": "1", "orderQuantity": 20, "finalUser": "A"},
-            {"salesOrder": "2", "orderQuantity": 30, "finalUser": "B"},
+            {
+                "salesOrder": "1",
+                "orderQuantity": 20,
+                "finalUser": "A",
+                "plannedStartDate": "2026-09-15",
+            },
+            {
+                "salesOrder": "2",
+                "orderQuantity": 30,
+                "finalUser": "B",
+                "plannedStartDate": "2026-09-15",
+            },
         ]
 
     async def all_rows(view_id, **filters):
         if view_id == "SCS_DOA":
             seen.update(filters)
-            return [doa("one", "1", "是", 1), doa("two", "2", "是", 2), doa("missing", "3", "是", 3)]
+            return [
+                doa("one", "1", "是", 1),
+                doa("two", "2", "是", 2),
+                doa("missing", "3", "是", 3),
+            ]
         return []
 
     monkeypatch.setattr(doa_service.data_gateway, "all_orders", all_orders)
     monkeypatch.setattr(doa_service.scs_gateway, "all", all_rows)
-    result = await doa_service._build_doa_dashboard(DoaFilters(
-        dateFrom="2026-09-10", dateTo="2026-10-15", acceptedDateFrom="2026-09-01",
-        acceptedDateTo="2026-09-30", customer="A",
-    ))
-    assert seen["acceptedDateFrom"] == "2026-09-10"
-    assert seen["acceptedDateTo"] == "2026-09-30"
+    result = await doa_service._build_doa_dashboard(
+        DoaFilters(
+            dateFrom="2026-09-10",
+            dateTo="2026-10-15",
+            acceptedDateFrom="2026-09-01",
+            acceptedDateTo="2026-09-30",
+            customer="A",
+        )
+    )
+    assert "acceptedDateFrom" not in seen
+    assert "acceptedDateTo" not in seen
     assert result.summary.shippedCount == 20
     assert result.summary.matchedRepairRecords == 1
-    assert result.summary.excludedRepairRecords == 1
-    assert [row.salesOrder for row in result.unmatchedOrders] == ["3"]
+    assert result.summary.unmatchedRepairRecords == 0
+    assert not result.unmatchedOrders
 
 
 async def test_dashboard_uses_scs_scope_and_judgment_yes(monkeypatch):
@@ -322,8 +390,8 @@ async def test_dashboard_accepts_order_quantity_without_actual_shipment_fields(m
     monkeypatch.setattr(doa_service.scs_gateway, "all", no_rows)
 
     result = await doa_service._build_doa_dashboard(DoaFilters())
-    assert result.summary.shippedCount == 0
-    assert result.summary.repairRate is None
+    assert result.summary.shippedCount == 100
+    assert result.summary.repairRate == 0
 
 
 async def test_empty_shipment_results_keep_unmatched_scs_records_visible(monkeypatch):
@@ -341,9 +409,9 @@ async def test_empty_shipment_results_keep_unmatched_scs_records_visible(monkeyp
     monkeypatch.setattr(doa_service.scs_gateway, "all", all_rows)
 
     result = await doa_service._build_doa_dashboard(DoaFilters(dateFrom="2026-01-01"))
-    assert result.summary.excludedRepairRecords == 1
+    assert result.summary.unmatchedRepairRecords == 1
     assert result.summary.repairRate is None
-    assert result.summary.repairCount == 0
+    assert result.summary.repairCount == 2
 
 
 def test_sales_order_scope_does_not_depend_on_last_duplicate_order_row():
@@ -357,3 +425,21 @@ def test_sales_order_scope_does_not_depend_on_last_duplicate_order_row():
     assert scopes["1"]["shipped_count"] == 50
     assert scopes["1"]["model"] == ""
     assert scopes["1"]["shipped_date"] == ""
+
+
+async def test_dashboard_exposes_same_snapshot_expiry_when_reused(monkeypatch):
+    async def all_orders(**kwargs):
+        return [shipment("1", 10, "2026-09-01")]
+
+    async def all_rows(view_id, **kwargs):
+        return [doa("one", "1", "是", 2)] if view_id == "SCS_DOA" else []
+
+    monkeypatch.setattr(doa_service, "_DOA_ORDERS_CACHE", doa_service.AsyncTTLCache())
+    monkeypatch.setattr(doa_service, "_DOA_SNAPSHOT_CACHE", doa_service.AsyncTTLCache())
+    monkeypatch.setattr(doa_service.data_gateway, "all_orders", all_orders)
+    monkeypatch.setattr(doa_service.scs_gateway, "all", all_rows)
+    filters = DoaFilters(dateFrom="2026-09-01", dateTo="2026-09-30")
+    first = await doa_service.build_doa_dashboard(filters)
+    second = await doa_service.build_doa_dashboard(filters)
+    assert first.cacheExpiresAt is not None
+    assert first.cacheExpiresAt == second.cacheExpiresAt

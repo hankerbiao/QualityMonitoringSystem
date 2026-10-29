@@ -55,6 +55,18 @@ describe('RTY table export', () => {
   });
   afterEach(cleanup);
 
+  it('defaults the detail query to PP01 and allows all order types', async () => {
+    render(<MemoryRouter><RTYPage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: '详情' }));
+    const selector = screen.getByRole('button', { name: '订单类型 (1)' });
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+    await waitFor(() => expect(rtyApi.getRTYData).toHaveBeenCalledWith(expect.objectContaining({ orderTypes: ['PP01'] }), 1, 50));
+    fireEvent.click(selector);
+    fireEvent.click(screen.getByRole('checkbox', { name: 'PP01' }));
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+    await waitFor(() => expect(rtyApi.getRTYData).toHaveBeenLastCalledWith(expect.objectContaining({ orderTypes: [] }), 1, 50));
+  });
+
   it('shows a failed export and permits a successful retry', async () => {
     vi.mocked(rtyApi.getTemplateExport).mockRejectedValueOnce(new Error('维修数据查询失败'));
     await openExport();

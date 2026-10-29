@@ -11,6 +11,16 @@ describe('lrrApi full material list', () => {
     vi.mocked(requestJson).mockReset();
   });
 
+  it('passes multiple order types to both list and fault details', async () => {
+    vi.mocked(requestJson).mockResolvedValue({ items: [], total: 0, page: 1, limit: 50 });
+    const filters = { plannedDateFrom: '2026-03-01', plannedDateTo: '2026-03-31', orderTypes: ['PP01', 'G001'] };
+    await lrrApi.getLRRData(1, 50, filters);
+    await lrrApi.getFaultDetails(filters);
+    for (const [url] of vi.mocked(requestJson).mock.calls) {
+      expect(new URL(url, 'http://localhost').searchParams.getAll('orderTypes')).toEqual(['PP01', 'G001']);
+    }
+  });
+
   it('fetches every page with the same filters', async () => {
     vi.mocked(requestJson)
       .mockResolvedValueOnce({

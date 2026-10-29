@@ -60,6 +60,7 @@ class LRROptions(BaseModel):
     productModels: list[str] = Field(default_factory=list)
     bases: list[str] = Field(default_factory=list)
     customerIds: list[str] = Field(default_factory=list)
+    orderTypes: list[str] = Field(default_factory=list)
 
 
 class LRRFaultDetail(BaseModel):

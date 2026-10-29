@@ -26,6 +26,7 @@ const DEFAULT_FILTERS: RTYFilterParams = {
   productionOrder: '',
   serialNumber: '',
   orderScope: 'normal',
+  orderTypes: ['PP01'],
 };
 
 type SortField = 'time' | 'defectCount' | 'inputCount' | 'rtyRate';
@@ -65,6 +66,14 @@ export default function RTYPage() {
   }, [searchParams]);
 
   const [filters, setFilters] = useState<RTYFilterParams>(initialFilters);
+  const [orderTypes, setOrderTypes] = useState<string[]>([]);
+  useEffect(() => {
+    let active = true;
+    void rtyApi.getFilterOptions(filters.orderScope).then(options => {
+      if (active) setOrderTypes(options.orderTypes || []);
+    }).catch(() => { if (active) setOrderTypes([]); });
+    return () => { active = false; };
+  }, [filters.orderScope]);
   const [cycleExportContainer, setCycleExportContainer] = useState<HTMLDivElement | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -125,7 +134,8 @@ export default function RTYPage() {
     || Boolean(params.bases?.length)
     || params.salesOrder
     || params.productionOrder
-    || params.serialNumber,
+    || params.serialNumber
+    || Boolean(params.orderTypes?.length),
   );
 
   const openDetails = () => {
@@ -201,7 +211,7 @@ export default function RTYPage() {
           </button>
           <h1 className="truncate text-base font-semibold text-slate-800 sm:text-lg"><span className="hidden lg:inline">QualiBoard 品质看板 — </span>RTY 整机综合直通率</h1>
           <HelpTooltip label="查看 RTY 指标口径" align="end">
-            2026 年 RTY 使用销售订单 WMENG 入库数量作为分母；订单状态 DLID、RELEASED 及订单类型 C001 已排除，L6 订单单独统计。
+            RTY 使用订单数量 GAMNG 作为分母；订单状态 DLID、RELEASED 及订单类型 C001 已排除，L6 订单单独统计。
           </HelpTooltip>
         </div>
         <div className="flex shrink-0 items-center gap-1.5 sm:gap-2">
@@ -218,6 +228,9 @@ export default function RTYPage() {
           orderScope={filters.orderScope}
           onOrderScopeChange={(orderScope) => setFilters(current => ({ ...current, orderScope }))}
           onExcludedOrdersOpen={() => setExcludedOrdersOpen(true)}
+          selectedOrderTypes={filters.orderTypes || DEFAULT_FILTERS.orderTypes}
+          orderTypes={orderTypes}
+          onOrderTypesChange={(orderTypes) => setFilters(current => ({ ...current, orderTypes }))}
           exportContainer={cycleExportContainer}
         />
 
@@ -240,6 +253,7 @@ export default function RTYPage() {
               <div className="flex min-h-0 flex-1 flex-col overflow-hidden p-4">
                 <FilterPanel
                   initialFilters={filters}
+                  orderTypes={orderTypes}
                   onFiltersChange={setFilters}
                   onSearch={searchDetails}
                   onAlertModalOpen={() => setDetailOpen(false)}

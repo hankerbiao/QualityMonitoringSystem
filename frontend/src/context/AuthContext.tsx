@@ -11,6 +11,7 @@ import {
 } from '../api/authApi';
 import type { UserProfile, AuthContextType } from '../types';
 import { setRtyAccessScope } from '../api/rtyApi';
+import { clearDoaCache } from '../api/doaCache';
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -48,6 +49,7 @@ function InnerAuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(() => {
     clearTokens();
+    clearDoaCache();
     setRtyAccessScope(null);
     setUser(null);
     navigate('/login', { replace: true });
@@ -63,6 +65,7 @@ function InnerAuthProvider({ children }: { children: ReactNode }) {
       throw new Error('登录响应不完整，请稍后重试');
     }
 
+    clearDoaCache();
     setAccessToken(result.access_token, result.expires_in ?? 900);
     setRefreshToken(result.refresh_token);
     const profile = result.user as UserProfile;
@@ -75,6 +78,7 @@ function InnerAuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const token = getAccessToken();
     if (!token) {
+      clearDoaCache();
       setRtyAccessScope(null);
       setUser(null);
       setIsAuthLoaded(true);
@@ -88,6 +92,7 @@ function InnerAuthProvider({ children }: { children: ReactNode }) {
       })
       .catch(() => {
         clearTokens();
+        clearDoaCache();
         setRtyAccessScope(null);
         setUser(null);
       })

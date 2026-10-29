@@ -11,19 +11,23 @@ vi.mock('../api/doaApi', () => ({
     getOptions: vi.fn().mockResolvedValue({ customers: [], models: [] }),
     getDashboard: vi.fn(),
     getAudit: vi.fn(),
+    getAllOrders: vi.fn(),
+    getAllRepairs: vi.fn(),
     buildQuery: vi.fn().mockReturnValue(''),
   },
 }));
 vi.mock('../components/shared/DashboardSwitcher', () => ({ DashboardSwitcher: () => null }));
 vi.mock('../context/AuthContext', () => ({
-  useAuth: () => ({ user: { role: 'admin', dashboardPermissions: ['doa', 'doa-repairs'] } }),
+  useAuth: () => ({ user: { username: 'test-user', role: 'admin', dashboardPermissions: ['doa', 'doa-repairs'] } }),
 }));
 vi.mock('xlsx', () => ({
   utils: {
-    book_new: vi.fn(() => ({})),
+    book_new: vi.fn(() => ({ Sheets: {} })),
     json_to_sheet: vi.fn((rows) => rows),
     aoa_to_sheet: vi.fn((rows) => rows),
-    book_append_sheet: vi.fn(),
+    encode_range: vi.fn(() => 'A1:B2'),
+    encode_cell: vi.fn(() => 'A1'),
+    book_append_sheet: vi.fn((book, sheet, name) => { book.Sheets[name] = sheet; }),
   },
   writeFile: vi.fn(),
 }));
@@ -31,6 +35,7 @@ vi.mock('xlsx', () => ({
 describe('DoaPage', () => {
   afterEach(() => {
     cleanup();
+    sessionStorage.clear();
     vi.clearAllMocks();
   });
 
@@ -50,12 +55,65 @@ describe('DoaPage', () => {
     render(<MemoryRouter><DoaPage /></MemoryRouter>);
 
     expect(screen.getByRole('button', { name: /筛选条件/ }).getAttribute('aria-expanded')).toBe('true');
-    expect(screen.getByRole('button', { name: 'SCS 受理日期' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '生产订单计划开始日期' })).toBeTruthy();
     const now = new Date();
     const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
     const monthStart = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-01`;
     expect(doaApi.getDashboard).toHaveBeenCalledWith(expect.objectContaining({ dateFrom: monthStart, dateTo: today, timeGranularity: 'day' }));
     await screen.findByText('数据源不可用');
+  });
+
+  it('reuses dashboard and options after reopening with the same filters', async () => {
+    vi.mocked(doaApi.getDashboard).mockResolvedValueOnce({
+      filters: { dateFrom: '', dateTo: '', customer: '', model: '', timeGranularity: 'month' },
+      cacheExpiresAt: new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString(),
+      summary: { shippedCount: 10, repairCount: 1, repairRate: 10, replacementCount: 0,
+        replacementRate: 0, replacementRecordCount: 0, matchedRepairRecords: 1,
+        excludedRepairRecords: 0, unmatchedRepairRecords: 0, missingQuantityRecords: 0,
+        unmatchedPlannedRecords: 0, unmatchedPlannedQuantity: 0, latestDataAt: null },
+      trend: [], byCustomer: [], byModel: [], unmatchedOrders: [],
+    });
+    const first = render(<MemoryRouter><DoaPage /></MemoryRouter>);
+    await screen.findByText('10.00%');
+    first.unmount();
+    render(<MemoryRouter><DoaPage /></MemoryRouter>);
+    await screen.findByText('10.00%');
+    expect(doaApi.getDashboard).toHaveBeenCalledTimes(1);
+    expect(doaApi.getOptions).toHaveBeenCalledTimes(1);
+  });
+
+  it('exports a detailed workbook using the current dashboard filters', async () => {
+    vi.mocked(doaApi.getDashboard).mockResolvedValueOnce({
+      filters: { dateFrom: '', dateTo: '', customer: '', model: '', timeGranularity: 'month' },
+      summary: { shippedCount: 10, repairCount: 2, repairRate: 20, replacementCount: 2, replacementRate: 20, replacementRecordCount: 1, matchedRepairRecords: 1, excludedRepairRecords: 0, unmatchedRepairRecords: 0, missingQuantityRecords: 0, unmatchedPlannedRecords: 0, unmatchedPlannedQuantity: 0, latestDataAt: null },
+      trend: [], byCustomer: [], byModel: [], unmatchedOrders: [],
+    });
+    vi.mocked(doaApi.getAllOrders).mockResolvedValueOnce([{ salesOrder: '1', productionOrder: '2', customer: '甲', model: 'M1', plannedStartDate: '2026-10-01', quantity: 10 }]);
+    const repair = { id: '1', salesOrder: '1', materialSerial: 'SN', acceptedAt: '', plannedAt: '2026-10-01', gstrsStatus: 'matched', customer: '甲', model: 'M1', shippedDate: '', shippedCount: 10, repairCount: 2, missingQuantity: false, data: {} };
+    vi.mocked(doaApi.getAllRepairs).mockResolvedValueOnce([repair]).mockResolvedValueOnce([repair]).mockResolvedValueOnce([]);
+    render(<MemoryRouter><DoaPage /></MemoryRouter>);
+    await screen.findAllByText('20.00%');
+    fireEvent.click(screen.getByRole('button', { name: '导出 Excel' }));
+    await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalled());
+    expect(doaApi.getAllOrders).toHaveBeenCalledWith(expect.objectContaining({ timeGranularity: 'day' }));
+    expect(doaApi.getAllRepairs).toHaveBeenCalledTimes(3);
+    expect(XLSX.utils.book_append_sheet).toHaveBeenCalledWith(expect.anything(), expect.anything(), '报修明细');
+    expect(XLSX.utils.book_append_sheet).toHaveBeenCalledWith(expect.anything(), expect.anything(), '未匹配计划日期');
+  });
+
+  it('does not export when the current details no longer match the dashboard', async () => {
+    vi.mocked(doaApi.getDashboard).mockResolvedValueOnce({
+      filters: { dateFrom: '', dateTo: '', customer: '', model: '', timeGranularity: 'day' },
+      summary: { shippedCount: 10, repairCount: 0, repairRate: 0, replacementCount: 0, replacementRate: 0, replacementRecordCount: 0, matchedRepairRecords: 0, excludedRepairRecords: 0, unmatchedRepairRecords: 0, missingQuantityRecords: 0, unmatchedPlannedRecords: 0, unmatchedPlannedQuantity: 0, latestDataAt: null },
+      trend: [], byCustomer: [], byModel: [], unmatchedOrders: [],
+    });
+    vi.mocked(doaApi.getAllOrders).mockResolvedValueOnce([]);
+    vi.mocked(doaApi.getAllRepairs).mockResolvedValue([]);
+    render(<MemoryRouter><DoaPage /></MemoryRouter>);
+    await screen.findByText('到货数据（计划数量）');
+    fireEvent.click(screen.getByRole('button', { name: '导出 Excel' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('看板与明细数据已发生变化');
+    expect(XLSX.writeFile).not.toHaveBeenCalled();
   });
 
   it('does not present zero-valued metrics when loading the dashboard fails', async () => {
@@ -73,24 +131,40 @@ describe('DoaPage', () => {
       summary: {
         shippedCount: 0, repairCount: 0, repairRate: null,
         replacementCount: 0, replacementRate: null, replacementRecordCount: 0,
-        matchedRepairRecords: 0, excludedRepairRecords: 1083, latestDataAt: null,
+        matchedRepairRecords: 0, excludedRepairRecords: 0, unmatchedRepairRecords: 1083, missingQuantityRecords: 0, unmatchedPlannedRecords: 0, unmatchedPlannedQuantity: 0, latestDataAt: null,
       },
       trend: [], byCustomer: [], byModel: [],
       unmatchedOrders: [{ salesOrder: 'SO-404', recordCount: 1083 }],
     });
     render(<MemoryRouter><DoaPage /></MemoryRouter>);
 
-    expect(await screen.findByText('SO-404')).toBeTruthy();
+    const unmatchedButton = await screen.findByRole('button', { name: '未匹配数据' });
+    expect(unmatchedButton.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByLabelText('未匹配数据')).toBeNull();
+    fireEvent.click(unmatchedButton);
+    expect(unmatchedButton.getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByText('SO-404')).toBeTruthy();
     expect(screen.getByText(/未匹配销售订单/)).toBeTruthy();
     expect(screen.getByRole('button', { name: '导出核对数据' })).toBeTruthy();
+    const trendHelp = screen.getByRole('button', { name: '查看报修与换件趋势说明' });
+    fireEvent.mouseEnter(trendHelp.parentElement!);
+    expect(screen.getByRole('tooltip').textContent).toContain('当期报修问题批次数量 ÷ 当期订单计划数量');
+    fireEvent.mouseLeave(trendHelp.parentElement!);
+    const matchedHelp = screen.getByRole('button', { name: '查看已匹配 DOA说明' });
+    fireEvent.focus(matchedHelp);
+    expect(screen.getByRole('tooltip').textContent).toContain('申报条数');
+    fireEvent.blur(matchedHelp);
     const periodHelp = screen.getByRole('button', { name: '查看周期明细说明' });
-    expect(screen.queryByText(/订单数量代替出货数量/)).toBeNull();
+    expect(screen.queryByText(/计划数量不是实际发货量/)).toBeNull();
     fireEvent.focus(periodHelp);
-    expect(screen.getByRole('tooltip').textContent).toContain('订单数量代替出货数量');
+    expect(screen.getByRole('tooltip').textContent).toContain('计划数量不是实际发货量');
     fireEvent.blur(periodHelp);
     fireEvent.click(screen.getByRole('button', { name: '导出未匹配订单' }));
     expect(XLSX.utils.json_to_sheet).toHaveBeenCalledWith([{ 销售订单: 'SO-404', 申报条数: 1083 }]);
     expect(XLSX.utils.book_append_sheet).toHaveBeenCalledWith(expect.anything(), expect.anything(), '未匹配销售订单');
+    fireEvent.click(unmatchedButton);
+    expect(unmatchedButton.getAttribute('aria-expanded')).toBe('false');
+    expect(screen.queryByLabelText('未匹配数据')).toBeNull();
     expect(XLSX.writeFile).toHaveBeenCalledWith(expect.anything(), expect.stringMatching(/^DOA未匹配销售订单_.*\.xlsx$/));
   });
 
@@ -100,7 +174,7 @@ describe('DoaPage', () => {
       summary: {
         shippedCount: 20, repairCount: 2, repairRate: 10, replacementCount: 0,
         replacementRate: 0, replacementRecordCount: 0, matchedRepairRecords: 1,
-        excludedRepairRecords: 1, latestDataAt: null,
+        excludedRepairRecords: 1, unmatchedRepairRecords: 0, missingQuantityRecords: 0, unmatchedPlannedRecords: 0, unmatchedPlannedQuantity: 0, latestDataAt: null,
       },
       trend: [], byCustomer: [], byModel: [], unmatchedOrders: [],
     });
@@ -110,15 +184,32 @@ describe('DoaPage', () => {
       changes: [{ service_order: 'scs-1', change_type: '换上' }],
     });
     render(<MemoryRouter><DoaPage /></MemoryRouter>);
-    await screen.findByText('匹配订单数量');
+    await screen.findByText('到货数据（计划数量）');
+    fireEvent.click(screen.getByRole('button', { name: '未匹配数据' }));
     expect((screen.getByRole('button', { name: '导出未匹配订单' }) as HTMLButtonElement).disabled).toBe(true);
     const periodSection = screen.getByRole('heading', { name: '周期明细' }).closest('section')!;
     fireEvent.click(within(periodSection).getByRole('button', { name: '导出核对数据' }));
     await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalled());
     expect(XLSX.utils.book_append_sheet).toHaveBeenCalledWith(expect.anything(), expect.anything(), 'SCS申报');
-    expect(XLSX.utils.book_append_sheet).toHaveBeenCalledWith(expect.anything(), expect.anything(), '匹配订单原始行');
+    expect(XLSX.utils.book_append_sheet).toHaveBeenCalledWith(expect.anything(), expect.anything(), '分母订单原始行');
     expect(XLSX.utils.book_append_sheet).toHaveBeenCalledWith(expect.anything(), expect.anything(), '关联换件记录');
     expect(XLSX.utils.json_to_sheet).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ salesOrder: '404', shipment_date: '2026-08-01', matchStatus: '未匹配' })]));
+  });
+
+  it('shows repairs without a planned date separately from the rate', async () => {
+    vi.mocked(doaApi.getDashboard).mockResolvedValue({
+      filters: { dateFrom: '', dateTo: '', customer: '', model: '', timeGranularity: 'month' },
+      summary: { shippedCount: 100, repairCount: 2, repairRate: 2, replacementCount: 0,
+        replacementRate: 0, replacementRecordCount: 0, matchedRepairRecords: 1,
+        excludedRepairRecords: 0, unmatchedRepairRecords: 0, missingQuantityRecords: 0,
+        unmatchedPlannedRecords: 3, unmatchedPlannedQuantity: 7, latestDataAt: null },
+      trend: [], byCustomer: [], byModel: [], unmatchedOrders: [],
+    });
+    render(<MemoryRouter><DoaPage /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole('button', { name: '未匹配数据' }));
+    expect(screen.getByText(/不受日期筛选，不计入当前报修率/)).toBeTruthy();
+    expect(screen.getByRole('link', { name: '查看未匹配日期明细' })).toBeTruthy();
+    expect(doaApi.buildQuery).toHaveBeenCalledWith(expect.anything(), { unmatchedOnly: 'true' });
   });
 
   it('sorts the ranking by the selected metric and shows its order sample', async () => {
@@ -127,7 +218,7 @@ describe('DoaPage', () => {
       summary: {
         shippedCount: 120, repairCount: 10, repairRate: 8.33, replacementCount: 3,
         replacementRate: 2.5, replacementRecordCount: 2, matchedRepairRecords: 4,
-        excludedRepairRecords: 0, latestDataAt: null,
+        excludedRepairRecords: 0, unmatchedRepairRecords: 0, missingQuantityRecords: 0, unmatchedPlannedRecords: 0, unmatchedPlannedQuantity: 0, latestDataAt: null,
       },
       trend: [], byModel: [
         { key: 'M1', shippedCount: 120, repairCount: 11, repairRate: 9.17, replacementCount: 3, replacementRate: 2.5 },
@@ -140,7 +231,7 @@ describe('DoaPage', () => {
     render(<MemoryRouter><DoaPage /></MemoryRouter>);
 
     await screen.findByText('客户 A');
-    const ranking = screen.getByText('维度排行').parentElement!.parentElement!;
+    const ranking = screen.getByText('维度排行').closest<HTMLElement>('div.border')!;
     expect(within(ranking).getByText('订单 100')).toBeTruthy();
     expect(within(ranking).getByText('客户 A').compareDocumentPosition(within(ranking).getByText('客户 B')) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     fireEvent.click(within(ranking).getByRole('button', { name: '换件率' }));
@@ -163,7 +254,7 @@ describe('DoaPage', () => {
       summary: {
         shippedCount: count, repairCount: 0, repairRate: 0, replacementCount: 0,
         replacementRate: 0, replacementRecordCount: 0, matchedRepairRecords: 0,
-        excludedRepairRecords: 0, latestDataAt: null,
+        excludedRepairRecords: 0, unmatchedRepairRecords: 0, missingQuantityRecords: 0, unmatchedPlannedRecords: 0, unmatchedPlannedQuantity: 0, latestDataAt: null,
       },
       trend: [], byCustomer: [], byModel: [], unmatchedOrders: [],
     });
@@ -186,7 +277,7 @@ describe('DoaPage', () => {
     vi.mocked(doaApi.getOptions).mockResolvedValueOnce({ customers: ['客户 A', '客户 B'], models: ['M1', 'M2'] });
     vi.mocked(doaApi.getDashboard).mockResolvedValue({
       filters: { dateFrom: '', dateTo: '', customer: '', model: '', timeGranularity: 'month' },
-      summary: { shippedCount: 0, repairCount: 0, repairRate: null, replacementCount: 0, replacementRate: null, replacementRecordCount: 0, matchedRepairRecords: 0, excludedRepairRecords: 0, latestDataAt: null },
+      summary: { shippedCount: 0, repairCount: 0, repairRate: null, replacementCount: 0, replacementRate: null, replacementRecordCount: 0, matchedRepairRecords: 0, excludedRepairRecords: 0, unmatchedRepairRecords: 0, missingQuantityRecords: 0, unmatchedPlannedRecords: 0, unmatchedPlannedQuantity: 0, latestDataAt: null },
       trend: [], byCustomer: [], byModel: [], unmatchedOrders: [],
     });
     render(<MemoryRouter><DoaPage /></MemoryRouter>);
@@ -215,12 +306,12 @@ describe('DoaPage', () => {
     vi.mocked(doaApi.getDashboard).mockRejectedValue(new Error('数据源不可用'));
     render(<MemoryRouter><DoaPage /></MemoryRouter>);
     await screen.findByText('数据源不可用');
-    fireEvent.click(screen.getByRole('button', { name: 'SCS 受理日期' }));
+    fireEvent.click(screen.getByRole('button', { name: '生产订单计划开始日期' }));
     fireEvent.click(screen.getByRole('button', { name: '近 30 天' }));
     await waitFor(() => expect(doaApi.getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ timeGranularity: 'day' })));
     await screen.findByText('数据源不可用');
     expect(screen.queryByLabelText('趋势粒度')).toBeNull();
-    fireEvent.click(screen.getByRole('button', { name: 'SCS 受理日期' }));
+    fireEvent.click(screen.getByRole('button', { name: '生产订单计划开始日期' }));
     fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-03-01' } });
     fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-04-01' } });
     fireEvent.click(screen.getByRole('button', { name: '确定' }));

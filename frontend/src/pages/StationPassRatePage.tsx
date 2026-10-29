@@ -91,10 +91,10 @@ type DetailState = { rate: StationRateRow; type: 'input' | 'defect' };
 type StationQueryState = {
   dateFrom: string;
   dateTo: string;
-  serialNumber: string;
   productModels: string[];
   customers: string[];
   bases: string[];
+  orderTypes: string[];
   groupBy: StationGroupBy;
   orderScope: 'normal' | 'l6';
   overseas: boolean;
@@ -169,7 +169,7 @@ function StationFilterMultiSelect({
   }, []);
 
   return (
-    <div ref={containerRef} className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-48">
+    <div ref={containerRef} className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:min-w-24 xl:max-w-48">
       <span>{label}（多选）</span>
       <div className="relative">
         <button
@@ -260,12 +260,13 @@ export default function StationPassRatePage() {
   const [initialDateRange] = useState(defaultDateRange);
   const [dateFrom, setDateFrom] = useState(initialDateRange.from);
   const [dateTo, setDateTo] = useState(initialDateRange.to);
-  const [serialNumber, setSerialNumber] = useState('');
   const [productModel, setProductModel] = useState('');
   const [base, setBase] = useState('');
   const [selectedProductModels, setSelectedProductModels] = useState<string[]>([]);
   const [selectedCustomers, setSelectedCustomers] = useState<string[]>([]);
   const [selectedBases, setSelectedBases] = useState<string[]>([]);
+  const [selectedOrderTypes, setSelectedOrderTypes] = useState<string[]>([]);
+  const [orderTypes, setOrderTypes] = useState<string[]>([]);
   const [productModels, setProductModels] = useState<{ model: string; count: number }[]>([]);
   const [customers, setCustomers] = useState<string[]>([]);
   const [bases, setBases] = useState<{ base: string; count: number }[]>([]);
@@ -299,10 +300,10 @@ export default function StationPassRatePage() {
   const queryRef = useRef<StationQueryState>({
     dateFrom: initialDateRange.from,
     dateTo: initialDateRange.to,
-    serialNumber: '',
     productModels: [],
     customers: [],
     bases: [],
+    orderTypes: [],
     groupBy: 'productModel',
     orderScope: 'normal',
     overseas: false,
@@ -338,10 +339,10 @@ export default function StationPassRatePage() {
     const query: StationPassQuery = {
       dateFrom: next.dateFrom,
       dateTo: next.dateTo,
-      serialNumber: next.serialNumber.trim() || undefined,
       productModels: next.productModels,
       customers: next.customers,
       bases: next.bases,
+      ...(next.orderTypes.length ? { orderTypes: next.orderTypes } : {}),
       groupBy: next.groupBy,
       orderScope: next.orderScope,
       overseas: next.overseas,
@@ -395,12 +396,14 @@ export default function StationPassRatePage() {
         setProductModels(options.productModels);
         setCustomers(options.customers);
         setBases(options.bases);
+        setOrderTypes(options.orderTypes || []);
       } catch (err) {
         console.error('Failed to fetch station filter options', err);
         if (!cancelled) {
           setProductModels([]);
           setCustomers([]);
           setBases([]);
+          setOrderTypes([]);
         }
       } finally {
         if (!cancelled) setOptionsLoading(false);
@@ -455,12 +458,12 @@ export default function StationPassRatePage() {
   const reset = () => {
     setDateFrom(initialDateRange.from);
     setDateTo(initialDateRange.to);
-    setSerialNumber('');
     setProductModel('');
     setBase('');
     setSelectedProductModels([]);
     setSelectedCustomers([]);
     setSelectedBases([]);
+    setSelectedOrderTypes([]);
     setGroupBy('productModel');
     setOrderScope('normal');
     setOverseas(false);
@@ -468,10 +471,10 @@ export default function StationPassRatePage() {
       ...queryRef.current,
       dateFrom: initialDateRange.from,
       dateTo: initialDateRange.to,
-      serialNumber: '',
       productModels: [],
       customers: [],
       bases: [],
+      orderTypes: [],
       groupBy: 'productModel',
       orderScope: 'normal',
       overseas: false,
@@ -601,12 +604,12 @@ export default function StationPassRatePage() {
     queryRef.current = next;
     if (overrides.dateFrom !== undefined) setDateFrom(overrides.dateFrom);
     if (overrides.dateTo !== undefined) setDateTo(overrides.dateTo);
-    if (overrides.serialNumber !== undefined) setSerialNumber(overrides.serialNumber);
     if (overrides.productModels !== undefined) {
       setSelectedProductModels(overrides.productModels);
       setProductModel(overrides.productModels.join(', '));
     }
     if (overrides.customers !== undefined) setSelectedCustomers(overrides.customers);
+    if (overrides.orderTypes !== undefined) setSelectedOrderTypes(overrides.orderTypes);
     if (overrides.bases !== undefined) {
       setSelectedBases(overrides.bases);
       setBase(overrides.bases.join(', '));
@@ -695,12 +698,12 @@ export default function StationPassRatePage() {
           </div>
 
           <form className={`flex flex-wrap items-end gap-x-2 gap-y-3 bg-slate-50/80 px-4 py-3 ${(loading || error || hasSearched) ? 'border-b border-slate-100' : ''}`} onSubmit={(event) => { event.preventDefault(); void load(); }}>
-            <div className="min-w-0 basis-full flex-1 sm:min-w-[280px] xl:max-w-sm">
+            <div className="min-w-0 basis-full flex-1 sm:min-w-[280px] xl:basis-auto xl:min-w-64 xl:max-w-sm">
               <DateRangePicker label="计划开始日期（GSTRS）" from={dateFrom} to={dateTo} allowOpenEnded onChange={updateDateRange} />
             </div>
-              <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-44">统计维度<select value={groupBy} onChange={(event) => updateField('groupBy', setGroupBy, event.target.value as StationGroupBy)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none transition-colors focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"><option value="salesOrder">销售订单号</option><option value="productionOrder">生产订单号</option><option value="productModel">机型</option></select></label>
+              <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:min-w-28 xl:max-w-44">统计维度<select value={groupBy} onChange={(event) => updateField('groupBy', setGroupBy, event.target.value as StationGroupBy)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none transition-colors focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"><option value="salesOrder">销售订单号</option><option value="productionOrder">生产订单号</option><option value="productModel">机型</option></select></label>
               <div className="flex min-w-36 flex-col gap-1 text-xs font-medium text-slate-600"><span>订单范围</span><div className="inline-flex h-9 overflow-hidden rounded-md border border-slate-300 bg-white"><button type="button" onClick={() => updateField('orderScope', setOrderScope, 'normal')} className={`px-3 text-xs ${orderScope === 'normal' ? 'bg-cyan-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>普通订单</button><button type="button" onClick={() => updateField('orderScope', setOrderScope, 'l6')} className={`border-l border-slate-300 px-3 text-xs ${orderScope === 'l6' ? 'bg-cyan-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>L6 订单</button></div></div>
-              <label className="inline-flex h-9 min-w-24 items-center gap-2 self-end rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700"><input type="checkbox" checked={overseas} onChange={(event) => updateField('overseas', setOverseas, event.target.checked)} className="size-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />海外</label>
+              <label className="inline-flex h-9 min-w-24 items-center gap-2 self-end rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 xl:min-w-0"><input type="checkbox" checked={overseas} onChange={(event) => updateField('overseas', setOverseas, event.target.checked)} className="size-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />海外</label>
             <StationFilterMultiSelect
               label="客户 ID"
               selected={selectedCustomers}
@@ -710,7 +713,9 @@ export default function StationPassRatePage() {
                 updateField('customers', () => {}, values);
               }}
             />
-            <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:max-w-44">服务器 SN<input value={serialNumber} onChange={(event) => updateField('serialNumber', setSerialNumber, event.target.value)} placeholder="精确输入 SN" className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none placeholder:text-slate-400 focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100" /></label>
+            <StationFilterMultiSelect label="订单类型" selected={selectedOrderTypes}
+              options={[...new Set(['PP01', ...orderTypes, ...selectedOrderTypes])].sort().map(value => ({ value }))}
+              onChange={values => updateField('orderTypes', setSelectedOrderTypes, values)} />
             <StationFilterMultiSelect
               label="机型"
               selected={selectedProductModels}

@@ -5,6 +5,7 @@ import type { RTYFilterParams } from '../../types';
 import { MonthQuickPicker } from '../shared/MonthQuickPicker';
 import { HelpTooltip } from '../shared/HelpTooltip';
 import { customerIdLabel, NO_CUSTOMER_ID } from '../../utils/customerId';
+import { CycleMultiSelect } from './CycleMultiSelect';
 
 const COMPOSITE_MODELS = new Set(['6210 C21 BOX', '6215 C32']);
 
@@ -155,6 +156,7 @@ interface FilterPanelProps {
   onExportConfirm: () => Promise<void>;
   exporting: boolean;
   exportDisabled: boolean;
+  orderTypes?: string[];
 }
 
 export function FilterPanel({
@@ -165,6 +167,7 @@ export function FilterPanel({
   onExportConfirm,
   exporting,
   exportDisabled,
+  orderTypes = [],
 }: FilterPanelProps) {
   const filters = initialFilters;
   const [productModelList, setProductModelList] = useState<{ model: string; count: number }[]>([]);
@@ -243,6 +246,13 @@ export function FilterPanel({
               </HelpTooltip>
             </div>
             <DateRangePicker value={filters.dateRange} onChange={(dateRange) => update({ dateRange })} />
+          </div>
+
+          <div className="flex flex-col gap-1.5">
+            <span className="text-[11px] font-semibold text-slate-500">订单类型</span>
+            <CycleMultiSelect label="订单类型" placeholder="全部订单类型" selected={filters.orderTypes || []}
+              options={[...new Set(['PP01', ...orderTypes, ...(filters.orderTypes || [])])].sort().map(value => ({ value }))}
+              onChange={orderTypes => update({ orderTypes })} />
           </div>
 
           <div className="flex-1 min-w-[100px] max-w-[140px] opacity-50">

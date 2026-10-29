@@ -46,7 +46,7 @@ async def base_users(client, app, monkeypatch):
             "plannedStartDate": "2026-10-01",
             "salesOrder": "SO-TJ",
             "customerId": "C-TJ",
-            "raw": {"data": {"WMENG": 10}},
+            "raw": {"data": {"WMENG": 10, "AUART": "PP01"}},
         },
         {
             "aufnr": "2",
@@ -55,7 +55,7 @@ async def base_users(client, app, monkeypatch):
             "plannedStartDate": "2026-10-01",
             "salesOrder": "SO-KS",
             "customerId": "C-KS",
-            "raw": {"data": {"WMENG": 20}},
+            "raw": {"data": {"WMENG": 20, "AUART": "G001"}},
         },
     ]
     monkeypatch.setattr(data_gateway, "all_orders", AsyncMock(return_value=orders))
@@ -84,6 +84,7 @@ async def test_search_options_only_include_authorized_base_and_its_models(client
         "productModels": [{"model": "TJ-model", "count": 10}],
         "bases": [{"base": "1000", "count": 10}],
         "customers": ["C-TJ"],
+        "orderTypes": ["PP01"],
     }
     assert (await client.get("/api/rty/sales-orders", headers=scoped)).json()["data"] == ["SO-TJ"]
     assert (await client.get("/api/lrr/options", headers=scoped)).json()["bases"] == ["1000"]
@@ -109,8 +110,10 @@ async def test_lrr_options_fallback_returns_only_authorized_base(client, base_us
         "productModels": ["TJ-model"],
         "bases": ["1000"],
         "customerIds": ["C-TJ"],
+        "orderTypes": ["PP01"],
     }
-    data_gateway.all_orders.assert_awaited_once_with(base="1000")
+    assert data_gateway.all_orders.await_count == 2
+    assert all(call.kwargs == {"base": "1000"} for call in data_gateway.all_orders.await_args_list)
 
 
 @pytest.mark.parametrize(

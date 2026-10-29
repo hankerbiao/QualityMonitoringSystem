@@ -37,9 +37,11 @@ def normalize_doa(item: dict[str, Any]) -> dict[str, Any]:
         "host_sn": _text(_first(item, "sugon_sn", "host_sn")),
         "part_sn": _text(_first(item, "spare_part_sn", "part_sn")),
         "product": _text(_first(item, "product_name", "product")),
-        "repair_count": item.get("problem_batch_number", item.get("repair_count", 0)) or 0,
+        "repair_count": item.get("problem_batch_number", item.get("repair_count")),
         "declare_at": _text(_first(item, "declare_time", "declare_at")),
         "accepted_at": _text(_first(item, "acceptance_time", "accepted_at")),
+        "planned_at": _text(item.get("GSTRS")),
+        "gstrs_status": _text(item.get("gstrs_status")),
         "factory_date": _text(item.get("factory_date")),
         "warranty_end_date": _text(item.get("warranty_end_date")),
         "is_5000_company": _bool(item.get("is_5000_company", False)),
@@ -89,15 +91,58 @@ class ScsGateway:
         # Enforce the requested scope before dashboard aggregation.
         if "company5000" in filters:
             expected = _bool(filters["company5000"])
-            normalized_rows = [
-                row for row in normalized_rows if row["is_5000_company"] is expected
-            ]
+            normalized_rows = [row for row in normalized_rows if row["is_5000_company"] is expected]
         return normalized_rows
 
     async def detail(self, view_id: str, record_id: str) -> dict[str, Any]:
         payload = await self.client.view_detail(view_id, record_id)
         item = payload.get("item") if isinstance(payload, dict) else {}
         return normalize_doa(item) if view_id == "SCS_DOA" else normalize_change(item)
+
+    async def doa_devices(
+        self, *, page_size: int = 1000, max_rows: int = 250_000
+    ) -> list[dict[str, Any]]:
+        """Read complete device evidence without collapsing conflicting identifiers or dates."""
+        if not 1 <= page_size <= 1000:
+            raise ValueError("SCS 设备查询页大小必须在 1 至 1000 之间")
+        rows: list[dict[str, Any]] = []
+        expected_total: int | None = None
+        previous_key = ""
+        page = 1
+        while True:
+            payload = await self.client.request_json(
+                "GET",
+                "/api/scs/doa/devices",
+                params={"page": page, "pageSize": page_size},
+            )
+            if not isinstance(payload, dict):
+                raise DataGatewayError("SCS 设备数据响应无效")
+            if payload.get("scope") != "all":
+                raise DataGatewayError("SCS 设备接口仍受产品线范围限制，请更新数据网关")
+            total, items = payload.get("total"), payload.get("items")
+            if (
+                type(total) is not int
+                or total < 0
+                or total > max_rows
+                or payload.get("page") != page
+                or payload.get("pageSize") != page_size
+                or not isinstance(items, list)
+                or any(not isinstance(item, dict) for item in items)
+                or (expected_total is not None and total != expected_total)
+                or len(items) != min(page_size, max(total - len(rows), 0))
+                or payload.get("hasMore") is not (len(rows) + len(items) < total)
+            ):
+                raise DataGatewayError("SCS 设备数据分页不完整或范围无效，请重试")
+            for item in items:
+                key = item.get("deviceKey")
+                if not isinstance(key, str) or not key or key <= previous_key:
+                    raise DataGatewayError("SCS 设备数据存在重复或无序标识，请重试")
+                previous_key = key
+            rows.extend(items)
+            if len(rows) == total:
+                return rows
+            expected_total = total
+            page += 1
 
 
 scs_gateway = ScsGateway()

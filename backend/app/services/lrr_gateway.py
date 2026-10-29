@@ -120,6 +120,7 @@ async def load_bom(
     product_model: str | None = None,
     base: str | None = None,
     customer_ids: tuple[str, ...] = (),
+    order_types: tuple[str, ...] = (),
     month: str | None = None,
     planned_date_from: str | None = None,
     planned_date_to: str | None = None,
@@ -311,7 +312,7 @@ async def load_bom(
     # keep that lookup within the same date/scope whenever possible.
     product_models = [*(product_models or []), *([product_model] if product_model else [])]
     bases = [*(bases or []), *([base] if base else [])]
-    needs_metadata = bool(bases or customer_ids or product_models or current_base_permissions() is not None)
+    needs_metadata = bool(bases or customer_ids or product_models or order_types or current_base_permissions() is not None)
     metadata_started_at = perf_counter()
     if needs_metadata:
         metadata_filters: dict[str, str] = {}
@@ -328,7 +329,7 @@ async def load_bom(
     else:
         orders = []
     metadata_load_ms = (perf_counter() - metadata_started_at) * 1000
-    metadata: dict[str, tuple[str, str, str]] = {}
+    metadata: dict[str, tuple[str, str, str, str]] = {}
     allowed_bases = set(bases or [])
     allowed_models = set(product_models or [])
     for item in orders:
@@ -338,14 +339,15 @@ async def load_bom(
                 str(item.get("inventoryLocation", "")).strip(),
                 str(item.get("customerId", "")).strip(),
                 str(item.get("productionModel", "")).strip(),
+                str(source_data(item).get("AUART") or "").strip(),
             )
     result = []
     for row in rows:
         metadata_values = metadata.get(normalize_production_order(row.get("AUFNR_1")))
         if metadata_values is None:
-            base_value, customer, model = "", "", ""
+            base_value, customer, model, order_type = "", "", "", ""
         else:
-            base_value, customer, model = metadata_values
+            base_value, customer, model, order_type = metadata_values
         if not base_allowed(base_value or row.get("LGORT")):
             continue
         if allowed_bases and not ({str(row.get("LGORT") or "").strip(), base_value} & allowed_bases):
@@ -353,6 +355,8 @@ async def load_bom(
         if customer_ids and customer not in selected_customer_ids and not (include_empty_customer and not customer):
             continue
         if allowed_models and model not in allowed_models:
+            continue
+        if order_types and order_type not in order_types:
             continue
         row["_base"] = str(row.get("LGORT") or base_value).strip()
         row["_customer_id"] = customer
@@ -605,7 +609,7 @@ async def _lrr_options_for_base(base: str = "") -> dict[str, list[str]]:
 async def options() -> dict[str, list[str]]:
     scope = current_base_permissions()
     if scope == ():
-        return {key: [] for key in ("materialNumbers", "productModels", "bases", "customerIds")}
+        return {key: [] for key in ("materialNumbers", "productModels", "bases", "customerIds", "orderTypes")}
     if scope is None:
         option_sets = [await _lrr_options_for_base()]
     else:
@@ -614,14 +618,27 @@ async def options() -> dict[str, list[str]]:
     bases: set[str] = set()
     customers: set[str] = set()
     materials: set[str] = set()
+    order_types: set[str] = set()
     for options_data in option_sets:
         materials.update(options_data.get("materialNumbers", []))
         models.update(options_data["productModels"])
         bases.update(options_data["bases"])
         customers.update(options_data["customerIds"])
+    order_batches = (
+        [await data_gateway.all_orders()]
+        if scope is None
+        else await asyncio.gather(*(data_gateway.all_orders(base=base) for base in scope))
+    )
+    for order in (item for batch in order_batches for item in batch):
+        raw = source_data(order)
+        if base_allowed(order.get("inventoryLocation") or raw.get("LGORT")):
+            value = str(raw.get("AUART") or "").strip()
+            if value:
+                order_types.add(value)
     return {
         "materialNumbers": sorted(value for value in materials if value),
         "productModels": sorted(value for value in models if value),
         "bases": sorted(value for value in bases if value),
         "customerIds": sorted(value for value in customers if value),
+        "orderTypes": sorted(order_types),
     }

@@ -102,6 +102,8 @@ async def test_gateway_doa_uses_linked_sales_order_when_product_name_differs(mon
                     "host_sn": "SN-1",
                     "part_sn": "",
                     "accepted_at": "2026-09-02",
+                    "planned_at": "2026-09-02",
+                    "gstrs_status": "matched",
                     "judgment": "是",
                     "repair_count": 1,
                     "raw": {},
@@ -115,7 +117,7 @@ async def test_gateway_doa_uses_linked_sales_order_when_product_name_differs(mon
     rows = await doa_service._doa_gateway_repairs(DoaFilters())
 
     assert len(rows) == 1
-    assert rows[0]["model"] == "6210 C21"
+    assert rows[0]["model"] == "未匹配机型"
 
 
 async def test_doa_replacement_rate_counts_only_valid_replacement_defect_quantity(monkeypatch):
@@ -140,6 +142,8 @@ async def test_doa_replacement_rate_counts_only_valid_replacement_defect_quantit
             "host_sn": "SN-1",
             "part_sn": "",
             "accepted_at": "2026-09-02",
+            "planned_at": "2026-09-02",
+            "gstrs_status": "matched",
             "judgment": "是",
             "repair_count": 2,
             "raw": {},
@@ -151,6 +155,8 @@ async def test_doa_replacement_rate_counts_only_valid_replacement_defect_quantit
             "host_sn": "SN-2",
             "part_sn": "",
             "accepted_at": "2026-09-02",
+            "planned_at": "2026-09-02",
+            "gstrs_status": "matched",
             "judgment": "是",
             "repair_count": 3,
             "raw": {},
@@ -162,6 +168,8 @@ async def test_doa_replacement_rate_counts_only_valid_replacement_defect_quantit
             "host_sn": "SN-3",
             "part_sn": "",
             "accepted_at": "2026-09-02",
+            "planned_at": "2026-09-02",
+            "gstrs_status": "matched",
             "judgment": "是",
             "repair_count": 4,
             "raw": {},
@@ -173,6 +181,8 @@ async def test_doa_replacement_rate_counts_only_valid_replacement_defect_quantit
             "host_sn": "SN-4",
             "part_sn": "",
             "accepted_at": "2026-09-02",
+            "planned_at": "2026-09-02",
+            "gstrs_status": "matched",
             "judgment": "否",
             "repair_count": 5,
             "raw": {},

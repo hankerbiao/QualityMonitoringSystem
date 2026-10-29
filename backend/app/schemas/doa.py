@@ -48,6 +48,10 @@ class DoaSummary(BaseModel):
     replacementRecordCount: int = 0
     matchedRepairRecords: int = 0
     excludedRepairRecords: int = 0
+    unmatchedRepairRecords: int = 0
+    missingQuantityRecords: int = 0
+    unmatchedPlannedRecords: int = 0
+    unmatchedPlannedQuantity: float = 0
     latestDataAt: datetime | None = None
 
 
@@ -58,6 +62,7 @@ class DoaUnmatchedOrder(BaseModel):
 
 class DoaDashboardResponse(BaseModel):
     filters: DoaFilters
+    cacheExpiresAt: datetime | None = None
     summary: DoaSummary
     trend: list[DoaTrendItem] = Field(default_factory=list)
     byCustomer: list[DoaDimensionItem] = Field(default_factory=list)
@@ -70,11 +75,14 @@ class DoaRepairItem(BaseModel):
     salesOrder: str = ""
     materialSerial: str = ""
     acceptedAt: str = ""
+    plannedAt: str = ""
+    gstrsStatus: str = ""
     customer: str = ""
     model: str = ""
     shippedDate: str = ""
     shippedCount: float = 0
     repairCount: float = 0
+    missingQuantity: bool = False
     data: dict = Field(default_factory=dict)
 
 

@@ -67,6 +67,28 @@ describe('rtyApi list cache', () => {
     );
   });
 
+  it('keeps cycle requests for different order types in separate cache entries', async () => {
+    vi.mocked(requestData).mockResolvedValue([]);
+    await rtyApi.getCycleData('normal', undefined, { orderType: 'PP01' });
+    await rtyApi.getCycleData('normal', undefined, { orderType: 'G001' });
+    await rtyApi.getCycleData('normal');
+    expect(vi.mocked(requestData).mock.calls.map(([url]) => new URL(url, 'http://localhost').searchParams.get('orderType')))
+      .toEqual(['PP01', 'G001', null]);
+  });
+
+  it('sends multiple order types to cycle and station endpoints', async () => {
+    vi.mocked(requestData).mockResolvedValue([]);
+    await rtyApi.getCycleData('normal', undefined, { orderTypes: ['PP01', 'G001'] });
+    await rtyApi.getStationPassRates({ groupBy: 'productModel', orderTypes: ['PP01', 'G001'] });
+    await rtyApi.getStationPassDetails('OP10', { groupBy: 'productModel', orderTypes: ['PP01', 'G001'] });
+    await rtyApi.getStationPassExport({ groupBy: 'productModel', orderTypes: ['PP01', 'G001'] });
+    const calls = vi.mocked(requestData).mock.calls;
+    expect(new URL(calls[0][0], 'http://localhost').searchParams.getAll('orderTypes')).toEqual(['G001', 'PP01']);
+    for (const [url] of calls.slice(1)) {
+      expect(new URL(url, 'http://localhost').searchParams.getAll('orderTypes')).toEqual(['PP01', 'G001']);
+    }
+  });
+
   it('includes the selected customer in station summaries and details', async () => {
     vi.mocked(requestData).mockResolvedValue([]);
     const query = { groupBy: 'productModel' as const, customer: 'CUST-1', overseas: true };

@@ -49,6 +49,7 @@ class LRRListQuery:
     base: str | None = None
     base_permissions: tuple[str, ...] | None = None
     customer_ids: tuple[str, ...] = ()
+    order_types: tuple[str, ...] = ()
     sort_by: str = "month"
     sort_dir: str = "asc"
 

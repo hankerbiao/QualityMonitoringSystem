@@ -114,19 +114,26 @@ async def _orders(filters: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
+def _selected_order_types(filters: dict[str, Any]) -> set[str]:
+    return {value.strip() for value in str(filters.get("orderTypes") or filters.get("orderType") or "").split(",") if value.strip()}
+
+
 async def _order_rows(filters: dict[str, Any]) -> list[dict[str, Any]]:
     if current_base_permissions() == ():
         return []
     gateway_filters = {
         key: value
         for key, value in filters.items()
-        if key not in {"orderScope", "calculationMethod", "_productModels", "_bases", "_customers"} and value
+        if key not in {"orderScope", "calculationMethod", "orderType", "orderTypes", "_productModels", "_bases", "_customers"} and value
     }
     rows = [
         normalize_order_row(item)
         for item in await data_gateway.all_orders(max_rows=1_000_000, **gateway_filters)
     ]
     rows = [row for row in rows if base_allowed(row["data"].get("LGORT"))]
+    order_types = _selected_order_types(filters)
+    if order_types:
+        rows = [row for row in rows if str(row["data"].get("AUART") or "").strip() in order_types]
     models = set(filters.get("_productModels") or [])
     bases = set(filters.get("_bases") or [])
     customers = set(filters.get("_customers") or [])
@@ -596,6 +603,8 @@ async def cycle_data(
     customers: list[str] | None = None,
     date_from: str = YEAR_START,
     date_to: str = YEAR_END,
+    order_type: str | None = None,
+    order_types: list[str] | None = None,
 ) -> list[RTYData]:
     selected_customers = sorted(
         {
@@ -610,12 +619,14 @@ async def cycle_data(
         tuple(selected_customers),
         date_from,
         date_to,
+        order_type or "",
+        tuple(sorted(set(order_types or []))),
         tuple(sorted(targets.items())),
     )
     return await _RTY_CYCLE_CACHE.get_or_set(
         key,
         lambda: _build_cycle_data(
-            order_scope, selected_customers, targets, date_from, date_to
+            order_scope, selected_customers, targets, date_from, date_to, order_type, order_types
         ),
         ttl_seconds=RTY_CYCLE_CACHE_TTL_SECONDS,
     )
@@ -669,6 +680,8 @@ async def _build_cycle_data(
     targets: dict[str, float],
     date_from: str,
     date_to: str,
+    order_type: str | None = None,
+    order_types: list[str] | None = None,
 ) -> list[RTYData]:
     selected_customers = (
         [customers] if isinstance(customers, str) and customers else customers or []
@@ -679,6 +692,8 @@ async def _build_cycle_data(
             "_customers": selected_customers,
             "dateFrom": date_from,
             "dateTo": date_to,
+            "orderType": order_type or "",
+            "orderTypes": ",".join(order_types or []),
         }
     )
     groups = await _rty_order_groups(orders)
@@ -818,6 +833,7 @@ async def station_rates(
     product_model: str | None = None,
     base: str | None = None,
     customer: str | None = None,
+    order_types: list[str] | None = None,
 ) -> list[StationPassRate]:
     if current_base_permissions() == ():
         return []
@@ -840,6 +856,7 @@ async def station_rates(
                 "serialNumber": serial_number or "",
                 "orderScope": order_scope,
                 "overseas": "true" if overseas else "",
+                "orderTypes": ",".join(order_types or []),
             }
         ),
     )
@@ -962,6 +979,7 @@ async def station_details(
     product_model: str | None = None,
     base: str | None = None,
     customer: str | None = None,
+    order_types: list[str] | None = None,
 ) -> list[StationPassDetail]:
     if current_base_permissions() == ():
         return []
@@ -974,7 +992,7 @@ async def station_details(
     records = await _station_records_in_range(start, end, serial_number=serial_number)
     records = _station_rows_in_planned_range(records, start, end)
     scope_orders = None
-    if order_scope == "l6" or selected_customers or include_empty_customer or overseas:
+    if order_scope == "l6" or selected_customers or include_empty_customer or overseas or order_types:
         orders = await _orders(
             {
                 "dateFrom": f"{start[:4]}-{start[4:6]}-{start[6:]}",
@@ -982,6 +1000,7 @@ async def station_details(
                 "serialNumber": serial_number or "",
                 "orderScope": order_scope,
                 "overseas": "true" if overseas else "",
+                "orderTypes": ",".join(order_types or []),
             }
         )
         orders = [
