@@ -1,3 +1,4 @@
+import { AdvancedFilters, EMPTY_ADVANCED_FILTERS, advancedQuery } from '../components/shared/AdvancedFilters';
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { AlertCircle, ArrowLeft, Download, RotateCcw, Search, Wrench } from 'lucide-react';
 import * as XLSX from 'xlsx';
@@ -39,6 +40,7 @@ export default function RepairQualityPage() {
   const [customers, setCustomers] = useState<string[]>([]);
   const [bases, setBases] = useState<string[]>([]);
   const [models, setModels] = useState<string[]>([]);
+  const [advanced, setAdvanced] = useState(EMPTY_ADVANCED_FILTERS);
   const [result, setResult] = useState<RepairQualitySummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [optionsError, setOptionsError] = useState('');
@@ -73,6 +75,7 @@ export default function RepairQualityPage() {
     try {
       const params: RepairQualityQuery = {
         dateFrom, dateTo,
+        ...advancedQuery(advanced),
         ...(models.length ? { productModels: models } : {}),
         ...(customers.length ? { customers } : {}),
         ...(bases.length ? { bases } : {}),
@@ -99,6 +102,7 @@ export default function RepairQualityPage() {
     setCustomers([]);
     setBases([]);
     setModels([]);
+    setAdvanced(EMPTY_ADVANCED_FILTERS);
     setResult(null);
     setError('');
     setExportError('');
@@ -161,6 +165,7 @@ export default function RepairQualityPage() {
               <button type="button" onClick={reset} disabled={loading || exporting} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"><RotateCcw className="size-3.5" />重置</button>
             </div>
           </div>
+          <AdvancedFilters value={advanced} onChange={setAdvanced} />
           {optionsError && <p role="alert" className="mt-2 text-xs text-amber-700">筛选项加载失败：{optionsError}</p>}
         </form>
 

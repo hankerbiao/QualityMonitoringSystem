@@ -2,6 +2,9 @@ export type LRRSortField = 'month' | 'lrrRate' | 'faultCount' | 'issuedQuantity'
 export type LRRSortDir = 'asc' | 'desc';
 
 export interface LRRFilters {
+  serialNumbers?: string[];
+  productionOrders?: string[];
+  salesOrders?: string[];
   plannedDateFrom?: string | null;
   plannedDateTo?: string | null;
   ngDateFrom?: string | null;

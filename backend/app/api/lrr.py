@@ -26,7 +26,7 @@ from app.schemas.lrr import (
     LRRSummary,
     LRRTrendPoint,
 )
-from app.services import lrr_gateway
+from app.services import advanced_filters, lrr_gateway
 from app.services.lrr_list_cache import LRRListQuery, lrr_list_cache
 from app.services.lrr_normalization import (
     compact_date,
@@ -486,6 +486,19 @@ def _has_filter_criteria(query: LRRListQuery) -> bool:
     )
 
 
+async def _advanced_bom(bom: list[dict[str, Any]], serial_numbers: tuple[str, ...], production_orders: tuple[str, ...], sales_orders: tuple[str, ...], date_from: str, date_to: str) -> list[dict[str, Any]]:
+    production_values = {advanced_filters.normalize_order(value) for value in advanced_filters.values(production_orders)}
+    sales_values = {advanced_filters.normalize_sales_order(value) for value in advanced_filters.values(sales_orders)}
+    serial_values = advanced_filters.values(serial_numbers)
+    sn_orders = await advanced_filters.orders_for_sns(serial_values, date_from, date_to) if serial_values else None
+    return [row for row in bom if advanced_filters.order_matches(row.get("AUFNR_1"), row.get("VBELN_EX"), production_values, sales_values) and (sn_orders is None or advanced_filters.normalize_order(row.get("AUFNR_1")) in sn_orders)]
+
+
+def _advanced_faults(faults: list[dict[str, Any]], serial_numbers: tuple[str, ...]) -> list[dict[str, Any]]:
+    serial_values = advanced_filters.values(serial_numbers)
+    return [row for row in faults if str(row.get("PCODE") or "").strip() in serial_values] if serial_values else faults
+
+
 async def _load(query: LRRListQuery) -> LRRListResponse:
     started = perf_counter()
     bom = await lrr_gateway.load_bom(
@@ -497,6 +510,7 @@ async def _load(query: LRRListQuery) -> LRRListResponse:
         planned_date_from=query.planned_date_from,
         planned_date_to=query.planned_date_to,
     )
+    bom = await _advanced_bom(bom, query.serial_numbers, query.production_orders, query.sales_orders, query.planned_date_from or "", query.planned_date_to or "")
     usage_rows = aggregate_lrr(bom, [], include_details=False)[0]
     if _has_filter_criteria(query) or _requires_full_fault_sort(query):
         faults = await lrr_gateway.load_faults(
@@ -509,7 +523,7 @@ async def _load(query: LRRListQuery) -> LRRListResponse:
             date_to=query.ng_date_to or query.planned_date_to,
             include_details=False,
         )
-        rows = aggregate_lrr(bom, _faults_in_selected_orders(bom, faults, query.order_types), include_details=False)[0]
+        rows = aggregate_lrr(bom, _faults_in_selected_orders(bom, _advanced_faults(faults, query.serial_numbers), query.order_types or query.production_orders or query.sales_orders or query.serial_numbers), include_details=False)[0]
         response = _full_response(rows, query)
         fault_scope = "full"
     else:
@@ -584,6 +598,9 @@ async def get_lrr_list(
     base: Annotated[list[str] | None, Query()] = None,
     customerId: Annotated[list[str] | None, Query()] = None,
     orderTypes: Annotated[list[str] | None, Query()] = None,
+    serialNumbers: Annotated[list[str] | None, Query()] = None,
+    productionOrders: Annotated[list[str] | None, Query()] = None,
+    salesOrders: Annotated[list[str] | None, Query()] = None,
     sortBy: str = "month",
     sortDir: str = "asc",
 ):
@@ -614,6 +631,9 @@ async def get_lrr_list(
         base_permissions=current_base_permissions(),
         customer_ids=tuple(sorted(set(customerId or []))),
         order_types=tuple(sorted(set(orderTypes or []))),
+        serial_numbers=tuple(sorted(set(serialNumbers or []))),
+        production_orders=tuple(sorted(set(productionOrders or []))),
+        sales_orders=tuple(sorted(set(salesOrders or []))),
         sort_by=sortBy,
         sort_dir=sortDir,
     )
@@ -644,6 +664,9 @@ async def get_lrr_fault_details(
     base: Annotated[list[str] | None, Query()] = None,
     customerId: Annotated[list[str] | None, Query()] = None,
     orderTypes: Annotated[list[str] | None, Query()] = None,
+    serialNumbers: Annotated[list[str] | None, Query()] = None,
+    productionOrders: Annotated[list[str] | None, Query()] = None,
+    salesOrders: Annotated[list[str] | None, Query()] = None,
     month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
     limit: int = Query(50000, ge=1, le=50000),
 ):
@@ -672,6 +695,7 @@ async def get_lrr_fault_details(
         planned_date_from=plannedDateFrom,
         planned_date_to=plannedDateTo,
     )
+    bom = await _advanced_bom(bom, tuple(serialNumbers or []), tuple(productionOrders or []), tuple(salesOrders or []), plannedDateFrom or "", plannedDateTo or "")
     faults = await lrr_gateway.load_faults(
         production_orders={str(row.get("AUFNR_1") or "") for row in bom},
         sales_orders={str(row.get("VBELN_EX") or "") for row in bom},
@@ -681,7 +705,7 @@ async def get_lrr_fault_details(
         date_from=ngDateFrom or plannedDateFrom,
         date_to=ngDateTo or plannedDateTo,
     )
-    details = aggregate_lrr(bom, _faults_in_selected_orders(bom, faults, tuple(orderTypes or [])))[1]
+    details = aggregate_lrr(bom, _faults_in_selected_orders(bom, _advanced_faults(faults, tuple(serialNumbers or [])), tuple(orderTypes or productionOrders or salesOrders or serialNumbers or [])))[1]
     return LRRFaultDetailsResponse(
         items=details[:limit], total=len(details), truncated=len(details) > limit
     )

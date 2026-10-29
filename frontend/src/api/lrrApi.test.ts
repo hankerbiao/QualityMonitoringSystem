@@ -13,11 +13,15 @@ describe('lrrApi full material list', () => {
 
   it('passes multiple order types to both list and fault details', async () => {
     vi.mocked(requestJson).mockResolvedValue({ items: [], total: 0, page: 1, limit: 50 });
-    const filters = { plannedDateFrom: '2026-03-01', plannedDateTo: '2026-03-31', orderTypes: ['PP01', 'G001'] };
+    const filters = { plannedDateFrom: '2026-03-01', plannedDateTo: '2026-03-31', orderTypes: ['PP01', 'G001'], serialNumbers: ['SN1', 'SN2'], productionOrders: ['1', '2'], salesOrders: ['S1', 'S2'] };
     await lrrApi.getLRRData(1, 50, filters);
     await lrrApi.getFaultDetails(filters);
     for (const [url] of vi.mocked(requestJson).mock.calls) {
-      expect(new URL(url, 'http://localhost').searchParams.getAll('orderTypes')).toEqual(['PP01', 'G001']);
+      const qs = new URL(url, 'http://localhost').searchParams;
+      expect(qs.getAll('orderTypes')).toEqual(['PP01', 'G001']);
+      expect(qs.getAll('serialNumbers')).toEqual(['SN1', 'SN2']);
+      expect(qs.getAll('productionOrders')).toEqual(['1', '2']);
+      expect(qs.getAll('salesOrders')).toEqual(['S1', 'S2']);
     }
   });
 

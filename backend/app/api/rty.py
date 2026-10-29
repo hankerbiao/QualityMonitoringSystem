@@ -47,6 +47,10 @@ async def require_reinsert_access(
     return user
 
 
+def _advanced_kwargs(serial_numbers, production_orders, sales_orders):
+    return {key: value for key, value in (("serial_numbers", serial_numbers), ("production_orders", production_orders), ("sales_orders", sales_orders)) if value}
+
+
 @router.get("/reinsert-rate/options", dependencies=[Depends(require_reinsert_access)])
 async def get_reinsert_options():
     return Response(success=True, data=await repair_quality.options())
@@ -58,9 +62,12 @@ async def get_reinsert_rate(
     productModels: Annotated[list[str] | None, Query()] = None,
     customers: Annotated[list[str] | None, Query()] = None,
     bases: Annotated[list[str] | None, Query()] = None,
+    serialNumbers: Annotated[list[str] | None, Query()] = None,
+    productionOrders: Annotated[list[str] | None, Query()] = None,
+    salesOrders: Annotated[list[str] | None, Query()] = None,
 ):
     orders, faults, usage, _ = await reinsert_rate.load_sources(
-        dateFrom, dateTo, productModels, customers, bases
+        dateFrom, dateTo, productModels, customers, bases, **_advanced_kwargs(serialNumbers, productionOrders, salesOrders)
     )
     return Response(success=True, data=reinsert_rate.aggregate(orders, faults, usage, dateFrom, dateTo))
 
@@ -73,6 +80,9 @@ async def get_reinsert_details(
     productModels: Annotated[list[str] | None, Query()] = None,
     customers: Annotated[list[str] | None, Query()] = None,
     bases: Annotated[list[str] | None, Query()] = None,
+    serialNumbers: Annotated[list[str] | None, Query()] = None,
+    productionOrders: Annotated[list[str] | None, Query()] = None,
+    salesOrders: Annotated[list[str] | None, Query()] = None,
     page: int = Query(1, ge=1), pageSize: int = Query(50, ge=1, le=200),
 ):
     if kind not in {"invalid", "faults"} and (not base or month not in reinsert_rate._months(
@@ -84,7 +94,7 @@ async def get_reinsert_details(
     if kind == "postings" and (not component or not pn):
         raise HTTPException(status_code=422, detail="发料明细需要部件和PN")
     orders, faults, usage, postings = await reinsert_rate.load_sources(
-        dateFrom, dateTo, productModels, customers, bases
+        dateFrom, dateTo, productModels, customers, bases, **_advanced_kwargs(serialNumbers, productionOrders, salesOrders)
     )
     return Response(success=True, data=reinsert_rate.details(
         orders, faults, usage, postings, base, month, component, pn, kind, page, pageSize, model
@@ -112,6 +122,9 @@ async def get_repair_quality(
     productModels: Annotated[list[str] | None, Query()] = None,
     customers: Annotated[list[str] | None, Query()] = None,
     bases: Annotated[list[str] | None, Query()] = None,
+    serialNumbers: Annotated[list[str] | None, Query()] = None,
+    productionOrders: Annotated[list[str] | None, Query()] = None,
+    salesOrders: Annotated[list[str] | None, Query()] = None,
 ):
     data = await repair_quality.analyze(
         dateFrom,
@@ -119,6 +132,7 @@ async def get_repair_quality(
         product_models=productModels,
         customers=customers,
         bases=bases,
+        **_advanced_kwargs(serialNumbers, productionOrders, salesOrders),
     )
     return Response(success=True, data=data, message=f"分析到 {data['snCount']} 个维修 SN")
 
@@ -146,6 +160,9 @@ async def get_repair_quality_details(
     productModels: Annotated[list[str] | None, Query()] = None,
     customers: Annotated[list[str] | None, Query()] = None,
     bases: Annotated[list[str] | None, Query()] = None,
+    serialNumbers: Annotated[list[str] | None, Query()] = None,
+    productionOrders: Annotated[list[str] | None, Query()] = None,
+    salesOrders: Annotated[list[str] | None, Query()] = None,
     page: int = Query(1, ge=1),
     pageSize: int = Query(50, ge=1, le=200),
     exportAll: bool = False,
@@ -154,6 +171,7 @@ async def get_repair_quality_details(
         dateFrom, dateTo, customer, base, bucket,
         product_models=productModels, customers=customers, bases=bases,
         page=page, page_size=pageSize, export_all=exportAll,
+        **_advanced_kwargs(serialNumbers, productionOrders, salesOrders),
     )
     return Response(success=True, data=data)
 
@@ -169,9 +187,13 @@ async def get_repair_quality_export(
     productModels: Annotated[list[str] | None, Query()] = None,
     customers: Annotated[list[str] | None, Query()] = None,
     bases: Annotated[list[str] | None, Query()] = None,
+    serialNumbers: Annotated[list[str] | None, Query()] = None,
+    productionOrders: Annotated[list[str] | None, Query()] = None,
+    salesOrders: Annotated[list[str] | None, Query()] = None,
 ):
     data = await repair_quality.build_export(
-        dateFrom, dateTo, product_models=productModels, customers=customers, bases=bases
+        dateFrom, dateTo, product_models=productModels, customers=customers, bases=bases,
+        **_advanced_kwargs(serialNumbers, productionOrders, salesOrders)
     )
     return Response(success=True, data=data)
 
@@ -266,6 +288,9 @@ async def get_station_pass_rates(
     productModels: Annotated[list[str] | None, Query()] = None,
     customers: Annotated[list[str] | None, Query()] = None,
     bases: Annotated[list[str] | None, Query()] = None,
+    serialNumbers: Annotated[list[str] | None, Query()] = None,
+    productionOrders: Annotated[list[str] | None, Query()] = None,
+    salesOrders: Annotated[list[str] | None, Query()] = None,
     productModel: str | None = None,
     customer: str | None = None,
     base: str | None = None,
@@ -285,6 +310,7 @@ async def get_station_pass_rates(
         customers=[*(customers or []), *([customer] if customer else [])],
         overseas=overseas,
         order_types=orderTypes,
+        **_advanced_kwargs(serialNumbers, productionOrders, salesOrders),
     )
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 个工位")
 
@@ -303,6 +329,9 @@ async def get_station_pass_details(
     productModels: Annotated[list[str] | None, Query()] = None,
     customers: Annotated[list[str] | None, Query()] = None,
     bases: Annotated[list[str] | None, Query()] = None,
+    serialNumbers: Annotated[list[str] | None, Query()] = None,
+    productionOrders: Annotated[list[str] | None, Query()] = None,
+    salesOrders: Annotated[list[str] | None, Query()] = None,
     productModel: str | None = None,
     customer: str | None = None,
     base: str | None = None,
@@ -326,6 +355,7 @@ async def get_station_pass_details(
         customers=[*(customers or []), *([customer] if customer else [])],
         overseas=overseas,
         order_types=orderTypes,
+        **_advanced_kwargs(serialNumbers, productionOrders, salesOrders),
     )
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 条明细")
 
@@ -344,6 +374,9 @@ async def get_station_pass_export(
     productModels: Annotated[list[str] | None, Query()] = None,
     customers: Annotated[list[str] | None, Query()] = None,
     bases: Annotated[list[str] | None, Query()] = None,
+    serialNumbers: Annotated[list[str] | None, Query()] = None,
+    productionOrders: Annotated[list[str] | None, Query()] = None,
+    salesOrders: Annotated[list[str] | None, Query()] = None,
     productModel: str | None = None,
     customer: str | None = None,
     base: str | None = None,
@@ -352,9 +385,10 @@ async def get_station_pass_export(
     orderTypes: Annotated[list[str] | None, Query()] = None,
 ):
     del request
+    advanced = {key: ",".join(values or []) for key, values in (("_serialNumbers", serialNumbers), ("_productionOrders", productionOrders), ("_salesOrders", salesOrders)) if values}
     data = await rty_export.build_export_response(
         "source",
-        _order_filters(
+        {**advanced, **_order_filters(
             serial_number=serialNumber,
             base=base,
             product_model=productModel,
@@ -364,7 +398,7 @@ async def get_station_pass_export(
             order_scope=orderScope,
             overseas="true" if overseas else "",
             order_types=orderTypes,
-        ),
+        )},
         product_models=productModels,
         bases=bases,
         customers=customers,

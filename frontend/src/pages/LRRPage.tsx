@@ -24,6 +24,7 @@ const FILTER_KEYS: Array<keyof LRRFilters> = [
   'bases',
   'customerIds',
   'orderTypes',
+  'serialNumbers', 'productionOrders', 'salesOrders',
   'month',
 ];
 const hasSearchCriteria = (candidate: LRRFilters) => FILTER_KEYS.some((key) => {
@@ -36,6 +37,9 @@ const filtersKey = (candidate: LRRFilters) => JSON.stringify({
   productModels: [...(candidate.productModels ?? [])].sort(),
   bases: [...(candidate.bases ?? [])].sort(),
   orderTypes: [...(candidate.orderTypes ?? [])].sort(),
+  serialNumbers: [...(candidate.serialNumbers ?? [])].sort(),
+  productionOrders: [...(candidate.productionOrders ?? [])].sort(),
+  salesOrders: [...(candidate.salesOrders ?? [])].sort(),
 });
 
 function plannedMonthBounds(month: string): { from: string; to: string } | null {

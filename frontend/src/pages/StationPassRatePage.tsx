@@ -1,3 +1,4 @@
+import { AdvancedFilters, EMPTY_ADVANCED_FILTERS, advancedQuery, type AdvancedFilterText } from '../components/shared/AdvancedFilters';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
@@ -89,6 +90,7 @@ function stationDescription(stationCode: string): string {
 
 type DetailState = { rate: StationRateRow; type: 'input' | 'defect' };
 type StationQueryState = {
+  advanced: AdvancedFilterText;
   dateFrom: string;
   dateTo: string;
   productModels: string[];
@@ -265,6 +267,7 @@ export default function StationPassRatePage() {
   const [selectedProductModels, setSelectedProductModels] = useState<string[]>([]);
   const [selectedCustomers, setSelectedCustomers] = useState<string[]>([]);
   const [selectedBases, setSelectedBases] = useState<string[]>([]);
+  const [advanced, setAdvanced] = useState(EMPTY_ADVANCED_FILTERS);
   const [selectedOrderTypes, setSelectedOrderTypes] = useState<string[]>([]);
   const [orderTypes, setOrderTypes] = useState<string[]>([]);
   const [productModels, setProductModels] = useState<{ model: string; count: number }[]>([]);
@@ -298,6 +301,7 @@ export default function StationPassRatePage() {
   const loadRequestId = useRef(0);
   const queryStartedAt = useRef<number | null>(null);
   const queryRef = useRef<StationQueryState>({
+    advanced: EMPTY_ADVANCED_FILTERS,
     dateFrom: initialDateRange.from,
     dateTo: initialDateRange.to,
     productModels: [],
@@ -337,6 +341,7 @@ export default function StationPassRatePage() {
     }
 
     const query: StationPassQuery = {
+      ...advancedQuery(next.advanced),
       dateFrom: next.dateFrom,
       dateTo: next.dateTo,
       productModels: next.productModels,
@@ -464,11 +469,13 @@ export default function StationPassRatePage() {
     setSelectedCustomers([]);
     setSelectedBases([]);
     setSelectedOrderTypes([]);
+    setAdvanced(EMPTY_ADVANCED_FILTERS);
     setGroupBy('productModel');
     setOrderScope('normal');
     setOverseas(false);
     queryRef.current = {
       ...queryRef.current,
+      advanced: EMPTY_ADVANCED_FILTERS,
       dateFrom: initialDateRange.from,
       dateTo: initialDateRange.to,
       productModels: [],
@@ -735,6 +742,7 @@ export default function StationPassRatePage() {
               }}
             />
             <div className="flex items-center gap-1.5"><button type="button" onClick={reset} className="inline-flex size-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 transition-colors hover:border-slate-400 hover:bg-slate-100" title="重置条件" aria-label="重置条件"><RotateCcw className="size-4" /></button><button type="submit" disabled={loading} className="inline-flex h-9 items-center gap-1.5 rounded-md bg-cyan-600 px-3 text-sm font-medium text-white transition-colors hover:bg-cyan-700 disabled:cursor-wait disabled:opacity-60">{loading ? <RefreshCw className="size-4 animate-spin" /> : <Search className="size-4" />}{loading ? '正在计算' : '查询'}</button></div>
+            <AdvancedFilters value={advanced} onChange={value => updateField('advanced', setAdvanced, value)} />
           </form>
 
           {!loading && !error && (!hasSearched || matrix.rows.length === 0) && (

@@ -1,3 +1,4 @@
+import { AdvancedFilters, EMPTY_ADVANCED_FILTERS, advancedQuery } from '../components/shared/AdvancedFilters';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { AlertTriangle, ArrowLeft, ChevronDown, ChevronRight, Download, RotateCcw, Search, Wrench, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -27,6 +28,7 @@ export default function ReinsertRatePage() {
   const navigate = useNavigate();
   const [initial] = useState(initialQuery);
   const [draft, setDraft] = useState(initial);
+  const [advanced, setAdvanced] = useState(EMPTY_ADVANCED_FILTERS);
   const [applied, setApplied] = useState(initial);
   const [data, setData] = useState<ReinsertDashboard | null>(null);
   const [options, setOptions] = useState({ productModels: [] as string[], customers: [] as string[], bases: [] as string[] });
@@ -65,7 +67,7 @@ export default function ReinsertRatePage() {
     if (!draft.dateFrom || !draft.dateTo || draft.dateFrom > draft.dateTo) {
       setError('请选择有效的日期范围'); return;
     }
-    void load(draft);
+    void load({ ...draft, ...advancedQuery(advanced) });
   };
   const open = (kind: DetailKind, base = '', month = '', component = '', pn = '', model?: string) =>
     setDetail({ ...applied, kind, base, month, component, pn, model });
@@ -115,12 +117,13 @@ export default function ReinsertRatePage() {
         <MultiSelect label="客户（多选）" options={options.customers} value={draft.customers ?? []} onChange={customers => setDraft(value => ({ ...value, customers }))} />
         <MultiSelect label="机型（多选）" options={options.productModels} value={draft.productModels ?? []} onChange={productModels => setDraft(value => ({ ...value, productModels }))} />
         <button type="submit" disabled={loading} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-teal-700 px-3 text-xs font-medium text-white hover:bg-teal-800 disabled:opacity-50"><Search className="size-3.5" />查询</button>
-        <button type="button" disabled={loading} onClick={() => { setDraft(initial); void load(initial); }} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-xs text-slate-700 hover:bg-slate-50"><RotateCcw className="size-3.5" />重置</button>
+        <button type="button" disabled={loading} onClick={() => { setDraft(initial); setAdvanced(EMPTY_ADVANCED_FILTERS); void load(initial); }} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-xs text-slate-700 hover:bg-slate-50"><RotateCcw className="size-3.5" />重置</button>
         <button type="button" onClick={() => void exportDashboard()} disabled={loading || exporting || !data?.models.length} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-xs text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"><Download className="size-3.5" />{exporting ? '导出中...' : '导出 Excel'}</button>
+        <AdvancedFilters value={advanced} onChange={setAdvanced} />
       </form>
       {exportError && <p role="alert" className="text-xs text-red-700">导出失败：{exportError}</p>}
       {optionsError && <p role="alert" className="text-xs text-amber-700">筛选项加载失败：{optionsError}</p>}
-      {error && <div role="alert" className="border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error} <button type="button" className="underline" onClick={() => void load(draft)}>重试</button></div>}
+      {error && <div role="alert" className="border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-800">{error} <button type="button" className="underline" onClick={() => void load({ ...draft, ...advancedQuery(advanced) })}>重试</button></div>}
       {loading && <div role="status" className="py-16 text-center text-sm text-slate-500">正在汇总订单、维修与发料记录...</div>}
       {data && <>
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-3">

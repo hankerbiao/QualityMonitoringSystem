@@ -2,6 +2,9 @@ import { requestData } from './authApi';
 import { API_BASE_URL } from '../constants';
 
 export interface ReinsertQuery {
+  serialNumbers?: string[];
+  productionOrders?: string[];
+  salesOrders?: string[];
   dateFrom: string;
   dateTo: string;
   productModels?: string[];

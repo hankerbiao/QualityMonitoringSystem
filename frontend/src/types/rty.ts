@@ -81,6 +81,9 @@ export interface StationPassRate {
 export type StationGroupBy = 'salesOrder' | 'productionOrder' | 'productModel';
 
 export interface StationPassQuery {
+  serialNumbers?: string[];
+  productionOrders?: string[];
+  salesOrders?: string[];
   dateFrom?: string;
   dateTo?: string;
   serialNumber?: string;
@@ -139,6 +142,9 @@ export interface RepairQualityOptions {
 }
 
 export interface RepairQualityQuery {
+  serialNumbers?: string[];
+  productionOrders?: string[];
+  salesOrders?: string[];
   dateFrom: string;
   dateTo: string;
   productModels?: string[];

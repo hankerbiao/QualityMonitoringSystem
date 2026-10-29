@@ -38,6 +38,17 @@ describe('重插率分析', () => {
   });
   afterEach(() => { cleanup(); vi.useRealTimers(); vi.clearAllMocks(); });
 
+  it('applies multiline advanced filters', async () => {
+    render(<MemoryRouter><ReinsertRatePage /></MemoryRouter>);
+    await waitFor(() => expect(reinsertApi.dashboard).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: '高级筛选' }));
+    fireEvent.change(screen.getByLabelText('SN'), { target: { value: 'SN1\nSN2' } });
+    fireEvent.change(screen.getByLabelText('生产订单'), { target: { value: '1\n2' } });
+    fireEvent.change(screen.getByLabelText('销售订单'), { target: { value: 'S1\nS2' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+    await waitFor(() => expect(reinsertApi.dashboard).toHaveBeenLastCalledWith(expect.objectContaining({ serialNumbers: ['SN1', 'SN2'], productionOrders: ['1', '2'], salesOrders: ['S1', 'S2'] })));
+  });
+
   it('shows fault responsibility counts and percentages for the applied results', async () => {
     render(<MemoryRouter><ReinsertRatePage /></MemoryRouter>);
     expect(await screen.findByRole('img', { name: '维修故障缺陷责任分类饼图' })).toBeTruthy();

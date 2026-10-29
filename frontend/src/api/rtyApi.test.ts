@@ -13,6 +13,25 @@ describe('rtyApi list cache', () => {
     vi.mocked(requestJson).mockReset();
   });
 
+  it('keeps advanced filters on station and repair queries, details, and exports', async () => {
+    vi.mocked(requestData).mockResolvedValue([]);
+    const advanced = { serialNumbers: ['SN1', 'SN2'], productionOrders: ['1', '2'], salesOrders: ['S1', 'S2'] };
+    const station = { ...advanced, groupBy: 'productModel' as const };
+    const repair = { ...advanced, dateFrom: '2026-03-01', dateTo: '2026-03-31' };
+    await rtyApi.getStationPassRates(station);
+    await rtyApi.getStationPassDetails('OP10', station);
+    await rtyApi.getStationPassExport(station);
+    await rtyApi.getRepairQuality(repair);
+    await rtyApi.getRepairQualityExport(repair);
+    await rtyApi.getRepairQualityDetails({ ...repair, customer: 'C', base: 'B', bucket: 'all' });
+    for (const [url] of vi.mocked(requestData).mock.calls) {
+      const qs = new URL(url, 'http://localhost').searchParams;
+      expect(qs.getAll('serialNumbers')).toEqual(advanced.serialNumbers);
+      expect(qs.getAll('productionOrders')).toEqual(advanced.productionOrders);
+      expect(qs.getAll('salesOrders')).toEqual(advanced.salesOrders);
+    }
+  });
+
   it('coalesces identical list requests', async () => {
     vi.mocked(requestJson).mockResolvedValue({
       items: [], total: 0, page: 1, limit: 50, has_more: false,

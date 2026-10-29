@@ -115,6 +115,16 @@ export const fieldQualityModules: readonly HomeModuleDefinition[] = [
 
 export const toolModules: readonly HomeModuleDefinition[] = [
   {
+    id: 'incoming-materials',
+    code: 'INCOMING',
+    title: '来料异常',
+    description: '实时查询 N00 库位的来料异常记录。',
+    icon: AlertTriangle,
+    accent: 'amber',
+    path: '/incoming-materials',
+    status: 'available',
+  },
+  {
     id: 'process-records',
     code: 'TRACE',
     title: '关键工位影像追溯',

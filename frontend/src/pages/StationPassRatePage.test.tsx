@@ -55,6 +55,22 @@ describe('StationPassRatePage customer filter', () => {
   });
   afterEach(cleanup);
 
+  it('sends multiline advanced filters to the query and details', async () => {
+    vi.mocked(rtyApi.getStationPassRates).mockResolvedValue([{ dimensionValue: 'M', stationCode: 'OP10', stationName: '装配', inputCount: 2, defectCount: 0, passRate: 100, totalInputCount: 10, totalDefectCount: 0 }]);
+    render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
+    fireEvent.click(screen.getByRole('button', { name: '高级筛选' }));
+    fireEvent.change(screen.getByLabelText('SN'), { target: { value: 'SN1\nSN2' } });
+    fireEvent.change(screen.getByLabelText('生产订单'), { target: { value: '1\n2' } });
+    fireEvent.change(screen.getByLabelText('销售订单'), { target: { value: 'S1\nS2' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+    const expected = expect.objectContaining({ serialNumbers: ['SN1', 'SN2'], productionOrders: ['1', '2'], salesOrders: ['S1', 'S2'] });
+    await waitFor(() => expect(rtyApi.getStationPassRates).toHaveBeenCalledWith(expected));
+    fireEvent.click(await screen.findByRole('button', { name: /100.00%.*0\/2/ }));
+    await waitFor(() => expect(rtyApi.getStationPassDetails).toHaveBeenCalledWith('OP10', expected, 'input'));
+    fireEvent.click(screen.getByRole('button', { name: '重置条件' }));
+    expect((screen.getByLabelText('SN') as HTMLTextAreaElement).value).toBe('');
+  });
+
   it('defaults to all order types and sends multiple selected types to queries and details', async () => {
     vi.mocked(rtyApi.getFilterOptions).mockResolvedValue({ productModels: [], bases: [], customers: [], orderTypes: ['PP01', 'G001'] });
     vi.mocked(rtyApi.getStationPassRates).mockResolvedValue([{

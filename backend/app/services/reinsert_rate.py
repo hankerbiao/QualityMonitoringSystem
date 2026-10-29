@@ -10,7 +10,7 @@ from typing import Any
 from fastapi import HTTPException
 
 from app.base_access import current_base_permissions
-from app.services import repair_integration, rty_export
+from app.services import advanced_filters, repair_integration, rty_export
 from app.services.async_ttl_cache import AsyncTTLCache
 from app.services.data_gateway_client import DataGatewayError, data_gateway
 from app.services.lrr_normalization import compact_date
@@ -77,6 +77,9 @@ async def load_sources(
     models: list[str] | None,
     customers: list[str] | None,
     bases: list[str] | None,
+    serial_numbers: list[str] | None = None,
+    production_orders: list[str] | None = None,
+    sales_orders: list[str] | None = None,
 ) -> tuple[list[dict], list[dict], dict[str, repair_integration.OrderUsage], list[dict]]:
     start, end = validate_date(date_from), validate_date(date_to)
     if start > end:
@@ -89,6 +92,9 @@ async def load_sources(
         tuple(sorted(models or [])),
         tuple(sorted(customers or [])),
         tuple(sorted(bases or [])),
+        tuple(sorted(serial_numbers or [])),
+        tuple(sorted(production_orders or [])),
+        tuple(sorted(sales_orders or [])),
     )
 
     async def load():
@@ -99,6 +105,11 @@ async def load_sources(
             bases=bases,
             include_all_orders=True,
         )
+        production_values = {normalize_order(value) for value in advanced_filters.values(production_orders)}
+        sales_values = {advanced_filters.normalize_sales_order(value) for value in advanced_filters.values(sales_orders)}
+        serial_values = advanced_filters.values(serial_numbers)
+        sn_orders = await advanced_filters.orders_for_sns(serial_values, start, end) if serial_values else None
+        orders = [row for row in orders if advanced_filters.order_matches(row.get("AUFNR"), row.get("VBELN"), production_values, sales_values) and (sn_orders is None or normalize_order(row.get("AUFNR")) in sn_orders)]
         by_order: dict[str, dict] = {}
         for row in orders:
             number = normalize_order(row.get("AUFNR"))
@@ -129,6 +140,8 @@ async def load_sources(
                     continue
                 if identity:
                     seen.add(identity)
+                if serial_values and _text(raw.get("PCODE")) not in serial_values:
+                    continue
                 raw["_source_id"] = identity
                 raw["_order"] = number
                 faults.append(raw)

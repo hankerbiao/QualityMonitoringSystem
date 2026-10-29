@@ -125,6 +125,7 @@ function buildRepairQualityQuery(params: RepairQualityQuery): URLSearchParams {
   params.productModels?.forEach(value => qs.append('productModels', value));
   params.customers?.forEach(value => qs.append('customers', value));
   params.bases?.forEach(value => qs.append('bases', value));
+  for (const key of ['serialNumbers', 'productionOrders', 'salesOrders'] as const) params[key]?.forEach(value => qs.append(key, value));
   return qs;
 }
 
@@ -133,6 +134,7 @@ function buildStationPassQuery(params: StationPassQuery): URLSearchParams {
   if (params.dateFrom) qs.set('dateFrom', params.dateFrom);
   if (params.dateTo) qs.set('dateTo', params.dateTo);
   if (params.serialNumber) qs.set('serialNumber', params.serialNumber);
+  for (const key of ['serialNumbers', 'productionOrders', 'salesOrders'] as const) params[key]?.forEach(value => qs.append(key, value));
   params.productModels?.forEach((value) => qs.append('productModels', value));
   params.customers?.forEach((value) => qs.append('customers', value));
   params.bases?.forEach((value) => qs.append('bases', value));

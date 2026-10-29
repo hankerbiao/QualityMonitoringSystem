@@ -16,7 +16,7 @@ from fastapi import HTTPException
 from app.base_access import base_allowed, current_base_permissions
 from app.schemas.common import Response
 from app.schemas.rty import RTYTemplateExport, StationPassExport
-from app.services import repair_integration, rty_gateway
+from app.services import advanced_filters, repair_integration, rty_gateway
 from app.services.async_ttl_cache import AsyncTTLCache
 from app.services.data_gateway_client import DataGatewayError, data_gateway
 from app.services.lrr_normalization import compact_date
@@ -155,7 +155,7 @@ async def _load_orders(
     gateway_filters = {
         key: value
         for key, value in filters.items()
-        if value and key not in {"orderScope", "calculationMethod", "orderType", "orderTypes"}
+        if value and key not in {"orderScope", "calculationMethod", "orderType", "orderTypes", "_serialNumbers", "_productionOrders", "_salesOrders"}
     }
     items = await data_gateway.all_orders(max_rows=MAX_EXPORT_ORDERS, **gateway_filters)
     start = compact_date(validate_date(filters["dateFrom"]))
@@ -187,6 +187,10 @@ async def _load_orders(
             candidates.append(item)
 
     rows = []
+    production_values = {normalize_order(value) for value in filters.get("_productionOrders", "").split(",") if value}
+    sales_values = {advanced_filters.normalize_sales_order(value) for value in filters.get("_salesOrders", "").split(",") if value}
+    serial_values = {value for value in filters.get("_serialNumbers", "").split(",") if value}
+    sn_orders = await advanced_filters.orders_for_sns(serial_values, filters["dateFrom"], filters["dateTo"], include_faults=False) if serial_values else None
     # List raw.data is projected: read full documents by source ID before
     # exporting fields or applying rules that depend on source fields.
     for index in range(0, len(candidates), 1000):
@@ -199,6 +203,8 @@ async def _load_orders(
             planned_date = compact_date(data.get("GSTRS") or normalized["gstrs_date"])
             if (
                 normalized["aufnr"]
+                and advanced_filters.order_matches(normalized["aufnr"], data.get("VBELN"), production_values, sales_values)
+                and (sn_orders is None or normalize_order(normalized["aufnr"]) in sn_orders)
                 and base_allowed(data.get("LGORT") or normalized["data"].get("LGORT"))
                 and start <= planned_date <= end
                 and (not selected_order_types or str(data.get("AUART") or "").strip() in selected_order_types)
@@ -398,6 +404,8 @@ async def _load_sources_uncached(
             raw = _source(item)
             order = normalize_order(raw.get("AUFNR") or item.get("productionOrder"))
             sn = str(raw.get("PCODE") or item.get("hostBarcode") or "").strip()
+            if filters.get("_serialNumbers") and sn not in filters["_serialNumbers"].split(","):
+                continue
             matches = {(model, sn) for model in order_models.get(order, set())}
             matches.update(children.get((order, sn), set()))
             # A bound child order can contain unrelated machines.

@@ -1,3 +1,4 @@
+import { AdvancedFilters, EMPTY_ADVANCED_FILTERS, advancedQuery } from '../shared/AdvancedFilters';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Check, ChevronDown, RotateCcw, Search, SlidersHorizontal } from 'lucide-react';
 import { lrrApi } from '../../api/lrrApi';
@@ -129,6 +130,7 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
   const [options, setOptions] = useState<LRROptions>({ materialNumbers: [], productModels: [], bases: [], customerIds: [] });
   const [optionsError, setOptionsError] = useState<ApiRequestError | null>(null);
   const [draft, setDraft] = useState<LRRFilters>(filters);
+  const [advanced, setAdvanced] = useState(EMPTY_ADVANCED_FILTERS);
 
   const loadOptions = useCallback(async () => {
     setOptionsError(null);
@@ -143,7 +145,7 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
   useEffect(() => setDraft(filters), [filters]);
 
   const normalizedValue = (value: LRRFilters[typeof FILTER_FIELDS[number]]) => Array.isArray(value) ? value.join('\u0000') : value || '';
-  const hasActive = FILTER_FIELDS.some((key) => Boolean(normalizedValue(draft[key])));
+  const hasActive = FILTER_FIELDS.some((key) => Boolean(normalizedValue(draft[key]))) || Object.values(advancedQuery(advanced)).some(Boolean);
   const activeCount = FILTER_FIELDS.filter((key) => Boolean(normalizedValue(draft[key]))).length;
   const hasPendingChanges = FILTER_FIELDS.some((key) => normalizedValue(draft[key]) !== normalizedValue(filters[key]));
   const hasScopeFilter = Boolean(
@@ -167,10 +169,11 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (scopeFilterWarning || bomScopeWarning) return;
-    onSearch({ ...draft, materialNumber: draft.materialNumber?.trim() || null });
+    onSearch({ ...draft, serialNumbers: undefined, productionOrders: undefined, salesOrders: undefined, ...advancedQuery(advanced), materialNumber: draft.materialNumber?.trim() || null });
   };
   const reset = () => {
     setDraft(EMPTY_DRAFT);
+    setAdvanced(EMPTY_ADVANCED_FILTERS);
     onReset();
   };
 
@@ -192,7 +195,7 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
                     aria-pressed={active}
                     onClick={() => {
                       const range = recentPlannedRange(months);
-                      const next = { ...draft, ...range, materialNumber: draft.materialNumber?.trim() || null };
+                      const next = { ...draft, serialNumbers: undefined, productionOrders: undefined, salesOrders: undefined, ...advancedQuery(advanced), ...range, materialNumber: draft.materialNumber?.trim() || null };
                       setDraft(next);
                       if (months > 2 && !hasScopeFilter) return;
                       onSearch(next);
@@ -223,6 +226,7 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
         </div>
 
         <div className="grid grid-cols-1 gap-4 border-t border-slate-200 pt-4 sm:grid-cols-2 lg:col-span-12 lg:grid-cols-4 lg:gap-5"><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">机型</span><SearchableSelect value={draft.productModels} options={options.productModels} allLabel="全部机型" multiple onChange={(value) => setFilter('productModels', (value as string[] | null) ?? undefined)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">基地</span><SearchableSelect value={draft.bases} options={options.bases} allLabel="全部基地" multiple onChange={(value) => setFilter('bases', (value as string[] | null) ?? undefined)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">客户 ID</span><SearchableSelect value={draft.customerIds} options={options.customerIds} allLabel="全部客户" multiple customerIds onChange={(value) => setFilter('customerIds', (value as string[] | null) ?? undefined)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">订单类型</span><SearchableSelect value={draft.orderTypes} options={options.orderTypes || []} allLabel="全部订单类型" multiple onChange={(value) => setFilter('orderTypes', (value as string[] | null) ?? undefined)} /></div></div>
+        <div className="lg:col-span-12"><AdvancedFilters value={advanced} onChange={setAdvanced} /></div>
       </form>
       {scopeFilterWarning && <div role="alert" className="border-t border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800 sm:px-5 lg:px-6">{scopeFilterWarning}</div>}
     </section>

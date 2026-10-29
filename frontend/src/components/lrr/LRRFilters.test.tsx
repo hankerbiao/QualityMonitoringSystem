@@ -39,3 +39,15 @@ it('edits optional dates without searching until the form is submitted', async (
   expect(onSearch).toHaveBeenCalledTimes(1);
   await screen.findByRole('button', { name: '全部机型' });
 });
+
+
+it('submits newline-separated advanced filters', async () => {
+  const onSearch = vi.fn();
+  render(<LRRFilters filters={{ plannedDateFrom: '2026-03-01', plannedDateTo: '2026-03-31' }} onSearch={onSearch} onReset={vi.fn()} />);
+  fireEvent.click(screen.getByRole('button', { name: '高级筛选' }));
+  fireEvent.change(screen.getByLabelText('SN'), { target: { value: 'SN1\nSN2' } });
+  fireEvent.change(screen.getByLabelText('生产订单'), { target: { value: '1\n2' } });
+  fireEvent.change(screen.getByLabelText('销售订单'), { target: { value: 'S1\nS2' } });
+  fireEvent.click(screen.getByRole('button', { name: '查询' }));
+  expect(onSearch).toHaveBeenCalledWith(expect.objectContaining({ serialNumbers: ['SN1', 'SN2'], productionOrders: ['1', '2'], salesOrders: ['S1', 'S2'] }));
+});

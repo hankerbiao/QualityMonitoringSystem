@@ -834,10 +834,18 @@ async def station_rates(
     base: str | None = None,
     customer: str | None = None,
     order_types: list[str] | None = None,
+    serial_numbers: list[str] | None = None,
+    production_orders: list[str] | None = None,
+    sales_orders: list[str] | None = None,
 ) -> list[StationPassRate]:
     if current_base_permissions() == ():
         return []
+    from app.services import advanced_filters
+
     start, end = _date_range(date_from, date_to)
+    serial_values = advanced_filters.values(serial_numbers)
+    production_values = {normalize_order(value) for value in advanced_filters.values(production_orders)}
+    sales_values = {advanced_filters.normalize_sales_order(value) for value in advanced_filters.values(sales_orders)}
     date_from_iso = f"{start[:4]}-{start[4:6]}-{start[6:]}"
     date_to_iso = f"{end[:4]}-{end[4:6]}-{end[6:]}"
     # Orders determine the eligible population and the summary fault count.
@@ -862,7 +870,8 @@ async def station_rates(
     )
     orders = [
         row for row in orders
-        if (not selected_models or str(row["data"].get("MAKTX_TH") or "").strip() in selected_models)
+        if advanced_filters.order_matches(row["aufnr"], row["data"].get("VBELN"), production_values, sales_values)
+        and (not selected_models or str(row["data"].get("MAKTX_TH") or "").strip() in selected_models)
         and (not selected_bases or str(row["data"].get("LGORT") or "").strip() in selected_bases)
         and (
             not selected_customers
@@ -872,6 +881,11 @@ async def station_rates(
         )
     ]
     records = _station_rows_in_planned_range(records, start, end)
+    if serial_values:
+        records = [item for item in records if str(_raw(item).get("PCODE") or "").strip() in serial_values]
+    if serial_values:
+        selected_orders = {normalize_order(_raw(item).get("AUFNR")) for item in records}
+        orders = [row for row in orders if normalize_order(row["aufnr"]) in selected_orders]
     # Station projections may omit IF_L6 and other order attributes. Use the
     # filtered RTY order set as the source of truth for every scope so missing
     # station fields cannot admit records from a different order population.
@@ -919,7 +933,7 @@ async def station_rates(
     summary_faults: dict[str, int] = defaultdict(int)
     summary_quantity: dict[str, int] = defaultdict(int)
     for (dimension, _month, _model, _base), group in rty_groups.items():
-        summary_faults[dimension] += len(group["defects"])
+        summary_faults[dimension] += len(group["defects"] & serial_values if serial_values else group["defects"])
         summary_quantity[dimension] += round(group["input"])
     defect_by_station: dict[tuple[str, str], set[str]] = defaultdict(set)
     for row in repairs:
@@ -980,10 +994,18 @@ async def station_details(
     base: str | None = None,
     customer: str | None = None,
     order_types: list[str] | None = None,
+    serial_numbers: list[str] | None = None,
+    production_orders: list[str] | None = None,
+    sales_orders: list[str] | None = None,
 ) -> list[StationPassDetail]:
     if current_base_permissions() == ():
         return []
+    from app.services import advanced_filters
+
     start, end = _date_range(date_from, date_to)
+    serial_values = advanced_filters.values(serial_numbers)
+    production_values = {normalize_order(value) for value in advanced_filters.values(production_orders)}
+    sales_values = {advanced_filters.normalize_sales_order(value) for value in advanced_filters.values(sales_orders)}
     selected_models = {value.strip() for value in [*(product_models or []), product_model] if value and value.strip()}
     selected_bases = {value.strip() for value in [*(bases or []), base] if value and value.strip()}
     selected_customers = {value.strip() for value in [*(customers or []), customer] if value and value.strip()}
@@ -991,8 +1013,10 @@ async def station_details(
     selected_customers.discard(NO_CUSTOMER_ID)
     records = await _station_records_in_range(start, end, serial_number=serial_number)
     records = _station_rows_in_planned_range(records, start, end)
+    if serial_values:
+        records = [item for item in records if str(_raw(item).get("PCODE") or "").strip() in serial_values]
     scope_orders = None
-    if order_scope == "l6" or selected_customers or include_empty_customer or overseas or order_types:
+    if order_scope == "l6" or selected_customers or include_empty_customer or overseas or order_types or production_values or sales_values or serial_values:
         orders = await _orders(
             {
                 "dateFrom": f"{start[:4]}-{start[4:6]}-{start[6:]}",
@@ -1005,7 +1029,8 @@ async def station_details(
         )
         orders = [
             row for row in orders
-            if (not selected_models or str(row["data"].get("MAKTX_TH") or "").strip() in selected_models)
+            if advanced_filters.order_matches(row["aufnr"], row["data"].get("VBELN"), production_values, sales_values)
+            and (not selected_models or str(row["data"].get("MAKTX_TH") or "").strip() in selected_models)
             and (not selected_bases or str(row["data"].get("LGORT") or "").strip() in selected_bases)
             and (
                 not selected_customers

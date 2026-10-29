@@ -10,6 +10,7 @@ const PERMISSIONS = [
   ['reinsert-rate', '重插率分析'],
   ['lrr', 'LRR 部件故障率'],
   ['process-records', '关键工位影像追溯'],
+  ['incoming-materials', '来料异常'],
   ['doa', 'DOA 报修率'],
   ['doa-repairs', 'DOA 维修明细'],
   ['mfr', 'MFR 现网月化故障率'],

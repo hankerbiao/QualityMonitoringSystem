@@ -10,7 +10,7 @@ from fastapi import HTTPException
 
 from app.base_access import base_allowed, current_base_permissions
 from app.schemas.rty import StationPassExport
-from app.services import rty_export, rty_gateway
+from app.services import advanced_filters, rty_export, rty_gateway
 from app.services.async_ttl_cache import AsyncTTLCache
 from app.services.data_gateway_client import DataGatewayError, data_gateway
 from app.services.lrr_normalization import compact_date
@@ -118,6 +118,9 @@ async def _load_sources_uncached(
     product_models: list[str] | None = None,
     customers: list[str] | None = None,
     bases: list[str] | None = None,
+    serial_numbers: list[str] | None = None,
+    production_orders: list[str] | None = None,
+    sales_orders: list[str] | None = None,
     full_fault_rows: bool = False,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, dict[str, Any]]]:
     if current_base_permissions() == ():
@@ -152,6 +155,8 @@ async def _load_sources_uncached(
         raise DataGatewayError("完整订单数据缺失或重复，请重试")
 
     models, customer_values, base_values = set(product_models or []), set(customers or []), set(bases or [])
+    selected_production = {normalize_order(value) for value in advanced_filters.values(production_orders)}
+    selected_sales = {advanced_filters.normalize_sales_order(value) for value in advanced_filters.values(sales_orders)}
     selected_orders: set[str] = set()
     selected_rows: list[dict[str, Any]] = []
     metadata: dict[str, dict[str, Any]] = {}
@@ -171,6 +176,7 @@ async def _load_sources_uncached(
             or models and model not in models
             or customer_values and customer not in customer_values
             or base_values and base not in base_values
+            or not advanced_filters.order_matches(order, data.get("VBELN"), selected_production, selected_sales)
         ):
             continue
         selected_orders.add(order)
@@ -181,6 +187,13 @@ async def _load_sources_uncached(
     selected_faults = await rty_gateway._faults_for_orders(selected_orders)
     selected_sns.update(str(row.get("PCODE") or "").strip() for row in selected_faults)
     selected_sns.discard("")
+    if serial_numbers:
+        selected_sns.intersection_update(advanced_filters.values(serial_numbers))
+        matching_orders = {
+            normalize_order(row.get("AUFNR")) for row in selected_faults
+            if str(row.get("PCODE") or "").strip() in selected_sns
+        }
+        selected_rows = [row for row in selected_rows if normalize_order(row.get("AUFNR")) in matching_orders]
     if not selected_sns:
         return selected_rows, [], metadata
 
@@ -210,6 +223,9 @@ async def _load_sources(
     product_models: list[str] | None = None,
     customers: list[str] | None = None,
     bases: list[str] | None = None,
+    serial_numbers: list[str] | None = None,
+    production_orders: list[str] | None = None,
+    sales_orders: list[str] | None = None,
     full_fault_rows: bool = False,
 ) -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, dict[str, Any]]]:
     key = (
@@ -218,6 +234,9 @@ async def _load_sources(
         tuple(sorted(product_models or [])),
         tuple(sorted(customers or [])),
         tuple(sorted(bases or [])),
+        tuple(sorted(serial_numbers or [])),
+        tuple(sorted(production_orders or [])),
+        tuple(sorted(sales_orders or [])),
         current_base_permissions(),
         full_fault_rows,
     )
@@ -229,6 +248,7 @@ async def _load_sources(
             product_models=product_models,
             customers=customers,
             bases=bases,
+            serial_numbers=serial_numbers, production_orders=production_orders, sales_orders=sales_orders,
             full_fault_rows=full_fault_rows,
         ),
         ttl_seconds=REPAIR_QUALITY_SOURCE_CACHE_TTL_SECONDS,
@@ -242,9 +262,13 @@ async def analyze(
     product_models: list[str] | None = None,
     customers: list[str] | None = None,
     bases: list[str] | None = None,
+    serial_numbers: list[str] | None = None,
+    production_orders: list[str] | None = None,
+    sales_orders: list[str] | None = None,
 ) -> dict[str, Any]:
     _, repairs, metadata = await _load_sources(
-        date_from, date_to, product_models=product_models, customers=customers, bases=bases
+        date_from, date_to, product_models=product_models, customers=customers, bases=bases,
+        serial_numbers=serial_numbers, production_orders=production_orders, sales_orders=sales_orders
     )
     return aggregate_repairs(repairs, metadata)
 
@@ -259,12 +283,16 @@ async def details(
     product_models: list[str] | None = None,
     customers: list[str] | None = None,
     bases: list[str] | None = None,
+    serial_numbers: list[str] | None = None,
+    production_orders: list[str] | None = None,
+    sales_orders: list[str] | None = None,
     page: int = 1,
     page_size: int = 50,
     export_all: bool = False,
 ) -> dict[str, Any]:
     _, repairs, metadata = await _load_sources(
-        date_from, date_to, product_models=product_models, customers=customers, bases=bases
+        date_from, date_to, product_models=product_models, customers=customers, bases=bases,
+        serial_numbers=serial_numbers, production_orders=production_orders, sales_orders=sales_orders
     )
     rows_by_sn, groups = _group_repairs(repairs, metadata)
     sns = sorted(
@@ -311,6 +339,9 @@ async def build_export(
     product_models: list[str] | None = None,
     customers: list[str] | None = None,
     bases: list[str] | None = None,
+    serial_numbers: list[str] | None = None,
+    production_orders: list[str] | None = None,
+    sales_orders: list[str] | None = None,
 ) -> dict[str, Any]:
     orders, repairs, metadata = await _load_sources(
         date_from,
@@ -318,6 +349,7 @@ async def build_export(
         product_models=product_models,
         customers=customers,
         bases=bases,
+        serial_numbers=serial_numbers, production_orders=production_orders, sales_orders=sales_orders,
         full_fault_rows=True,
     )
     source = StationPassExport(

@@ -44,6 +44,17 @@ describe('RepairQualityPage', () => {
   });
   afterEach(cleanup);
 
+  it('applies multiline advanced filters', async () => {
+    render(<MemoryRouter><RepairQualityPage /></MemoryRouter>);
+    await waitFor(() => expect(rtyApi.getRepairQuality).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole('button', { name: '高级筛选' }));
+    fireEvent.change(screen.getByLabelText('SN'), { target: { value: 'SN1\nSN2' } });
+    fireEvent.change(screen.getByLabelText('生产订单'), { target: { value: '1\n2' } });
+    fireEvent.change(screen.getByLabelText('销售订单'), { target: { value: 'S1\nS2' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+    await waitFor(() => expect(rtyApi.getRepairQuality).toHaveBeenLastCalledWith(expect.objectContaining({ serialNumbers: ['SN1', 'SN2'], productionOrders: ['1', '2'], salesOrders: ['S1', 'S2'] })));
+  });
+
   it('queries with date and chosen dimensions and renders KPIs and grouped results', async () => {
     render(<MemoryRouter><RepairQualityPage /></MemoryRouter>);
     expect(screen.getByRole('heading', { name: '维修通过率分析' })).toBeTruthy();

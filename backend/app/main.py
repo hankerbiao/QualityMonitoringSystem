@@ -14,6 +14,7 @@ from app.api import (
     auth,
     data_gateway,
     doa,
+    incoming_materials,
     lrr,
     mfr,
     operations,
@@ -76,6 +77,7 @@ app.include_router(rty.router, prefix="/api/rty", tags=["RTY"])
 app.include_router(lrr.router, prefix="/api/lrr", tags=["LRR"])
 app.include_router(mfr.router, prefix="/api/mfr", tags=["MFR"])
 app.include_router(doa.router, prefix="/api/doa", tags=["DOA"])
+app.include_router(incoming_materials.router, prefix="/api/incoming-materials", tags=["Incoming Materials"])
 app.include_router(alert_report.router, prefix="/api/alert-report", tags=["AlertReport"])
 app.include_router(settings.public_router, prefix="/api/settings", tags=["Settings"])
 app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])
