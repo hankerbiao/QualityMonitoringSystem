@@ -80,7 +80,7 @@ export default function Home() {
   const visibleQualityModules = visibleDashboards(qualityModules);
   const visibleRepairProcessModules = visibleDashboards(repairProcessModules);
   const visibleFieldQualityModules = visibleDashboards(fieldQualityModules);
-  const visibleToolModules = toolModules.filter((module) => canView(module.id));
+  const visibleToolModules = visibleDashboards(toolModules);
   const visibleModules = [
     ...visibleQualityModules,
     ...visibleRepairProcessModules,

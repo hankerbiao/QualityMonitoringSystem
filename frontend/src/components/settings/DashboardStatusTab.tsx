@@ -4,6 +4,7 @@ import {
   fieldQualityModules,
   qualityModules,
   repairProcessModules,
+  toolModules,
   type HomeModuleStatus,
 } from '../../config/homeModules';
 
@@ -20,6 +21,7 @@ const icons = {
   lrr: AlertTriangle,
   doa: Wrench,
   mfr: BarChart3,
+  'incoming-materials': AlertTriangle,
 } as const;
 
 export default function DashboardStatusTab({ statuses, onChange }: Props) {
@@ -32,7 +34,7 @@ export default function DashboardStatusTab({ statuses, onChange }: Props) {
         </p>
       </div>
       <div className="divide-y divide-slate-100 rounded-md border border-slate-200">
-        {[...qualityModules, ...repairProcessModules, ...fieldQualityModules].map((module) => {
+        {[...qualityModules, ...repairProcessModules, ...fieldQualityModules, ...toolModules.filter(module => module.id === 'incoming-materials')].map((module) => {
           const Icon = icons[module.id as keyof typeof icons];
           const status = statuses[module.id] ?? DEFAULT_DASHBOARD_STATUSES[module.id];
           return (

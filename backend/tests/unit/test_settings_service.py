@@ -1,3 +1,4 @@
+from app.schemas.settings import SettingsUpdateRequest
 from app.services.settings_service import SettingsService
 
 
@@ -8,6 +9,13 @@ def test_legacy_dashboard_status_remains_restricted():
     assert result["doa"] == "admin-only"
     assert result["mfr"] == "available"
     assert SettingsService.dashboard_statuses_from_doc(None)["doa"] == "available"
+
+
+def test_incoming_dashboard_status_is_supported_and_defaults_to_available():
+    assert SettingsService.dashboard_statuses_from_doc(None)["incoming-materials"] == "available"
+    request = SettingsUpdateRequest(dashboardStatuses={"incoming-materials": "admin-only"})
+    assert request.dashboardStatuses == {"incoming-materials": "admin-only"}
+    assert SettingsService.dashboard_statuses_from_doc({"statuses": request.dashboardStatuses})["incoming-materials"] == "admin-only"
 
 
 def test_email_from_doc_generates_rule_description_for_a_custom_threshold():

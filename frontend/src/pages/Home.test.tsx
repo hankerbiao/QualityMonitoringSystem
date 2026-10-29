@@ -19,7 +19,7 @@ const testDashboardStatuses: Record<string, 'available' | 'admin-only'> = {};
 
 const normalUser: UserProfile = {
   itcode: 'alice', username: 'alice', name: 'Alice', role: 'user',
-  dashboardPermissions: ['rty', 'station-pass-rate', 'repair-quality', 'lrr', 'process-records', 'doa', 'doa-repairs', 'mfr'],
+  dashboardPermissions: ['rty', 'station-pass-rate', 'repair-quality', 'lrr', 'process-records', 'incoming-materials', 'doa', 'doa-repairs', 'mfr'],
 };
 const response = (role: UserProfile['role']) => ({
   itcode: 'alice', user: { ...normalUser, role },
@@ -56,15 +56,18 @@ describe('home administrator settings access', () => {
 
   it('hides admin-only dashboards from ordinary users and shows them to admins', async () => {
     testDashboardStatuses.doa = 'admin-only';
+    testDashboardStatuses['incoming-materials'] = 'admin-only';
     await act(async () => {
       render(<MemoryRouter><AuthProvider><Home /></AuthProvider></MemoryRouter>);
     });
     await screen.findByText('Alice');
     expect(screen.queryByText('DOA 报修率')).toBeNull();
+    expect(screen.queryByText('来料异常')).toBeNull();
 
     vi.mocked(getCurrentUser).mockResolvedValue(response('admin'));
     await act(async () => { fireEvent(window, new Event('focus')); });
     expect(await screen.findByText('DOA 报修率')).toBeTruthy();
+    expect(screen.getByText('来料异常')).toBeTruthy();
   });
 
   it('keeps repair quality administrator-only by default', async () => {

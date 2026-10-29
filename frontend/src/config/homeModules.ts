@@ -32,6 +32,7 @@ export const DEFAULT_DASHBOARD_STATUSES: Record<string, HomeModuleStatus> = {
   lrr: 'available',
   doa: 'available',
   mfr: 'admin-only',
+  'incoming-materials': 'available',
 };
 
 export const qualityModules: readonly HomeModuleDefinition[] = [

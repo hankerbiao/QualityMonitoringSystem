@@ -12,6 +12,16 @@ from app.services import incoming_materials as service
 from app.services.image_access import image_grant
 
 
+@pytest.fixture(autouse=True)
+def incoming_status(monkeypatch):
+    statuses = {"incoming-materials": "available"}
+    monkeypatch.setattr(api, "get_database", lambda: None)
+    monkeypatch.setattr(api, "SettingsService", lambda _db: type(
+        "StatusService", (), {"get_dashboard_statuses": AsyncMock(side_effect=lambda: statuses)}
+    )())
+    return statuses
+
+
 def make_rows(count):
     return [
         {"id": i, "location_info": "DN00", "basecode": "TJ", "value": f"row-{i}"}
@@ -196,5 +206,19 @@ def test_report_download_requires_its_own_grant_and_base_access(monkeypatch):
         assert client.get('/api/incoming-materials/report', params={'path': path, 'accessToken': wrong_base}).status_code == 403
         fetch.return_value = (b'<html>', 'text/html')
         assert client.get('/api/incoming-materials/report', params={'path': path, 'accessToken': token}).status_code == 502
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_admin_only_status_blocks_all_incoming_endpoints_for_users(incoming_status):
+    incoming_status['incoming-materials'] = 'admin-only'
+    user = {'role': 'user', 'dashboardPermissions': ['incoming-materials'], 'basePermissions': None}
+    app.dependency_overrides[get_current_user] = lambda: user
+    try:
+        client = TestClient(app)
+        for url in ('/api/incoming-materials/realtime', '/api/incoming-materials/image?path=x', '/api/incoming-materials/report?path=x'):
+            assert client.get(url).status_code == 403
+        user['role'] = 'admin'
+        assert client.get('/api/incoming-materials/image?path=x').status_code == 400
     finally:
         app.dependency_overrides.pop(get_current_user, None)

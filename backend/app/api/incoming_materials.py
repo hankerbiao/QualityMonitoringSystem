@@ -8,6 +8,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi import Response as FastAPIResponse
 
 from app.auth_permissions import dashboard_dependency
+from app.db.mongodb import get_database
 from app.schemas.common import Response
 from app.services.credential_crypto import CredentialEncryptionError
 from app.services.image_access import require_image_grant
@@ -21,8 +22,20 @@ from app.services.process_record_service import (
     CredentialsNotConfiguredError,
     process_record_gateway,
 )
+from app.services.settings_service import SettingsService
 
-router = APIRouter(dependencies=[Depends(dashboard_dependency("incoming-materials"))])
+
+async def require_incoming_access(
+    user: Annotated[dict, Depends(dashboard_dependency("incoming-materials"))],
+):
+    if user.get("role") != "admin":
+        statuses = await SettingsService(get_database()).get_dashboard_statuses()
+        if statuses["incoming-materials"] == "admin-only":
+            raise HTTPException(status_code=403, detail="来料异常看板仅管理员可见")
+    return user
+
+
+router = APIRouter(dependencies=[Depends(require_incoming_access)])
 
 
 @router.get("/realtime")

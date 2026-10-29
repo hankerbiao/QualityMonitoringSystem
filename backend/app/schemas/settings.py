@@ -8,7 +8,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 DashboardStatus = Literal["available", "admin-only"]
-DASHBOARD_STATUS_KEYS = frozenset({"rty", "station-pass-rate", "repair-quality", "reinsert-rate", "lrr", "doa", "mfr"})
+DASHBOARD_STATUS_KEYS = frozenset({"rty", "station-pass-rate", "repair-quality", "reinsert-rate", "lrr", "doa", "mfr", "incoming-materials"})
 DEFAULT_DASHBOARD_STATUSES: dict[str, DashboardStatus] = {
     "rty": "available",
     "station-pass-rate": "available",
@@ -17,6 +17,7 @@ DEFAULT_DASHBOARD_STATUSES: dict[str, DashboardStatus] = {
     "lrr": "available",
     "doa": "available",
     "mfr": "admin-only",
+    "incoming-materials": "available",
 }
 
 

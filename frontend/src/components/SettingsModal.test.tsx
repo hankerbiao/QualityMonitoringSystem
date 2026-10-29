@@ -70,6 +70,7 @@ describe('settings pages by role', () => {
       .toEqual(['影像数据源', '机型指标配置', '邮件预警规则', '看板状态', '用户管理', '修改密码']);
     fireEvent.click(screen.getByRole('button', { name: '看板状态' }));
     expect(screen.getByText('看板状态管理')).toBeTruthy();
+    fireEvent.change(screen.getByLabelText('来料异常看板状态'), { target: { value: 'admin-only' } });
     fireEvent.change(screen.getByLabelText('DOA 报修率看板状态'), { target: { value: 'admin-only' } });
     fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
     await waitFor(() => expect(updateSettings).toHaveBeenCalledWith({
@@ -85,6 +86,7 @@ describe('settings pages by role', () => {
         lrr: 'available',
         doa: 'admin-only',
         mfr: 'admin-only',
+        'incoming-materials': 'admin-only',
       },
     }));
   });

@@ -13,18 +13,19 @@ vi.mock('./context/AuthContext', () => ({
   AuthProvider: ({ children }: { children: React.ReactNode }) => children,
   useAuth: () => ({
     isAuthLoaded: true, isAuthenticated: true,
-    user: { username: 'test', role: 'user', dashboardPermissions: ['doa'] },
+    user: { username: 'test', role: 'user', dashboardPermissions: ['doa', 'incoming-materials'] },
   }),
 }));
 vi.mock('./context/SettingsContext', () => ({
   SettingsProvider: ({ children }: { children: React.ReactNode }) => children,
   useSettings: () => ({
     loading: state.loading, error: state.error, reloadSettings: state.reload,
-    settings: { dashboardStatuses: { doa: state.status } },
+    settings: { dashboardStatuses: { doa: state.status, 'incoming-materials': state.status } },
   }),
 }));
 vi.mock('./api/operationsApi', () => ({ operationsApi: { trackPageView: vi.fn().mockResolvedValue(undefined) } }));
 vi.mock('./pages/DoaPage', () => ({ default: () => <div>DOA 看板内容</div> }));
+vi.mock('./pages/IncomingMaterialsPage', () => ({ default: () => <div>来料异常看板内容</div> }));
 
 describe('dashboard status on refresh', () => {
   afterEach(() => { cleanup(); state.loading = true; state.error = null; state.status = 'available'; state.reload.mockClear(); });
@@ -53,5 +54,16 @@ describe('dashboard status on refresh', () => {
     fireEvent.click(screen.getByRole('button', { name: '重新加载' }));
     expect(state.reload).toHaveBeenCalledOnce();
     expect(screen.queryByText('DOA 看板内容')).toBeNull();
+  });
+
+  it('enforces the incoming dashboard status for direct navigation', async () => {
+    window.history.pushState({}, '', '/incoming-materials');
+    state.loading = false;
+    state.status = 'admin-only';
+    const view = render(<App />);
+    expect(await screen.findByText('仅管理员可见')).toBeTruthy();
+    state.status = 'available';
+    view.rerender(<App />);
+    expect(await screen.findByText('来料异常看板内容')).toBeTruthy();
   });
 });

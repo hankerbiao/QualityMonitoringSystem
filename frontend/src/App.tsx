@@ -135,7 +135,7 @@ function AppContent() {
         <Route path="/reinsert-rate" element={<DashboardAccess permission="reinsert-rate"><DashboardStatusAccess dashboardId="reinsert-rate"><ReinsertRatePage /></DashboardStatusAccess></DashboardAccess>} />
         <Route path="/lrr" element={<DashboardAccess permission="lrr"><DashboardStatusAccess dashboardId="lrr"><LRRPage /></DashboardStatusAccess></DashboardAccess>} />
           <Route path="/process-records" element={<DashboardAccess permission="process-records"><ProcessRecordsPage /></DashboardAccess>} />
-          <Route path="/incoming-materials" element={<DashboardAccess permission="incoming-materials"><IncomingMaterialsPage /></DashboardAccess>} />
+          <Route path="/incoming-materials" element={<DashboardAccess permission="incoming-materials"><DashboardStatusAccess dashboardId="incoming-materials"><IncomingMaterialsPage /></DashboardStatusAccess></DashboardAccess>} />
           <Route path="/operations" element={<DashboardAccess permission="admin"><OperationsPage /></DashboardAccess>} />
         <Route path="/doa" element={<DashboardAccess permission="doa"><DashboardStatusAccess dashboardId="doa"><DoaPage /></DashboardStatusAccess></DashboardAccess>} />
         <Route path="/doa/repairs" element={<DashboardAccess permission="doa-repairs"><DashboardStatusAccess dashboardId="doa"><DoaRepairsPage /></DashboardStatusAccess></DashboardAccess>} />
