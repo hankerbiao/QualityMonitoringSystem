@@ -2,6 +2,8 @@ export interface MFRFilters {
   dateFrom: string;
   dateTo: string;
   model?: string;
+  customerId?: string;
+  customerIds?: string[];
 }
 
 export interface MFRDimensionItem {
@@ -34,6 +36,7 @@ export interface MFRDashboard {
   trend: MFRTrendItem[];
   dailyTrend: MFRDailyTrendItem[];
   byModel: MFRDimensionItem[];
+  customerIds?: string[];
 }
 
 export interface MFRFaultDetail {

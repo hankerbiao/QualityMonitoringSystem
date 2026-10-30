@@ -54,8 +54,10 @@ function defaultFilters(): DoaFilters {
     dateFrom,
     dateTo,
     customer: "",
+    customerId: "",
     model: "",
     customers: [],
+    customerIds: [],
     models: [],
     timeGranularity: granularityForRange(dateFrom, dateTo),
   };
@@ -71,8 +73,10 @@ function readFilters(params: URLSearchParams): DoaFilters {
     acceptedDateFrom: params.get("acceptedDateFrom") || undefined,
     acceptedDateTo: params.get("acceptedDateTo") || undefined,
     customer: params.get("customer") || "",
+    customerId: params.get("customerId") || "",
     model: params.get("model") || "",
     customers: params.getAll("customers"),
+    customerIds: params.getAll("customerIds"),
     models: params.getAll("models"),
     timeGranularity:
       granularity === "year" || granularity === "day" || granularity === "month"
@@ -154,6 +158,7 @@ export default function DoaPage() {
   const [options, setOptions] = useState<DoaOptions>({
     customers: [],
     models: [],
+    customerIds: [],
   });
   const [data, setData] = useState<DoaDashboard | null>(null);
   const [loading, setLoading] = useState(true);
@@ -310,6 +315,7 @@ export default function DoaPage() {
         ]
       : []),
     (filters.customers?.length ? filters.customers.join("、") : filters.customer) || "全部客户",
+    (filters.customerIds?.length ? filters.customerIds.join("、") : filters.customerId) || "全部客户ID",
     (filters.models?.length ? filters.models.join("、") : filters.model) || "全部机型",
     filters.timeGranularity === "year"
       ? "按年"
@@ -417,6 +423,7 @@ export default function DoaPage() {
                   />
                 </div>
                 <div className="min-w-0 md:w-[200px]"><MultiSelect label="客户" options={options.customers} value={filters.customers?.length ? filters.customers : filters.customer ? [filters.customer] : []} onChange={(customers) => apply({ customers, customer: "" })} /></div>
+                <div className="min-w-0 md:w-[200px]"><MultiSelect label="客户ID" options={options.customerIds ?? []} value={filters.customerIds?.length ? filters.customerIds : filters.customerId ? [filters.customerId] : []} onChange={(customerIds) => apply({ customerIds, customerId: "" })} /></div>
                 <div className="min-w-0 md:w-[200px]"><MultiSelect label="机型" options={options.models} value={filters.models?.length ? filters.models : filters.model ? [filters.model] : []} onChange={(models) => apply({ models, model: "" })} /></div>
               </div>
             </div>

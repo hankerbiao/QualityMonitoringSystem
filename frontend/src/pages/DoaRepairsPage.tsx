@@ -14,8 +14,10 @@ function filtersFrom(params: URLSearchParams): DoaFilters {
     acceptedDateFrom: params.get("acceptedDateFrom") || undefined,
     acceptedDateTo: params.get("acceptedDateTo") || undefined,
     customer: params.get("customer") || "",
+    customerId: params.get("customerId") || "",
     model: params.get("model") || "",
     customers: params.getAll("customers"),
+    customerIds: params.getAll("customerIds"),
     models: params.getAll("models"),
     timeGranularity: g === "year" || g === "day" ? g : "month",
   };
@@ -75,6 +77,7 @@ export default function DoaRepairsPage() {
         生产订单计划日期: item.plannedAt,
         计划日期匹配状态: item.gstrsStatus,
         客户: item.customer,
+        客户ID: item.customerId,
         机型: item.model,
         订单计划开始日期: item.shippedDate,
         匹配订单数量: item.shippedCount,

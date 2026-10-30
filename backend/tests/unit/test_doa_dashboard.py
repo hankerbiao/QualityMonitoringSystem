@@ -10,6 +10,7 @@ def shipment(
     *,
     company_5000: bool = True,
     customer: str = "客户A",
+    customer_id: str = "",
     model: str = "M1",
 ):
     return {
@@ -21,6 +22,7 @@ def shipment(
         "is5000Company": company_5000,
         "finalUser": customer,
         "productionModel": model,
+        "customerId": customer_id,
     }
 
 
@@ -77,6 +79,29 @@ async def test_dashboard_filters_multiple_customers_and_models(monkeypatch):
     assert result.summary.shippedCount == 30
     assert result.summary.repairCount == 3
     assert {item.salesOrder for item in repairs.items} == {"1", "2"}
+
+
+async def test_dashboard_filters_customer_ids_and_exposes_options(monkeypatch):
+    async def all_orders(**_filters):
+        return [
+            shipment("1", 10, "2026-09-01", customer="A", customer_id="C1"),
+            shipment("2", 20, "2026-09-01", customer="B", customer_id="C2"),
+        ]
+
+    async def all_rows(view_id, **_filters):
+        return [doa("one", "1", "是", 2), doa("two", "2", "是", 3)] if view_id == "SCS_DOA" else []
+
+    monkeypatch.setattr(doa_service, "_DOA_ORDERS_CACHE", doa_service.AsyncTTLCache())
+    monkeypatch.setattr(doa_service, "_DOA_SNAPSHOT_CACHE", doa_service.AsyncTTLCache())
+    monkeypatch.setattr(doa_service.data_gateway, "all_orders", all_orders)
+    monkeypatch.setattr(doa_service.scs_gateway, "all", all_rows)
+    filters = _filters(customerIds=["C2"])
+    result = await doa_service._build_doa_dashboard(filters)
+    options = await doa_service.get_doa_options()
+
+    assert result.summary.shippedCount == 20
+    assert result.summary.repairCount == 3
+    assert options["customerIds"] == ["C1", "C2"]
 
 
 async def test_unfilled_dimension_drilldown_matches_ranking(monkeypatch):

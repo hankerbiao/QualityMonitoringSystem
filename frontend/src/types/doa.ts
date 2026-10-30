@@ -6,8 +6,10 @@ export interface DoaFilters {
   acceptedDateFrom?: string;
   acceptedDateTo?: string;
   customer: string;
+  customerId?: string;
   model: string;
   customers?: string[];
+  customerIds?: string[];
   models?: string[];
   timeGranularity: DoaTimeGranularity;
 }
@@ -54,6 +56,7 @@ export interface DoaOrderItem {
   salesOrder: string;
   productionOrder: string;
   customer: string;
+  customerId?: string;
   model: string;
   plannedStartDate: string;
   quantity: number;
@@ -80,6 +83,7 @@ export interface DoaRepairItem {
   plannedAt: string;
   gstrsStatus: string;
   customer: string;
+  customerId?: string;
   model: string;
   shippedDate: string;
   shippedCount: number;
@@ -100,6 +104,7 @@ export interface DoaRepairsResponse {
 export interface DoaOptions {
   customers: string[];
   models: string[];
+  customerIds?: string[];
 }
 
 export interface DoaRawItem {

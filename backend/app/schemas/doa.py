@@ -14,8 +14,10 @@ class DoaFilters(BaseModel):
     acceptedDateFrom: str | None = None
     acceptedDateTo: str | None = None
     customer: str | None = None
+    customerId: str | None = None
     model: str | None = None
     customers: list[str] = Field(default_factory=list)
+    customerIds: list[str] = Field(default_factory=list)
     models: list[str] = Field(default_factory=list)
     timeGranularity: TimeGranularity = "month"
 
@@ -78,6 +80,7 @@ class DoaRepairItem(BaseModel):
     plannedAt: str = ""
     gstrsStatus: str = ""
     customer: str = ""
+    customerId: str = ""
     model: str = ""
     shippedDate: str = ""
     shippedCount: float = 0

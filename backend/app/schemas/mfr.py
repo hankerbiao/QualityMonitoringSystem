@@ -7,6 +7,8 @@ class MFRFilters(BaseModel):
     dateFrom: str
     dateTo: str
     model: str = ""
+    customerId: str = ""
+    customerIds: list[str] = Field(default_factory=list)
 
 
 class MFRDimensionItem(BaseModel):
@@ -60,4 +62,5 @@ class MFRDashboardResponse(BaseModel):
     trend: list[MFRTrendItem] = Field(default_factory=list)
     dailyTrend: list[MFRDailyTrendItem] = Field(default_factory=list)
     byModel: list[MFRDimensionItem] = Field(default_factory=list)
+    customerIds: list[str] = Field(default_factory=list)
     faultDetails: list[MFRFaultDetail] = Field(default_factory=list)

@@ -25,6 +25,12 @@ def sales_key(value: Any) -> str:
     return (text.lstrip("0") or "0") if text.isdigit() else text
 
 
+def order_customer_id(value: dict[str, Any]) -> str:
+    raw = value.get("raw") if isinstance(value.get("raw"), dict) else value
+    nested = raw.get("data") if isinstance(raw.get("data"), dict) else raw
+    return str(value.get("customerId") or nested.get("KID") or "").strip()
+
+
 def select_devices(
     devices: list[dict[str, Any]],
     orders: list[dict[str, Any]],
@@ -34,9 +40,10 @@ def select_devices(
     valid_doa_codes: set[str],
     unresolved_doa_codes: set[str],
     model: str = "",
+    customer_ids: set[str] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
     """Return unique identifiable devices and explicitly count unresolvable evidence."""
-    plans: dict[str, set[tuple[str, str]]] = defaultdict(set)
+    plans: dict[str, set[tuple[str, str, str]]] = defaultdict(set)
     planned_dates: dict[str, set[date]] = defaultdict(set)
     for order in orders:
         number = _order_key(order.get("aufnr"))
@@ -47,7 +54,7 @@ def select_devices(
             planned_dates[number].add(planned)
         order_model = str(order.get("productionModel") or "").strip() or "未知机型"
         sales_order = sales_key(order.get("salesOrder"))
-        plans[number].add((order_model, sales_order))
+        plans[number].add((order_model, sales_order, order_customer_id(order)))
 
     sales_orders = {sales_key(order.get("salesOrder")) for order in orders} - {""}
 
@@ -94,7 +101,9 @@ def select_devices(
         if len(choices) != 1:
             issues["planOrModelConflict"] += 1
             continue
-        order_model, sales_order = next(iter(choices))
+        order_model, sales_order, matched_customer_id = next(iter(choices))
+        if customer_ids and matched_customer_id not in customer_ids:
+            continue
         matched_codes = {
             code for code in relevant & valid_doa_codes if doa_orders.get(code) == {sales_order}
         }
@@ -128,7 +137,13 @@ def select_devices(
             continue
         dates = planned_dates.get(order_key, set())
         planned = next(iter(dates)) if len(dates) == 1 else None
-        selected.append({**device, "plannedDate": planned, "shipmentDate": shipment, "orderModel": order_model})
+        selected.append({
+            **device,
+            "plannedDate": planned,
+            "shipmentDate": shipment,
+            "orderModel": order_model,
+            "customerId": matched_customer_id,
+        })
         for field in ("factoryDate", "warrantyEndDate"):
             value = device.get(field)
             if not isinstance(value, dict) or value.get("status") != "valid":

@@ -17,7 +17,7 @@ from app.schemas.mfr import (
     MFRTrendItem,
 )
 from app.services.data_gateway_client import DataGatewayError, data_gateway
-from app.services.mfr_devices import sales_key, select_devices
+from app.services.mfr_devices import order_customer_id, sales_key, select_devices
 from app.services.scs_gateway import scs_gateway
 
 
@@ -96,7 +96,15 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
         elif judgment == "是":
             valid_codes.add(code)
     selected, issues = select_devices(
-        devices, orders, start, end, doa_orders, valid_codes, unresolved_codes, filters.model
+        devices,
+        orders,
+        start,
+        end,
+        doa_orders,
+        valid_codes,
+        unresolved_codes,
+        filters.model,
+        set(filters.customerIds or ([filters.customerId] if filters.customerId else [])),
     )
     sales_orders = {sales_key(order.get("salesOrder")) for order in orders} - {""}
     allowed_codes = {code for code, sales in doa_orders.items() if sales and sales <= sales_orders}
@@ -208,5 +216,10 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
         trend=trend,
         dailyTrend=daily,
         byModel=model_rows,
+        customerIds=sorted({
+            order_customer_id(order)
+            for order in orders
+            if order_customer_id(order)
+        }),
         faultDetails=fault_details,
     )

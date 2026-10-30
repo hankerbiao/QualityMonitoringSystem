@@ -3,12 +3,13 @@ from datetime import date
 from app.services.mfr_devices import select_devices
 
 
-def order(number, planned="2026-10-01", model="M1"):
+def order(number, planned="2026-10-01", model="M1", customer_id="C1"):
     return {
         "aufnr": number,
         "plannedStartDate": planned,
         "productionModel": model,
         "salesOrder": "SO1",
+        "customerId": customer_id,
     }
 
 
@@ -47,6 +48,23 @@ def test_shipment_filter_does_not_require_an_order_plan_date():
     selected, issues = select_devices([item], [order("123", "")], date(2026, 10, 1),
         date(2026, 10, 31), {"D1": {"SO1"}}, {"D1"}, set())
     assert [row["deviceKey"] for row in selected] == ["product:a"]
+    assert not issues
+
+
+def test_customer_id_filter_uses_the_unique_order_match():
+    item = device("product:a", "123")
+    selected, issues = select_devices(
+        [item], [order("123", customer_id="C1")], date(2026, 10, 1), date(2026, 10, 31),
+        {"D1": {"SO1"}}, {"D1"}, set(), customer_ids={"C1"},
+    )
+    assert selected[0]["customerId"] == "C1"
+    assert not issues
+
+    selected, issues = select_devices(
+        [item], [order("123", customer_id="C2")], date(2026, 10, 1), date(2026, 10, 31),
+        {"D1": {"SO1"}}, {"D1"}, set(), customer_ids={"C1"},
+    )
+    assert selected == []
     assert not issues
 
 

@@ -8,6 +8,7 @@ import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
 import { DashboardLoading } from '../components/shared/DashboardLoading';
 import { DateRangePicker } from '../components/shared/DateRangePicker';
 import { HelpTooltip } from '../components/shared/HelpTooltip';
+import { MultiSelect } from '../components/shared/MultiSelect';
 import type { MFRDashboard, MFRExport, MFRFilters } from '../types/mfr';
 import { formatLocalDate } from '../utils/dateRange';
 
@@ -20,7 +21,8 @@ const deviceIssueLabels: Record<string, string> = {
   shipmentDateUnresolved: '发货日期缺失或无效', shipmentDateConflict: '发货日期冲突',
 };
 const sameFilters = (a: MFRFilters, b: MFRFilters) =>
-  a.dateFrom === b.dateFrom && a.dateTo === b.dateTo && (a.model ?? '') === (b.model ?? '');
+  a.dateFrom === b.dateFrom && a.dateTo === b.dateTo && (a.model ?? '') === (b.model ?? '')
+  && (a.customerIds ?? (a.customerId ? [a.customerId] : [])).join('|') === (b.customerIds ?? (b.customerId ? [b.customerId] : [])).join('|');
 
 function exportStatistics(data: MFRExport, filters: MFRFilters) {
   const workbook = XLSX.utils.book_new();
@@ -28,6 +30,7 @@ function exportStatistics(data: MFRExport, filters: MFRFilters) {
     { 指标: '统计开始日期', 数值: filters.dateFrom },
     { 指标: '统计结束日期', 数值: filters.dateTo },
     { 指标: '机型', 数值: filters.model || '全部机型' },
+    { 指标: '客户ID', 数值: filters.customerIds?.join('、') || filters.customerId || '全部客户ID' },
     { 指标: '综合 MFR（%）', 数值: data.summary.mfrRate },
     { 指标: '故障事件', 数值: data.summary.faultCount },
     { 指标: 'DOA 设备数', 数值: data.summary.fleetCount },
@@ -68,6 +71,7 @@ export default function MFRPage() {
   const [filters, setFilters] = useState(initialFilters);
   const [data, setData] = useState<MFRDashboard | null>(null);
   const [modelOptions, setModelOptions] = useState<string[]>([]);
+  const [customerIdOptions, setCustomerIdOptions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [exporting, setExporting] = useState(false);
@@ -87,6 +91,7 @@ export default function MFRPage() {
       if (id !== requestId.current) return;
       setData(result);
       if (!next.model) setModelOptions(result.byModel.map(item => item.key));
+      setCustomerIdOptions(result.customerIds ?? []);
     } catch (err) {
       if (id === requestId.current) setError(err instanceof Error ? err.message : 'MFR 数据加载失败');
     } finally {
@@ -103,7 +108,15 @@ export default function MFRPage() {
       setError('请选择有效的日期范围');
       return;
     }
-    const normalized = { ...next, model: next.model?.trim() ?? '' };
+    const customerIds = next.customerIds?.length ? [...new Set(next.customerIds.filter(Boolean))].sort() : next.customerId ? [next.customerId] : [];
+    const normalized: MFRFilters = { ...next, model: next.model?.trim() ?? '' };
+    if (customerIds.length) {
+      normalized.customerId = '';
+      normalized.customerIds = customerIds;
+    } else {
+      delete normalized.customerId;
+      delete normalized.customerIds;
+    }
     setDraft(normalized);
     setFilters(normalized);
     void load(normalized);
@@ -145,7 +158,7 @@ export default function MFRPage() {
         <div className="flex min-h-10 items-center gap-3 px-3 sm:px-4">
           <button type="button" aria-expanded={filtersExpanded} aria-controls={filtersExpanded ? 'mfr-filter-controls' : undefined} onClick={() => setFiltersExpanded(current => !current)} className="flex min-w-0 flex-1 items-center gap-2 text-left">
             <SlidersHorizontal className="size-4 shrink-0 text-indigo-700" /><span className="shrink-0 text-sm font-semibold text-slate-800">筛选条件</span>
-            <span className="truncate text-xs text-slate-500">{filters.dateFrom} 至 {filters.dateTo} · {filters.model || '全部机型'}{pending && ' · 待应用'}</span>
+            <span className="truncate text-xs text-slate-500">{filters.dateFrom} 至 {filters.dateTo} · {filters.model || '全部机型'} · {(filters.customerIds?.length ? filters.customerIds.join('、') : '全部客户ID')}{pending && ' · 待应用'}</span>
             <ChevronDown className={`size-4 shrink-0 text-slate-500 transition-transform ${filtersExpanded ? 'rotate-180' : ''}`} />
           </button>
           <button type="button" disabled={loading || (sameFilters(filters, initialFilters) && sameFilters(draft, initialFilters))} onClick={() => apply(initialFilters)} className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-slate-600 hover:text-indigo-700 disabled:opacity-40" aria-label="重置筛选" title="重置筛选"><RotateCcw className="size-3.5" />重置</button>
@@ -156,6 +169,7 @@ export default function MFRPage() {
             <input list="mfr-model-options" value={draft.model ?? ''} disabled={loading} onChange={event => setDraft(current => ({ ...current, model: event.target.value }))} placeholder="全部机型" className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs text-slate-700 outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 disabled:opacity-50" />
             <datalist id="mfr-model-options">{modelOptions.map(model => <option key={model} value={model} />)}</datalist>
           </label>
+          <div className="w-full sm:w-56"><MultiSelect label="客户ID" options={customerIdOptions} value={draft.customerIds?.length ? draft.customerIds : draft.customerId ? [draft.customerId] : []} onChange={customerIds => setDraft(current => ({ ...current, customerId: '', customerIds }))} /></div>
           <div className="flex gap-2">
             <button type="submit" disabled={loading} className="flex h-9 items-center gap-1.5 rounded-md bg-indigo-700 px-4 text-sm font-medium text-white hover:bg-indigo-800 disabled:opacity-50"><Search className="size-4" />查询</button>
           </div>
@@ -170,7 +184,7 @@ export default function MFRPage() {
             <p>综合 MFR = 所选 DOA 设备的有效换件事件数 ÷ DOA 设备数 × 100%。设备需关联判定结果为“是”的申报，按发货日期筛选和归月，不判断是否在保。</p>
             <p className="mt-1">故障事件为设备唯一关联的未撤销“换上”或“换上-up”记录；换件发生时间不限制在筛选范围内。同一设备可有多条换件记录，因此比率可能超过 100%。关联不明确时，受影响的故障率显示为“—”。</p>
             <p className="mt-1">设备身份或发货日期无法唯一确定的记录单独统计；DOA 设备范围不代表全部现网设备。</p>
-          </HelpTooltip></div><span className="text-xs text-slate-500">{filters.dateFrom} 至 {filters.dateTo} · {filters.model || '全部机型'}</span></div>
+          </HelpTooltip></div><span className="text-xs text-slate-500">{filters.dateFrom} 至 {filters.dateTo} · {filters.model || '全部机型'} · {(filters.customerIds?.length ? filters.customerIds.join('、') : '全部客户ID')}</span></div>
           <div className="grid grid-cols-2 divide-x divide-y divide-slate-200 lg:grid-cols-4 lg:divide-y-0">
             <Metric label="综合 MFR" value={rate(summary.mfrRate)} detail="所选 DOA 设备的有效换件事件数 ÷ DOA 设备数 × 100%。同一设备多次换件会重复计数。" accent="bg-indigo-600" />
             <Metric label="故障事件" value={number(summary.faultCount)} detail="所选设备可唯一关联的有效换件记录数；关联不明确的记录单独提示，不计入此数。" accent="bg-sky-500" />

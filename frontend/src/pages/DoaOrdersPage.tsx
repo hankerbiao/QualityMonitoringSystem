@@ -15,7 +15,8 @@ export default function DoaOrdersPage() {
     acceptedDateFrom: params.get('acceptedDateFrom') || undefined,
     acceptedDateTo: params.get('acceptedDateTo') || undefined,
     customer: params.get('customer') || '', model: params.get('model') || '',
-    customers: params.getAll('customers'), models: params.getAll('models'),
+    customerId: params.get('customerId') || '',
+    customers: params.getAll('customers'), customerIds: params.getAll('customerIds'), models: params.getAll('models'),
     timeGranularity: g === 'year' || g === 'day' ? g : 'month',
   };
   const [page, setPage] = useState(1);
@@ -36,6 +37,7 @@ export default function DoaOrdersPage() {
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows.map(row => ({
         销售订单: row.salesOrder, 生产订单: row.productionOrder, 客户: row.customer,
+        客户ID: row.customerId,
         机型: row.model, 计划开始日期: row.plannedStartDate, 计划数量: row.quantity,
       }))), '到货数据');
       XLSX.writeFile(workbook, `DOA订单明细_${new Date().toISOString().slice(0, 10)}.xlsx`);

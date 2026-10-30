@@ -6,11 +6,13 @@ export const mfrApi = {
   async getDashboard(filters: MFRFilters): Promise<MFRDashboard> {
     const params = new URLSearchParams({ dateFrom: filters.dateFrom, dateTo: filters.dateTo });
     if (filters.model) params.set('model', filters.model);
+    (filters.customerIds?.length ? filters.customerIds : filters.customerId ? [filters.customerId] : []).forEach(id => params.append('customerId', id));
     return requestJson<MFRDashboard>(`${API_BASE_URL}/mfr/dashboard?${params.toString()}`);
   },
   async getExport(filters: MFRFilters): Promise<MFRExport> {
     const params = new URLSearchParams({ dateFrom: filters.dateFrom, dateTo: filters.dateTo });
     if (filters.model) params.set('model', filters.model);
+    (filters.customerIds?.length ? filters.customerIds : filters.customerId ? [filters.customerId] : []).forEach(id => params.append('customerId', id));
     return requestJson<MFRExport>(`${API_BASE_URL}/mfr/export?${params.toString()}`);
   },
 };

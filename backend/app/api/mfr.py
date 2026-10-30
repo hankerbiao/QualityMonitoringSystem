@@ -18,9 +18,11 @@ async def mfr_dashboard(
     dateFrom: str = Query(..., description="统计开始日期 YYYY-MM-DD"),
     dateTo: str = Query(..., description="统计结束日期 YYYY-MM-DD"),
     model: str = Query("", description="机型"),
+    customerId: Annotated[list[str] | None, Query()] = None,
 ):
     try:
-        return await build_mfr_dashboard(MFRFilters(dateFrom=dateFrom, dateTo=dateTo, model=model))
+        ids = sorted(set(filter(None, customerId or [])))
+        return await build_mfr_dashboard(MFRFilters(dateFrom=dateFrom, dateTo=dateTo, model=model, customerIds=ids))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -31,8 +33,10 @@ async def mfr_export(
     dateFrom: str = Query(...),
     dateTo: str = Query(...),
     model: str = Query(""),
+    customerId: Annotated[list[str] | None, Query()] = None,
 ):
     try:
-        return await build_mfr_dashboard(MFRFilters(dateFrom=dateFrom, dateTo=dateTo, model=model))
+        ids = sorted(set(filter(None, customerId or [])))
+        return await build_mfr_dashboard(MFRFilters(dateFrom=dateFrom, dateTo=dateTo, model=model, customerIds=ids))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

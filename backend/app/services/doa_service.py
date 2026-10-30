@@ -93,6 +93,7 @@ def _gateway_order(item: dict[str, Any]) -> dict[str, Any]:
     return {
         "sales_order": str(data.get("VBELN") or item.get("salesOrder") or "").strip(),
         "customer": str(data.get("NAME1_ZU") or item.get("finalUser") or "").strip(),
+        "customer_id": str(data.get("KID") or item.get("customerId") or "").strip(),
         "model": str(data.get("MAKTX_TH") or item.get("productionModel") or "").strip(),
         "shipped_date": _date(item.get("plannedStartDate")),
         "shipped_count": _number(item.get("orderQuantity")),
@@ -108,11 +109,13 @@ def _sales_order_scopes(orders: list[dict[str, Any]]) -> dict[str, dict[str, Any
     scopes: dict[str, dict[str, Any]] = {}
     for key, rows in grouped.items():
         customers = {row["customer"] for row in rows if row["customer"]}
+        customer_ids = {row["customer_id"] for row in rows if row["customer_id"]}
         models = {row["model"] for row in rows if row["model"]}
         shipment_dates = {row["shipped_date"] for row in rows if row["shipped_date"]}
         scopes[key] = {
             "sales_order": rows[0]["sales_order"],
             "customer": customers.pop() if len(customers) == 1 else "",
+            "customer_id": customer_ids.pop() if len(customer_ids) == 1 else "",
             "model": models.pop() if len(models) == 1 else "",
             "shipped_date": shipment_dates.pop() if len(shipment_dates) == 1 else "",
             "shipped_count": sum(row["shipped_count"] for row in rows),
@@ -160,9 +163,11 @@ def _repair_order_scope(
         return None
     rows = [row for key in keys for row in by_production[key]]
     customers = {row["customer"] for row in rows}
+    customer_ids = {row["customer_id"] for row in rows if row["customer_id"]}
     dates = {row["shipped_date"] for row in rows}
     return {
         "customer": next(iter(customers)) if len(customers) == 1 else "",
+        "customer_id": next(iter(customer_ids)) if len(customer_ids) == 1 else "",
         "shipped_date": next(iter(dates)) if len(dates) == 1 else "",
         "shipped_count": sum(row["shipped_count"] for row in rows),
     }
@@ -198,6 +203,7 @@ async def _eligible_doa(filters: DoaFilters) -> list[dict[str, Any]]:
 def _selected_orders(orders: list[dict[str, Any]], filters: DoaFilters) -> list[dict[str, Any]]:
     start, end = _accepted_bounds(filters)
     customers = set(filters.customers or ([filters.customer] if filters.customer else []))
+    customer_ids = set(filters.customerIds or ([filters.customerId] if filters.customerId else []))
     models = set(filters.models or ([filters.model] if filters.model else []))
     return [
         row
@@ -205,6 +211,7 @@ def _selected_orders(orders: list[dict[str, Any]], filters: DoaFilters) -> list[
         if (not start or (row["shipped_date"] and row["shipped_date"] >= start))
         and (not end or (row["shipped_date"] and row["shipped_date"] <= end))
         and (not customers or (row["customer"] or "未填写") in customers)
+        and (not customer_ids or row["customer_id"] in customer_ids)
         and (not models or (row["model"] or "未填写") in models)
     ]
 
@@ -247,6 +254,7 @@ def _build_doa_repairs(
     available_models = {order["model"] for order in orders if order["model"]}
     changed = {row["service_order"] for row in changes if _is_valid_hardware_replacement(row)}
     customers = set(filters.customers or ([filters.customer] if filters.customer else []))
+    customer_ids = set(filters.customerIds or ([filters.customerId] if filters.customerId else []))
     models = set(filters.models or ([filters.model] if filters.model else []))
     rows = []
     for item in eligible:
@@ -255,7 +263,10 @@ def _build_doa_repairs(
         order = _repair_order_scope(item, by_sales, by_production)
         customer = (order["customer"] or "未填写") if order else "未匹配客户"
         model = _product_model(str(item.get("product") or ""), available_models)
-        if (customers and customer not in customers) or (models and model not in models):
+        customer_id = order["customer_id"] if order else ""
+        if ((customers and customer not in customers)
+                or (customer_ids and customer_id not in customer_ids)
+                or (models and model not in models)):
             continue
         rows.append(
             {
@@ -266,6 +277,7 @@ def _build_doa_repairs(
                 "planned_at": _date(item.get("planned_at")),
                 "gstrs_status": item.get("gstrs_status") or "unmatched",
                 "customer": customer,
+                "customer_id": customer_id,
                 "model": model,
                 "shipped_date": order["shipped_date"] if order else "",
                 "shipped_count": order["shipped_count"] if order else 0,
@@ -530,6 +542,7 @@ async def get_doa_repairs(
                 plannedAt=str(row.get("planned_at") or ""),
                 gstrsStatus=str(row.get("gstrs_status") or ""),
                 customer=str(row.get("customer") or ""),
+                customerId=str(row.get("customer_id") or ""),
                 model=str(row.get("model") or ""),
                 shippedDate=str(row.get("shipped_date") or ""),
                 shippedCount=float(row.get("shipped_count") or 0),
@@ -557,6 +570,7 @@ async def get_doa_orders(filters: DoaFilters, page: int, limit: int) -> dict[str
                 "salesOrder": row["sales_order"],
                 "productionOrder": str(row["raw"].get("aufnr") or ""),
                 "customer": row["customer"],
+                "customerId": row["customer_id"],
                 "model": row["model"],
                 "plannedStartDate": row["shipped_date"] or "",
                 "quantity": row["shipped_count"],
@@ -575,6 +589,7 @@ async def get_doa_options() -> dict[str, list[str]]:
     normalized = [_gateway_order(item) for item in orders]
     return {
         "customers": sorted({row["customer"] for row in normalized if row["customer"]}),
+        "customerIds": sorted({row["customer_id"] for row in normalized if row["customer_id"]}),
         "models": sorted({row["model"] for row in normalized if row["model"]}),
     }
 
