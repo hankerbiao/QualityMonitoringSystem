@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import re
 from datetime import datetime, timedelta, timezone
 from typing import Any
@@ -119,6 +120,54 @@ def _sales_order_scopes(orders: list[dict[str, Any]]) -> dict[str, dict[str, Any
     return scopes
 
 
+def _production_order_keys(value: Any) -> list[str] | None:
+    if value is None or value == "" or value == "[]":
+        return []
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            if not re.fullmatch(r"\[\s*\d+(?:\s+\d+)*\s*\]", value):
+                return None
+            value = value[1:-1].split()
+    if not isinstance(value, list) or any(
+        isinstance(item, bool) or not str(item).strip().isdigit() for item in value
+    ):
+        return None
+    return sorted({_sales_order_key(item) for item in value})
+
+
+def _production_order_scopes(orders: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]]]:
+    result: dict[str, list[dict[str, Any]]] = {}
+    for order in orders:
+        raw = order["raw"]
+        key = _sales_order_key(raw.get("aufnr"))
+        if key:
+            result.setdefault(key, []).append(order)
+    return result
+
+
+def _repair_order_scope(
+    item: dict[str, Any], by_sales: dict[str, dict[str, Any]],
+    by_production: dict[str, list[dict[str, Any]]],
+) -> dict[str, Any] | None:
+    keys = _production_order_keys(item.get("raw", {}).get("production_orders"))
+    if keys is None:
+        return None
+    if not keys:
+        return by_sales.get(_sales_order_key(item["sales_order"]))
+    if any(key not in by_production for key in keys):
+        return None
+    rows = [row for key in keys for row in by_production[key]]
+    customers = {row["customer"] for row in rows}
+    dates = {row["shipped_date"] for row in rows}
+    return {
+        "customer": next(iter(customers)) if len(customers) == 1 else "",
+        "shipped_date": next(iter(dates)) if len(dates) == 1 else "",
+        "shipped_count": sum(row["shipped_count"] for row in rows),
+    }
+
+
 async def _gateway_orders_for_doa() -> list[dict[str, Any]]:
     items = await data_gateway.all_orders()
     return [order for item in items for order in [_gateway_order(item)] if order["sales_order"]]
@@ -194,6 +243,7 @@ def _build_doa_repairs(
     filters: DoaFilters,
 ) -> list[dict[str, Any]]:
     by_sales = _sales_order_scopes(orders)
+    by_production = _production_order_scopes(orders)
     available_models = {order["model"] for order in orders if order["model"]}
     changed = {row["service_order"] for row in changes if _is_valid_hardware_replacement(row)}
     customers = set(filters.customers or ([filters.customer] if filters.customer else []))
@@ -202,7 +252,7 @@ def _build_doa_repairs(
     for item in eligible:
         if not _valid_doa(item):
             continue
-        order = by_sales.get(_sales_order_key(item["sales_order"]))
+        order = _repair_order_scope(item, by_sales, by_production)
         customer = (order["customer"] or "未填写") if order else "未匹配客户"
         model = _product_model(str(item.get("product") or ""), available_models)
         if (customers and customer not in customers) or (models and model not in models):
@@ -413,18 +463,16 @@ async def _build_doa_dashboard(filters: DoaFilters) -> DoaDashboardResponse:
 async def get_doa_audit(filters: DoaFilters) -> dict[str, Any]:
     orders, eligible, all_repairs, changes = await _doa_snapshot(filters)
     repairs = _filter_planned_repairs(all_repairs, filters)
-    scopes = _sales_order_scopes(orders)
-    selected_ids = {row["id"] for row in repairs}
+    matched_by_id = {row["id"]: row["matched_order"] for row in repairs}
     audit_rows = []
     for item in eligible:
         if item["judgment"] != "是":
             continue
-        key = _sales_order_key(item["sales_order"])
-        if item["id"] not in selected_ids:
+        if item["id"] not in matched_by_id:
             continue
         audit_rows.append(
             {
-                "matchStatus": "已匹配" if key in scopes else "未匹配",
+                "matchStatus": "已匹配" if matched_by_id[item["id"]] else "未匹配",
                 "salesOrder": item["sales_order"],
                 "id": item["id"],
                 "acceptedAt": item["accepted_at"],
