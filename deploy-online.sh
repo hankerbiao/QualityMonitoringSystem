@@ -7,8 +7,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REMOTE_HOST="${DEPLOY_HOST:-10.17.150.235}"
 REMOTE_USER="${DEPLOY_USER:-root}"
 REMOTE_DIR="${DEPLOY_DIR:-/data/QualityMonitoringSystem}"
-HTTP_PROXY_URL="${DEPLOY_HTTP_PROXY:-http://10.2.51.151:7897}"
-SOCKS_PROXY_URL="${DEPLOY_SOCKS_PROXY:-socks5://10.2.51.151:7897}"
+HTTP_PROXY_URL="${DEPLOY_HTTP_PROXY:-http://10.2.48.250:7897}"
+SOCKS_PROXY_URL="${DEPLOY_SOCKS_PROXY:-socks5://10.2.48.250:7897}"
 
 info() { printf '[deploy] %s\n' "$*"; }
 fail() { printf '[deploy] ERROR: %s\n' "$*" >&2; exit 1; }
