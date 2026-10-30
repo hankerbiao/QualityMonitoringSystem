@@ -41,6 +41,7 @@ class MFRSummary(BaseModel):
 class MFRFaultDetail(BaseModel):
     model: str
     plannedDate: str
+    shipmentDate: str
     productionOrder: str
     deviceSn: str
     serviceOrder: str

@@ -16,7 +16,8 @@ const rate = (value: number | null) => value == null ? '—' : `${value.toFixed(
 const deviceIssueLabels: Record<string, string> = {
   companyUnverified: '公司归属未确认', doaStatusUnresolved: 'DOA 申报状态无法确认', salesOrderMismatch: '销售订单关联不一致', identityUnverified: '设备身份无法确认',
   identityConflict: '设备身份冲突', productionOrderUnresolved: '生产订单缺失或冲突',
-  planDateUnresolved: '计划日期未匹配', planOrModelConflict: '计划日期或机型冲突',
+  planDateUnresolved: '生产订单未匹配', planOrModelConflict: '订单机型或销售订单冲突',
+  shipmentDateUnresolved: '发货日期缺失或无效', shipmentDateConflict: '发货日期冲突',
 };
 const sameFilters = (a: MFRFilters, b: MFRFilters) =>
   a.dateFrom === b.dateFrom && a.dateTo === b.dateTo && (a.model ?? '') === (b.model ?? '');
@@ -30,11 +31,11 @@ function exportStatistics(data: MFRExport, filters: MFRFilters) {
     { 指标: '综合 MFR（%）', 数值: data.summary.mfrRate },
     { 指标: '故障事件', 数值: data.summary.faultCount },
     { 指标: 'DOA 设备数', 数值: data.summary.fleetCount },
-    { 指标: '设备来源范围', 数值: '关联 5000 公司判定结果为“是”且非待受理的 DOA 申报，按生产订单计划开始日期筛选' },
+    { 指标: '设备来源范围', 数值: '关联判定结果为“是”的 DOA 申报，按发货日期筛选' },
     { 指标: '未能归属设备（全量）', 数值: Object.entries(data.summary.deviceIssues).filter(([key]) => key !== 'lifecycleDateIncomplete').reduce((sum, [, value]) => sum + value, 0) },
     { 指标: '所选设备日期缺失或冲突', 数值: data.summary.deviceIssues.lifecycleDateIncomplete ?? 0 },
     { 指标: '关联不明确的换件记录', 数值: data.summary.unmatchedChangeCount },
-    { 指标: '故障统计口径', 数值: '所选设备唯一关联的有效换件，按生产订单计划开始日期归入周期；未限定换件发生时间；存在无法唯一关联的换件时相关故障率不显示' },
+    { 指标: '故障统计口径', 数值: '所选设备唯一关联的有效换件，按申报发货日期归入周期；未限定换件发生时间；存在无法唯一关联的换件时相关故障率不显示' },
   ];
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(overview), '质量概览');
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(data.trend.map(item => ({
@@ -43,8 +44,8 @@ function exportStatistics(data: MFRExport, filters: MFRFilters) {
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(data.byModel.map(item => ({
     机型: item.key, 故障事件: item.faultCount, DOA设备数: item.fleetCount, 'MFR（%）': item.mfrRate,
   }))), '机型汇总');
-  const headers = ['机型', '计划开始日期', '生产订单号', '设备SN', '服务单号', '换件记录ID', '换件类型', '换件时间', '物料编码', '部件SN', '部件名称', '客户'];
-  const rows = data.faultDetails.map(item => [item.model, item.plannedDate, item.productionOrder,
+  const headers = ['机型', '发货日期', '生产订单号', '设备SN', '服务单号', '换件记录ID', '换件类型', '换件时间', '物料编码', '部件SN', '部件名称', '客户'];
+  const rows = data.faultDetails.map(item => [item.model, item.shipmentDate, item.productionOrder,
     item.deviceSn, item.serviceOrder, item.changeId, item.changeType, item.occurredAt,
     item.partNumber, item.partSn, item.partName, item.customer]);
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([headers, ...rows]), '故障明细');
@@ -133,7 +134,7 @@ export default function MFRPage() {
       <div className="mx-auto flex min-h-14 max-w-[1600px] flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-2 sm:px-6 lg:px-8">
         <div className="flex min-w-0 items-center gap-3">
           <Link to="/" className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm font-medium text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700" aria-label="返回首页" title="返回首页"><Home className="size-4" />返回首页</Link>
-          <div className="min-w-0"><div className="flex items-center gap-1"><h1 className="truncate text-lg font-semibold text-slate-950">MFR 现网质量看板</h1><HelpTooltip label="查看 MFR 看板说明">按 DOA 设备及其生产订单计划日期统计的换件故障指标。</HelpTooltip></div><p className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-600"><Activity className="size-3 text-indigo-600" />DOA 设备 · 生产订单计划日期口径</p></div>
+          <div className="min-w-0"><div className="flex items-center gap-1"><h1 className="truncate text-lg font-semibold text-slate-950">MFR 现网质量看板</h1><HelpTooltip label="查看 MFR 看板说明">按 DOA 设备关联申报的发货日期统计换件故障指标。</HelpTooltip></div><p className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-600"><Activity className="size-3 text-indigo-600" />DOA 设备 · 发货日期口径</p></div>
         </div>
         <DashboardSwitcher />
       </div>
@@ -150,7 +151,7 @@ export default function MFRPage() {
           <button type="button" disabled={loading || (sameFilters(filters, initialFilters) && sameFilters(draft, initialFilters))} onClick={() => apply(initialFilters)} className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-slate-600 hover:text-indigo-700 disabled:opacity-40" aria-label="重置筛选" title="重置筛选"><RotateCcw className="size-3.5" />重置</button>
         </div>
         {filtersExpanded && <form id="mfr-filter-controls" onSubmit={event => { event.preventDefault(); apply(draft); }} className="flex flex-wrap items-end gap-2 border-t border-slate-100 px-3 py-2 sm:px-4">
-          <div className="w-full sm:w-80"><DateRangePicker label="生产订单计划日期" from={draft.dateFrom} to={draft.dateTo} disabled={loading} onChange={(dateFrom, dateTo) => setDraft(current => ({ ...current, dateFrom, dateTo }))} /></div>
+          <div className="w-full sm:w-80"><DateRangePicker label="发货日期" from={draft.dateFrom} to={draft.dateTo} disabled={loading} onChange={(dateFrom, dateTo) => setDraft(current => ({ ...current, dateFrom, dateTo }))} /></div>
           <label className="flex w-full flex-col gap-1 text-[11px] font-medium text-slate-600 sm:w-56">机型
             <input list="mfr-model-options" value={draft.model ?? ''} disabled={loading} onChange={event => setDraft(current => ({ ...current, model: event.target.value }))} placeholder="全部机型" className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs text-slate-700 outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 disabled:opacity-50" />
             <datalist id="mfr-model-options">{modelOptions.map(model => <option key={model} value={model} />)}</datalist>
@@ -166,15 +167,15 @@ export default function MFRPage() {
       {data && summary && <>
         <section className="border border-slate-200 bg-white">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-3 py-2 sm:px-4"><div className="flex items-center gap-1"><h2 className="text-sm font-semibold">质量概览</h2><HelpTooltip label="查看 MFR 统计口径与数据来源">
-            <p>综合 MFR = 所选 DOA 设备的有效换件事件数 ÷ DOA 设备数 × 100%。设备需关联判定结果为“是”且非待受理的申报，按生产订单计划开始日期 GSTRS 筛选和归月，不判断是否在保。</p>
+            <p>综合 MFR = 所选 DOA 设备的有效换件事件数 ÷ DOA 设备数 × 100%。设备需关联判定结果为“是”的申报，按发货日期筛选和归月，不判断是否在保。</p>
             <p className="mt-1">故障事件为设备唯一关联的未撤销“换上”或“换上-up”记录；换件发生时间不限制在筛选范围内。同一设备可有多条换件记录，因此比率可能超过 100%。关联不明确时，受影响的故障率显示为“—”。</p>
-            <p className="mt-1">设备身份或生产订单计划日期无法唯一确定的记录单独统计；DOA 设备范围不代表全部现网设备。</p>
+            <p className="mt-1">设备身份或发货日期无法唯一确定的记录单独统计；DOA 设备范围不代表全部现网设备。</p>
           </HelpTooltip></div><span className="text-xs text-slate-500">{filters.dateFrom} 至 {filters.dateTo} · {filters.model || '全部机型'}</span></div>
           <div className="grid grid-cols-2 divide-x divide-y divide-slate-200 lg:grid-cols-4 lg:divide-y-0">
             <Metric label="综合 MFR" value={rate(summary.mfrRate)} detail="所选 DOA 设备的有效换件事件数 ÷ DOA 设备数 × 100%。同一设备多次换件会重复计数。" accent="bg-indigo-600" />
             <Metric label="故障事件" value={number(summary.faultCount)} detail="所选设备可唯一关联的有效换件记录数；关联不明确的记录单独提示，不计入此数。" accent="bg-sky-500" />
-            <Metric label="DOA 设备数" value={number(summary.fleetCount)} detail="关联判定为“是”且非待受理的 DOA 申报，生产订单计划日期和机型符合筛选条件的设备；按设备标识去重，不判断是否在保。" accent="bg-violet-500" />
-            <Metric label="未归属设备" value={number(unresolvedDevices)} detail="数据源全量中申报状态或订单归属、设备身份、生产订单或计划日期无法唯一确定的设备，不受当前日期和机型筛选。" accent="bg-amber-500" />
+            <Metric label="DOA 设备数" value={number(summary.fleetCount)} detail="关联判定为“是”的 DOA 申报，发货日期和机型符合筛选条件的设备；按设备标识去重，不判断是否在保。" accent="bg-violet-500" />
+            <Metric label="未归属设备" value={number(unresolvedDevices)} detail="数据源全量中申报状态、订单归属、设备身份或发货日期无法唯一确定的设备，不受当前日期和机型筛选。" accent="bg-amber-500" />
           </div>
           {(unresolvedDevices > 0 || summary.unmatchedChangeCount > 0) && <div className="flex items-start gap-2 border-t border-amber-100 bg-amber-50 px-4 py-2 text-xs leading-5 text-amber-800"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" /><div><p>数据源中有 {number(unresolvedDevices)} 台设备无法确认申报、订单或身份，未参与统计（不受日期和机型筛选）；所选设备关联服务单中有 {number(summary.unmatchedChangeCount)} 条换件记录无法唯一匹配设备，未计入故障事件，受影响的故障率暂不显示。</p>{unresolvedDevices > 0 && <details className="mt-1"><summary className="cursor-pointer font-semibold">查看未归属原因</summary><p className="mt-1">{Object.entries(summary.deviceIssues).filter(([key, value]) => key !== 'lifecycleDateIncomplete' && value > 0).map(([key, value]) => `${deviceIssueLabels[key] || key}：${number(value)} 台`).join(' · ')}</p></details>}</div></div>}
         </section>
@@ -182,7 +183,7 @@ export default function MFRPage() {
         <section className="grid gap-2.5 lg:grid-cols-[minmax(0,1.8fr)_minmax(300px,1fr)]">
           <div className="min-w-0 border border-slate-200 bg-white">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-3 py-2 sm:px-4">
-              <div className="flex items-center gap-1"><h2 className="flex items-center gap-2 text-sm font-semibold"><BarChart3 className="size-4 text-indigo-700" />现网故障趋势</h2><HelpTooltip label="查看趋势统计方式">{dailyTrend ? '此处按生产订单计划日期逐日展示关联换件事件，MFR 保持月度口径。' : '设备和关联换件事件均按生产订单计划日期归月；月度 MFR = 换件事件数 ÷ DOA 设备数 × 100%。'}</HelpTooltip></div>
+              <div className="flex items-center gap-1"><h2 className="flex items-center gap-2 text-sm font-semibold"><BarChart3 className="size-4 text-indigo-700" />现网故障趋势</h2><HelpTooltip label="查看趋势统计方式">{dailyTrend ? '此处按发货日期逐日展示关联换件事件，MFR 保持月度口径。' : '设备和关联换件事件均按发货日期归月；月度 MFR = 换件事件数 ÷ DOA 设备数 × 100%。'}</HelpTooltip></div>
               <div className="flex gap-3 text-xs text-slate-500"><span><span className="mr-1 inline-block size-2 rounded-sm bg-indigo-500" />故障事件</span>{!dailyTrend && <span><span className="mr-1 inline-block size-2 rounded-full bg-amber-700" />MFR</span>}</div>
             </div>
             <div className="h-[250px] px-1 pb-2 pt-3 sm:px-3">{chartTrend.length ? <ResponsiveContainer width="100%" height="100%"><ComposedChart data={chartTrend} margin={{ top: 8, right: 8, left: -20, bottom: 0 }}>

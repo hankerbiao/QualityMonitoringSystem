@@ -1,4 +1,4 @@
-"""MFR aggregation for DOA devices grouped by production-order plan date."""
+"""MFR aggregation for DOA devices grouped by shipment date."""
 
 from __future__ import annotations
 
@@ -93,7 +93,7 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
         judgment, status = next(iter(states))
         if not judgment or not status:
             unresolved_codes.add(code)
-        elif judgment == "是" and status != "待受理":
+        elif judgment == "是":
             valid_codes.add(code)
     selected, issues = select_devices(
         devices, orders, start, end, doa_orders, valid_codes, unresolved_codes, filters.model
@@ -133,7 +133,8 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
             faults[key] += 1
             device = selected_by_key[key]
             fault_details.append(MFRFaultDetail(
-                model=device["orderModel"], plannedDate=device["plannedDate"].isoformat(),
+                model=device["orderModel"], plannedDate=device["plannedDate"].isoformat() if device["plannedDate"] else "",
+                shipmentDate=device["shipmentDate"].isoformat(),
                 productionOrder=str(device["productionOrder"].get("value") or ""),
                 deviceSn=str(device.get("deviceSn") or ""),
                 serviceOrder=str(change.get("service_order") or ""),
@@ -147,18 +148,18 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
     period_counts: dict[str, list[int]] = defaultdict(lambda: [0, 0])
     daily_faults: Counter[date] = Counter()
     for device in selected:
-        planned = device["plannedDate"]
+        shipped = device["shipmentDate"]
         count = faults[device["deviceKey"]]
         for bucket in (
             model_counts[device["orderModel"]],
-            period_counts[planned.strftime("%Y-%m")],
+            period_counts[shipped.strftime("%Y-%m")],
         ):
             bucket[0] += count
             bucket[1] += 1
-        daily_faults[planned] += count
+        daily_faults[shipped] += count
 
     affected_models = {selected_by_key[key]["orderModel"] for key in affected_devices}
-    affected_periods = {selected_by_key[key]["plannedDate"].strftime("%Y-%m") for key in affected_devices}
+    affected_periods = {selected_by_key[key]["shipmentDate"].strftime("%Y-%m") for key in affected_devices}
     model_rows = [
         MFRDimensionItem(
             key=key, faultCount=values[0], fleetCount=values[1],

@@ -19,17 +19,42 @@ def device(key, number, **overrides):
         "productionOrder": {"status": "valid", "value": number},
         "factoryDate": {"status": "valid"},
         "warrantyEndDate": {"status": "valid"},
-        "evidence": [{"company5000": True, "doaCode": "D1"}],
+        "evidence": [{"company5000": True, "doaCode": "D1", "shipmentDate": "2026-10-01"}],
     }
     row.update(overrides)
     return row
+
+
+def test_selects_by_shipment_date_not_plan_and_excludes_conflicting_shipments():
+    def evidence(code, shipment):
+        return {"doaCode": code, "shipmentDate": shipment}
+
+    good = device("product:a", "123", evidence=[evidence("D1", "2026-10-15")])
+    outside = device("product:b", "123", evidence=[evidence("D1", "2026-09-30")])
+    conflict = device("product:c", "123", evidence=[evidence("D1", "2026-10-15"), evidence("D2", "2026-10-16")])
+    missing = device("product:d", "123", evidence=[evidence("D1", "")])
+    selected, issues = select_devices(
+        [good, outside, conflict, missing], [order("123", "2026-01-01")],
+        date(2026, 10, 1), date(2026, 10, 31),
+        {"D1": {"SO1"}, "D2": {"SO1"}}, {"D1", "D2"}, set(),
+    )
+    assert [(item["deviceKey"], item["shipmentDate"]) for item in selected] == [("product:a", date(2026, 10, 15))]
+    assert issues == {"shipmentDateConflict": 1, "shipmentDateUnresolved": 1}
+
+
+def test_shipment_filter_does_not_require_an_order_plan_date():
+    item = device("product:a", "123", evidence=[{"doaCode": "D1", "shipmentDate": "2026-10-15"}])
+    selected, issues = select_devices([item], [order("123", "")], date(2026, 10, 1),
+        date(2026, 10, 31), {"D1": {"SO1"}}, {"D1"}, set())
+    assert [row["deviceKey"] for row in selected] == ["product:a"]
+    assert not issues
 
 
 def test_selects_distinct_devices_by_production_order_plan_and_model():
     selected, issues = select_devices(
         [
             device("product:a", "000010349985"),
-            device("product:b", "10349986"),
+            device("product:b", "10349986", evidence=[{"doaCode": "D1", "shipmentDate": "2026-09-01"}]),
             device("product:c", "10349987", warrantyEndDate={"status": "conflict"}),
         ],
         [order("10349985"), order("10349986", "2026-09-01"), order("10349987")],
@@ -52,7 +77,7 @@ def test_does_not_guess_on_missing_orders_conflicts_or_unidentified_items():
             device("material:c", "789", identityBasis="material_sn"),
             device("product:d", "000", productionOrder={"status": "conflict"}),
         ],
-        [order("123"), order("123", "2026-10-02"), order("789")],
+        [order("123"), order("123", "2026-10-02", "OTHER"), order("789")],
         date(2026, 10, 1),
         date(2026, 10, 31),
         {"D1": {"SO1"}},
@@ -70,13 +95,13 @@ def test_does_not_guess_on_missing_orders_conflicts_or_unidentified_items():
 
 def test_does_not_double_count_cross_identity_evidence():
     one = device(
-        "product:a", "123", evidence=[{"company5000": True, "contextId": "C1", "doaCode": "D1"}]
+        "product:a", "123", evidence=[{"company5000": True, "contextId": "C1", "doaCode": "D1", "shipmentDate": "2026-10-01"}]
     )
     two = device(
         "context:C1",
         "123",
         identityBasis="product_context",
-        evidence=[{"company5000": True, "contextId": "C1", "doaCode": "D1"}],
+        evidence=[{"company5000": True, "contextId": "C1", "doaCode": "D1", "shipmentDate": "2026-10-01"}],
     )
     selected, issues = select_devices(
         [one, two],
@@ -93,7 +118,7 @@ def test_does_not_double_count_cross_identity_evidence():
 
 def test_only_selects_devices_with_confirmed_valid_doa_and_reports_unknown_codes():
     def with_code(key, code):
-        return device(key, "123", evidence=[{"company5000": True, "doaCode": code}])
+        return device(key, "123", evidence=[{"company5000": True, "doaCode": code, "shipmentDate": "2026-10-01"}])
 
     selected, issues = select_devices(
         [
@@ -113,8 +138,8 @@ def test_only_selects_devices_with_confirmed_valid_doa_and_reports_unknown_codes
 
 
 def test_uses_sales_order_membership_not_product_line_or_stale_company_flag():
-    first = device("product:a", "123", evidence=[{"company5000": False, "doaCode": "yes"}])
-    outside = device("product:b", "123", evidence=[{"company5000": True, "doaCode": "outside"}])
+    first = device("product:a", "123", evidence=[{"company5000": False, "doaCode": "yes", "shipmentDate": "2026-10-01"}])
+    outside = device("product:b", "123", evidence=[{"company5000": True, "doaCode": "outside", "shipmentDate": "2026-10-01"}])
     mismatch = device(
         "product:c",
         "123",

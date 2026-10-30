@@ -39,6 +39,7 @@ export interface MFRDashboard {
 export interface MFRFaultDetail {
   model: string;
   plannedDate: string;
+  shipmentDate: string;
   productionOrder: string;
   deviceSn: string;
   serviceOrder: string;

@@ -7,7 +7,7 @@ from app.services import mfr_device_dashboard as service
 from app.services.data_gateway_client import DataGatewayError
 
 
-def device(key, order, service_no, serial):
+def device(key, order, service_no, serial, shipment="2026-10-01"):
     return {
         "deviceKey": key,
         "identityBasis": "product_barcode",
@@ -22,6 +22,7 @@ def device(key, order, service_no, serial):
                 "doaSalesOrder": "SO1",
                 "judgment": "是",
                 "doaStatus": "已受理",
+                "shipmentDate": shipment,
                 "serviceOrder": service_no,
                 "serviceOrderAliases": [service_no],
             }
@@ -39,15 +40,15 @@ def change(service_no, serial, kind="换上", revoked=False, when="2026-12-01"):
     }
 
 
-async def test_groups_devices_and_all_associated_replacements_by_plan_date(monkeypatch):
+async def test_groups_devices_and_all_associated_replacements_by_shipment_date(monkeypatch):
     monkeypatch.setattr(
         service.scs_gateway,
         "doa_devices",
         AsyncMock(
             return_value=[
-                device("product:a", "000010349985", "S1", "SN1"),
-                device("product:b", "10349986", "S2", "SN2"),
-                device("product:c", "10349987", "S2", "SN3"),
+                device("product:a", "000010349985", "S1", "SN1", "2026-01-10"),
+                device("product:b", "10349986", "S2", "SN2", "2026-02-11"),
+                device("product:c", "10349987", "S2", "SN3", "2026-02-12"),
             ]
         ),
     )
@@ -58,19 +59,19 @@ async def test_groups_devices_and_all_associated_replacements_by_plan_date(monke
             return_value=[
                 {
                     "aufnr": "10349985",
-                    "plannedStartDate": "2026-01-10",
+                    "plannedStartDate": "2026-03-10",
                     "productionModel": "M1",
                     "salesOrder": "SO1",
                 },
                 {
                     "aufnr": "10349986",
-                    "plannedStartDate": "2026-02-11",
+                    "plannedStartDate": "2026-04-11",
                     "productionModel": "M2",
                     "salesOrder": "SO1",
                 },
                 {
                     "aufnr": "10349987",
-                    "plannedStartDate": "2026-02-12",
+                    "plannedStartDate": "2026-04-12",
                     "productionModel": "M2",
                     "salesOrder": "SO1",
                 },
@@ -105,10 +106,11 @@ async def test_groups_devices_and_all_associated_replacements_by_plan_date(monke
     assert len(result.faultDetails) == result.summary.faultCount
     assert [(row.model, row.deviceSn, row.serviceOrder, row.plannedDate, row.occurredAt)
             for row in result.faultDetails] == [
-        ("M1", "SN1", "S1", "2026-01-10", "2026-12-01"),
-        ("M2", "SN2", "S2", "2026-02-11", "2026-12-01"),
-        ("M1", "SN1", "S1", "2026-01-10", "2026-12-01"),
+        ("M1", "SN1", "S1", "2026-03-10", "2026-12-01"),
+        ("M2", "SN2", "S2", "2026-04-11", "2026-12-01"),
+        ("M1", "SN1", "S1", "2026-03-10", "2026-12-01"),
     ]
+    assert [row.shipmentDate for row in result.faultDetails] == ["2026-01-10", "2026-02-11", "2026-01-10"]
     assert result.summary.mfrRate is None
     assert result.summary.unmatchedChangeCount == 2
     assert result.summary.deviceIssues["lifecycleDateIncomplete"] == 3
@@ -138,7 +140,7 @@ async def test_empty_device_scope_does_not_return_a_misleading_zero(monkeypatch)
         await service.build_device_dashboard(MFRFilters(dateFrom="2026-10-01", dateTo="2026-10-29"))
 
 
-async def test_only_devices_with_yes_and_not_pending_doa_are_counted(monkeypatch):
+async def test_devices_with_yes_doa_are_counted_even_when_pending(monkeypatch):
     devices = [device(f"product:{i}", str(i), f"S{i}", f"SN{i}") for i in range(1, 5)]
     for index, item in enumerate(devices, 1):
         item["evidence"][0]["doaCode"] = f"D{index}"
@@ -166,7 +168,7 @@ async def test_only_devices_with_yes_and_not_pending_doa_are_counted(monkeypatch
     result = await service.build_device_dashboard(
         MFRFilters(dateFrom="2026-10-01", dateTo="2026-10-29")
     )
-    assert result.summary.selectedDeviceCount == 1
+    assert result.summary.selectedDeviceCount == 2
     assert result.summary.deviceIssues["doaStatusUnresolved"] == 1
 
 

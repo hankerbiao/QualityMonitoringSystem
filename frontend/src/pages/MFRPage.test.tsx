@@ -43,7 +43,7 @@ describe('MFR dashboard', () => {
     vi.clearAllMocks();
     vi.mocked(mfrApi.getDashboard).mockImplementation(async filters => fixture(filters));
     vi.mocked(mfrApi.getExport).mockImplementation(async filters => ({ ...fixture(filters), faultDetails: [{
-      model: 'Model A', plannedDate: '2026-01-10', productionOrder: '123', deviceSn: 'SN1',
+      model: 'Model A', plannedDate: '2026-01-10', shipmentDate: '2026-01-10', productionOrder: '123', deviceSn: 'SN1',
       serviceOrder: 'S1', changeId: 'C1', changeType: '换上', occurredAt: '2026-12-01',
       partNumber: 'PN1', partSn: 'PS1', partName: '部件', customer: '客户',
     }] }));
@@ -78,9 +78,9 @@ describe('MFR dashboard', () => {
     expect(screen.getByRole('tooltip').textContent).toContain('不受当前日期和机型筛选');
     fireEvent.blur(coverageHelp);
     const trendHelp = screen.getByRole('button', { name: '查看趋势统计方式' });
-    expect(screen.queryByText('此处按生产订单计划日期逐日展示关联换件事件，MFR 保持月度口径。')).toBeNull();
+    expect(screen.queryByText('此处按发货日期逐日展示关联换件事件，MFR 保持月度口径。')).toBeNull();
     fireEvent.focus(trendHelp);
-    expect(screen.getByRole('tooltip').textContent).toBe('此处按生产订单计划日期逐日展示关联换件事件，MFR 保持月度口径。');
+    expect(screen.getByRole('tooltip').textContent).toBe('此处按发货日期逐日展示关联换件事件，MFR 保持月度口径。');
     fireEvent.blur(trendHelp);
     expect(screen.queryByRole('tooltip')).toBeNull();
     expect(screen.getByTestId('trend-chart').getAttribute('data-periods')).toContain(formatLocalDate(today));
@@ -104,16 +104,16 @@ describe('MFR dashboard', () => {
   it('switches back to the monthly fault and MFR trend for a multi-month range', async () => {
     render(<MemoryRouter><MFRPage /></MemoryRouter>);
     await screen.findByText('Model A');
-    fireEvent.click(screen.getByRole('button', { name: '生产订单计划日期' }));
+    fireEvent.click(screen.getByRole('button', { name: '发货日期' }));
     fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-01-01' } });
     fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-03-31' } });
     fireEvent.click(screen.getByRole('button', { name: '确定' }));
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
     await screen.findByTestId('mfr-line');
     const trendHelp = screen.getByRole('button', { name: '查看趋势统计方式' });
-    expect(screen.queryByText(/设备和关联换件事件均按生产订单计划日期归月/)).toBeNull();
+    expect(screen.queryByText(/设备和关联换件事件均按发货日期归月/)).toBeNull();
     fireEvent.focus(trendHelp);
-    expect(screen.getByRole('tooltip').textContent).toContain('设备和关联换件事件均按生产订单计划日期归月');
+    expect(screen.getByRole('tooltip').textContent).toContain('设备和关联换件事件均按发货日期归月');
     expect(screen.getByTestId('trend-chart').getAttribute('data-periods')).toBe('2026-01');
     expect(screen.getByTestId('mfr-line')).toBeTruthy();
   });

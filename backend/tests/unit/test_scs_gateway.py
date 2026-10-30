@@ -11,6 +11,7 @@ def test_normalize_doa_preserves_gateway_relationship_and_display_fields():
             "sugon_sn": "SN-1",
             "problem_batch_number": "2",
             "acceptance_time": "2026-09-01 10:00:00",
+            "shipment_date": "2026-08-25",
             "is_5000_company": "true",
         }
     )
@@ -19,6 +20,7 @@ def test_normalize_doa_preserves_gateway_relationship_and_display_fields():
     assert row["judgment"] == "是"
     assert row["host_sn"] == "SN-1"
     assert row["repair_count"] == "2"
+    assert row["shipment_at"] == "2026-08-25"
     assert row["is_5000_company"] is True
 
 

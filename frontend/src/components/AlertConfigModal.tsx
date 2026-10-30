@@ -16,7 +16,7 @@ import {
 import { RTYData } from '../types';
 import { rtyApi } from '../api/rtyApi';
 import { useSettings } from '../context/SettingsContext';
-import type { RTYFilterParams, CycleStatsConfig } from '../types';
+import type { RTYFilterParams } from '../types';
 import { buildCycleVisualData } from './alert-config/cycleData';
 import { appendSourceSheets } from './rty/templateExport';
 import CycleDetailModal from './rty/CycleDetailModal';
@@ -315,7 +315,7 @@ export default function AlertConfigModal({
   onOrderTypesChange,
   exportContainer,
 }: AlertConfigModalProps) {
-  const { settings, updateSettings } = useSettings();
+  const { settings } = useSettings();
 
   const [timeFilter, setTimeFilter] = useState<CycleTimePreset>('6m');
   
@@ -324,7 +324,6 @@ export default function AlertConfigModal({
   const [selectedBases, setSelectedBases] = useState<Set<string> | null>(null);
   const [selectedCustomers, setSelectedCustomers] = useState<string[]>([]);
   const [customerList, setCustomerList] = useState<string[]>([]);
-  const [filterSaved, setFilterSaved] = useState(false);
   
   // 视图模式：chart = 双图表，heatmap = 热力图
   const [viewMode, setViewMode] = useState<'chart' | 'heatmap'>('heatmap');
@@ -563,20 +562,6 @@ export default function AlertConfigModal({
     setCycleDetailSelection({ title, query, inputCount, defectCount });
   };
 
-  // 机型选择/取消的辅助函数
-  const handleSaveFilter = async () => {
-    try {
-      const config: CycleStatsConfig = {
-        selectedModels: selectedModels ? Array.from(selectedModels) : [],
-      };
-      await updateSettings({ cycleStatsConfig: config });
-      setFilterSaved(true);
-      setTimeout(() => setFilterSaved(false), 2000);
-    } catch {
-      console.error('Failed to save cycle stats config');
-    }
-  };
-
   // 计算一下总投入和平均RTY等统计数据
   const { totalInput, totalDefect, avgRty, highestRiskModel, bestModel, maxInputMonth } = useMemo(() => {
     let totalIn = 0;
@@ -791,7 +776,6 @@ export default function AlertConfigModal({
                       <ListFilter className="size-3.5" />
                       筛选订单
                     </button>
-                    <span className="text-xs text-slate-600">过滤条件：订单状态为 DLID、RELEASED，或订单类型为 C001。</span>
                   </div>
                 )}
               </div>
@@ -819,15 +803,6 @@ export default function AlertConfigModal({
                     setSelectedModels(values.length === 0 ? null : new Set(values));
                   }}
                 />
-                <button
-                  type="button"
-                  onClick={handleSaveFilter}
-                  className="h-9 rounded-md border border-slate-200 bg-white px-3 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-50"
-                >
-                  保存筛选
-                </button>
-                {filterSaved && <span className="text-xs font-medium text-emerald-600">已保存</span>}
-
                 {/* 生产基地筛选：影响整个周期统计口径 */}
                 <CycleMultiSelect
                   label="基地"

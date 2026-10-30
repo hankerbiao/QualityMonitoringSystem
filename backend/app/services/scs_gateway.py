@@ -40,6 +40,7 @@ def normalize_doa(item: dict[str, Any]) -> dict[str, Any]:
         "repair_count": item.get("problem_batch_number", item.get("repair_count")),
         "declare_at": _text(_first(item, "declare_time", "declare_at")),
         "accepted_at": _text(_first(item, "acceptance_time", "accepted_at")),
+        "shipment_at": _text(_first(item, "shipment_date", "shipment_at")),
         "planned_at": _text(item.get("GSTRS")),
         "gstrs_status": _text(item.get("gstrs_status")),
         "factory_date": _text(item.get("factory_date")),
