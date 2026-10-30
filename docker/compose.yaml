@@ -76,6 +76,14 @@ services:
         NO_PROXY: ${BUILD_NO_PROXY:-}
     environment:
       TZ: ${TZ:-Asia/Shanghai}
+      HTTP_PROXY: ""
+      HTTPS_PROXY: ""
+      ALL_PROXY: ""
+      http_proxy: ""
+      https_proxy: ""
+      all_proxy: ""
+      NO_PROXY: "*"
+      no_proxy: "*"
     ports:
       - "${FRONTEND_PORT:-4000}:80"
     depends_on:
