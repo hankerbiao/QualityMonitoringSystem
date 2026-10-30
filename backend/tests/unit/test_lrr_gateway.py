@@ -554,6 +554,8 @@ async def test_load_faults_enriches_missing_display_fields_from_full_fault_rows(
                 "AUFNR": "1",
                 "PCODE": "SN-1",
                 "ZDATE_WX": "20260805",
+                "ZNGWD": "NG type",
+                "ZWXWD": "Repair description",
             }
         ]
 
@@ -569,6 +571,10 @@ async def test_load_faults_enriches_missing_display_fields_from_full_fault_rows(
                     "ZDATE_WX": "20260805",
                     "ZNGWD": "NG type",
                     "ZWXWD": "Repair description",
+                    "ZNGWD3": "Detailed phenomenon",
+                    "ZWXWD3": "Detailed action",
+                    "U_FIX": "Technician",
+                    "ZWXDT": "20260805123456",
                 },
             }
         ]
@@ -585,6 +591,8 @@ async def test_load_faults_enriches_missing_display_fields_from_full_fault_rows(
 
     assert rows[0]["ZNGWD"] == "NG type"
     assert rows[0]["ZWXWD"] == "Repair description"
+    assert rows[0]["ZNGWD3"] == "Detailed phenomenon"
+    assert rows[0]["U_FIX"] == "Technician"
 
 
 @pytest.mark.asyncio

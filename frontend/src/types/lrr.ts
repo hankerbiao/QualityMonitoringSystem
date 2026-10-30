@@ -78,6 +78,14 @@ export interface LRRFaultDetail {
   sn: string;
   faultType: string;
   faultDesc: string;
+  matchedModel: string;
+  salesOrder: string;
+  productionOrder: string;
+  faultPhenomenon: string;
+  repairAction: string;
+  station: string;
+  repairPerson: string;
+  repairTime: string;
   ngTime: string;
 }
 

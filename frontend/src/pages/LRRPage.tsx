@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, BarChart3, BellRing, ChevronLeft, ChevronRight, Download, RotateCcw, X } from 'lucide-react';
+import { ArrowLeft, BarChart3, BellRing, ChevronLeft, ChevronRight, Download, FileSearch, RotateCcw, X } from 'lucide-react';
 import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
@@ -98,41 +98,63 @@ function ErrorBanner({ error, onRetry }: { error: ApiRequestError; onRetry?: () 
   );
 }
 
-function DetailModal({ title, items, loading, error, onClose }: { title: string; items: LRRFaultDetail[]; loading: boolean; error: ApiRequestError | null; onClose: () => void }) {
+const DETAIL_COLUMNS = [
+  ['matchedModel', '计入机型'], ['sn', '维修记录SN'], ['salesOrder', '销售订单'],
+  ['productionOrder', '维修记录订单'], ['faultPhenomenon', '故障现象'], ['repairAction', '维修措施'],
+  ['station', '故障工站'], ['repairPerson', '维修人员'], ['repairTime', '维修时间'],
+] as const;
+
+export function DetailModal({ title, items, loading, error, onClose }: { title: string; items: LRRFaultDetail[]; loading: boolean; error: ApiRequestError | null; onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null);
+  const [exportError, setExportError] = useState('');
   useEffect(() => {
     closeRef.current?.focus();
     const handler = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
     document.addEventListener('keydown', handler);
     return () => document.removeEventListener('keydown', handler);
   }, [onClose]);
+  const exportDetails = () => {
+    try {
+      const sheet = XLSX.utils.aoa_to_sheet([
+        DETAIL_COLUMNS.map(([, label]) => label),
+        ...items.map(item => DETAIL_COLUMNS.map(([key]) => item[key] || '')),
+      ]);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, sheet, '维修故障明细');
+      XLSX.writeFile(workbook, `${title.replace(/[\\/:*?"<>|]/g, '_')}_维修明细.xlsx`);
+      setExportError('');
+    } catch {
+      setExportError('明细导出失败，请重试');
+    }
+  };
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={onClose}>
-      <div role="dialog" aria-modal="true" aria-busy={loading} className="flex max-h-[88vh] w-full max-w-6xl flex-col overflow-hidden rounded-md border border-slate-200 bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-slate-200 bg-slate-50 px-5 py-3">
-          <h2 className="text-sm font-semibold">{title}</h2>
+      <div role="dialog" aria-modal="true" aria-labelledby="lrr-detail-title" aria-busy={loading} className="flex max-h-[85vh] w-full max-w-6xl flex-col overflow-hidden rounded-md bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+          <div className="flex items-center gap-2"><FileSearch className="size-4 text-cyan-600" /><h2 id="lrr-detail-title" className="text-sm font-semibold text-slate-900">{title}</h2></div>
           <button ref={closeRef} type="button" onClick={onClose} className="rounded p-1 text-slate-500 hover:bg-slate-200" aria-label="关闭"><X className="size-4" /></button>
         </div>
+        <div className="flex items-center gap-2 border-b border-slate-100 px-5 py-2">
+          <span className="rounded-md bg-cyan-600 px-3 py-1.5 text-xs font-medium text-white">维修 SN</span>
+          <span className="mx-1 h-5 border-l border-slate-200" />
+          <button type="button" onClick={exportDetails} disabled={loading || !!error || !items.length} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"><Download className="size-3.5" />导出维修 SN</button>
+        </div>
+        {exportError && <p role="alert" className="px-5 pt-3 text-xs text-red-600">{exportError}</p>}
         {loading ? <div className="flex min-h-48 flex-col items-center justify-center gap-3 text-sm text-slate-500"><LoadingSpinner size="md" />正在加载故障明细...</div> : error ? (
           <div role="alert" className="flex min-h-48 flex-col items-center justify-center gap-3 px-6 text-center text-sm text-red-700">
             <p>{errorMessage(error)}</p>
             {error.requestId && <p className="text-xs text-slate-400">请求编号：{error.requestId}</p>}
           </div>
         ) : (
-          <div className="overflow-auto">
+          <div className="overflow-auto p-4">
             <table className="w-full min-w-[900px] text-left text-xs">
-              <thead className="sticky top-0 bg-slate-100 text-slate-600">
-                <tr>{['月份', '物料 PN', '物料描述', 'SN', '故障类型', '故障描述'].map((name) => <th key={name} className="px-3 py-2 font-semibold">{name}</th>)}</tr>
+              <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-slate-600">
+                <tr>{DETAIL_COLUMNS.map(([, label]) => <th key={label} className="px-3 py-2 font-semibold">{label}</th>)}</tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {items.map((item, index) => (
-                  <tr key={`${item.materialNumber}-${item.sn}-${index}`}>
-                    <td className="px-3 py-2">{item.month || '-'}</td>
-                    <td className="px-3 py-2 font-mono">{displayMaterialNumber(item.materialNumber) || '-'}</td>
-                    <td className="px-3 py-2">{item.materialDescription || '-'}</td>
-                    <td className="px-3 py-2 font-mono">{item.sn || '-'}</td>
-                    <td className="px-3 py-2">{item.faultType || '-'}</td>
-                    <td className="max-w-[240px] truncate px-3 py-2">{item.faultDesc || '-'}</td>
+                  <tr key={`${item.materialNumber}-${item.sn}-${index}`} className="text-slate-700 hover:bg-slate-50">
+                    {DETAIL_COLUMNS.map(([key]) => <td key={key} className="max-w-64 px-3 py-2" title={item[key] || ''}>{item[key] || '-'}</td>)}
                   </tr>
                 ))}
               </tbody>
@@ -140,6 +162,7 @@ function DetailModal({ title, items, loading, error, onClose }: { title: string;
             {!items.length && <p className="px-4 py-12 text-center text-sm text-slate-400">暂无故障明细</p>}
           </div>
         )}
+        <div className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">共 {items.length.toLocaleString('zh-CN')} 条记录</div>
       </div>
     </div>
   );
@@ -350,6 +373,14 @@ export default function LRRPage() {
         SN: item.sn,
         故障类型: item.faultType,
         故障描述: item.faultDesc,
+        计入机型: item.matchedModel,
+        销售订单: item.salesOrder,
+        维修记录订单: item.productionOrder,
+        故障现象: item.faultPhenomenon,
+        维修措施: item.repairAction,
+        故障工站: item.station,
+        维修人员: item.repairPerson,
+        维修时间: item.repairTime,
       }));
       const summaryRows = materialItems.map((item) => ({
         月份: item.month,

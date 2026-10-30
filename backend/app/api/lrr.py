@@ -168,7 +168,13 @@ def aggregate_lrr(
     include_details: bool = True,
 ) -> tuple[list[LRRData], list[LRRFaultDetail]]:
     groups: dict[str, dict[str, Any]] = {}
+    order_models: dict[str, set[str]] = defaultdict(set)
+    sales_models: dict[str, set[str]] = defaultdict(set)
     for bom in bom_rows:
+        model = str(bom.get("_product_model") or "").strip()
+        if model:
+            order_models[normalize_production_order(bom.get("AUFNR_1"))].add(model)
+            sales_models[normalize_sales_order(bom.get("VBELN_EX"))].add(model)
         material = str(bom.get("MATNR") or "").strip()
         month = month_from_date(bom.get("GSTRS"))
         if not material or not month:
@@ -263,6 +269,7 @@ def aggregate_lrr(
         for key, group in candidates:
             counts[key] += int(fault.get("_fault_count", 1))
             if include_details:
+                models = order_models.get(order, set()) if order else sales_models.get(sales, set())
                 details.append(
                     LRRFaultDetail(
                         month=group["month"],
@@ -271,6 +278,14 @@ def aggregate_lrr(
                         sn=str(fault.get("PCODE") or ""),
                         faultType=str(fault.get("ZNGWD") or ""),
                         faultDesc=str(fault.get("ZWXWD") or ""),
+                        matchedModel=next(iter(models)) if len(models) == 1 else "",
+                        salesOrder=str(fault.get("VBELN") or ""),
+                        productionOrder=str(fault.get("AUFNR") or ""),
+                        faultPhenomenon=str(fault.get("ZNGWD3") or ""),
+                        repairAction=str(fault.get("ZWXWD3") or ""),
+                        station=str(fault.get("ZNGGZ") or ""),
+                        repairPerson=str(fault.get("U_FIX") or ""),
+                        repairTime=str(fault.get("ZWXDT") or ""),
                     ),
                 )
 
@@ -691,6 +706,7 @@ async def get_lrr_fault_details(
         bases=base,
         customer_ids=tuple(sorted(set(customerId or []))),
         order_types=tuple(sorted(set(orderTypes or []))),
+        include_order_metadata=True,
         month=month,
         planned_date_from=plannedDateFrom,
         planned_date_to=plannedDateTo,

@@ -70,4 +70,12 @@ class LRRFaultDetail(BaseModel):
     sn: str = ""
     faultType: str = ""
     faultDesc: str = ""
+    matchedModel: str = ""
+    salesOrder: str = ""
+    productionOrder: str = ""
+    faultPhenomenon: str = ""
+    repairAction: str = ""
+    station: str = ""
+    repairPerson: str = ""
+    repairTime: str = ""
     ngTime: str = Field("", deprecated=True, description="已停用，保留空值兼容旧客户端")

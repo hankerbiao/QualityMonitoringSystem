@@ -17,6 +17,21 @@ from app.schemas.lrr import LRRData
 from app.services.lrr_list_cache import LRRListQuery
 
 
+def test_lrr_fault_details_include_station_repair_fields_and_order_model():
+    bom = [{"MATNR": "PN1", "GSTRS": "20261001", "MENGE_A": 10,
+            "AUFNR_1": "123", "VBELN_EX": "456", "_product_model": "M1"}]
+    faults = [{"MATNR": "PN1", "GSTRS": "20261001", "AUFNR": "123", "VBELN": "456",
+               "PCODE": "SN1", "ZNGWD3": "现象", "ZWXWD3": "措施", "ZNGGZ": "OP210",
+               "U_FIX": "维修员", "ZWXDT": "20261029091214"}]
+    rows, details = aggregate_lrr(bom, faults)
+    assert rows[0].faultCount == 1
+    detail = details[0]
+    assert (detail.matchedModel, detail.sn, detail.salesOrder, detail.productionOrder) == ("M1", "SN1", "456", "123")
+    assert (detail.faultPhenomenon, detail.repairAction, detail.station, detail.repairPerson, detail.repairTime) == (
+        "现象", "措施", "OP210", "维修员", "20261029091214"
+    )
+
+
 def test_lrr_default_list_order_is_ascending_by_month():
     rows = [
         LRRData(

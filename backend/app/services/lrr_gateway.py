@@ -121,6 +121,7 @@ async def load_bom(
     base: str | None = None,
     customer_ids: tuple[str, ...] = (),
     order_types: tuple[str, ...] = (),
+    include_order_metadata: bool = False,
     month: str | None = None,
     planned_date_from: str | None = None,
     planned_date_to: str | None = None,
@@ -312,7 +313,7 @@ async def load_bom(
     # keep that lookup within the same date/scope whenever possible.
     product_models = [*(product_models or []), *([product_model] if product_model else [])]
     bases = [*(bases or []), *([base] if base else [])]
-    needs_metadata = bool(bases or customer_ids or product_models or order_types or current_base_permissions() is not None)
+    needs_metadata = bool(include_order_metadata or bases or customer_ids or product_models or order_types or current_base_permissions() is not None)
     metadata_started_at = perf_counter()
     if needs_metadata:
         metadata_filters: dict[str, str] = {}
@@ -547,7 +548,11 @@ async def load_faults(
             {
                 str(row.get("PCODE") or "").strip()
                 for row in details
-                if _fault_source_key(row) and (not row.get("ZNGWD") or not row.get("ZWXWD"))
+                if _fault_source_key(row) and (
+                    not row.get("ZNGWD") or not row.get("ZWXWD") or any(
+                        field not in row for field in ("ZNGWD3", "ZWXWD3", "U_FIX", "ZWXDT")
+                    )
+                )
             }
         )
         if include_details
