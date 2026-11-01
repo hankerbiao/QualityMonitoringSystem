@@ -40,6 +40,7 @@ class TestGetAllSettings:
             "lrr": "available",
             "doa": "available",
             "mfr": "admin-only",
+            "incoming-materials": "available",
         }
         assert data["data"]["cycleStatsConfig"]["selectedModels"] == []
 
@@ -349,7 +350,7 @@ class TestOrdinaryUserSettings:
         response = await client.get("/api/settings", headers=ordinary_user_headers)
         assert response.status_code == 200
         data = response.json()["data"]
-        assert set(data) == {"modelTargets", "emailAlert", "stationPassRateConfig"}
+        assert set(data) == {"modelTargets", "company5000Targets", "emailAlert", "stationPassRateConfig"}
         assert data["stationPassRateConfig"] == {
             "selectedStations": ["OP10"],
             "configured": True,
@@ -375,17 +376,21 @@ class TestOrdinaryUserSettings:
             headers=ordinary_user_headers,
             json={
                 "modelTargets": {"X1": 99},
+                "company5000Targets": {"X1": 96},
                 "emailAlert": {
                     "enabled": False,
                     "emails": "quality@company.com",
                     "weeklyProductionThreshold": 100,
+                    "alertStandards": ["group", "company5000"],
                 },
             },
         )
         assert response.status_code == 200
         data = response.json()["data"]
-        assert set(data) == {"modelTargets", "emailAlert", "stationPassRateConfig"}
+        assert set(data) == {"modelTargets", "company5000Targets", "emailAlert", "stationPassRateConfig"}
         assert data["modelTargets"] == {"X1": 99}
+        assert data["company5000Targets"] == {"X1": 96}
+        assert data["emailAlert"]["alertStandards"] == ["group", "company5000"]
         assert data["emailAlert"]["weeklyProductionThreshold"] == 100
         assert data["emailAlert"]["enabled"] is False
         assert await db_clean.configs.find_one({"key": "process_record_config"}) == before
@@ -476,7 +481,7 @@ class TestOrdinaryUserSettings:
             await client.get("/api/settings/email-alert", headers=ordinary_user_headers)
         ).json()["data"]["emails"] == "quality@company.com"
 
-        async def candidates(threshold):
+        async def candidates(threshold, **_kwargs):
             return {"threshold": threshold, "modelsChecked": 0, "details": []}
 
         monkeypatch.setattr(settings, "get_weekly_production_candidates", candidates)
@@ -514,6 +519,8 @@ class TestOrdinaryUserSettings:
                 "emails": "current@example.com",
                 "weeklyProductionThreshold": 12,
                 "modelTargets": {"X1": 98.5},
+                "company5000Targets": {"X1": 95},
+                "alertStandards": ["company5000"],
             },
         )
 
@@ -524,7 +531,28 @@ class TestOrdinaryUserSettings:
             "emails": "current@example.com",
             "weeklyProductionThreshold": 12,
             "modelTargets": {"X1": 98.5},
+            "company5000Targets": {"X1": 95},
+            "alertStandards": ["company5000"],
         }
+        assert await db_clean.configs.find_one({"key": "email_alert_config"}) is None
+
+    async def test_preview_uses_unsaved_standard_choices_without_sending(self, client, db_clean, monkeypatch):
+        from app.api import settings
+
+        received = {}
+
+        async def candidates(threshold, **kwargs):
+            received.update({"threshold": threshold, **kwargs})
+            return {"threshold": threshold, "modelsChecked": 0, "details": []}
+
+        monkeypatch.setattr(settings, "get_weekly_production_candidates", candidates)
+        response = await client.post("/api/settings/email-alert/qualified-models", json={
+            "enabled": True, "emails": "", "weeklyProductionThreshold": 12,
+            "modelTargets": {"X1": 98}, "company5000Targets": {"X1": 95},
+            "alertStandards": ["company5000"],
+        })
+        assert response.status_code == 200
+        assert received == {"threshold": 12, "targets": {"X1": 98}, "company_targets": {"X1": 95}, "standards": ["company5000"]}
         assert await db_clean.configs.find_one({"key": "email_alert_config"}) is None
 
     async def test_manual_alert_rejects_invalid_current_email(self, client):

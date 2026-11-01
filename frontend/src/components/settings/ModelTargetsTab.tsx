@@ -6,6 +6,8 @@ import { buildModelTargetsTemplate, parseModelTargetsTemplate } from './modelTar
 interface ModelTargetsTabProps {
   targets: Record<string, number>;
   onChange: (targets: Record<string, number>) => void;
+  companyTargets?: Record<string, number>;
+  onCompanyChange?: (targets: Record<string, number>) => void;
   disabled?: boolean;
   onBusyChange?: (busy: boolean) => void;
 }
@@ -22,7 +24,7 @@ function readFile(file: File): Promise<ArrayBuffer> {
   });
 }
 
-export function ModelTargetsTab({ targets, onChange, disabled = false, onBusyChange }: ModelTargetsTabProps) {
+export function ModelTargetsTab({ targets, onChange, companyTargets = {}, onCompanyChange, disabled = false, onBusyChange }: ModelTargetsTabProps) {
   const fileInput = useRef<HTMLInputElement>(null);
   const latestTargets = useRef(targets);
   latestTargets.current = targets;
@@ -35,7 +37,7 @@ export function ModelTargetsTab({ targets, onChange, disabled = false, onBusyCha
   const [newModel, setNewModel] = useState('');
   const [newTarget, setNewTarget] = useState('100');
   const locked = disabled || busy !== null;
-  const entries = Object.entries(targets).filter(([model]) => model.toLowerCase().includes(search.trim().toLowerCase()));
+  const entries = [...new Set([...Object.keys(targets), ...Object.keys(companyTargets)])].filter(model => model.toLowerCase().includes(search.trim().toLowerCase())).map(model => [model, targets[model]] as const);
   const pages = Math.max(1, Math.ceil(entries.length / PAGE_SIZE));
   const currentPage = Math.min(page, pages - 1);
   const visible = entries.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE);
@@ -124,7 +126,7 @@ export function ModelTargetsTab({ targets, onChange, disabled = false, onBusyCha
       <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
         <div>
           <h3 className="text-base font-semibold text-slate-800">直通率标准配置</h3>
-          <p className="mt-1 text-xs text-slate-500">未配置机型默认标准为 100%</p>
+          <p className="mt-1 text-xs text-slate-500">集团标准未配置时默认为 100%；5000 公司标准未配置时不参与告警。模板用于集团标准。</p>
         </div>
         <div className="flex items-center gap-2">
           <button type="button" onClick={() => void downloadTemplate()} disabled={locked} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-300 px-3 text-sm text-slate-700 hover:bg-slate-50 disabled:opacity-50">
@@ -152,7 +154,8 @@ export function ModelTargetsTab({ targets, onChange, disabled = false, onBusyCha
           <thead className="sticky top-0 bg-slate-50 text-slate-600">
             <tr>
               <th className="px-3 py-2 font-medium">机型名称</th>
-              <th className="px-3 py-2 font-medium">直通率标准 (%)</th>
+              <th className="px-3 py-2 font-medium">集团标准 (%)</th>
+              <th className="px-3 py-2 font-medium">5000 公司标准 (%)</th>
               <th className="w-12 px-2 py-2"><span className="sr-only">操作</span></th>
             </tr>
           </thead>
@@ -161,14 +164,15 @@ export function ModelTargetsTab({ targets, onChange, disabled = false, onBusyCha
               <tr key={model} className="hover:bg-slate-50">
                 <td className="break-all px-3 py-2 font-medium text-slate-800">{model}</td>
                 <td className="px-3 py-2">
-                  <input aria-label={`${model} 直通率标准`} type="number" min="0" max="100" step="any" value={target} disabled={locked} onChange={event => changeTarget(model, event.target.value)} className="h-8 w-24 max-w-full rounded border border-slate-300 px-2 text-right text-sm outline-none focus:border-blue-500 disabled:opacity-50" />
+                  <input aria-label={`${model} 直通率标准`} type="number" min="0" max="100" step="any" value={target ?? 100} disabled={locked} onChange={event => changeTarget(model, event.target.value)} className="h-8 w-24 max-w-full rounded border border-slate-300 px-2 text-right text-sm outline-none focus:border-blue-500 disabled:opacity-50" />
                 </td>
+                <td className="px-3 py-2"><input aria-label={`${model} 5000公司标准`} type="number" min="0" max="100" step="any" placeholder="未配置" value={companyTargets[model] ?? ''} disabled={locked} onChange={event => { const value = event.target.value; const next = { ...companyTargets }; if (value === '') delete next[model]; else if (Number.isFinite(Number(value)) && Number(value) >= 0 && Number(value) <= 100) next[model] = Number(value); else return; onCompanyChange?.(next); }} className="h-8 w-24 max-w-full rounded border border-slate-300 px-2 text-right text-sm outline-none focus:border-blue-500 disabled:opacity-50" /></td>
                 <td className="px-2 py-2">
-                  <button type="button" disabled={locked} onClick={() => { const next = { ...targets }; delete next[model]; onChange(next); }} aria-label={`删除 ${model}`} title={`删除 ${model}`} className="flex h-8 w-8 items-center justify-center rounded text-red-500 hover:bg-red-50 disabled:opacity-50"><Trash2 className="h-4 w-4" /></button>
+                  <button type="button" disabled={locked} onClick={() => { const next = { ...targets }; delete next[model]; onChange(next); const company = { ...companyTargets }; delete company[model]; onCompanyChange?.(company); }} aria-label={`删除 ${model}`} title={`删除 ${model}`} className="flex h-8 w-8 items-center justify-center rounded text-red-500 hover:bg-red-50 disabled:opacity-50"><Trash2 className="h-4 w-4" /></button>
                 </td>
               </tr>
             ))}
-            {!visible.length && <tr><td colSpan={3} className="px-3 py-8 text-center text-sm text-slate-400">{search ? '未找到匹配机型' : '暂无已配置机型'}</td></tr>}
+            {!visible.length && <tr><td colSpan={4} className="px-3 py-8 text-center text-sm text-slate-400">{search ? '未找到匹配机型' : '暂无已配置机型'}</td></tr>}
           </tbody>
         </table>
       </div>

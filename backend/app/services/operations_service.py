@@ -18,7 +18,7 @@ MODULE_LABELS = {
     "reinsert-rate": "重插率分析",
     "lrr": "LRR 故障率",
     "process-records": "关键工位影像",
-    "incoming-materials": "来料异常",
+    "incoming-materials": "来料质量",
     "settings": "系统配置",
     "alert-report": "预警报告",
     "operations": "运营监控",

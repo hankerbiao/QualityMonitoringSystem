@@ -67,6 +67,7 @@ class SettingsService:
         return SettingsResponse(
             processRecords=self.process_records_from_doc(docs["process_record_config"]),
             modelTargets=(docs["model_targets"] or {}).get("targets", {}),
+            company5000Targets=(docs["model_targets"] or {}).get("company5000Targets", {}),
             emailAlert=self.email_from_doc(docs["email_alert_config"]),
             dashboardStatuses=self.dashboard_statuses_from_doc(docs["dashboard_statuses"]),
             cycleStatsConfig=CycleStatsConfig(
@@ -86,6 +87,7 @@ class SettingsService:
         stations = await self.read_doc("station_pass_rate_config")
         return QualitySettingsResponse(
             modelTargets=(targets or {}).get("targets", {}),
+            company5000Targets=(targets or {}).get("company5000Targets", {}),
             emailAlert=self.email_from_doc(email),
             stationPassRateConfig=StationPassRateConfig(
                 selectedStations=(stations or {}).get("selectedStations", []),
@@ -107,6 +109,8 @@ class SettingsService:
 
         if request.modelTargets is not None:
             updates.append(("model_targets", {"targets": request.modelTargets}))
+        if request.company5000Targets is not None:
+            updates.append(("model_targets", {"company5000Targets": request.company5000Targets}))
 
         if request.emailAlert is not None:
             data = request.emailAlert.model_dump(exclude_none=True)
@@ -187,4 +191,5 @@ class SettingsService:
             triggerCondition=trigger_condition
             or build_email_alert_trigger_condition(threshold),
             weeklyProductionThreshold=threshold,
+            alertStandards=doc.get("alertStandards", ["group"]),
         )

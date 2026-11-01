@@ -31,7 +31,7 @@ async def require_incoming_access(
     if user.get("role") != "admin":
         statuses = await SettingsService(get_database()).get_dashboard_statuses()
         if statuses["incoming-materials"] == "admin-only":
-            raise HTTPException(status_code=403, detail="来料异常看板仅管理员可见")
+            raise HTTPException(status_code=403, detail="来料质量看板仅管理员可见")
     return user
 
 

@@ -113,6 +113,8 @@ def build_alert_email_html(
         chips.append(f"基地 · {summary.base}")
     if summary.customer:
         chips.append(f"客户 · {summary.customer}")
+    for standard, rate in ctx.triggeredStandards.items():
+        chips.append(f"触发标准 · {standard} {rate}%")
     if ctx.salesOrder:
         chips.append(f"销售订单 · {ctx.salesOrder}")
     if ctx.productionOrder:

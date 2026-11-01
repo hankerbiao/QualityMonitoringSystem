@@ -78,7 +78,11 @@ async def run_weekly_production_check(
         }
 
     targets = (cfg_doc or {}).get("modelTargets")
-    candidates = await get_weekly_production_candidates(threshold, targets=targets)
+    candidates = await get_weekly_production_candidates(
+        threshold, targets=targets,
+        company_targets=(cfg_doc or {}).get("company5000Targets"),
+        standards=(cfg_doc or {}).get("alertStandards", ["group"]),
+    )
     start = candidates["window"]["from"]
     end = candidates["window"]["to"]
     details = candidates["details"]
@@ -93,13 +97,17 @@ async def run_weekly_production_check(
         input_count = detail["inputCount"]
         rty = detail["rtyRate"]
         target = detail["targetRate"]
+        triggered = detail["triggeredStandards"]
+        standard_text = "、".join(f"{name} {rate}%" for name, rate in triggered.items())
         ctx = AlertContext(
             productModel=model,
             dateFrom=start,
             dateTo=end,
             alertType="周生产量达标但 RTY 未达标",
             severity="警告",
-            title=f"{model} 周生产量 {input_count} 台，直通率 {rty}% 低于目标 {target}%",
+            title=f"{model} 周生产量 {input_count} 台，直通率 {rty}% 低于{standard_text}",
+            targetRateOverride=target,
+            triggeredStandards=triggered,
         )
         try:
             result = await send_rty_alert_email(ctx, config_override=cfg_doc)
@@ -144,16 +152,21 @@ async def get_weekly_production_candidates(
     threshold: int,
     *,
     targets: dict[str, float] | None = None,
+    company_targets: dict[str, float] | None = None,
+    standards: list[str] | None = None,
 ) -> dict:
     """返回达到生产量阈值且 RTY 未达标的机型，不发送邮件。"""
     db = get_database()
     start, end = compute_last_friday_window()
 
-    if targets is None:
+    if targets is None or company_targets is None:
         targets_doc = await db[Collections.CONFIGS].find_one({"key": "model_targets"})
-        targets_map: dict[str, float] = (targets_doc or {}).get("targets", {}) or {}
+        targets_map: dict[str, float] = targets if targets is not None else (targets_doc or {}).get("targets", {}) or {}
+        company_map: dict[str, float] = company_targets if company_targets is not None else (targets_doc or {}).get("company5000Targets", {}) or {}
     else:
         targets_map = targets
+        company_map = company_targets
+    selected = standards if standards is not None else ["group"]
 
     # Use the same gateway normalization and order eligibility as the RTY dashboard.
     orders = await _orders({"dateFrom": start[:10], "dateTo": end[:10]})
@@ -189,17 +202,21 @@ async def get_weekly_production_candidates(
             )
         )
         defect_count = len(defect_sns)
-        target = float(targets_map.get(model, 100))
         rty = round((input_count - defect_count) / input_count * 100, 2) if input_count else 100.0
-        below_target = rty < target
-        if below_target:
+        triggered: dict[str, float] = {}
+        if "group" in selected and rty < float(targets_map.get(model, 100)):
+            triggered["集团标准"] = float(targets_map.get(model, 100))
+        if "company5000" in selected and model in company_map and rty < float(company_map[model]):
+            triggered["5000公司标准"] = float(company_map[model])
+        if triggered:
             details.append(
                 {
                     "productModel": model,
                     "inputCount": input_count,
                     "defectCount": defect_count,
                     "rtyRate": rty,
-                    "targetRate": target,
+                    "targetRate": max(triggered.values()),
+                    "triggeredStandards": triggered,
                 }
             )
 

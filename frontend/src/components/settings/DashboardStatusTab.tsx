@@ -4,7 +4,6 @@ import {
   fieldQualityModules,
   qualityModules,
   repairProcessModules,
-  toolModules,
   type HomeModuleStatus,
 } from '../../config/homeModules';
 
@@ -34,7 +33,7 @@ export default function DashboardStatusTab({ statuses, onChange }: Props) {
         </p>
       </div>
       <div className="divide-y divide-slate-100 rounded-md border border-slate-200">
-        {[...qualityModules, ...repairProcessModules, ...fieldQualityModules, ...toolModules.filter(module => module.id === 'incoming-materials')].map((module) => {
+        {[...qualityModules, ...repairProcessModules, ...fieldQualityModules].map((module) => {
           const Icon = icons[module.id as keyof typeof icons];
           const status = statuses[module.id] ?? DEFAULT_DASHBOARD_STATUSES[module.id];
           return (

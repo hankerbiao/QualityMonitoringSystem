@@ -36,6 +36,8 @@ describe('settingsApi.testEmail', () => {
       emails: 'qa@example.com',
       weeklyProductionThreshold: 12,
       modelTargets: { 'Model A': 98 },
+      company5000Targets: {},
+      alertStandards: ['group' as const],
     };
     const result = {
       checked: true,

@@ -23,6 +23,8 @@ class AlertContext(BaseModel):
     alertType: str = Field("RTY 未达标", description="告警类型")
     severity: str = Field("严重", description="严重级别: 严重/警告/提示")
     title: str | None = Field(None, description="自定义标题")
+    targetRateOverride: float | None = Field(None, ge=0, le=100)
+    triggeredStandards: dict[str, float] = Field(default_factory=dict)
 
 
 class AlertReportSummary(BaseModel):

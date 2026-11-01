@@ -30,6 +30,7 @@ import { CycleMultiSelect, type CycleFilterOption } from './rty/CycleMultiSelect
 interface AlertConfigModalProps {
   onClose?: () => void;
   modelTargets?: Record<string, number>;
+  company5000Targets?: Record<string, number>;
   embedded?: boolean;
   onDetailOpen?: () => void;
   orderScope?: RTYFilterParams['orderScope'];
@@ -305,6 +306,7 @@ function filterCycleData(
 export default function AlertConfigModal({
   onClose,
   modelTargets = {},
+  company5000Targets = {},
   embedded = false,
   onDetailOpen,
   orderScope = 'normal',
@@ -469,7 +471,8 @@ export default function AlertConfigModal({
           产量: item.inputCount,
           故障数: item.defectCount,
           直通率: item.rtyRate === null ? '-' : `${item.rtyRate.toFixed(3)}%`,
-          目标直通率: `${item.targetRate.toFixed(3)}%`,
+          集团标准: `${item.targetRate.toFixed(3)}%`,
+          '5000公司标准': company5000Targets[item.model] === undefined ? '-' : `${company5000Targets[item.model]}%`,
           状态: item.rtyRate === null ? '-' : item.rtyRate >= item.targetRate ? '达成' : '未达标',
         }));
       const source = await rtyApi.getCycleExport({
@@ -897,16 +900,6 @@ export default function AlertConfigModal({
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex items-center gap-4">
                     <h5 className="text-xs font-semibold text-slate-700">RTY 热力图</h5>
-                    <div className="flex items-center gap-4 text-[10px] text-slate-500">
-                      <span className="flex items-center gap-1">
-                        <span className="w-3 h-3 rounded-sm bg-green-500 inline-block"></span>
-                        达成
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <span className="w-3 h-3 rounded-sm bg-red-500 inline-block"></span>
-                        未达成
-                      </span>
-                    </div>
                   </div>
                 </div>
                 <div className="overflow-x-auto border border-slate-200 rounded-sm">
@@ -914,6 +907,8 @@ export default function AlertConfigModal({
                     <thead className="bg-[#f8fafc] border-b border-slate-200">
                       <tr>
                         <th className="px-3 py-2 border-r border-slate-100 text-[11px] font-semibold text-slate-600 whitespace-nowrap sticky left-0 bg-[#f8fafc] z-10">机型</th>
+                        <th className="px-2 py-2 border-r border-slate-100 text-[10px] text-slate-600 text-center whitespace-nowrap">集团标准</th>
+                        <th className="px-2 py-2 border-r border-slate-100 text-[10px] text-slate-600 text-center whitespace-nowrap">5000公司标准</th>
                         {heatmapMonths.map(month => (
                           <th key={month} className="px-2 py-2 border-r border-slate-100 text-[10px] text-slate-500 text-center min-w-[60px]">{month}</th>
                         ))}
@@ -934,6 +929,7 @@ export default function AlertConfigModal({
                             <td className={`px-3 py-2 border-r border-slate-200 text-[11px] whitespace-nowrap sticky left-0 z-10 ${tone}`}>
                               {row.label}
                             </td>
+                            <td className="text-center text-xs">-</td><td className="text-center text-xs">-</td>
                             {heatmapMonths.map(month => {
                               const cell = row.months[month];
                               return (
@@ -990,31 +986,18 @@ export default function AlertConfigModal({
                             <td className="px-3 py-2 border-r border-slate-100 text-[11px] font-medium text-slate-700 whitespace-nowrap sticky left-0 bg-white z-10">
                               {row.model}
                             </td>
+                            <td className="px-2 py-2 border-r border-slate-100 text-center text-[10px] text-slate-700">{modelTargets[row.model] ?? 100}%</td>
+                            <td className="px-2 py-2 border-r border-slate-100 text-center text-[10px] text-slate-700">{company5000Targets[row.model] === undefined ? '-' : `${company5000Targets[row.model]}%`}</td>
                             {heatmapMonths.map(month => {
                               const cell = row.cells[month];
                               const hasData = cell?.text && cell?.text !== '-';
                               const rtyMatch = cell?.text?.match(/^([\d.]+)%/);
                               const rty = rtyMatch ? parseFloat(rtyMatch[1]) : null;
                               
-                              let bgClass = 'bg-slate-50';
-                              let textClass = 'text-slate-400';
-                              let fontClass = '';
-                              
-                              if (hasData && rty !== null) {
-                                if (cell.belowTarget) {
-                                  bgClass = 'bg-red-100';
-                                  textClass = 'text-red-700';
-                                  fontClass = 'font-semibold';
-                                } else {
-                                  bgClass = 'bg-green-100';
-                                  textClass = 'text-green-700';
-                                }
-                              }
-                              
                               return (
                                 <td 
                                   key={month} 
-                                  className={`px-2 py-2 border-r border-slate-100 text-center text-[10px] ${bgClass} ${textClass} ${fontClass}`}
+                                  className={`px-2 py-2 border-r border-slate-100 text-center text-[10px] ${hasData ? 'text-slate-700' : 'bg-slate-50 text-slate-400'}`}
                                   title={cell?.text || ''}
                                 >
                                   {hasData ? (
@@ -1037,7 +1020,7 @@ export default function AlertConfigModal({
                                 </td>
                               );
                             })}
-                            <td className={`px-2 py-2 border-r border-slate-100 text-center text-[10px] font-semibold bg-slate-100 ${totalRty === null ? 'text-slate-400' : totalRty >= row.targetRate ? 'text-green-700' : 'text-red-600'}`}>
+                            <td className={`px-2 py-2 border-r border-slate-100 text-center text-[10px] font-semibold bg-slate-100 ${totalRty === null ? 'text-slate-400' : 'text-slate-700'}`}>
                               {totalRty === null ? '-' : (
                                 <button
                                   type="button"

@@ -98,7 +98,7 @@ async def build_alert_report(
 
     rty_rate = round((input_count - defect_count) / input_count * 100, 2) if input_count else 100.0
     product_model = context.productModel or ""
-    target_rate = float(targets_map.get(product_model, 100))
+    target_rate = context.targetRateOverride if context.targetRateOverride is not None else float(targets_map.get(product_model, 100))
     reached = rty_rate >= target_rate
 
     defects = []

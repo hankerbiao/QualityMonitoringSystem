@@ -20,6 +20,7 @@ export interface WeeklyQualifiedModels {
     defectCount: number;
     rtyRate: number;
     targetRate: number;
+    triggeredStandards?: Record<string, number>;
   }>;
 }
 
@@ -77,8 +78,8 @@ export const settingsApi = {
     return payload.data;
   },
 
-  async getWeeklyQualifiedModels(threshold: number): Promise<WeeklyQualifiedModels> {
-    return requestData<WeeklyQualifiedModels>(`${API_BASE_URL}/settings/email-alert/qualified-models?threshold=${threshold}`);
+  async getWeeklyQualifiedModels(config: { enabled: boolean; emails: string; weeklyProductionThreshold: number; modelTargets: Record<string, number>; company5000Targets: Record<string, number>; alertStandards: Array<'group' | 'company5000'> }): Promise<WeeklyQualifiedModels> {
+    return requestData<WeeklyQualifiedModels>(`${API_BASE_URL}/settings/email-alert/qualified-models`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(config) });
   },
 
   async sendCurrentEmailAlerts(config: {
@@ -86,6 +87,8 @@ export const settingsApi = {
     emails: string;
     weeklyProductionThreshold: number;
     modelTargets: Record<string, number>;
+    company5000Targets: Record<string, number>;
+    alertStandards: Array<'group' | 'company5000'>;
   }): Promise<ManualWeeklyEmailCheckResult> {
     return requestData<ManualWeeklyEmailCheckResult>(`${API_BASE_URL}/settings/email-alert/send-current`, {
       method: 'POST',

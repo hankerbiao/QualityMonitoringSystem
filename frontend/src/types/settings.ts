@@ -27,11 +27,13 @@ export interface EmailAlertConfig {
   emails: string;
   triggerCondition: string;
   weeklyProductionThreshold: number;
+  alertStandards?: Array<'group' | 'company5000'>;
 }
 
 export interface SettingsResponse {
   processRecords: ProcessRecordConfig;
   modelTargets: ModelTargets;
+  company5000Targets?: ModelTargets;
   emailAlert: EmailAlertConfig;
   dashboardStatuses: Record<string, HomeModuleStatus>;
   cycleStatsConfig: CycleStatsConfig;
@@ -40,7 +42,7 @@ export interface SettingsResponse {
 
 export type AccessibleSettingsResponse =
   | SettingsResponse
-  | Pick<SettingsResponse, 'modelTargets' | 'emailAlert' | 'stationPassRateConfig'>;
+  | Pick<SettingsResponse, 'modelTargets' | 'company5000Targets' | 'emailAlert' | 'stationPassRateConfig'>;
 
 export interface SettingsContextType {
   settings: SettingsResponse;
@@ -53,6 +55,7 @@ export interface SettingsContextType {
 export interface SettingsUpdate {
   processRecords?: Partial<ProcessRecordConfig>;
   modelTargets?: ModelTargets;
+  company5000Targets?: ModelTargets;
   emailAlert?: Partial<EmailAlertConfig>;
   dashboardStatuses?: Record<string, HomeModuleStatus>;
   cycleStatsConfig?: CycleStatsConfig;

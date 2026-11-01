@@ -1,3 +1,5 @@
+import pytest
+
 from app.models.documents import Collections
 from app.services import weekly_alert
 
@@ -53,6 +55,7 @@ async def test_get_weekly_production_candidates_uses_gateway_orders_and_faults(m
             "defectCount": 1,
             "rtyRate": 66.67,
             "targetRate": 90.0,
+            "triggeredStandards": {"集团标准": 90.0},
         }
     ]
 
@@ -62,6 +65,33 @@ async def test_get_weekly_production_candidates_uses_gateway_orders_and_faults(m
     )
     assert current_targets["modelsChecked"] == 2
     assert current_targets["details"] == []
+
+
+@pytest.mark.parametrize(
+    ("standards", "company_targets", "expected"),
+    [
+        (["group"], {"Model A": 80}, {"集团标准": 90.0}),
+        (["company5000"], {"Model A": 80}, {"5000公司标准": 80.0}),
+        (["group", "company5000"], {"Model A": 80}, {"集团标准": 90.0, "5000公司标准": 80.0}),
+        (["company5000"], {}, {}),
+        (["company5000"], {"Model A": 60}, {}),
+    ],
+)
+async def test_selected_standards_control_alerts(monkeypatch, standards, company_targets, expected):
+    monkeypatch.setattr(weekly_alert, "get_database", lambda: FakeDatabase())
+
+    async def orders(_):
+        return [{"aufnr": "1", "data": {"MAKTX_TH": "Model A", "WMENG": 3}}]
+
+    async def faults(*_, **__):
+        return {"1": {"SN-1"}}
+
+    monkeypatch.setattr(weekly_alert, "_orders", orders)
+    monkeypatch.setattr(weekly_alert, "_fault_sns_by_orders", faults)
+    result = await weekly_alert.get_weekly_production_candidates(
+        1, targets={"Model A": 90}, company_targets=company_targets, standards=standards,
+    )
+    assert [item["triggeredStandards"] for item in result["details"]] == ([expected] if expected else [])
 
 
 async def test_manual_check_uses_current_config_for_candidates_and_mail(monkeypatch):
@@ -77,12 +107,13 @@ async def test_manual_check_uses_current_config_for_candidates_and_mail(monkeypa
                 "defectCount": 2,
                 "rtyRate": 83.33,
                 "targetRate": 90,
+                "triggeredStandards": {"集团标准": 90},
             }
         ],
     }
 
-    async def load_candidates(threshold, *, targets=None):
-        calls["candidate_config"] = {"threshold": threshold, "targets": targets}
+    async def load_candidates(threshold, *, targets=None, company_targets=None, standards=None):
+        calls["candidate_config"] = {"threshold": threshold, "targets": targets, "company_targets": company_targets, "standards": standards}
         return candidates
 
     async def send_email(context, *, config_override=None):
@@ -103,7 +134,7 @@ async def test_manual_check_uses_current_config_for_candidates_and_mail(monkeypa
     result = await weekly_alert.run_weekly_production_check(config)
 
     assert calls == {
-        "candidate_config": {"threshold": 12, "targets": {"Model A": 90}},
+        "candidate_config": {"threshold": 12, "targets": {"Model A": 90}, "company_targets": None, "standards": ["group"]},
         "mail_config": config,
         "model": "Model A",
     }

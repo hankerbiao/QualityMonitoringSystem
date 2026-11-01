@@ -51,6 +51,8 @@ describe('EmailAlertTab', () => {
       emails: 'qa@example.com',
       weeklyProductionThreshold: 10,
       modelTargets,
+      company5000Targets: {},
+      alertStandards: ['group'],
     });
     expect((await screen.findByRole('alert')).textContent).toContain('1 个机型发送失败：Model A');
     expect(screen.queryByText('已尝试发送测试邮件')).toBeNull();

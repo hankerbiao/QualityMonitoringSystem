@@ -42,11 +42,13 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
   const [processRecordConfig, setProcessRecordConfig] = useState<ProcessRecordConfig>({ ...settings.processRecords, password: '' });
   const [emailConfig, setEmailConfig] = useState(settings.emailAlert);
   const [modelTargets, setModelTargets] = useState(settings.modelTargets);
+  const [company5000Targets, setCompany5000Targets] = useState(settings.company5000Targets ?? {});
   const [dashboardStatuses, setDashboardStatuses] = useState<Record<string, HomeModuleStatus>>(settings.dashboardStatuses);
 
   useEffect(() => {
     setProcessRecordConfig({ ...settings.processRecords, password: '' });
     setModelTargets(settings.modelTargets);
+    setCompany5000Targets(settings.company5000Targets ?? {});
     setDashboardStatuses(settings.dashboardStatuses);
     setEmailConfig(settings.emailAlert);
   }, [settings]);
@@ -58,6 +60,7 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
     try {
       await updateSettings({
         modelTargets,
+        company5000Targets,
         emailAlert: emailConfig,
         ...(isAdmin ? {
           processRecords: { username: processRecordConfig.username, password: processRecordConfig.password },
@@ -150,12 +153,13 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
                 <ProcessRecordConfigTab config={processRecordConfig} onChange={setProcessRecordConfig} />
               )}
               {selectedTab === 'rty' && (
-                <ModelTargetsTab targets={modelTargets} onChange={setModelTargets} disabled={saving} onBusyChange={setModelTargetsBusy} />
+                <ModelTargetsTab targets={modelTargets} onChange={setModelTargets} companyTargets={company5000Targets} onCompanyChange={setCompany5000Targets} disabled={saving} onBusyChange={setModelTargetsBusy} />
               )}
               {selectedTab === 'email' && (
                 <EmailAlertTab
                   config={emailConfig}
                   modelTargets={modelTargets}
+                  company5000Targets={company5000Targets}
                   canRunImmediately={isAdmin}
                   onChange={setEmailConfig}
                 />

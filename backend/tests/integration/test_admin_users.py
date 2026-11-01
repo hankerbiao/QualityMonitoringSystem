@@ -260,7 +260,7 @@ class TestAdminUsers:
         alice_headers = await _user_headers(client)
         shared = await client.get("/api/settings", headers=alice_headers)
         assert shared.status_code == 200
-        assert set(shared.json()["data"]) == {"modelTargets", "emailAlert", "stationPassRateConfig"}
+        assert set(shared.json()["data"]) == {"modelTargets", "company5000Targets", "emailAlert", "stationPassRateConfig"}
 
         promoted = await client.patch(
             "/api/admin/users/alice", headers=admin_headers, json={"role": "admin"}
@@ -302,7 +302,7 @@ class TestAdminUsers:
             assert (await client.get(path, headers=alice_headers)).status_code == 403
         shared = await client.get("/api/settings", headers=alice_headers)
         assert shared.status_code == 200
-        assert set(shared.json()["data"]) == {"modelTargets", "emailAlert", "stationPassRateConfig"}
+        assert set(shared.json()["data"]) == {"modelTargets", "company5000Targets", "emailAlert", "stationPassRateConfig"}
         assert (
             await client.patch(
                 "/api/admin/users/alice", headers=alice_headers, json={"role": "admin"}

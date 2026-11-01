@@ -97,7 +97,7 @@ export default function RTYPage() {
   const [orderListOpen, setOrderListOpen] = useState(false);
   const [orderListData, setOrderListData] = useState<{ title: string; orders: string[]; filterKey: 'salesOrder' | 'productionOrder' }>({ title: '', orders: [], filterKey: 'salesOrder' });
 
-  const { settings: { modelTargets } } = useSettings();
+  const { settings: { modelTargets, company5000Targets } } = useSettings();
 
   // 获取数据
   const fetchData = useCallback(async (targetPage = page) => {
@@ -224,6 +224,7 @@ export default function RTYPage() {
         <AlertConfigModal
           embedded
           modelTargets={modelTargets}
+          company5000Targets={company5000Targets}
           onDetailOpen={openDetails}
           orderScope={filters.orderScope}
           onOrderScopeChange={(orderScope) => setFilters(current => ({ ...current, orderScope }))}
@@ -401,7 +402,7 @@ export default function RTYPage() {
                               setDefectModalData({ filters: defectFilters, label });
                             }
                           }}
-                          className={`font-semibold focus:outline-none ${row.defectCount > 0 ? 'text-[#dc2626] hover:text-[#b91c1c] hover:underline cursor-pointer' : 'text-slate-400 cursor-default'}`}
+                          className={`font-semibold focus:outline-none ${row.defectCount > 0 ? 'text-slate-700 hover:underline cursor-pointer' : 'text-slate-400 cursor-default'}`}
                         >
                           {row.defectCount}
                         </button>
@@ -415,11 +416,11 @@ export default function RTYPage() {
                       </td>
                       <td className="px-3 py-2 text-center">
                         {row.rtyRate >= (modelTargets[row.productModel] ?? row.targetRate ?? 100) ? (
-                          <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-[2px] bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-medium leading-tight">
+                          <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-[2px] bg-slate-50 text-slate-700 border border-slate-200 text-[10px] font-medium leading-tight">
                             达成
                           </span>
                         ) : (
-                          <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-[2px] bg-red-50 text-red-700 border border-red-200 text-[10px] font-medium leading-tight">
+                          <span className="inline-flex items-center justify-center px-1.5 py-0.5 rounded-[2px] bg-slate-50 text-slate-700 border border-slate-200 text-[10px] font-medium leading-tight">
                             未达标
                           </span>
                         )}

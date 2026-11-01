@@ -12,7 +12,7 @@ export function MultiSelect({ label, options, value, onChange }: MultiSelectProp
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const root = useRef<HTMLDivElement>(null);
-  const available = [...new Set([...value, ...options])];
+  const available = [...new Set([...options, ...value])];
   const normalizedSearch = search.trim().toLocaleLowerCase();
   const filtered = available.filter((option) => option.toLocaleLowerCase().includes(normalizedSearch));
   const title = label.replace(/（多选）$/, '');

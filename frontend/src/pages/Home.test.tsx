@@ -62,12 +62,12 @@ describe('home administrator settings access', () => {
     });
     await screen.findByText('Alice');
     expect(screen.queryByText('DOA 报修率')).toBeNull();
-    expect(screen.queryByText('来料异常')).toBeNull();
+    expect(screen.queryByText('来料质量')).toBeNull();
 
     vi.mocked(getCurrentUser).mockResolvedValue(response('admin'));
     await act(async () => { fireEvent(window, new Event('focus')); });
     expect(await screen.findByText('DOA 报修率')).toBeTruthy();
-    expect(screen.getByText('来料异常')).toBeTruthy();
+    expect(screen.getByText('来料质量')).toBeTruthy();
   });
 
   it('keeps repair quality administrator-only by default', async () => {
@@ -98,6 +98,18 @@ describe('home administrator settings access', () => {
     fireEvent.change(screen.getByRole('searchbox', { name: '搜索功能' }), { target: { value: 'MFR' } });
     expect(screen.queryByText('DOA 报修率')).toBeNull();
     expect(screen.getByText('MFR（现网月化故障率）')).toBeTruthy();
+  });
+
+  it('places incoming materials under the core quality dashboards', async () => {
+    vi.mocked(getCurrentUser).mockResolvedValue(response('admin'));
+    await act(async () => {
+      render(<MemoryRouter><AuthProvider><Home /></AuthProvider></MemoryRouter>);
+    });
+
+    const coreSection = await screen.findByRole('region', { name: '核心质量看板' });
+    const toolsSection = screen.getByRole('region', { name: '关键工位影像追溯' });
+    expect(within(coreSection).getByRole('link', { name: /来料质量/ }).getAttribute('href')).toBe('/incoming-materials');
+    expect(within(toolsSection).queryByText('来料质量')).toBeNull();
   });
 
   it('groups repair dashboards separately and supports category filtering and search', async () => {

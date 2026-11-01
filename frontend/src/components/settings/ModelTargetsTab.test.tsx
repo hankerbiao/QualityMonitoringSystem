@@ -14,7 +14,8 @@ vi.mock('xlsx', async importOriginal => ({
 
 function Harness() {
   const [targets, setTargets] = useState({ Existing: 97 } as Record<string, number>);
-  return <ModelTargetsTab targets={targets} onChange={setTargets} />;
+  const [companyTargets, setCompanyTargets] = useState<Record<string, number>>({});
+  return <ModelTargetsTab targets={targets} onChange={setTargets} companyTargets={companyTargets} onCompanyChange={setCompanyTargets} />;
 }
 
 function file(rows: unknown[][]): File {
@@ -26,6 +27,17 @@ function file(rows: unknown[][]): File {
 describe('model target bulk controls', () => {
   beforeEach(() => vi.resetAllMocks());
   afterEach(cleanup);
+
+  it('edits and clears the 5000 company standard independently', () => {
+    render(<Harness />);
+    const input = screen.getByLabelText('Existing 5000公司标准') as HTMLInputElement;
+    expect(input.value).toBe('');
+    fireEvent.change(input, { target: { value: '95' } });
+    expect(input.value).toBe('95');
+    expect((screen.getByLabelText('Existing 直通率标准') as HTMLInputElement).value).toBe('97');
+    fireEvent.change(input, { target: { value: '' } });
+    expect(input.value).toBe('');
+  });
 
   it('downloads fresh source models with draft targets and 100 defaults', async () => {
     vi.mocked(settingsApi.getModelTargetSourceModels).mockResolvedValue(['M', 'L6']);

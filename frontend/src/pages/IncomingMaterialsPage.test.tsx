@@ -10,6 +10,28 @@ vi.mock('../api/authApi', () => ({ requestData: vi.fn(), apiFetch: vi.fn().mockR
 vi.mock('xlsx', async importOriginal => ({ ...await importOriginal<typeof import('xlsx')>(), writeFile: vi.fn() }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
+it('ranks the top five suppliers by filtered abnormal record count', async () => {
+  const suppliers = ['甲', '甲 ', '甲', '甲', '甲', '甲', '乙', '乙', '乙', '乙', '乙', '丙', '丙', '丙', '丙', '丁', '丁', '丁', '戊', '戊', '己', ''];
+  vi.mocked(requestData).mockResolvedValue({
+    queriedAt: '2026-10-29T00:00:00Z', upstreamTotal: suppliers.length, readCount: suppliers.length,
+    matchedCount: suppliers.length, complete: true,
+    rows: suppliers.map((supplier, index) => ({ id: index, supplier, basecode: index < 6 ? 'TJ' : 'KS' })),
+  });
+  render(<MemoryRouter><IncomingMaterialsPage /></MemoryRouter>);
+  expect(await screen.findByRole('heading', { name: '来料质量' })).toBeTruthy();
+  const chart = screen.getByRole('heading', { name: '厂商分布 TOP 5' }).closest('div')?.parentElement?.parentElement;
+  expect(chart).toBeTruthy();
+  const labels = within(chart as HTMLElement).getAllByTitle(/.+/).map(item => item.textContent);
+  expect(labels).toEqual(['甲', '乙', '丙', '丁', '戊']);
+  expect(within(chart as HTMLElement).getByText('6')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '基地（多选）' }));
+  fireEvent.click(screen.getByRole('checkbox', { name: '天津' }));
+  fireEvent.click(screen.getByRole('button', { name: '基地（多选）' }));
+  fireEvent.click(screen.getByRole('button', { name: '筛选数据' }));
+  expect(within(chart as HTMLElement).getAllByTitle(/.+/).map(item => item.textContent)).toEqual(['甲']);
+  expect(within(chart as HTMLElement).getByText('6')).toBeTruthy();
+});
+
 it('filters and clears loaded data without requesting the upstream again', async () => {
   vi.mocked(requestData).mockResolvedValue({
     queriedAt: '2026-10-29T00:00:00Z', upstreamTotal: 1000, readCount: 1000,
@@ -19,8 +41,9 @@ it('filters and clears loaded data without requesting the upstream again', async
   render(<MemoryRouter><IncomingMaterialsPage /></MemoryRouter>);
   expect(await screen.findByText('DN00')).toBeTruthy();
   expect(screen.getByText('已读取全部上游分页')).toBeTruthy();
-  expect(screen.getByText('库位匹配 *N00')).toBeTruthy();
-  expect(screen.getByText('仅显示库位信息以 N00 结尾的记录，如 DN00、9N00。')).toBeTruthy();
+  expect(screen.queryByText('库位匹配 *N00')).toBeNull();
+  expect(screen.queryByText('仅显示库位信息以 N00 结尾的记录，如 DN00、9N00。')).toBeNull();
+  expect(screen.queryByText(/点击详情查看完整字段/)).toBeNull();
   expect(screen.queryByText('上游总记录')).toBeNull();
   expect(screen.queryByText('已读取记录')).toBeNull();
   expect(screen.queryByText('符合 N00 库位')).toBeNull();
@@ -29,7 +52,7 @@ it('filters and clears loaded data without requesting the upstream again', async
   fireEvent.change(screen.getByLabelText('关键词（搜索所有字段）'), { target: { value: 'ABC' } });
   fireEvent.click(screen.getByRole('button', { name: '筛选数据' }));
   expect(screen.queryByText('XYZ')).toBeNull();
-  expect(screen.getByText('共 1 条 · 点击详情查看完整字段')).toBeTruthy();
+  expect(screen.getByText('DN00')).toBeTruthy();
   expect(requestData).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole('button', { name: '刷新' }));
   await waitFor(() => expect(requestData).toHaveBeenCalledTimes(2));

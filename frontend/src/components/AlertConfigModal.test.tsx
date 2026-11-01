@@ -74,7 +74,7 @@ describe('cycle query and export', () => {
     expect(screen.getByRole('button', { name: '订单类型 (1)' })).toBeTruthy();
     expect(rtyApi.getCycleData).toHaveBeenCalledWith('normal', [], expect.objectContaining({ orderTypes: ['PP01'] }));
     const modelRow = screen.getByRole('row', { name: /Model A/ });
-    fireEvent.click(within(modelRow).getAllByRole('cell')[1].querySelector('button')!);
+    fireEvent.click(within(modelRow).getAllByRole('cell')[3].querySelector('button')!);
     await waitFor(() => expect(rtyApi.getCycleDetails).toHaveBeenCalledWith(expect.objectContaining({ orderTypes: ['PP01'] })));
     fireEvent.click(screen.getByRole('button', { name: '关闭明细' }));
     fireEvent.click(screen.getByRole('button', { name: '导出' }));
@@ -197,13 +197,13 @@ describe('cycle query and export', () => {
   });
 
   it.each([
-    { name: 'configured target', target: 92, sourceTarget: 100, input: 360, defects: 8, rate: '97.78%', color: 'text-green-700' },
-    { name: 'exact target', target: 92, sourceTarget: 100, input: 400, defects: 32, rate: '92.00%', color: 'text-green-700' },
-    { name: 'below target', target: 92, sourceTarget: 85, input: 400, defects: 33, rate: '91.75%', color: 'text-red-600' },
-    { name: 'server target', target: undefined, sourceTarget: 92, input: 360, defects: 8, rate: '97.78%', color: 'text-green-700' },
-    { name: 'zero target', target: 0, sourceTarget: 100, input: 360, defects: 360, rate: '0.00%', color: 'text-green-700' },
+    { name: 'configured target', target: 92, sourceTarget: 100, input: 360, defects: 8, rate: '97.78%', color: 'text-slate-700' },
+    { name: 'exact target', target: 92, sourceTarget: 100, input: 400, defects: 32, rate: '92.00%', color: 'text-slate-700' },
+    { name: 'below target', target: 92, sourceTarget: 85, input: 400, defects: 33, rate: '91.75%', color: 'text-slate-700' },
+    { name: 'server target', target: undefined, sourceTarget: 92, input: 360, defects: 8, rate: '97.78%', color: 'text-slate-700' },
+    { name: 'zero target', target: 0, sourceTarget: 100, input: 360, defects: 360, rate: '0.00%', color: 'text-slate-700' },
     { name: 'no production', target: 92, sourceTarget: 92, input: 0, defects: 0, rate: '-', color: 'text-slate-400' },
-  ])('colors production totals using the $name', async ({ target, sourceTarget, input, defects, rate, color }) => {
+  ])('shows production totals without achievement colors for $name', async ({ target, sourceTarget, input, defects, rate, color }) => {
     vi.mocked(rtyApi.getCycleData).mockResolvedValue({
       ...result,
       data: [{ ...row, productModel: '3210 C3', inputCount: input, defectCount: defects, targetRate: sourceTarget }],
@@ -215,16 +215,17 @@ describe('cycle query and export', () => {
     expect(total.className).toContain(color);
   });
 
-  it('updates total colors when model targets change without reloading cycle data', async () => {
+  it('updates standard columns when targets change without reloading cycle data', async () => {
     vi.mocked(rtyApi.getCycleData).mockResolvedValue({
       ...result,
       data: [{ ...row, productModel: '3210 C3', inputCount: 360, defectCount: 8 }],
     });
     const view = render(<AlertConfigModal embedded modelTargets={{ '3210 C3': 92 }} />);
     const modelRow = await screen.findByRole('row', { name: /3210 C3/ });
-    expect(within(modelRow).getAllByRole('cell').at(-1)!.className).toContain('text-green-700');
-    view.rerender(<AlertConfigModal embedded modelTargets={{ '3210 C3': 99 }} />);
-    expect(within(modelRow).getAllByRole('cell').at(-1)!.className).toContain('text-red-600');
+    expect(within(modelRow).getAllByRole('cell')[1].textContent).toBe('92%');
+    view.rerender(<AlertConfigModal embedded modelTargets={{ '3210 C3': 99 }} company5000Targets={{ '3210 C3': 95 }} />);
+    expect(within(modelRow).getAllByRole('cell')[1].textContent).toBe('99%');
+    expect(within(modelRow).getAllByRole('cell')[2].textContent).toBe('95%');
   });
 
   it('places order controls immediately after the order summary toggle', async () => {
@@ -340,7 +341,7 @@ describe('cycle query and export', () => {
     expect(within(screen.getByRole('row', { name: /普通订单汇总/ })).getByText('1/10')).toBeTruthy();
     const l6 = within(screen.getByRole('row', { name: /L6 订单汇总/ }));
     expect(l6.queryByText('10 台')).toBeNull();
-    expect(l6.getAllByText('-')).toHaveLength(2);
+    expect(l6.getAllByText('-')).toHaveLength(4);
   });
 
   it('clears old results and blocks export after a new date range fails, then retries', async () => {
@@ -407,7 +408,7 @@ describe('cycle query and export', () => {
     expect(workbook.Sheets['Model A'].I2.f).toBe('G2/H2');
     expect(XLSX.utils.sheet_to_json(workbook.Sheets['趋势汇总'])).toEqual([{
       月份: '2026-09', 机型: 'Model A', 产量: 10, 故障数: 1,
-      直通率: '90.000%', 目标直通率: '95.000%', 状态: '未达标',
+      直通率: '90.000%', 集团标准: '95.000%', '5000公司标准': '-', 状态: '未达标',
     }]);
     expect(workbook.Sheets['销售订单'].B2).toMatchObject({ t: 's', v: '000010' });
     expect(workbook.Sheets['销售订单'].C2.v).toBe('000000000001');
@@ -432,7 +433,7 @@ describe('cycle query and export', () => {
     await screen.findByRole('row', { name: /Model A/ });
 
     const modelRow = screen.getByRole('row', { name: /Model A/ });
-    fireEvent.click(within(modelRow).getAllByRole('cell')[1].querySelector('button')!);
+    fireEvent.click(within(modelRow).getAllByRole('cell')[3].querySelector('button')!);
 
     expect(await screen.findByRole('heading', { name: 'Model A · 2026-09' })).toBeTruthy();
     expect(rtyApi.getCycleDetails).toHaveBeenCalledWith({

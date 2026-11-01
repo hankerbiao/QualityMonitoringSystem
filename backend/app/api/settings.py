@@ -111,7 +111,7 @@ async def update_all_settings(
 ):
     """批量更新当前角色可管理的配置，先校验权限再写入。"""
     is_admin = current_user.get("role") == "admin"
-    if not is_admin and request.model_fields_set - {"modelTargets", "emailAlert"}:
+    if not is_admin and request.model_fields_set - {"modelTargets", "company5000Targets", "emailAlert"}:
         raise HTTPException(status_code=403, detail="仅管理员可修改此配置")
     try:
         data = await _service().update_all(request)
@@ -125,6 +125,7 @@ async def update_all_settings(
         if is_admin
         else QualitySettingsResponse(
             modelTargets=data.modelTargets,
+            company5000Targets=data.company5000Targets,
             emailAlert=data.emailAlert,
             stationPassRateConfig=data.stationPassRateConfig,
         ),
@@ -336,6 +337,8 @@ async def send_current_email_alerts(request: ManualWeeklyEmailCheckRequest):
             "emails": "; ".join(emails),
             "weeklyProductionThreshold": request.weeklyProductionThreshold,
             "modelTargets": request.modelTargets,
+            "company5000Targets": request.company5000Targets,
+            "alertStandards": request.alertStandards,
         }
     )
     return Response(success=True, data=result, message="当前条件预警邮件发送已执行")
@@ -344,7 +347,18 @@ async def send_current_email_alerts(request: ManualWeeklyEmailCheckRequest):
 @router.get("/email-alert/qualified-models", response_model=Response[dict])
 async def get_qualified_models(threshold: int = Query(..., ge=0)):
     """查询达到生产量阈值且 RTY 未达标的机型，不触发邮件发送。"""
-    result = await get_weekly_production_candidates(threshold)
+    config = await _read_doc("email_alert_config")
+    result = await get_weekly_production_candidates(threshold, standards=(config or {}).get("alertStandards", ["group"]))
+    return Response(success=True, data=result, message="符合条件的机型已获取")
+
+
+@router.post("/email-alert/qualified-models", response_model=Response[dict])
+async def preview_qualified_models(request: ManualWeeklyEmailCheckRequest):
+    """使用当前表单标准预览，不发送邮件。"""
+    result = await get_weekly_production_candidates(
+        request.weeklyProductionThreshold, targets=request.modelTargets,
+        company_targets=request.company5000Targets, standards=request.alertStandards,
+    )
     return Response(success=True, data=result, message="符合条件的机型已获取")
 
 

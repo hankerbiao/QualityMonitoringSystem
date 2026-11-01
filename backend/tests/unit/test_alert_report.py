@@ -83,3 +83,10 @@ async def test_build_alert_report_uses_gateway_orders_faults_and_details(monkeyp
         targets_override={"Model A": 80},
     )
     assert current_rule_report.summary.targetRate == 80
+
+    triggered_report = await alert_report.build_alert_report(
+        AlertContext(productModel="Model A", targetRateOverride=95, triggeredStandards={"5000公司标准": 95}),
+        targets_override={"Model A": 80},
+    )
+    assert triggered_report.summary.targetRate == 95
+    assert triggered_report.context.triggeredStandards == {"5000公司标准": 95}

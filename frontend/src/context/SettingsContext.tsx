@@ -13,11 +13,13 @@ const SettingsContext = createContext<SettingsContextType | undefined>(undefined
 const DEFAULT_SETTINGS: SettingsResponse = {
   processRecords: { username: '', password: '', hasPassword: false },
   modelTargets: {},
+  company5000Targets: {},
   emailAlert: {
     enabled: true,
     emails: '',
     triggerCondition: DEFAULT_TRIGGER_CONDITION,
     weeklyProductionThreshold: DEFAULT_WEEKLY_PRODUCTION_THRESHOLD,
+    alertStandards: ['group'],
   },
   dashboardStatuses: DEFAULT_DASHBOARD_STATUSES,
   cycleStatsConfig: { selectedModels: [] },

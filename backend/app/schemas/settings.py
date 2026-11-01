@@ -114,6 +114,7 @@ class EmailAlertConfigBase(BaseModel):
         ge=0,
         description="周生产量阈值（台）：窗口内某机型投入台数达到该值才纳入 RTY 判定",
     )
+    alertStandards: list[Literal["group", "company5000"]] = Field(default_factory=lambda: ["group"], min_length=1)
 
 
 class EmailAlertConfig(EmailAlertConfigBase):
@@ -129,6 +130,7 @@ class EmailAlertConfigUpdate(BaseModel):
     emails: str | None = None
     triggerCondition: str | None = None
     weeklyProductionThreshold: int | None = Field(None, ge=0)
+    alertStandards: list[Literal["group", "company5000"]] | None = Field(None, min_length=1)
 
 
 class ManualWeeklyEmailCheckRequest(BaseModel):
@@ -138,8 +140,10 @@ class ManualWeeklyEmailCheckRequest(BaseModel):
     emails: str
     weeklyProductionThreshold: int = Field(..., ge=0)
     modelTargets: dict[str, float] | None = None
+    company5000Targets: dict[str, float] | None = None
+    alertStandards: list[Literal["group", "company5000"]] = Field(default_factory=lambda: ["group"], min_length=1)
 
-    @field_validator("modelTargets", mode="before")
+    @field_validator("modelTargets", "company5000Targets", mode="before")
     @classmethod
     def validate_targets(cls, value: dict | None) -> dict[str, float] | None:
         if value is not None:
@@ -174,6 +178,7 @@ class QualitySettingsResponse(BaseModel):
     """所有已登录用户可读取的质量配置；工站配置仅管理员可写。"""
 
     modelTargets: dict[str, float] = Field(default_factory=dict)
+    company5000Targets: dict[str, float] = Field(default_factory=dict)
     emailAlert: EmailAlertConfig
     stationPassRateConfig: StationPassRateConfig = Field(default_factory=StationPassRateConfig)
 
@@ -195,12 +200,13 @@ class SettingsUpdateRequest(BaseModel):
 
     processRecords: ProcessRecordConfigUpdate | None = None
     modelTargets: dict[str, float] | None = None
+    company5000Targets: dict[str, float] | None = None
     emailAlert: EmailAlertConfigUpdate | None = None
     dashboardStatuses: dict[str, DashboardStatus] | None = None
     cycleStatsConfig: CycleStatsConfig | None = None
     stationPassRateConfig: StationPassRateConfig | None = None
 
-    @field_validator("modelTargets", mode="before")
+    @field_validator("modelTargets", "company5000Targets", mode="before")
     @classmethod
     def validate_targets(cls, value: dict | None) -> dict[str, float] | None:
         if value is not None:

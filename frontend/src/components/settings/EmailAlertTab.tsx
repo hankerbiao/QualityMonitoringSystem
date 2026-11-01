@@ -5,7 +5,7 @@ import {
   type ManualWeeklyEmailCheckResult,
   type WeeklyQualifiedModels,
 } from '../../api/settingsApi';
-import type { ModelTargets } from '../../types';
+import type { EmailAlertConfig, ModelTargets } from '../../types';
 import {
   buildTriggerCondition,
   DEFAULT_TRIGGER_CONDITION,
@@ -14,25 +14,16 @@ import {
 } from '../../utils/emailAlert';
 
 interface EmailAlertTabProps {
-  config: {
-    enabled: boolean;
-    emails: string;
-    triggerCondition: string;
-    weeklyProductionThreshold: number;
-  };
+  config: EmailAlertConfig;
   modelTargets: ModelTargets;
+  company5000Targets?: ModelTargets;
   canRunImmediately: boolean;
-  onChange: (config: {
-    enabled: boolean;
-    emails: string;
-    triggerCondition: string;
-    weeklyProductionThreshold: number;
-  }) => void;
+  onChange: (config: EmailAlertConfig) => void;
 }
 
 export { buildTriggerCondition, DEFAULT_TRIGGER_CONDITION, DEFAULT_WEEKLY_PRODUCTION_THRESHOLD };
 
-export function EmailAlertTab({ config, modelTargets, canRunImmediately, onChange }: EmailAlertTabProps) {
+export function EmailAlertTab({ config, modelTargets, company5000Targets = {}, canRunImmediately, onChange }: EmailAlertTabProps) {
   const [sending, setSending] = useState(false);
   const [sendMsg, setSendMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [loadingModels, setLoadingModels] = useState(false);
@@ -41,6 +32,8 @@ export function EmailAlertTab({ config, modelTargets, canRunImmediately, onChang
   const threshold = Number.isFinite(config.weeklyProductionThreshold)
     ? Math.max(0, Math.trunc(config.weeklyProductionThreshold))
     : DEFAULT_WEEKLY_PRODUCTION_THRESHOLD;
+  const alertStandards = config.alertStandards ?? ['group'];
+  const currentConfig = { enabled: config.enabled, emails: config.emails, weeklyProductionThreshold: threshold, modelTargets, company5000Targets, alertStandards };
   const generatedTriggerCondition = buildTriggerCondition(threshold);
   const triggerCondition = config.triggerCondition.trim() && !isGeneratedTriggerCondition(config.triggerCondition)
     ? config.triggerCondition
@@ -67,12 +60,7 @@ export function EmailAlertTab({ config, modelTargets, canRunImmediately, onChang
     setSending(true);
     setSendMsg(null);
     try {
-      const data: ManualWeeklyEmailCheckResult = await settingsApi.sendCurrentEmailAlerts({
-        enabled: config.enabled,
-        emails: config.emails,
-        weeklyProductionThreshold: threshold,
-        modelTargets,
-      });
+      const data: ManualWeeklyEmailCheckResult = await settingsApi.sendCurrentEmailAlerts(currentConfig);
       setQualifiedModels(data);
       if (!data.checked && data.reason === 'disabled') {
         setSendMsg({ type: 'error', text: '邮件预警规则未启用，未发送邮件' });
@@ -99,7 +87,7 @@ export function EmailAlertTab({ config, modelTargets, canRunImmediately, onChang
     setLoadingModels(true);
     setModelsError(null);
     try {
-      setQualifiedModels(await settingsApi.getWeeklyQualifiedModels(config.weeklyProductionThreshold));
+      setQualifiedModels(await settingsApi.getWeeklyQualifiedModels(currentConfig));
     } catch (err) {
       setQualifiedModels(null);
       setModelsError(err instanceof Error ? err.message : '符合条件的机型获取失败');
@@ -126,6 +114,7 @@ export function EmailAlertTab({ config, modelTargets, canRunImmediately, onChang
           </div>
         </div>
 
+        <fieldset disabled={!config.enabled} className="space-y-2"><legend className="text-sm font-medium text-slate-700">告警判定标准</legend><div className="flex flex-wrap gap-5">{([['group', '集团标准'], ['company5000', '5000 公司标准']] as const).map(([key, label]) => <label key={key} className="flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={alertStandards.includes(key)} disabled={alertStandards.includes(key) && alertStandards.length === 1} onChange={event => onChange({ ...config, alertStandards: event.target.checked ? [...alertStandards, key] : alertStandards.filter(item => item !== key) })} />{label}</label>)}</div><p className="text-xs text-slate-500">选中的任一标准未达标时发送一封邮件；未配置的 5000 公司标准不参与判定。</p></fieldset>
         {/* 触发条件说明：系统按规则参数生成，也允许用户补充展示文字。 */}
         <div className={!config.enabled ? 'opacity-50 pointer-events-none transition-opacity' : 'transition-opacity'}>
           <label className="block text-sm font-medium text-slate-700 mb-2 flex items-center gap-1.5">
@@ -203,7 +192,7 @@ export function EmailAlertTab({ config, modelTargets, canRunImmediately, onChang
                         <th className="px-3 py-2 font-medium">投入</th>
                         <th className="px-3 py-2 font-medium">故障</th>
                         <th className="px-3 py-2 font-medium">RTY</th>
-                        <th className="px-3 py-2 font-medium">目标</th>
+                        <th className="px-3 py-2 font-medium">触发标准</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -213,7 +202,7 @@ export function EmailAlertTab({ config, modelTargets, canRunImmediately, onChang
                           <td className="px-3 py-2">{model.inputCount}</td>
                           <td className="px-3 py-2">{model.defectCount}</td>
                           <td className="px-3 py-2 text-red-600">{model.rtyRate}%</td>
-                          <td className="px-3 py-2">{model.targetRate}%</td>
+                          <td className="px-3 py-2">{model.triggeredStandards ? Object.entries(model.triggeredStandards).map(([name, value]) => `${name} ${value}%`).join('、') : `${model.targetRate}%`}</td>
                         </tr>
                       ))}
                     </tbody>

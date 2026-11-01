@@ -26,6 +26,16 @@ def test_alert_template_escapes_report_values():
     assert "<unsafe>" not in html
 
 
+def test_alert_template_shows_each_triggered_standard():
+    report = AlertReportData(
+        context=AlertContext(triggeredStandards={"集团标准": 95, "5000公司标准": 98}),
+        summary=AlertReportSummary(rtyRate=90, targetRate=98, reached=False),
+    )
+    html = build_alert_email_html(report, "https://example.test/report")
+    assert "集团标准 95.0%" in html
+    assert "5000公司标准 98.0%" in html
+
+
 def test_test_email_template_preserves_beijing_time_text():
     html = build_test_email_html(sent_at="2026-10-26 16:30")
     assert "发送时间：2026-10-26 16:30" in html
