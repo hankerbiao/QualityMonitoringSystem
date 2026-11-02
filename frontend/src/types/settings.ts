@@ -4,6 +4,7 @@ export interface ProcessRecordConfig {
   username: string;
   password: string;
   hasPassword: boolean;
+  allowPasswordReset?: boolean;
 }
 
 export interface ProcessRecordConnectionResult {

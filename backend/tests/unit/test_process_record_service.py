@@ -157,6 +157,8 @@ async def test_request_relogs_and_retries_when_upstream_returns_auth_status():
 
     async def fake_post(url, **kwargs):
         nonlocal login_count
+        if url == "/api/user/GetCurrentUserInfo":
+            return FakeResponse({"status": 0, "data": {"isLogin": True}})
         assert url == "/api/user/login"
         login_count += 1
         return FakeResponse({"status": 0})

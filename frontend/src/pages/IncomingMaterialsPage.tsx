@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { AlertCircle, ArrowLeft, ArrowRight, Building2, CalendarDays, ChevronLeft, ChevronRight, Download, Layers3, PackageSearch, RefreshCw, RotateCcw, Search, SlidersHorizontal, X } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ArrowRight, Building2, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Layers3, PackageSearch, RefreshCw, RotateCcw, Search, SlidersHorizontal, X, type LucideIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { apiFetch, requestData } from '../api/authApi';
@@ -33,14 +33,30 @@ const inputClass = 'mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-whi
 const fieldLabels: Record<keyof Filters, string> = { keyword: '关键词', bases: '基地', material: '物料编号', supplier: '供应商', order: '订单号', lot: '检验批号', category: '异常分类', date_from: '到货开始日期', date_to: '到货结束日期' };
 const selectFields = { material: 'selmatnr', supplier: 'supplier', order: 'ebeln', lot: 'prueflos', category: 'abnormal_class' } as const;
 type SelectField = keyof typeof selectFields;
+type DistributionField = 'basecode' | 'abnormal_class' | 'supplier';
+type DistributionSelection = { field: DistributionField; label: string };
 
-function distribution(rows: RecordRow[], field: string) {
+function distributionLabel(row: RecordRow, field: DistributionField) {
+  return field === 'basecode' ? displayBase(row[field]) : field === 'supplier' ? String(row[field] ?? '').trim() : show(row[field]);
+}
+
+function distribution(rows: RecordRow[], field: DistributionField) {
   const counts = new Map<string, number>();
   for (const row of rows) {
-    const label = field === 'basecode' ? displayBase(row[field]) : field === 'supplier' ? String(row[field]).trim() : show(row[field]);
+    const label = distributionLabel(row, field);
     counts.set(label, (counts.get(label) || 0) + 1);
   }
-  return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).slice(0, 5);
+  return [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+}
+
+function DistributionCard({ title, subtitle, data, bar, icon: Icon, field, selected, onSelect }: { title: string; subtitle: string; data: [string, number][]; bar: string; icon: LucideIcon; field: DistributionField; selected: DistributionSelection | null; onSelect: (selection: DistributionSelection) => void }) {
+  const [expanded, setExpanded] = useState(false);
+  const visible = expanded ? data : data.slice(0, 5);
+  return <div className="min-w-0 rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm">
+    <div className="mb-3 flex items-center gap-2"><span className="rounded-lg bg-slate-50 p-2 text-slate-500"><Icon className="size-4" /></span><div className="min-w-0 flex-1"><h3 className="text-sm font-bold text-slate-900">{title}</h3><p className="text-xs text-slate-400">{expanded ? '当前结果 · 全部数据' : subtitle}</p></div></div>
+    {visible.length ? <div className={expanded ? 'max-h-80 space-y-1 overflow-y-auto pr-1' : 'space-y-1'}>{visible.map(([label, count]) => <button type="button" key={label} aria-label={`查看${title}：${label}明细`} aria-pressed={selected?.field === field && selected.label === label} onClick={() => onSelect({ field, label })} className="flex w-full items-center gap-3 rounded px-1 py-1 text-left text-xs transition-colors hover:bg-slate-100 focus-visible:outline-2 focus-visible:outline-cyan-600 aria-pressed:bg-cyan-50"><span className="w-24 shrink-0 truncate text-slate-600" title={label}>{label}</span><span className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100"><span className={`block h-full rounded-full ${bar} transition-[width] duration-500 motion-reduce:transition-none`} style={{ width: `${count / data[0][1] * 100}%` }} /></span><span className="w-10 shrink-0 text-right font-semibold tabular-nums text-slate-700">{count}</span></button>)}</div> : <p className="py-6 text-center text-xs text-slate-400">暂无可统计数据</p>}
+    <div className="mt-3 flex justify-end"><button type="button" aria-label={`${expanded ? '收起' : '展开更多'}${title}`} aria-expanded={expanded} onClick={() => setExpanded(value => !value)} disabled={data.length <= 5 && !expanded} className="inline-flex items-center gap-1 text-xs font-medium text-cyan-700 hover:text-cyan-900 disabled:cursor-default disabled:text-slate-400">{expanded ? '收起' : '展开更多'}{expanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}</button></div>
+  </div>;
 }
 
 function filesFor(row: RecordRow, field: '_incomingPhotos' | '_incomingReports'): IncomingPhoto[] {
@@ -50,12 +66,37 @@ function filesFor(row: RecordRow, field: '_incomingPhotos' | '_incomingReports')
 }
 
 function PhotoStrip({ row, onPreview }: { row: RecordRow; onPreview: (photo: IncomingPhoto) => void }) {
+  const [downloading, setDownloading] = useState(false);
+  const [error, setError] = useState('');
   const photos = filesFor(row, '_incomingPhotos');
+  const downloadPhotos = async () => {
+    if (downloading) return;
+    setDownloading(true); setError('');
+    let downloaded = 0;
+    try {
+      for (const photo of photos) {
+        const params = new URLSearchParams({ path: photo.path, accessToken: photo.accessToken });
+        const response = await apiFetch(`${API_BASE_URL}/incoming-materials/image?${params}`);
+        if (!response.ok) throw new Error('图片下载失败');
+        const objectUrl = URL.createObjectURL(await response.blob());
+        try {
+          const anchor = document.createElement('a');
+          anchor.href = objectUrl;
+          anchor.download = photo.path.split('/').pop() || `不良图片_${downloaded + 1}`;
+          document.body.appendChild(anchor);
+          try { anchor.click(); } finally { anchor.remove(); }
+        } finally { URL.revokeObjectURL(objectUrl); }
+        downloaded += 1;
+      }
+    } catch {
+      setError(downloaded ? `已下载 ${downloaded} 张，剩余图片下载失败，请重试` : '图片下载失败，请重试');
+    } finally { setDownloading(false); }
+  };
   if (!photos.length) return <span className="text-xs text-slate-400">暂无图片</span>;
-  return <div className="flex max-w-56 gap-1 overflow-x-auto">{photos.map((photo, index) =>
+  return <div className="max-w-56"><div className="flex gap-1 overflow-x-auto">{photos.map((photo, index) =>
     <button type="button" key={`${photo.path}-${index}`} onClick={() => onPreview(photo)} aria-label={`查看第 ${index + 1} 张不良图片`} className="shrink-0 rounded focus-visible:outline-2 focus-visible:outline-cyan-600">
       <IncomingMaterialImage photo={photo} alt={`不良图片 ${index + 1}`} />
-    </button>)}</div>;
+    </button>)}</div><button type="button" onClick={() => void downloadPhotos()} disabled={downloading} className="mt-1 inline-flex items-center gap-1 text-xs font-medium text-cyan-700 hover:text-cyan-900 disabled:opacity-50"><Download className="size-3.5" />{downloading ? '下载中...' : '下载图片'}</button>{error && <p role="alert" className="mt-1 text-xs text-rose-700">{error}</p>}</div>;
 }
 
 function ReportLinks({ row }: { row: RecordRow }) {
@@ -114,8 +155,10 @@ export default function IncomingMaterialsPage() {
   const [page, setPage] = useState(1);
   const [detail, setDetail] = useState<RecordRow | null>(null);
   const [preview, setPreview] = useState<IncomingPhoto | null>(null);
+  const [selection, setSelection] = useState<DistributionSelection | null>(null);
+  const detailSection = useRef<HTMLElement>(null);
   const requestId = useRef(0);
-  const refresh = useCallback(() => { setPage(1); setRevision(value => value + 1); }, []);
+  const refresh = useCallback(() => { setPage(1); setSelection(null); setRevision(value => value + 1); }, []);
   useEffect(() => {
     const id = ++requestId.current;
     setLoading(true); setError(''); setResult(null);
@@ -139,6 +182,7 @@ export default function IncomingMaterialsPage() {
     return () => window.removeEventListener('keydown', handler);
   }, [preview]);
   const filteredRows = useMemo(() => (result?.rows ?? []).filter(row => matchesFilters(row, filters)), [result, filters]);
+  const detailRows = useMemo(() => selection ? filteredRows.filter(row => distributionLabel(row, selection.field) === selection.label) : filteredRows, [filteredRows, selection]);
   const options = useMemo(() => {
     const data = result?.rows ?? [];
     const distinct = (values: string[]) => [...new Set(values.filter(Boolean))].sort((a, b) => a.localeCompare(b, 'zh-CN'));
@@ -159,12 +203,16 @@ export default function IncomingMaterialsPage() {
     event.preventDefault();
     if (invalidDates) return;
     const next = Object.fromEntries(Object.entries(draft).map(([key, value]) => [key, Array.isArray(value) ? value : value.trim()])) as unknown as Filters;
-    setPage(1); setDetail(null);
+    setPage(1); setDetail(null); setSelection(null);
     setFilters(next);
   };
-  const reset = () => { setDraft({ ...EMPTY }); setFilters({ ...EMPTY }); setPage(1); setDetail(null); };
+  const reset = () => { setDraft({ ...EMPTY }); setFilters({ ...EMPTY }); setPage(1); setDetail(null); setSelection(null); };
+  const selectDistribution = (next: DistributionSelection) => {
+    setSelection(next); setPage(1); setDetail(null);
+    detailSection.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
+  };
   const exportData = () => {
-    const values = filteredRows.map(row => columns.map(([key]) => {
+    const values = detailRows.map(row => columns.map(([key]) => {
       if (key === 'basecode') return displayBase(row.basecode);
       if (key === 'bad_img' || key === 'report_attachment') {
         return filesFor(row, key === 'bad_img' ? '_incomingPhotos' : '_incomingReports')
@@ -178,8 +226,8 @@ export default function IncomingMaterialsPage() {
     XLSX.utils.book_append_sheet(workbook, sheet, '异常记录明细');
     XLSX.writeFile(workbook, '来料异常明细.xlsx');
   };
-  const pages = Math.max(1, Math.ceil(filteredRows.length / 30));
-  const rows = filteredRows.slice((page - 1) * 30, page * 30);
+  const pages = Math.max(1, Math.ceil(detailRows.length / 30));
+  const rows = detailRows.slice((page - 1) * 30, page * 30);
 
   return <div className="min-h-screen bg-[#f4f7fb] text-slate-800">
     <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/95 backdrop-blur">
@@ -200,15 +248,15 @@ export default function IncomingMaterialsPage() {
           {(Object.keys(selectFields) as SelectField[]).map(key => <MultiSelect key={key} label={fieldLabels[key]} options={options[key]} value={draft[key]} onChange={value => setDraft(current => ({ ...current, [key]: value }))} />)}
           <DateRangePicker label="到货日期" from={draft.date_from} to={draft.date_to} allowOpenEnded onChange={(from, to) => setDraft(current => ({ ...current, date_from: from, date_to: to }))} />
         </div>{invalidDates && <p role="alert" className="mt-3 text-xs text-red-600">到货开始日期不能晚于结束日期</p>}
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3"><button type="submit" disabled={loading || invalidDates || !result} className="inline-flex items-center gap-2 rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-cyan-800 disabled:opacity-50"><Search className="size-4" />筛选数据</button><button type="button" onClick={reset} disabled={loading} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"><RotateCcw className="size-4" />清空</button><button type="button" onClick={exportData} disabled={loading || !result || !filteredRows.length} className="inline-flex items-center gap-2 rounded-lg border border-cyan-200 px-4 py-2 text-sm font-medium text-cyan-700 transition hover:bg-cyan-50 disabled:opacity-50"><Download className="size-4" />导出数据</button><p className="ml-auto text-xs text-slate-400">导出当前筛选结果</p></div></form>
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3"><button type="submit" disabled={loading || invalidDates || !result} className="inline-flex items-center gap-2 rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-cyan-800 disabled:opacity-50"><Search className="size-4" />筛选数据</button><button type="button" onClick={reset} disabled={loading} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"><RotateCcw className="size-4" />清空</button><button type="button" onClick={exportData} disabled={loading || !result || !detailRows.length} className="inline-flex items-center gap-2 rounded-lg border border-cyan-200 px-4 py-2 text-sm font-medium text-cyan-700 transition hover:bg-cyan-50 disabled:opacity-50"><Download className="size-4" />导出数据</button><p className="ml-auto text-xs text-slate-400">{selection ? '导出当前明细' : '导出当前筛选结果'}</p></div></form>
       </section>
       {error && <div role="alert" className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"><AlertCircle className="mt-0.5 size-4 shrink-0" />{error}</div>}
       {loading && <div role="status" className="flex items-center gap-3 rounded-xl border border-cyan-100 bg-white p-6 text-sm text-slate-500"><RefreshCw className="size-5 text-cyan-600 motion-safe:animate-spin" />正在读取上游数据，请稍候…</div>}
       {result && <div className="space-y-3 motion-safe:animate-[login-entry_400ms_ease-out_both]">
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500"><span className="inline-flex items-center gap-1.5"><CalendarDays className="size-3.5" />{result.complete ? '已读取全部上游分页' : '数据未完整读取，不代表全量数据'}</span><span>更新于 {new Date(result.queriedAt).toLocaleString('zh-CN')}</span></div>
         {active.length > 0 && <div className="flex flex-wrap items-center gap-2 text-xs"><span className="font-medium text-slate-500">已应用：</span>{active.map(([key, value]) => <span key={key} className="rounded-full border border-cyan-100 bg-cyan-50 px-2.5 py-1 text-cyan-700">{fieldLabels[key as keyof Filters]}：{Array.isArray(value) ? value.join('、') : value}</span>)}</div>}
-        <section className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">{[{ title: '基地分布', subtitle: '当前结果 · 前 5 个基地', data: byBase, bar: 'bg-cyan-500', icon: Layers3 }, { title: '异常分类', subtitle: '当前结果 · 前 5 个分类', data: byCategory, bar: 'bg-violet-500', icon: AlertCircle }, { title: '厂商分布 TOP 5', subtitle: '当前结果 · 按异常记录数排名', data: bySupplier, bar: 'bg-amber-500', icon: Building2 }].map(({ title, subtitle, data, bar, icon: Icon }) => <div key={title} className="min-w-0 rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm"><div className="mb-3 flex items-center gap-2"><span className="rounded-lg bg-slate-50 p-2 text-slate-500"><Icon className="size-4" /></span><div><h3 className="text-sm font-bold text-slate-900">{title}</h3><p className="text-xs text-slate-400">{subtitle}</p></div></div>{data.length ? <div className="space-y-2">{data.map(([label, count]) => <div key={label} className="flex items-center gap-3 text-xs"><span className="w-24 shrink-0 truncate text-slate-600" title={label}>{label}</span><div className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100"><div className={`h-full rounded-full ${bar} transition-[width] duration-500 motion-reduce:transition-none`} style={{ width: `${count / data[0][1] * 100}%` }} /></div><span className="w-10 shrink-0 text-right font-semibold tabular-nums text-slate-700">{count}</span></div>)}</div> : <p className="py-6 text-center text-xs text-slate-400">暂无可统计数据</p>}</div>)}</section>
-        <section className="overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm"><div className="border-b border-slate-100 px-4 py-3"><h2 className="text-sm font-bold text-slate-900">异常记录明细</h2></div>
+        <section className="grid items-start gap-3 lg:grid-cols-2 2xl:grid-cols-3">{([{ title: '基地分布', subtitle: '当前结果 · 前 5 个基地', data: byBase, bar: 'bg-cyan-500', icon: Layers3, field: 'basecode' }, { title: '异常分类', subtitle: '当前结果 · 前 5 个分类', data: byCategory, bar: 'bg-violet-500', icon: AlertCircle, field: 'abnormal_class' }, { title: '厂商分布 TOP 5', subtitle: '当前结果 · 按异常记录数排名', data: bySupplier, bar: 'bg-amber-500', icon: Building2, field: 'supplier' }] as const).map(card => <DistributionCard key={card.title} {...card} selected={selection} onSelect={selectDistribution} />)}</section>
+        <section ref={detailSection} className="scroll-mt-20 overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm"><div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3"><h2 className="text-sm font-bold text-slate-900">异常记录明细</h2>{selection && <><span role="status" className="break-all text-xs text-cyan-700">{selection.field === 'basecode' ? '基地' : selection.field === 'supplier' ? '供应商' : '异常分类'}：{selection.label} · {detailRows.length.toLocaleString()} 条</span><button type="button" onClick={() => { setSelection(null); setPage(1); }} className="ml-auto inline-flex items-center gap-1 text-xs text-slate-600 hover:text-cyan-700"><X className="size-3.5" />清除明细筛选</button></>}</div>
           <div className="overflow-x-auto"><table className="w-full min-w-[1400px] text-left text-sm"><thead className="bg-slate-50/80 text-xs text-slate-500"><tr>{columns.map(([key, label]) => <th key={key} className="whitespace-nowrap px-3 py-2.5 font-semibold">{label}</th>)}<th className="px-4 py-3">操作</th></tr></thead><tbody>{rows.map((row, index) => <tr key={String(row.id ?? index)} className="border-t border-slate-100 transition-colors hover:bg-cyan-50/40">{columns.map(([key]) => <td key={key} className="max-w-56 px-3 py-2.5">{key === 'bad_img' ? <PhotoStrip row={row} onPreview={setPreview} /> : key === 'report_attachment' ? <ReportLinks row={row} /> : <div className={key === 'location_info' ? 'inline-flex rounded-md bg-cyan-50 px-2 py-1 font-semibold text-cyan-700' : 'truncate text-slate-600'} title={show(row[key])}>{key === 'basecode' ? displayBase(row[key]) : show(row[key])}</div>}</td>)}<td className="px-4 py-3"><button onClick={() => setDetail(row)} className="inline-flex items-center gap-1 whitespace-nowrap font-medium text-cyan-700 hover:text-cyan-900">详情<ArrowRight className="size-3" /></button></td></tr>)}</tbody></table></div>
           {rows.length === 0 && <div className="p-10 text-center"><PackageSearch className="mx-auto size-8 text-slate-300" /><p className="mt-3 text-sm font-medium text-slate-500">没有符合条件的记录</p><p className="mt-1 text-xs text-slate-400">可调整筛选条件后重新查询</p></div>}
           <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-3 text-sm text-slate-500"><span className="text-xs">每页 30 条 · 第 {page} / {pages} 页</span><div className="flex items-center gap-2"><button aria-label="上一页" disabled={page <= 1} onClick={() => setPage(page - 1)} className="rounded-lg border border-slate-200 p-2 hover:bg-slate-50 disabled:opacity-40"><ChevronLeft className="size-4" /></button><button aria-label="下一页" disabled={page >= pages} onClick={() => setPage(page + 1)} className="rounded-lg border border-slate-200 p-2 hover:bg-slate-50 disabled:opacity-40"><ChevronRight className="size-4" /></button></div></div>

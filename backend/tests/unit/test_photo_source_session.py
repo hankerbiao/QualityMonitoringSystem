@@ -26,6 +26,26 @@ async def source_client(handler):
 
 
 @pytest.mark.asyncio
+async def test_first_query_checks_login_status_before_fetching_page():
+    calls = []
+
+    def handler(request):
+        calls.append(request.url.path)
+        if request.url.path == "/api/user/login":
+            return httpx.Response(200, json={"status": 0})
+        if request.url.path == "/api/user/GetCurrentUserInfo":
+            return httpx.Response(200, json={"status": 0, "data": {"isLogin": True}})
+        return httpx.Response(200, json=PAGE)
+
+    async with source_client(handler) as client:
+        await client.fetch_page(1, 30)
+        await client.fetch_page(1, 30)
+
+    assert calls[:2] == ["/api/user/login", "/api/user/GetCurrentUserInfo"]
+    assert calls.count("/api/user/GetCurrentUserInfo") == 1
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "expired_payload",
     [

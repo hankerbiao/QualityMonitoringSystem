@@ -31,3 +31,21 @@ def decrypt_credential(value: str) -> str:
             "影像数据源密码无法解密，请联系管理员核对服务端加密配置；"
             "如原加密密钥无法恢复，请在系统配置管理中重新保存数据源密码"
         ) from exc
+
+
+def validate_credential_update(
+    stored: dict, username: str | None, password: str | None, allow_reset: bool
+) -> None:
+    ciphertext = stored.get("passwordCiphertext")
+    changes_username = username is not None and username != stored.get("username", "")
+    if not ciphertext or not (password or changes_username):
+        return
+    try:
+        decrypt_credential(ciphertext)
+    except CredentialEncryptionError as exc:
+        if allow_reset and password:
+            return
+        raise CredentialEncryptionError(
+            "当前服务加密密钥与已保存密码不匹配，请先统一服务密钥；"
+            "若原密钥无法恢复，可输入密码并选择重置无法解密的凭据"
+        ) from exc

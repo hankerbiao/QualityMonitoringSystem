@@ -10,6 +10,80 @@ vi.mock('../api/authApi', () => ({ requestData: vi.fn(), apiFetch: vi.fn().mockR
 vi.mock('xlsx', async importOriginal => ({ ...await importOriginal<typeof import('xlsx')>(), writeFile: vi.fn() }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
+it('shows matching details for each distribution and exports the selected records', async () => {
+  vi.mocked(requestData).mockResolvedValue({
+    queriedAt: '2026-10-29T00:00:00Z', upstreamTotal: 4, readCount: 4, matchedCount: 4, complete: true,
+    rows: [
+      { id: 1, basecode: 'TJ', abnormal_class: '外观', supplier: '厂商 A', selmatnr: 'MAT-A' },
+      { id: 2, basecode: '1000', abnormal_class: '性能', supplier: '厂商 B', selmatnr: 'MAT-B' },
+      { id: 3, basecode: 'KS', abnormal_class: '外观', supplier: '厂商 B', selmatnr: 'MAT-C' },
+      { id: 4, basecode: 'KS', abnormal_class: '', supplier: '厂商 A ', selmatnr: 'MAT-D' },
+    ],
+  });
+  render(<MemoryRouter><IncomingMaterialsPage /></MemoryRouter>);
+  fireEvent.click(await screen.findByRole('button', { name: '查看基地分布：天津明细' }));
+  let table = screen.getByRole('table');
+  expect(within(table).getByText('MAT-A')).toBeTruthy();
+  expect(within(table).getByText('MAT-B')).toBeTruthy();
+  expect(within(table).queryByText('MAT-C')).toBeNull();
+  expect(screen.getByText('基地：天津 · 2 条')).toBeTruthy();
+  expect(screen.getByRole('button', { name: '查看基地分布：天津明细' }).getAttribute('aria-pressed')).toBe('true');
+  fireEvent.click(screen.getByRole('button', { name: '查看异常分类：外观明细' }));
+  table = screen.getByRole('table');
+  expect(within(table).getByText('MAT-C')).toBeTruthy();
+  expect(within(table).queryByText('MAT-B')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: '查看厂商分布 TOP 5：厂商 A明细' }));
+  expect(within(table).getByText('MAT-D')).toBeTruthy();
+  expect(within(table).queryByText('MAT-C')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: '导出数据' }));
+  const workbook = vi.mocked(XLSX.writeFile).mock.lastCall?.[0] as XLSX.WorkBook;
+  const exported = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets['异常记录明细'], { header: 1 });
+  expect(exported).toHaveLength(3);
+  expect(exported[1]).toContain('MAT-A');
+  expect(exported[2]).toContain('MAT-D');
+  fireEvent.click(screen.getByRole('button', { name: '查看异常分类：—明细' }));
+  expect(within(table).getByText('MAT-D')).toBeTruthy();
+  expect(within(table).queryByText('MAT-A')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: '清除明细筛选' }));
+  expect(within(table).getByText('MAT-A')).toBeTruthy();
+  expect(within(table).getByText('MAT-C')).toBeTruthy();
+  expect(requestData).toHaveBeenCalledTimes(1);
+});
+
+it('expands and collapses each distribution independently for the filtered results', async () => {
+  const rows = Array.from({ length: 7 }, (_, index) => ({
+    id: index, basecode: `BASE${index + 1}`, abnormal_class: `分类${index + 1}`,
+    supplier: `厂商${index + 1}`, selmatnr: index < 6 ? 'MATCH' : 'OTHER',
+  }));
+  vi.mocked(requestData).mockResolvedValue({ queriedAt: '2026-10-29T00:00:00Z', upstreamTotal: 7, readCount: 7, matchedCount: 7, complete: true, rows });
+  render(<MemoryRouter><IncomingMaterialsPage /></MemoryRouter>);
+  await screen.findByRole('heading', { name: '基地分布' });
+  for (const [title, sixth] of [['基地分布', 'BASE6'], ['异常分类', '分类6'], ['厂商分布 TOP 5', '厂商6']]) {
+    const button = screen.getByRole('button', { name: `展开更多${title}` });
+    const card = button.parentElement!.parentElement!;
+    expect(within(card).queryByTitle(sixth)).toBeNull();
+    fireEvent.click(button);
+    expect(within(card).getByTitle(sixth)).toBeTruthy();
+    expect(screen.getByRole('button', { name: `收起${title}` }).getAttribute('aria-expanded')).toBe('true');
+  }
+  fireEvent.click(screen.getByRole('button', { name: '收起基地分布' }));
+  expect(screen.getByRole('button', { name: '展开更多基地分布' }).getAttribute('aria-expanded')).toBe('false');
+  expect(screen.getByRole('button', { name: '收起异常分类' })).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '查看厂商分布 TOP 5：厂商6明细' }));
+  expect(screen.getByText('供应商：厂商6 · 1 条')).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('关键词（搜索所有字段）'), { target: { value: 'MATCH' } });
+  fireEvent.click(screen.getByRole('button', { name: '筛选数据' }));
+  expect(screen.queryByText('供应商：厂商6 · 1 条')).toBeNull();
+  const supplierCard = screen.getByRole('button', { name: '收起厂商分布 TOP 5' }).parentElement!.parentElement!;
+  expect(within(supplierCard).getByTitle('厂商6')).toBeTruthy();
+  expect(within(supplierCard).queryByTitle('厂商7')).toBeNull();
+  fireEvent.click(within(supplierCard).getByRole('button', { name: '查看厂商分布 TOP 5：厂商6明细' }));
+  expect(screen.getByText('供应商：厂商6 · 1 条')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '收起厂商分布 TOP 5' }));
+  expect(within(supplierCard).queryByTitle('厂商6')).toBeNull();
+  expect(requestData).toHaveBeenCalledTimes(1);
+});
+
 it('ranks the top five suppliers by filtered abnormal record count', async () => {
   const suppliers = ['甲', '甲 ', '甲', '甲', '甲', '甲', '乙', '乙', '乙', '乙', '乙', '丙', '丙', '丙', '丙', '丁', '丁', '丁', '戊', '戊', '己', ''];
   vi.mocked(requestData).mockResolvedValue({
@@ -87,6 +161,50 @@ it('loads image thumbnails and opens a larger preview', async () => {
     expect((await screen.findByRole('img', { name: '不良图片大图' })).getAttribute('src')).toBe('blob:image');
     expect(vi.mocked(apiFetch).mock.calls.some(([url]) => String(url).includes('/incoming-materials/image?'))).toBe(true);
   } finally { vi.mocked(apiFetch).mockReset().mockResolvedValue({ ok: false } as Response); }
+});
+
+it('downloads every image in a record through the authenticated image endpoint', async () => {
+  const photos = [
+    { path: 'Upload/Tables/Tb_abnormal_incoming_materials/第一张.jpg', accessToken: 'grant1' },
+    { path: 'Upload/Tables/Tb_abnormal_incoming_materials/第二张.png', accessToken: 'grant2' },
+  ];
+  vi.mocked(requestData).mockResolvedValue({ queriedAt: '2026-10-29T00:00:00Z', upstreamTotal: 1, readCount: 1, matchedCount: 1, complete: true, rows: [{ id: 1, _incomingPhotos: photos }] });
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, blob: async () => new Blob(['image']) } as Response);
+  Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:download') });
+  Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+  const filenames: string[] = [];
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(function (this: HTMLAnchorElement) { filenames.push(this.download); });
+  try {
+    render(<MemoryRouter><IncomingMaterialsPage /></MemoryRouter>);
+    const download = await screen.findByRole('button', { name: '下载图片' });
+    await screen.findByRole('img', { name: '不良图片 2' });
+    vi.mocked(apiFetch).mockClear();
+    fireEvent.click(download);
+    await waitFor(() => expect(filenames).toEqual(['第一张.jpg', '第二张.png']));
+    expect(vi.mocked(apiFetch).mock.calls.map(([url]) => String(url))).toEqual(photos.map(photo => expect.stringContaining(new URLSearchParams(photo).toString())));
+    expect(URL.revokeObjectURL).toHaveBeenCalledTimes(2);
+    expect(screen.getByRole('button', { name: '查看第 1 张不良图片' })).toBeTruthy();
+  } finally { click.mockRestore(); vi.mocked(apiFetch).mockReset().mockResolvedValue({ ok: false } as Response); }
+});
+
+it('reports partial image download failures and allows retry', async () => {
+  const photos = [
+    { path: 'Upload/Tables/Tb_abnormal_incoming_materials/a.jpg', accessToken: 'a' },
+    { path: 'Upload/Tables/Tb_abnormal_incoming_materials/b.jpg', accessToken: 'b' },
+  ];
+  vi.mocked(requestData).mockResolvedValue({ queriedAt: '2026-10-29T00:00:00Z', upstreamTotal: 1, readCount: 1, matchedCount: 1, complete: true, rows: [{ id: 1, _incomingPhotos: photos }] });
+  vi.mocked(apiFetch).mockResolvedValue({ ok: true, blob: async () => new Blob(['image']) } as Response);
+  Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:download') });
+  Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() });
+  const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+  try {
+    render(<MemoryRouter><IncomingMaterialsPage /></MemoryRouter>);
+    await screen.findByRole('img', { name: '不良图片 2' });
+    vi.mocked(apiFetch).mockResolvedValueOnce({ ok: true, blob: async () => new Blob(['image']) } as Response).mockResolvedValueOnce({ ok: false } as Response);
+    fireEvent.click(screen.getByRole('button', { name: '下载图片' }));
+    expect((await screen.findByRole('alert')).textContent).toContain('已下载 1 张');
+    expect((screen.getByRole('button', { name: '下载图片' }) as HTMLButtonElement).disabled).toBe(false);
+  } finally { click.mockRestore(); vi.mocked(apiFetch).mockReset().mockResolvedValue({ ok: false } as Response); }
 });
 
 it('shows the original system columns in order with the corresponding values', async () => {

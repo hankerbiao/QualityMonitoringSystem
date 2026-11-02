@@ -63,7 +63,11 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
         company5000Targets,
         emailAlert: emailConfig,
         ...(isAdmin ? {
-          processRecords: { username: processRecordConfig.username, password: processRecordConfig.password },
+          processRecords: {
+            username: processRecordConfig.username,
+            password: processRecordConfig.password,
+            ...(processRecordConfig.allowPasswordReset ? { allowPasswordReset: true } : {}),
+          },
           dashboardStatuses,
         } : {}),
       });
@@ -150,7 +154,7 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
             <div className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6">
               {error && <p role="alert" className="mb-4 rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>}
               {selectedTab === 'processRecords' && (
-                <ProcessRecordConfigTab config={processRecordConfig} onChange={setProcessRecordConfig} />
+                <ProcessRecordConfigTab config={processRecordConfig} onChange={setProcessRecordConfig} keyMismatch={error.includes('加密密钥与已保存密码不匹配')} />
               )}
               {selectedTab === 'rty' && (
                 <ModelTargetsTab targets={modelTargets} onChange={setModelTargets} companyTargets={company5000Targets} onCompanyChange={setCompany5000Targets} disabled={saving} onBusyChange={setModelTargetsBusy} />

@@ -25,7 +25,7 @@ from app.schemas.settings import (
     build_email_alert_trigger_condition,
 )
 from app.services.alert_mail_support import EMAIL_DEFAULT
-from app.services.credential_crypto import encrypt_credential
+from app.services.credential_crypto import encrypt_credential, validate_credential_update
 from app.services.data_gateway_client import data_gateway
 
 CONFIGS = Collections.CONFIGS
@@ -102,6 +102,11 @@ class SettingsService:
         if request.processRecords is not None:
             data = request.processRecords.model_dump(exclude_none=True)
             password = data.pop("password", None)
+            allow_reset = data.pop("allowPasswordReset", False)
+            validate_credential_update(
+                await self.read_doc("process_record_config") or {},
+                data.get("username"), password, allow_reset,
+            )
             if password:
                 data["passwordCiphertext"] = encrypt_credential(password)
             if data:

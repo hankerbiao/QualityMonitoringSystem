@@ -13,7 +13,7 @@ from app.api.lrr import (
     normalize_production_order,
     normalize_sales_order,
 )
-from app.schemas.lrr import LRRData
+from app.schemas.lrr import LRRData, LRRListResponse
 from app.services.lrr_list_cache import LRRListQuery
 
 
@@ -173,6 +173,52 @@ async def test_lrr_fault_details_uses_planned_range_without_ng_range(monkeypatch
 
     assert captured["date_from"] == "2026-09-01"
     assert captured["date_to"] == "2026-09-30"
+
+
+@pytest.mark.asyncio
+async def test_lrr_uses_today_for_material_query_without_dates(monkeypatch):
+    captured = {}
+
+    async def load_list(_request, query):
+        captured["query"] = query
+        return LRRListResponse(), "miss"
+
+    async def load_bom(**kwargs):
+        captured["bom"] = kwargs
+        return []
+
+    async def load_faults(**kwargs):
+        captured["faults"] = kwargs
+        return []
+
+    monkeypatch.setattr(lrr_api, "_today_in_china", lambda: "2026-11-02")
+    monkeypatch.setattr(lrr_api, "_load_lrr_list_for_request", load_list)
+    monkeypatch.setattr(lrr_api.lrr_gateway, "load_bom", load_bom)
+    monkeypatch.setattr(lrr_api.lrr_gateway, "load_faults", load_faults)
+
+    await lrr_api.get_lrr_list(None, page=1, limit=50, materialNumber="PN-1")
+    assert captured["query"].planned_date_from is None
+    assert captured["query"].planned_date_to == "2026-11-02"
+
+    await lrr_api.get_lrr_fault_details(None, materialNumber="PN-1", month=None, limit=50000)
+    assert captured["bom"]["planned_date_from"] is None
+    assert captured["bom"]["planned_date_to"] == "2026-11-02"
+    assert captured["faults"]["date_to"] == "2026-11-02"
+
+
+@pytest.mark.asyncio
+async def test_lrr_preserves_explicit_open_ended_date(monkeypatch):
+    captured = {}
+
+    async def load_list(_request, query):
+        captured["query"] = query
+        return LRRListResponse(), "miss"
+
+    monkeypatch.setattr(lrr_api, "_today_in_china", lambda: "2026-11-02")
+    monkeypatch.setattr(lrr_api, "_load_lrr_list_for_request", load_list)
+    await lrr_api.get_lrr_list(None, page=1, limit=50, plannedDateFrom="2026-10-01")
+    assert captured["query"].planned_date_from == "2026-10-01"
+    assert captured["query"].planned_date_to is None
 
 
 def test_lrr_fault_sort_requires_full_fault_loading():

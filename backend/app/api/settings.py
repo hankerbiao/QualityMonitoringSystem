@@ -39,6 +39,7 @@ from app.services.credential_crypto import (
     CredentialEncryptionError,
     decrypt_credential,
     encrypt_credential,
+    validate_credential_update,
 )
 from app.services.process_record_service import process_record_gateway
 from app.services.settings_service import SettingsService
@@ -155,11 +156,15 @@ async def update_process_record_config(config: ProcessRecordConfigUpdate):
     """更新共享凭据；空密码表示保留当前值。"""
     data = config.model_dump(exclude_none=True)
     password = data.pop("password", None)
-    if password:
-        try:
+    allow_reset = data.pop("allowPasswordReset", False)
+    try:
+        validate_credential_update(
+            await _read_doc("process_record_config") or {}, data.get("username"), password, allow_reset
+        )
+        if password:
             data["passwordCiphertext"] = encrypt_credential(password)
-        except CredentialEncryptionError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except CredentialEncryptionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     if not data:
         raise HTTPException(status_code=400, detail="No fields to update")
     data["updatedAt"] = datetime.now(timezone.utc)

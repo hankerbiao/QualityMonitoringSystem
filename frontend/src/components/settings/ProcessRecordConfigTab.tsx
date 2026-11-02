@@ -6,9 +6,10 @@ import type { ProcessRecordConfig, ProcessRecordConnectionResult } from '../../t
 interface Props {
   config: ProcessRecordConfig;
   onChange: (config: ProcessRecordConfig) => void;
+  keyMismatch?: boolean;
 }
 
-export function ProcessRecordConfigTab({ config, onChange }: Props) {
+export function ProcessRecordConfigTab({ config, onChange, keyMismatch = false }: Props) {
   const [showPassword, setShowPassword] = useState(false);
   const [testing, setTesting] = useState(false);
   const [results, setResults] = useState<ProcessRecordConnectionResult[]>([]);
@@ -88,6 +89,10 @@ export function ProcessRecordConfigTab({ config, onChange }: Props) {
           <p className="text-xs text-slate-400 mt-1.5">
             {config.hasPassword ? '数据库中已有密码。' : '尚未配置密码。'} 看板业务数据不会写入数据库。
           </p>
+          {keyMismatch && <label className="mt-3 flex items-center gap-2 text-sm text-amber-800">
+            <input type="checkbox" checked={!!config.allowPasswordReset} onChange={(event) => onChange({ ...config, allowPasswordReset: event.target.checked })} disabled={!config.password} />
+            原密钥无法恢复，使用新密码重置凭据
+          </label>}
         </div>
 
         <button

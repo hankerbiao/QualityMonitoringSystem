@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import asyncio
 from collections import defaultdict
+from contextlib import suppress
+from datetime import datetime
 from typing import Any
 
 from fastapi import HTTPException
@@ -46,7 +48,7 @@ def _unique_repairs(faults: list[dict[str, Any]]) -> list[dict[str, Any]]:
             if identity
             else tuple(
                 str(row.get(field) or "").strip()
-                for field in ("PCODE", "AUFNR", "VBELN", "ZNGWD", "ZNGGZ", "ZWXWD", "ZUSER")
+                for field in ("PCODE", "AUFNR", "VBELN", "ZNGWD", "ZNGGZ", "ZWXWD", "ZUSER", "T_FIND")
             )
         )
         if key in seen:
@@ -54,6 +56,21 @@ def _unique_repairs(faults: list[dict[str, Any]]) -> list[dict[str, Any]]:
         seen.add(key)
         result.append(row)
     return result
+
+
+def _repair_count(rows: list[dict[str, Any]]) -> int:
+    times = set()
+    for row in rows:
+        value = str(row.get("T_FIND") or "").strip()
+        with suppress(ValueError):
+            parsed = (
+                datetime.strptime(value, "%Y%m%d%H%M%S")
+                if len(value) == 14 and value.isdigit()
+                else datetime.fromisoformat(value)
+            )
+            value = parsed.isoformat()
+        times.add(value)
+    return len(times)
 
 
 def _group_repairs(
@@ -77,11 +94,11 @@ def aggregate_repairs(
     faults: list[dict[str, Any]],
     orders: dict[str, dict[str, Any]],
 ) -> dict[str, Any]:
-    """Aggregate de-duplicated source repair rows per SN and customer/base."""
+    """Count distinct NG times per SN and summarize by customer/base."""
     rows_by_sn, groups = _group_repairs(faults, orders)
 
     def summary(sns: set[str]) -> dict[str, Any]:
-        counts = [len(rows_by_sn[sn]) for sn in sns]
+        counts = [_repair_count(rows_by_sn[sn]) for sn in sns]
         denominator = len(counts)
         distribution = {str(index): sum(count == index for count in counts) for index in range(1, 9)}
         distribution["9+"] = sum(count >= 9 for count in counts)
@@ -204,6 +221,11 @@ async def _load_sources_uncached(
         repairs = [rty_gateway.normalize_fault_row(row) for row in fetched]
     else:
         repairs = await rty_gateway._faults_for_sns(selected_sns)
+        if any("T_FIND" not in row for row in repairs):
+            fetched = await data_gateway.fault_rows_by_host_barcodes(
+                sorted(selected_sns), max_rows=MAX_REPAIR_QUALITY_FAULTS
+            )
+            repairs = [rty_gateway.normalize_fault_row(row) for row in fetched]
     if len(repairs) > MAX_REPAIR_QUALITY_FAULTS:
         raise DataGatewayError("维修记录超过维修分析上限，请增加筛选条件")
     # Lifecycle records may reference orders outside the date range, but never
@@ -298,8 +320,8 @@ async def details(
     sns = sorted(
         sn for sn in groups.get((customer, base), set())
         if bucket == "all"
-        or (bucket == "9+" and len(rows_by_sn[sn]) >= 9)
-        or (bucket.isdigit() and len(rows_by_sn[sn]) == int(bucket))
+        or (bucket == "9+" and _repair_count(rows_by_sn[sn]) >= 9)
+        or (bucket.isdigit() and _repair_count(rows_by_sn[sn]) == int(bucket))
     )
     selected = sns if export_all else sns[(page - 1) * page_size : page * page_size]
     items = []
@@ -314,7 +336,7 @@ async def details(
             "sn": sn,
             "productionOrders": orders,
             "models": models,
-            "repairCount": len(rows),
+            "repairCount": _repair_count(rows),
             "repairs": [
                 {
                     "productionOrder": str(row.get("AUFNR") or ""),

@@ -110,8 +110,8 @@ async def test_repair_quality_filters_selected_orders_and_keeps_sn_lifecycle(mon
         "_faults_for_sns",
         AsyncMock(
             return_value=[
-                {"PCODE": "SN1", "AUFNR": "1", "_id": "a"},
-                {"PCODE": "SN1", "AUFNR": "2", "_id": "b"},
+                {"PCODE": "SN1", "AUFNR": "1", "_id": "a", "T_FIND": "2026-03-01"},
+                {"PCODE": "SN1", "AUFNR": "2", "_id": "b", "T_FIND": "2026-03-02"},
             ]
         ),
     )

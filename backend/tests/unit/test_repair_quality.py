@@ -16,10 +16,10 @@ def test_aggregate_repairs_counts_lifecycle_rows_and_groups_by_repair_order():
         "2": {"KID": "CUSTOMER-B", "LGORT": "2000"},
     }
     faults = [
-        {"_id": "a", "PCODE": "SN-1", "AUFNR": "1"},
-        {"_id": "a", "PCODE": "SN-1", "AUFNR": "1"},
-        {"_id": "b", "PCODE": "SN-1", "AUFNR": "2"},
-        {"_id": "c", "PCODE": "SN-2", "AUFNR": "1"},
+        {"_id": "a", "PCODE": "SN-1", "AUFNR": "1", "T_FIND": "2026-10-22 09:23:19"},
+        {"_id": "a", "PCODE": "SN-1", "AUFNR": "1", "T_FIND": "2026-10-22 09:23:19"},
+        {"_id": "b", "PCODE": "SN-1", "AUFNR": "2", "T_FIND": "2026-10-22 13:44:16"},
+        {"_id": "c", "PCODE": "SN-2", "AUFNR": "1", "T_FIND": "2026-10-22 09:59:57"},
     ]
 
     result = aggregate_repairs(faults, orders)
@@ -38,7 +38,7 @@ def test_aggregate_repairs_counts_lifecycle_rows_and_groups_by_repair_order():
 
 
 def test_aggregate_repairs_puts_ninth_and_later_records_in_long_tail_bucket():
-    faults = [{"_id": f"r{index}", "PCODE": "SN-1", "AUFNR": "1"} for index in range(10)]
+    faults = [{"_id": f"r{index}", "PCODE": "SN-1", "AUFNR": "1", "T_FIND": f"2026-10-22 09:00:{index:02}"} for index in range(10)]
 
     result = aggregate_repairs(faults, {"1": {"KID": "C", "LGORT": "B"}})
 
@@ -58,17 +58,63 @@ def test_aggregate_repairs_ignores_rows_without_serial_number():
 
 
 @pytest.mark.asyncio
+async def test_counts_distinct_sn_and_ng_time_but_preserves_source_rows(monkeypatch):
+    orders = {"1": {"KID": "C", "LGORT": "1000"}}
+    faults = [
+        *[{"_id": f"a{i}", "PCODE": "SN-A", "AUFNR": "1", "T_FIND": "2026-10-22 09:23:19"} for i in range(7)],
+        {"_id": "a7", "PCODE": "SN-A", "AUFNR": "1", "T_FIND": "2026-10-22 13:44:16"},
+        *[{"_id": f"b{i}", "PCODE": "SN-B", "AUFNR": "1", "T_FIND": "2026-10-22 09:59:57"} for i in range(4)],
+        {"_id": "c1", "PCODE": "SN-C", "AUFNR": "1", "T_FIND": "20261022095957"},
+        {"_id": "c2", "PCODE": "SN-C", "AUFNR": "1", "T_FIND": "2026-10-22T09:59:57"},
+    ]
+    monkeypatch.setattr(repair_quality, "_load_sources", AsyncMock(return_value=([], faults, orders)))
+    monkeypatch.setattr(repair_quality.rty_export, "_export_orders", AsyncMock(return_value=[]))
+
+    result = aggregate_repairs(faults, orders)
+    assert result["snCount"] == 3
+    assert result["firstPassCount"] == 2
+    assert result["repeatCount"] == 1
+    assert result["distribution"][1]["snCount"] == 1
+
+    details = await repair_quality.details("2026-10-01", "2026-10-31", "C", "1000", "2")
+    assert details["total"] == 1
+    assert details["items"][0]["sn"] == "SN-A"
+    assert details["items"][0]["repairCount"] == 2
+    assert len(details["items"][0]["repairs"]) == 8
+
+    exported = await repair_quality.build_export("2026-10-01", "2026-10-31")
+    assert exported["summary"] == result
+    assert len(exported["faults"]) == len(faults)
+
+
+@pytest.mark.asyncio
+async def test_analysis_falls_back_to_full_rows_when_projection_omits_ng_time(monkeypatch):
+    mock_export_sources(monkeypatch)
+    monkeypatch.setattr(
+        repair_quality.rty_gateway, "_faults_for_sns",
+        AsyncMock(return_value=[{"_id": "first", "PCODE": "000001", "AUFNR": "1"}]),
+    )
+
+    result = await repair_quality.analyze("2026-10-01", "2026-10-31")
+
+    repair_quality.data_gateway.fault_rows_by_host_barcodes.assert_awaited_once_with(
+        ["000001"], max_rows=250_000
+    )
+    assert result["distribution"][2]["snCount"] == 1
+
+
+@pytest.mark.asyncio
 async def test_details_match_group_counts_and_keep_cross_group_lifecycle(monkeypatch):
     orders = {
         "1": {"KID": "A", "LGORT": "1000", "MAKTX_TH": "M1"},
         "2": {"KID": "B", "LGORT": "2000", "MAKTX_TH": "M2"},
     }
     faults = [
-        {"_id": "a", "PCODE": "SN-1", "AUFNR": "1"},
-        {"_id": "a", "PCODE": "SN-1", "AUFNR": "1"},
-        {"_id": "b", "PCODE": "SN-1", "AUFNR": "2", "ZWXWD": "故障"},
-        {"_id": "c", "PCODE": "SN-2", "AUFNR": "1"},
-        *[{"_id": f"long-{i}", "PCODE": "SN-3", "AUFNR": "1"} for i in range(10)],
+        {"_id": "a", "PCODE": "SN-1", "AUFNR": "1", "T_FIND": "2026-10-22 09:23:19"},
+        {"_id": "a", "PCODE": "SN-1", "AUFNR": "1", "T_FIND": "2026-10-22 09:23:19"},
+        {"_id": "b", "PCODE": "SN-1", "AUFNR": "2", "ZWXWD": "故障", "T_FIND": "2026-10-22 13:44:16"},
+        {"_id": "c", "PCODE": "SN-2", "AUFNR": "1", "T_FIND": "2026-10-22 09:59:57"},
+        *[{"_id": f"long-{i}", "PCODE": "SN-3", "AUFNR": "1", "T_FIND": f"2026-10-22 09:00:{i:02}"} for i in range(10)],
     ]
     loader = AsyncMock(return_value=([], faults, orders))
     monkeypatch.setattr(repair_quality, "_load_sources", loader)
@@ -110,7 +156,7 @@ async def test_analyze_filters_by_actual_start_date_and_dimensions(monkeypatch):
     monkeypatch.setattr(repair_quality.data_gateway, "all_orders", AsyncMock(return_value=orders))
     monkeypatch.setattr(repair_quality.data_gateway, "export_rows", AsyncMock(return_value=full_orders))
     selected_faults = AsyncMock(return_value=[{"_id": "f1", "PCODE": "SN-1"}])
-    lifecycle_faults = AsyncMock(return_value=[{"_id": "f1", "PCODE": "SN-1", "AUFNR": "1"}])
+    lifecycle_faults = AsyncMock(return_value=[{"_id": "f1", "PCODE": "SN-1", "AUFNR": "1", "T_FIND": "2026-10-10"}])
     monkeypatch.setattr(repair_quality.rty_gateway, "_faults_for_orders", selected_faults)
     monkeypatch.setattr(repair_quality.rty_gateway, "_faults_for_sns", lifecycle_faults)
 
@@ -179,7 +225,7 @@ def mock_export_sources(monkeypatch):
         {"_id": "first", "PCODE": "000001", "AUFNR": "1", "T_FIND": "20261010"},
         {"_id": "second", "PCODE": "000001", "AUFNR": "2", "T_FIND": "20250101", "ERROR_MSG": "=literal"},
         {"_id": "third", "PCODE": "000001", "AUFNR": "3", "T_FIND": "20270101"},
-        {"_id": "unrelated", "PCODE": "OTHER", "AUFNR": "1"},
+        {"_id": "unrelated", "PCODE": "OTHER", "AUFNR": "1", "T_FIND": "2026-10-10"},
     ]
     monkeypatch.setattr(repair_quality.data_gateway, "all_orders", AsyncMock(return_value=orders))
     monkeypatch.setattr(repair_quality.data_gateway, "export_rows", AsyncMock(return_value=full_orders))

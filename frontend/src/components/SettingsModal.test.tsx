@@ -93,6 +93,21 @@ describe('settings pages by role', () => {
     }));
   });
 
+  it('requires an explicit reset when the saved source password uses another key', async () => {
+    setRole('admin');
+    updateSettings.mockRejectedValueOnce(new Error('当前服务加密密钥与已保存密码不匹配'));
+    render(<SettingsModal onClose={vi.fn()} onSaved={vi.fn()} />);
+    const password = screen.getByPlaceholderText('密码已配置，留空表示不修改');
+    fireEvent.change(password, { target: { value: 'new-password' } });
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+    const reset = await screen.findByRole('checkbox', { name: '原密钥无法恢复，使用新密码重置凭据' });
+    fireEvent.click(reset);
+    fireEvent.click(screen.getByRole('button', { name: '保存配置' }));
+    await waitFor(() => expect(updateSettings).toHaveBeenLastCalledWith(expect.objectContaining({
+      processRecords: { username: 'private-source', password: 'new-password', allowPasswordReset: true },
+    })));
+  });
+
   it('saves imported targets through the existing settings action, preserving unlisted models', async () => {
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([

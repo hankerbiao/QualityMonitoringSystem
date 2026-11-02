@@ -138,7 +138,7 @@ export default function RepairQualityPage() {
             <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700"><Wrench className="size-4" /></span>
             <div className="flex min-w-0 items-center gap-1"><h1 className="truncate text-base font-semibold text-slate-900">维修通过率分析</h1><HelpTooltip label="查看维修通过率分析说明">
               <p>分析首修通过率及维修 SN 的完整生命周期复修次数。</p>
-              <p className="mt-1">按订单实际开始日期筛选 SN；维修次数统计这些 SN 的完整生命周期 NG 记录。默认周期为最近 7 天。</p>
+              <p className="mt-1">按订单实际开始日期筛选 SN；维修次数按完整生命周期内的 SN 和 NG 时间去重，同一 SN 的相同 NG 时间计为 1 次。默认周期为最近 7 天。</p>
             </HelpTooltip></div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -177,11 +177,11 @@ export default function RepairQualityPage() {
         {result && <>
           <section aria-label="关键指标" className="grid grid-cols-2 gap-x-3 gap-y-2 border-y border-slate-200 bg-white px-3 py-2.5 sm:grid-cols-3 xl:grid-cols-6">
             <Metric label="维修 SN" value={result.snCount.toLocaleString()} detail="去重后的设备数" />
-            <Metric label="首修通过率" value={`${result.firstPassRate.toFixed(2)}%`} detail="仅有 1 条 NG 记录的 SN 占比" tone="emerald" />
+            <Metric label="首修通过率" value={`${result.firstPassRate.toFixed(2)}%`} detail="仅有 1 次 NG 时间的 SN 占比" tone="emerald" />
             <Metric label="首修通过 SN" value={result.firstPassCount.toLocaleString()} detail="生命周期内维修记录为 1 次" />
             <Metric label="发生复修 SN" value={result.repeatCount.toLocaleString()} detail="生命周期内维修记录超过 1 次" tone="orange" />
             <Metric label="复修率" value={`${repeatRate.toFixed(2)}%`} detail="发生复修 SN / 维修 SN" tone="orange" />
-            <Metric label="平均维修次数" value={averageRepairs.toFixed(2)} detail="每台维修 SN 的 NG 记录均值" />
+            <Metric label="平均维修次数" value={averageRepairs.toFixed(2)} detail="每台维修 SN 的 NG 时间次数均值" />
           </section>
 
           {result.snCount === 0 ? <div className="flex min-h-56 flex-col items-center justify-center border-y border-slate-200 text-slate-400"><Wrench className="size-7" /><p className="mt-2 text-sm">当前筛选条件下没有维修 SN</p></div> : <>

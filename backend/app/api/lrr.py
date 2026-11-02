@@ -6,10 +6,11 @@ import asyncio
 from collections import defaultdict
 from contextlib import suppress
 from dataclasses import replace
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
 from time import perf_counter
 from typing import Annotated, Any
+from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
@@ -41,6 +42,10 @@ MAX_LRR_DATE_RANGE_DAYS = 366
 MAX_LRR_UNFILTERED_MONTHS = 2
 LRR_SCOPE_FILTER_MESSAGE = "查询周期超过 2 个月，请至少增加物料号、机型、基地或客户 ID 筛选条件"
 LRR_BOM_SCOPE_MESSAGE = "LRR 查询必须包含计划日期范围或物料 PN，未限定范围的查询已禁用"
+
+
+def _today_in_china() -> str:
+    return datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
 
 
 def _validate_lrr_date_range(
@@ -620,6 +625,8 @@ async def get_lrr_list(
     sortDir: str = "asc",
 ):
     _require_bounded_bom_scope(materialNumber, plannedDateFrom, plannedDateTo)
+    if not plannedDateFrom and not plannedDateTo:
+        plannedDateTo = _today_in_china()
     has_scope_filter = _has_lrr_scope_filter(materialNumber, productModel, base, customerId)
     _validate_lrr_date_range(
         plannedDateFrom,
@@ -687,6 +694,8 @@ async def get_lrr_fault_details(
 ):
     del request
     _require_bounded_bom_scope(materialNumber, plannedDateFrom, plannedDateTo)
+    if not plannedDateFrom and not plannedDateTo:
+        plannedDateTo = _today_in_china()
     has_scope_filter = _has_lrr_scope_filter(materialNumber, productModel, base, customerId)
     _validate_lrr_date_range(
         plannedDateFrom,

@@ -169,6 +169,32 @@ class TestProcessRecordConfig:
         assert "无法解密" in response.json()["detail"]
         assert "管理员" in response.json()["detail"]
 
+    @pytest.mark.parametrize("path", ["/api/settings/process-records", "/api/settings"])
+    async def test_wrong_key_cannot_overwrite_credentials_without_explicit_reset(
+        self, client, db_clean, path
+    ):
+        from cryptography.fernet import Fernet
+
+        ciphertext = Fernet(Fernet.generate_key()).encrypt(b"original-password").decode("ascii")
+        await db_clean.configs.insert_one({
+            "key": "process_record_config", "username": "source-user",
+            "passwordCiphertext": ciphertext,
+        })
+
+        config = {"username": "source-user", "password": "replacement"}
+        body = config if path.endswith("process-records") else {"processRecords": config}
+        response = await client.put(path, json=body)
+        assert response.status_code == 400
+        assert "加密密钥与已保存密码不匹配" in response.json()["detail"]
+        assert (await db_clean.configs.find_one({"key": "process_record_config"}))["passwordCiphertext"] == ciphertext
+
+        config["allowPasswordReset"] = True
+        response = await client.put(path, json=body)
+        assert response.status_code == 200
+        stored = await db_clean.configs.find_one({"key": "process_record_config"})
+        assert stored["passwordCiphertext"] != ciphertext
+        assert "allowPasswordReset" not in stored
+
 
 @pytest.mark.integration
 class TestModelTargets:

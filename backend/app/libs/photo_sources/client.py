@@ -165,7 +165,7 @@ class PhotoSourceClient:
                 self._client.headers["Authorization"] = f"Bearer {token}"
             self._session_generation += 1
             self._logged_in = True
-            self._last_login_status_check = time.monotonic()
+            self._last_login_status_check = None
             return payload
 
     async def _request(self, method: str, url: str, **kwargs: Any) -> httpx.Response:

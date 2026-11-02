@@ -38,6 +38,7 @@ class ProcessRecordConfig(BaseModel):
 class ProcessRecordConfigUpdate(BaseModel):
     username: str | None = None
     password: str | None = None
+    allowPasswordReset: bool = False
 
 
 # ============== 机型指标配置 ==============
