@@ -61,7 +61,7 @@ docker compose version >/dev/null
 
 [[ "$(git branch --show-current)" == "$DEPLOY_BRANCH" ]] \
   || { printf '[deploy] ERROR: remote branch must be %s\n' "$DEPLOY_BRANCH" >&2; exit 1; }
-git fetch origin "refs/heads/$DEPLOY_BRANCH"
+git -c http.proxy="$HTTP_PROXY_URL" fetch origin "refs/heads/$DEPLOY_BRANCH"
 [[ "$(git rev-parse FETCH_HEAD)" == "$DEPLOY_COMMIT" ]] \
   || { printf '[deploy] ERROR: branch changed after push; run deployment again\n' >&2; exit 1; }
 incoming_paths="$(git diff --name-only HEAD "$DEPLOY_COMMIT")"
