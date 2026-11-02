@@ -330,25 +330,30 @@ async def load_bom(
     else:
         orders = []
     metadata_load_ms = (perf_counter() - metadata_started_at) * 1000
-    metadata: dict[str, tuple[str, str, str, str]] = {}
+    metadata: dict[str, tuple[str, str, str, str, Any]] = {}
     allowed_bases = set(bases or [])
     allowed_models = set(product_models or [])
     for item in orders:
         key = normalize_production_order(item.get("aufnr"))
         if key:
+            order_data = source_data(item)
+            planned_quantity = item.get("orderQuantity")
+            if planned_quantity is None or not str(planned_quantity).strip():
+                planned_quantity = order_data.get("GAMNG")
             metadata[key] = (
                 str(item.get("inventoryLocation", "")).strip(),
                 str(item.get("customerId", "")).strip(),
                 str(item.get("productionModel", "")).strip(),
-                str(source_data(item).get("AUART") or "").strip(),
+                str(order_data.get("AUART") or "").strip(),
+                planned_quantity,
             )
     result = []
     for row in rows:
         metadata_values = metadata.get(normalize_production_order(row.get("AUFNR_1")))
         if metadata_values is None:
-            base_value, customer, model, order_type = "", "", "", ""
+            base_value, customer, model, order_type, planned_quantity = "", "", "", "", None
         else:
-            base_value, customer, model, order_type = metadata_values
+            base_value, customer, model, order_type, planned_quantity = metadata_values
         if not base_allowed(base_value or row.get("LGORT")):
             continue
         if allowed_bases and not ({str(row.get("LGORT") or "").strip(), base_value} & allowed_bases):
@@ -362,6 +367,7 @@ async def load_bom(
         row["_base"] = str(row.get("LGORT") or base_value).strip()
         row["_customer_id"] = customer
         row["_product_model"] = model
+        row["_planned_quantity"] = planned_quantity
         result.append(row)
     log_info(
         "LRR gateway BOM timings "

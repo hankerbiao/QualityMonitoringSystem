@@ -94,3 +94,23 @@ export interface LRRFaultDetailsResponse {
   total: number;
   truncated: boolean;
 }
+
+export interface LRRUsageByOrder {
+  productionOrder: string;
+  salesOrder: string;
+  productModel: string;
+  base: string;
+  plannedQuantity: number | null;
+  issuedQuantity: number;
+  returnedQuantity: number;
+  usageQuantity: number;
+}
+
+export interface LRRUsageDetailsResponse {
+  items: LRRUsageByOrder[];
+  total: number;
+  issuedQuantity: number;
+  returnedQuantity: number;
+  usageQuantity: number;
+  quantityMode: 'movement' | 'legacy';
+}

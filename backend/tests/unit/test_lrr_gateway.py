@@ -238,6 +238,28 @@ async def test_load_bom_filters_by_multiple_customers(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_load_bom_attaches_order_planned_quantity(monkeypatch):
+    async def all_bom_rows(**_filters: str):
+        return [
+            {"id": "bom-1", "AUFNR_1": "000000000001", "MATNR": "PN-1", "MENGE_A": "1"},
+            {"id": "bom-2", "AUFNR_1": "000000000002", "MATNR": "PN-1", "MENGE_A": "1"},
+        ]
+
+    async def all_orders(**_filters: str):
+        return [
+            {"aufnr": "1", "orderQuantity": "24"},
+            {"aufnr": "2", "raw": {"data": {"GAMNG": "36"}}},
+        ]
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_orders", all_orders)
+
+    rows = await lrr_gateway.load_bom(include_order_metadata=True)
+
+    assert [row["_planned_quantity"] for row in rows] == ["24", "36"]
+
+
+@pytest.mark.asyncio
 async def test_load_bom_month_filters_by_gstrs_without_using_budat_bounds(monkeypatch):
     captured: dict[str, str] = {}
 

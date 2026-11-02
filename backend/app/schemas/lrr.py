@@ -55,6 +55,26 @@ class LRRFaultDetailsResponse(BaseModel):
     truncated: bool = False
 
 
+class LRRUsageByOrder(BaseModel):
+    productionOrder: str = ""
+    salesOrder: str = ""
+    productModel: str = ""
+    base: str = ""
+    plannedQuantity: float | None = None
+    issuedQuantity: float = 0.0
+    returnedQuantity: float = 0.0
+    usageQuantity: float = 0.0
+
+
+class LRRUsageDetailsResponse(BaseModel):
+    items: list[LRRUsageByOrder] = Field(default_factory=list)
+    total: int = 0
+    issuedQuantity: float = 0.0
+    returnedQuantity: float = 0.0
+    usageQuantity: float = 0.0
+    quantityMode: Literal["movement", "legacy"] = "movement"
+
+
 class LRROptions(BaseModel):
     materialNumbers: list[str] = Field(default_factory=list)
     productModels: list[str] = Field(default_factory=list)

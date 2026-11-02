@@ -9,7 +9,7 @@ import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
 import { HelpTooltip } from '../components/shared/HelpTooltip';
 import { LoadingSpinner } from '../components/ui';
 import { ApiRequestError } from '../api/authApi';
-import type { LRRData, LRRFaultDetail, LRRFilters, LRRListResponse, LRRMaterialRank, LRRTrendPoint } from '../types';
+import type { LRRData, LRRFaultDetail, LRRFilters, LRRListResponse, LRRMaterialRank, LRRTrendPoint, LRRUsageDetailsResponse } from '../types';
 import { displayMaterialNumber } from '../utils/lrr';
 
 const PAGE_SIZE = 50;
@@ -168,6 +168,134 @@ export function DetailModal({ title, items, loading, error, onClose }: { title: 
   );
 }
 
+const USAGE_COLUMNS = [
+  ['productionOrder', '生产订单'],
+  ['salesOrder', '销售订单'],
+  ['productModel', '机型'],
+  ['base', '库位'],
+  ['plannedQuantity', '计划整机数量'],
+  ['issuedQuantity', '261 发料'],
+  ['returnedQuantity', '262 退料'],
+  ['usageQuantity', '净使用量'],
+] as const;
+
+function UsageDetailsModal({
+  title,
+  response,
+  loading,
+  error,
+  onClose,
+}: {
+  title: string;
+  response: LRRUsageDetailsResponse | null;
+  loading: boolean;
+  error: ApiRequestError | null;
+  onClose: () => void;
+}) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const [exportError, setExportError] = useState('');
+  const items = response?.items ?? [];
+  const usageColumns = response?.quantityMode === 'legacy'
+    ? [
+        ...USAGE_COLUMNS.slice(0, 5),
+        ['usageQuantity', '历史使用量'] as const,
+      ]
+    : USAGE_COLUMNS;
+  const usageColumnWidths: Record<string, string> = response?.quantityMode === 'legacy'
+    ? {
+        productionOrder: '20%',
+        salesOrder: '18%',
+        productModel: '14%',
+        base: '10%',
+        plannedQuantity: '18%',
+        usageQuantity: '20%',
+      }
+    : {
+        productionOrder: '16%',
+        salesOrder: '15%',
+        productModel: '13%',
+        base: '9%',
+        plannedQuantity: '12%',
+        issuedQuantity: '11%',
+        returnedQuantity: '11%',
+        usageQuantity: '13%',
+      };
+  useEffect(() => {
+    closeRef.current?.focus();
+    const handler = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
+  const exportDetails = () => {
+    try {
+      const sheet = XLSX.utils.aoa_to_sheet([
+        usageColumns.map(([, label]) => label),
+        ...items.map(item => usageColumns.map(([key]) => item[key])),
+      ]);
+      const workbook = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(workbook, sheet, '订单使用数量');
+      XLSX.writeFile(workbook, `${title.replace(/[\\/:*?"<>|]/g, '_')}_订单使用数量.xlsx`);
+      setExportError('');
+    } catch {
+      setExportError('订单使用数量导出失败，请重试');
+    }
+  };
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-labelledby="lrr-usage-title" aria-busy={loading} className="flex max-h-[85vh] w-full max-w-5xl flex-col overflow-hidden rounded-md bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+          <div><h2 id="lrr-usage-title" className="text-sm font-semibold text-slate-900">{title}</h2><p className="mt-1 text-xs text-slate-500">按生产订单汇总；{response?.quantityMode === 'legacy' ? '上游未提供移动类型，沿用 LRR 历史数量口径' : '净使用量 = 261 发料 - 262 退料'}</p></div>
+          <button ref={closeRef} type="button" onClick={onClose} className="rounded p-1 text-slate-500 hover:bg-slate-200" aria-label="关闭"><X className="size-4" /></button>
+        </div>
+        <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-5 py-2">
+          <div className="flex flex-wrap gap-4 text-xs text-slate-600">
+            <span>订单数 <b className="font-mono text-slate-900">{formatCount(response?.total)}</b></span>
+            {response?.quantityMode === 'legacy' ? (
+              <span>历史使用量 <b className="font-mono text-cyan-800">{formatCount(response.usageQuantity)}</b></span>
+            ) : (
+              <>
+                <span>发料 <b className="font-mono text-slate-900">{formatCount(response?.issuedQuantity)}</b></span>
+                <span>退料 <b className="font-mono text-slate-900">{formatCount(response?.returnedQuantity)}</b></span>
+                <span>净使用 <b className="font-mono text-cyan-800">{formatCount(response?.usageQuantity)}</b></span>
+              </>
+            )}
+          </div>
+          <button type="button" onClick={exportDetails} disabled={loading || !!error || !items.length} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-slate-200 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"><Download className="size-3.5" />导出</button>
+        </div>
+        {exportError && <p role="alert" className="px-5 pt-3 text-xs text-red-600">{exportError}</p>}
+        {loading ? <div className="flex min-h-48 flex-col items-center justify-center gap-3 text-sm text-slate-500"><LoadingSpinner size="md" />正在汇总订单使用数量...</div> : error ? (
+          <div role="alert" className="flex min-h-48 flex-col items-center justify-center gap-3 px-6 text-center text-sm text-red-700">
+            <p>{errorMessage(error)}</p>
+            {error.requestId && <p className="text-xs text-slate-400">请求编号：{error.requestId}</p>}
+          </div>
+        ) : (
+          <div className="overflow-auto p-4">
+            <table className="w-full min-w-[980px] table-fixed text-center text-xs">
+              <colgroup>{usageColumns.map(([key]) => <col key={key} style={{ width: usageColumnWidths[key] }} />)}</colgroup>
+              <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-slate-600">
+                <tr>{usageColumns.map(([, label]) => <th key={label} className="whitespace-nowrap px-3 py-2 font-semibold">{label}</th>)}</tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {items.map((item, index) => (
+                  <tr key={`${item.productionOrder}-${item.salesOrder}-${index}`} className="text-slate-700 hover:bg-slate-50">
+                    {usageColumns.map(([key]) => (
+                      <td key={key} className={`overflow-hidden text-ellipsis whitespace-nowrap px-3 py-2 ${key.endsWith('Quantity') ? 'font-mono tabular-nums' : ''}`} title={String(item[key] ?? '')}>
+                        {key.endsWith('Quantity') ? formatCount(item[key] as number) : item[key] || '-'}
+                      </td>
+                    ))}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!items.length && <p className="px-4 py-12 text-center text-sm text-slate-400">当前筛选范围没有订单使用记录</p>}
+          </div>
+        )}
+        <div className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">{response?.quantityMode === 'legacy' ? '历史使用量' : '净使用数量'}合计 {formatCount(response?.usageQuantity)}</div>
+      </div>
+    </div>
+  );
+}
+
 function TrendTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ payload?: LRRTrendPoint }>; label?: string }) {
   const point = payload?.[0]?.payload;
   if (!active || !point) return null;
@@ -226,6 +354,12 @@ export default function LRRPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<ApiRequestError | null>(null);
   const [detailLoadingRow, setDetailLoadingRow] = useState<string | null>(null);
+  const [usageResponse, setUsageResponse] = useState<LRRUsageDetailsResponse | null>(null);
+  const [usageTitle, setUsageTitle] = useState('订单使用数量明细');
+  const [usageOpen, setUsageOpen] = useState(false);
+  const [usageLoading, setUsageLoading] = useState(false);
+  const [usageError, setUsageError] = useState<ApiRequestError | null>(null);
+  const [usageLoadingRow, setUsageLoadingRow] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState<ApiRequestError | null>(null);
@@ -235,6 +369,7 @@ export default function LRRPage() {
   const [page, setPage] = useState(1);
   const sequence = useRef(0);
   const detailRequest = useRef(0);
+  const usageRequest = useRef(0);
   const queryController = useRef<AbortController | null>(null);
 
   const cancelQuery = useCallback(() => {
@@ -348,6 +483,37 @@ export default function LRRPage() {
     };
     void openDetails(detailFilters, `${displayMaterialNumber(row.materialNumber)} ${row.month} 故障明细`).finally(() => setDetailLoadingRow(null));
   };
+
+  const openUsageDetails = async (row: LRRData) => {
+    if (usageLoading) return;
+    const request = ++usageRequest.current;
+    setUsageOpen(true);
+    setUsageResponse(null);
+    setUsageError(null);
+    setUsageLoading(true);
+    setUsageLoadingRow(row.id);
+    const title = `${displayMaterialNumber(row.materialNumber)} ${row.month} 各订单使用数量`;
+    setUsageTitle(title);
+    try {
+      const result = await lrrApi.getUsageDetails(filters, row.materialNumber, row.month);
+      if (request === usageRequest.current) setUsageResponse(result);
+    } catch (err) {
+      if (request === usageRequest.current) setUsageError(normalizeApiError(err));
+    } finally {
+      if (request === usageRequest.current) {
+        setUsageLoading(false);
+        setUsageLoadingRow(null);
+      }
+    }
+  };
+
+  const closeUsageDetails = useCallback(() => {
+    usageRequest.current += 1;
+    setUsageOpen(false);
+    setUsageLoading(false);
+    setUsageLoadingRow(null);
+    setUsageError(null);
+  }, []);
 
   const openMaterialDetails = (item: LRRMaterialRank) => {
     if (detailLoading) return;
@@ -580,7 +746,18 @@ export default function LRRPage() {
                         <td className="border-b border-r border-slate-200 px-4 py-3 font-mono">{row.month}</td>
                         <td className="border-b border-r border-slate-100 px-4 py-3 font-mono font-medium"><span title={row.materialNumber}>{displayMaterialNumber(row.materialNumber)}</span></td>
                         <td className="border-b border-r border-slate-100 px-4 py-3">{row.materialDescription || '-'}</td>
-                        <td className="border-b border-r border-slate-100 px-4 py-3 text-right font-mono">{row.issuedQuantity.toLocaleString('zh-CN')}</td>
+                        <td className="border-b border-r border-slate-100 px-4 py-3 text-right font-mono">
+                          <button
+                            type="button"
+                            disabled={usageLoading}
+                            onClick={(event) => { event.stopPropagation(); void openUsageDetails(row); }}
+                            className="inline-flex items-center justify-end gap-1 font-semibold text-cyan-800 underline decoration-dotted underline-offset-2 hover:text-cyan-950 disabled:cursor-wait disabled:opacity-60"
+                            aria-label={`查看 ${displayMaterialNumber(row.materialNumber)} ${row.month} 各订单使用数量`}
+                            title="点击查看每个订单对应的使用数量"
+                          >
+                            {usageLoadingRow === row.id ? <LoadingSpinner size="sm" className="border-cyan-700" /> : row.issuedQuantity.toLocaleString('zh-CN')}
+                          </button>
+                        </td>
                         <td className="border-b border-r border-slate-100 px-4 py-3 text-right font-mono">
                           {row.faultCount == null ? (
                             <button type="button" disabled={detailLoading} onClick={(event) => { event.stopPropagation(); openRowDetails(row); }} className="font-semibold text-slate-500 underline decoration-dotted disabled:cursor-wait disabled:opacity-60">
@@ -619,6 +796,15 @@ export default function LRRPage() {
           loading={detailLoading}
           error={detailError}
           onClose={() => { detailRequest.current += 1; setDetailLoading(false); setDetailLoadingRow(null); setDetailError(null); setDetailItems(null); }}
+        />
+      )}
+      {usageOpen && (
+        <UsageDetailsModal
+          title={usageTitle}
+          response={usageResponse}
+          loading={usageLoading}
+          error={usageError}
+          onClose={closeUsageDetails}
         />
       )}
       {loading && (

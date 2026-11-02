@@ -5,6 +5,7 @@ import type {
   LRRFaultDetailsResponse,
   LRRListResponse,
   LRROptions,
+  LRRUsageDetailsResponse,
 } from '../types';
 import { requestJson } from './authApi';
 import { API_BASE_URL } from '../constants';
@@ -131,6 +132,17 @@ export const lrrApi = {
     const url = `${API_BASE_URL}/lrr/fault-details${qs}`;
     return cachedRequest(url, () => requestJson<LRRFaultDetailsResponse>(url));
   },
+
+  /** 按生产订单拆分物料月度使用数量 */
+  async getUsageDetails(
+    filters: LRRFilters,
+    materialNumber: string,
+    month: string,
+  ): Promise<LRRUsageDetailsResponse> {
+    const qs = buildQuery(filters, { materialNumber, month });
+    const url = `${API_BASE_URL}/lrr/usage-details${qs}`;
+    return cachedRequest(url, () => requestJson<LRRUsageDetailsResponse>(url));
+  },
 };
 
-export type { LRRFilters, LRRFaultDetail, LRRFaultDetailsResponse, LRRListResponse, LRROptions };
+export type { LRRFilters, LRRFaultDetail, LRRFaultDetailsResponse, LRRListResponse, LRROptions, LRRUsageDetailsResponse };

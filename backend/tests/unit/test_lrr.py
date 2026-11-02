@@ -7,6 +7,7 @@ from app.api.lrr import (
     _require_bounded_bom_scope,
     _requires_full_fault_sort,
     _response,
+    _usage_by_order,
     _usage_response,
     _validate_lrr_date_range,
     aggregate_lrr,
@@ -396,6 +397,115 @@ def test_lrr_denominator_uses_261_minus_262_and_ignores_other_movement_types():
 
     assert len(rows) == 1
     assert rows[0].issuedQuantity == 7
+
+
+def test_lrr_usage_details_split_net_quantity_by_production_order():
+    response = _usage_by_order(
+        [
+            {
+                "AUFNR_1": "0001",
+                "VBELN_EX": "100",
+                "MATNR": "PN-1",
+                "GSTRS": "20261001",
+                "BWART": "261",
+                "MENGE_A": 10,
+                "_product_model": "M1",
+                "_base": "B1",
+                "_planned_quantity": "40",
+            },
+            {
+                "AUFNR_1": "0001",
+                "VBELN_EX": "100",
+                "MATNR": "PN-1",
+                "GSTRS": "20261002",
+                "BWART": "262",
+                "MENGE_A": 2,
+                "_product_model": "M1",
+                "_base": "B1",
+                "_planned_quantity": "40",
+            },
+            {
+                "AUFNR_1": "0002",
+                "VBELN_EX": "100",
+                "MATNR": "PN-1",
+                "GSTRS": "20261003",
+                "BWART": "261",
+                "MENGE_A": 5,
+                "_product_model": "M2",
+                "_base": "B2",
+                "_planned_quantity": "20",
+            },
+            {
+                "AUFNR_1": "0003",
+                "VBELN_EX": "100",
+                "MATNR": "PN-2",
+                "GSTRS": "20261003",
+                "BWART": "261",
+                "MENGE_A": 100,
+            },
+        ],
+        "PN-1",
+        "2026-10",
+    )
+
+    assert [
+        (
+            item.productionOrder,
+            item.plannedQuantity,
+            item.issuedQuantity,
+            item.returnedQuantity,
+            item.usageQuantity,
+        )
+        for item in response.items
+    ] == [
+        ("000000000001", 40, 10, 2, 8),
+        ("000000000002", 20, 5, 0, 5),
+    ]
+    assert (response.issuedQuantity, response.returnedQuantity, response.usageQuantity) == (15, 2, 13)
+
+
+def test_lrr_usage_details_keep_legacy_quantity_when_movement_type_is_missing():
+    response = _usage_by_order(
+        [
+            {
+                "AUFNR_1": "0001",
+                "MATNR": "PN-1",
+                "GSTRS": "20261001",
+                "MENGE_A": 7,
+            }
+        ],
+        "PN-1",
+        "2026-10",
+    )
+
+    assert response.quantityMode == "legacy"
+    assert response.usageQuantity == 7
+    assert response.items[0].usageQuantity == 7
+
+
+@pytest.mark.asyncio
+async def test_lrr_usage_details_loads_selected_material_month_and_filters(monkeypatch):
+    captured = {}
+
+    async def load_bom(**kwargs):
+        captured.update(kwargs)
+        return [{"AUFNR_1": "1", "MATNR": "PN-1", "GSTRS": "20261010", "BWART": "261", "MENGE_A": 4}]
+
+    monkeypatch.setattr(lrr_api.lrr_gateway, "load_bom", load_bom)
+
+    response = await lrr_api.get_lrr_usage_details(
+        None,
+        materialNumber="PN-1",
+        month="2026-10",
+        base=["B1", "B2"],
+        productionOrders=["1"],
+    )
+
+    assert captured["material_number"] == "PN-1"
+    assert captured["month"] == "2026-10"
+    assert captured["bases"] == ["B1", "B2"]
+    assert captured["include_order_metadata"] is True
+    assert response.usageQuantity == 4
 
 
 def test_lrr_matches_repair_material_to_zero_padded_bom_material():

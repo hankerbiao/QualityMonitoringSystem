@@ -26,6 +26,8 @@ from app.schemas.lrr import (
     LRROptions,
     LRRSummary,
     LRRTrendPoint,
+    LRRUsageByOrder,
+    LRRUsageDetailsResponse,
 )
 from app.services import advanced_filters, lrr_gateway
 from app.services.lrr_list_cache import LRRListQuery, lrr_list_cache
@@ -160,6 +162,16 @@ def _quantity(value: Any) -> Decimal:
         return Decimal(str(value or 0).replace(",", "").strip())
     except (InvalidOperation, ValueError):
         return Decimal(0)
+
+
+def _optional_quantity(value: Any) -> float | None:
+    if value is None or not str(value).strip():
+        return None
+    try:
+        quantity = Decimal(str(value).replace(",", "").strip())
+    except (InvalidOperation, ValueError):
+        return None
+    return float(quantity) if quantity.is_finite() else None
 
 
 def _normalized_description(value: Any) -> str:
@@ -307,6 +319,80 @@ def aggregate_lrr(
         for key, group in active.items()
     ]
     return rows, details
+
+
+def _usage_by_order(
+    bom_rows: list[dict[str, Any]], material_number: str, month: str
+) -> LRRUsageDetailsResponse:
+    """Split the LRR denominator by production order using its exact movement rules."""
+    normalized_material = normalize_material_number(material_number)
+    matching_rows = [
+        row
+        for row in bom_rows
+        if normalize_material_number(row.get("MATNR")) == normalized_material
+        and month_from_date(row.get("GSTRS")) == month
+    ]
+    has_movement_type = any(str(row.get("BWART") or "").strip() for row in matching_rows)
+    groups: dict[tuple[str, str], dict[str, Any]] = {}
+    total_issued = Decimal(0)
+    total_returned = Decimal(0)
+
+    for row in matching_rows:
+        production_order = normalize_production_order(row.get("AUFNR_1"))
+        sales_order = normalize_sales_order(row.get("VBELN_EX"))
+        group_key = (production_order or "未关联生产订单", sales_order)
+        group = groups.setdefault(
+            group_key,
+            {
+                "production_order": production_order or "未关联生产订单",
+                "sales_order": sales_order,
+                "product_model": str(row.get("_product_model") or "").strip(),
+                "base": str(row.get("_base") or row.get("LGORT") or "").strip(),
+                "planned_quantity": row.get("_planned_quantity"),
+                "issued": Decimal(0),
+                "returned": Decimal(0),
+                "legacy": Decimal(0),
+            },
+        )
+        quantity = _quantity(row.get("MENGE_A"))
+        movement_type = str(row.get("BWART") or "").strip().upper()
+        if movement_type == "261":
+            group["issued"] += quantity
+            total_issued += quantity
+        elif movement_type == "262":
+            group["returned"] += quantity
+            total_returned += quantity
+        elif not movement_type:
+            group["legacy"] += quantity
+
+    items: list[LRRUsageByOrder] = []
+    for group in groups.values():
+        issued = group["issued"] if has_movement_type else group["legacy"]
+        returned = group["returned"] if has_movement_type else Decimal(0)
+        items.append(
+            LRRUsageByOrder(
+                productionOrder=group["production_order"],
+                salesOrder=group["sales_order"],
+                productModel=group["product_model"],
+                base=group["base"],
+                plannedQuantity=_optional_quantity(group["planned_quantity"]),
+                issuedQuantity=float(issued),
+                returnedQuantity=float(returned),
+                usageQuantity=float(issued - returned),
+            )
+        )
+    items.sort(key=lambda item: (item.productionOrder, item.salesOrder))
+    if not has_movement_type:
+        total_issued = sum((_quantity(item.issuedQuantity) for item in items), Decimal(0))
+        total_returned = Decimal(0)
+    return LRRUsageDetailsResponse(
+        items=items,
+        total=len(items),
+        issuedQuantity=float(total_issued),
+        returnedQuantity=float(total_returned),
+        usageQuantity=float(total_issued - total_returned),
+        quantityMode="movement" if has_movement_type else "legacy",
+    )
 
 
 def _month_matches_date_range(month: str, date_from: str | None, date_to: str | None) -> bool:
@@ -734,3 +820,60 @@ async def get_lrr_fault_details(
     return LRRFaultDetailsResponse(
         items=details[:limit], total=len(details), truncated=len(details) > limit
     )
+
+
+@router.get("/usage-details", response_model=LRRUsageDetailsResponse)
+@audit_log("QUERY", "lrr_usage_details")
+async def get_lrr_usage_details(
+    request: Request,
+    materialNumber: str,
+    month: str = Query(..., pattern=r"^\d{4}-\d{2}$"),
+    plannedDateFrom: str | None = None,
+    plannedDateTo: str | None = None,
+    ngDateFrom: str | None = None,
+    ngDateTo: str | None = None,
+    productModel: Annotated[list[str] | None, Query()] = None,
+    base: Annotated[list[str] | None, Query()] = None,
+    customerId: Annotated[list[str] | None, Query()] = None,
+    orderTypes: Annotated[list[str] | None, Query()] = None,
+    serialNumbers: Annotated[list[str] | None, Query()] = None,
+    productionOrders: Annotated[list[str] | None, Query()] = None,
+    salesOrders: Annotated[list[str] | None, Query()] = None,
+):
+    del request
+    _require_bounded_bom_scope(materialNumber, plannedDateFrom, plannedDateTo)
+    if not plannedDateFrom and not plannedDateTo:
+        plannedDateTo = _today_in_china()
+    has_scope_filter = _has_lrr_scope_filter(materialNumber, productModel, base, customerId)
+    _validate_lrr_date_range(
+        plannedDateFrom,
+        plannedDateTo,
+        "计划日期",
+        require_scope_filter=not has_scope_filter,
+    )
+    _validate_lrr_date_range(
+        ngDateFrom,
+        ngDateTo,
+        "故障日期",
+        require_scope_filter=not has_scope_filter,
+    )
+    bom = await lrr_gateway.load_bom(
+        material_number=materialNumber,
+        product_models=productModel,
+        bases=base,
+        customer_ids=tuple(sorted(set(customerId or []))),
+        order_types=tuple(sorted(set(orderTypes or []))),
+        include_order_metadata=True,
+        month=month,
+        planned_date_from=plannedDateFrom,
+        planned_date_to=plannedDateTo,
+    )
+    bom = await _advanced_bom(
+        bom,
+        tuple(serialNumbers or []),
+        tuple(productionOrders or []),
+        tuple(salesOrders or []),
+        plannedDateFrom or "",
+        plannedDateTo or "",
+    )
+    return _usage_by_order(bom, materialNumber, month)
