@@ -11,6 +11,7 @@ const PERMISSIONS = [
   ['lrr', 'LRR 部件故障率'],
   ['process-records', '关键工位影像追溯'],
   ['incoming-materials', '来料质量'],
+  ['batch-exception', '批次异常'],
   ['doa', 'DOA 报修率'],
   ['doa-repairs', 'DOA 维修明细'],
   ['mfr', 'MFR 现网月化故障率'],

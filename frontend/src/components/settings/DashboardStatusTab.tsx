@@ -1,4 +1,4 @@
-import { Activity, AlertTriangle, BarChart3, Factory, Wrench } from 'lucide-react';
+import { Activity, AlertTriangle, BarChart3, Factory, Layers3, Wrench } from 'lucide-react';
 import {
   DEFAULT_DASHBOARD_STATUSES,
   fieldQualityModules,
@@ -21,6 +21,7 @@ const icons = {
   doa: Wrench,
   mfr: BarChart3,
   'incoming-materials': AlertTriangle,
+  'batch-exception': Layers3,
 } as const;
 
 export default function DashboardStatusTab({ statuses, onChange }: Props) {

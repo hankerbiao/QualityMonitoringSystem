@@ -12,6 +12,7 @@ from app.api import (
     admin_users,
     alert_report,
     auth,
+    batch_exception,
     data_gateway,
     doa,
     incoming_materials,
@@ -78,6 +79,7 @@ app.include_router(lrr.router, prefix="/api/lrr", tags=["LRR"])
 app.include_router(mfr.router, prefix="/api/mfr", tags=["MFR"])
 app.include_router(doa.router, prefix="/api/doa", tags=["DOA"])
 app.include_router(incoming_materials.router, prefix="/api/incoming-materials", tags=["Incoming Materials"])
+app.include_router(batch_exception.router, prefix="/api/batch-exception", tags=["Batch Exception"])
 app.include_router(alert_report.router, prefix="/api/alert-report", tags=["AlertReport"])
 app.include_router(settings.public_router, prefix="/api/settings", tags=["Settings"])
 app.include_router(settings.router, prefix="/api/settings", tags=["Settings"])

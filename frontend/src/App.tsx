@@ -16,6 +16,7 @@ const ReinsertRatePage = lazy(() => import('./pages/ReinsertRatePage'));
 const LRRPage = lazy(() => import('./pages/LRRPage'));
 const ProcessRecordsPage = lazy(() => import('./pages/ProcessRecordsPage'));
 const IncomingMaterialsPage = lazy(() => import('./pages/IncomingMaterialsPage'));
+const BatchExceptionPage = lazy(() => import('./pages/BatchExceptionPage'));
 const LoginPage = lazy(() => import('./pages/LoginPage'));
 const AlertReportPage = lazy(() => import('./pages/AlertReportPage'));
 const OperationsPage = lazy(() => import('./pages/OperationsPage'));
@@ -136,6 +137,7 @@ function AppContent() {
         <Route path="/lrr" element={<DashboardAccess permission="lrr"><DashboardStatusAccess dashboardId="lrr"><LRRPage /></DashboardStatusAccess></DashboardAccess>} />
           <Route path="/process-records" element={<DashboardAccess permission="process-records"><ProcessRecordsPage /></DashboardAccess>} />
           <Route path="/incoming-materials" element={<DashboardAccess permission="incoming-materials"><DashboardStatusAccess dashboardId="incoming-materials"><IncomingMaterialsPage /></DashboardStatusAccess></DashboardAccess>} />
+          <Route path="/batch-exception" element={<DashboardAccess permission="batch-exception"><DashboardStatusAccess dashboardId="batch-exception"><BatchExceptionPage /></DashboardStatusAccess></DashboardAccess>} />
           <Route path="/operations" element={<DashboardAccess permission="admin"><OperationsPage /></DashboardAccess>} />
         <Route path="/doa" element={<DashboardAccess permission="doa"><DashboardStatusAccess dashboardId="doa"><DoaPage /></DashboardStatusAccess></DashboardAccess>} />
         <Route path="/doa/repairs" element={<DashboardAccess permission="doa-repairs"><DashboardStatusAccess dashboardId="doa"><DoaRepairsPage /></DashboardStatusAccess></DashboardAccess>} />

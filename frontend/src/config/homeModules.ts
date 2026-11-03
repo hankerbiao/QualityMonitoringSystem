@@ -6,6 +6,7 @@ import {
   Camera,
   Factory,
   Gauge,
+  Layers3,
   Wrench,
 } from 'lucide-react';
 
@@ -33,6 +34,7 @@ export const DEFAULT_DASHBOARD_STATUSES: Record<string, HomeModuleStatus> = {
   doa: 'available',
   mfr: 'admin-only',
   'incoming-materials': 'available',
+  'batch-exception': 'available',
 };
 
 export const qualityModules: readonly HomeModuleDefinition[] = [
@@ -74,6 +76,16 @@ export const qualityModules: readonly HomeModuleDefinition[] = [
     icon: AlertTriangle,
     accent: 'amber',
     path: '/incoming-materials',
+    status: 'available',
+  },
+  {
+    id: 'batch-exception',
+    code: 'BATCH EXC',
+    title: '批次异常',
+    description: '实时查询批次异常系统记录，按基地、机型、订单和处理状态追踪异常闭环。',
+    icon: Layers3,
+    accent: 'blue',
+    path: '/batch-exception',
     status: 'available',
   },
 ];

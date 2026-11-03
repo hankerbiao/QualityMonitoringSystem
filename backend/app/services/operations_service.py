@@ -19,6 +19,7 @@ MODULE_LABELS = {
     "lrr": "LRR 故障率",
     "process-records": "关键工位影像",
     "incoming-materials": "来料质量",
+    "batch-exception": "批次异常",
     "settings": "系统配置",
     "alert-report": "预警报告",
     "operations": "运营监控",
@@ -36,6 +37,7 @@ PAGE_MODULES = {
     "/lrr": "lrr",
     "/process-records": "process-records",
     "/incoming-materials": "incoming-materials",
+    "/batch-exception": "batch-exception",
     "/operations": "operations",
     "/doa/raw": "doa",
     "/doa": "doa",
@@ -53,6 +55,7 @@ BUSINESS_MODULES = (
     "mfr",
     "process-records",
     "incoming-materials",
+    "batch-exception",
     "settings",
     "alert-report",
 )
@@ -73,6 +76,7 @@ def module_from_path(path: str) -> str:
     api_prefixes = (
         ("/api/process-records", "process-records"),
         ("/api/incoming-materials", "incoming-materials"),
+        ("/api/batch-exception", "batch-exception"),
         ("/api/alert-report", "alert-report"),
         ("/api/settings", "settings"),
         ("/api/rty/station-pass", "station-pass-rate"),

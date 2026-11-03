@@ -89,6 +89,7 @@ describe('settings pages by role', () => {
         doa: 'admin-only',
         mfr: 'admin-only',
         'incoming-materials': 'admin-only',
+        'batch-exception': 'available',
       },
     }));
   });
