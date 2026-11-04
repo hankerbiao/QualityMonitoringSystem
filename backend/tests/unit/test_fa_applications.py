@@ -1,11 +1,13 @@
 from datetime import date
 from types import SimpleNamespace
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError
 
-from app.schemas.fa_applications import FAPreviewRequest
+from app.schemas.fa_applications import FAPreviewRequest, FASubmitRequest
 from app.services import fa_application_service as service
+from app.services.mail_service import MailSendError
 
 
 @pytest.mark.asyncio
@@ -200,3 +202,79 @@ def test_application_email_template_escapes_user_content_and_preserves_lines():
     assert "请检查 &lt;物料&gt; &amp; 标签<br>第二行" in rendered
     assert "background-color:#eef3f8" in rendered
     assert "<物料>" not in rendered
+
+
+@pytest.mark.asyncio
+async def test_submit_emails_only_selected_fault_details_and_saves_them(monkeypatch):
+    from app.api import fa_applications as api
+
+    preview = {
+        "materialDescription": "电源 <模块>",
+        "repair": {"faultCount": 2},
+        "doa": {"faultCount": 2},
+        "repairFaults": [
+            {"sourceId": "r1", "sn": "REPAIR-SELECTED", "serialNumber": "PART-1", "faultDimension3": "<fault>"},
+            {"sourceId": "r2", "sn": "REPAIR-NOT-SELECTED"},
+        ],
+        "doaChanges": [
+            {"sourceId": "d1", "sn": "DOA-SELECTED", "originalCode": "ORIGINAL-1"},
+            {"sourceId": "d2", "sn": "DOA-NOT-SELECTED"},
+        ],
+    }
+    sent = AsyncMock(return_value={"status": 202})
+    inserted = AsyncMock()
+    db = SimpleNamespace(
+        fa_application_counters=SimpleNamespace(find_one_and_update=AsyncMock(return_value={"value": 1})),
+        fa_applications=SimpleNamespace(insert_one=inserted),
+    )
+    monkeypatch.setattr(api, "build_preview", AsyncMock(return_value=preview))
+    monkeypatch.setattr(api, "get_database", lambda: db)
+    monkeypatch.setattr(service, "send_email", sent)
+    payload = FASubmitRequest.model_validate({
+        "application": {
+            "pn": "PN-1", "vendor": "厂商 & A", "faultDescription": "无法启动",
+            "stages": ["产测", "DOA"],
+            "repairDateFrom": "2026-10-01", "repairDateTo": "2026-10-31",
+            "doaDateFrom": "2026-10-01", "doaDateTo": "2026-10-31",
+            "selectedRepairIds": ["r1"], "selectedDoaIds": ["d1"],
+        },
+        "email": {"to": ["person@example.com"], "subject": "反馈", "content": "用户正文"},
+    })
+
+    result = await api.submit_application.__wrapped__(payload=payload, current_user={"username": "tester"})
+
+    rendered = sent.await_args.kwargs["html_content"]
+    for value in ("用户正文", "PN-1", "厂商 &amp; A", "无法启动", "电源 &lt;模块&gt;",
+                  "REPAIR-SELECTED", "PART-1", "&lt;fault&gt;", "DOA-SELECTED", "ORIGINAL-1"):
+        assert value in rendered
+    assert "REPAIR-NOT-SELECTED" not in rendered
+    assert "DOA-NOT-SELECTED" not in rendered
+    assert result["repairFaults"] == preview["repairFaults"][:1]
+    assert result["doaChanges"] == preview["doaChanges"][:1]
+    inserted.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_submit_does_not_save_when_email_with_details_fails(monkeypatch):
+    from fastapi import HTTPException
+
+    from app.api import fa_applications as api
+
+    monkeypatch.setattr(api, "build_preview", AsyncMock(return_value={
+        "materialDescription": "", "repair": {}, "doa": {},
+        "repairFaults": [{"sourceId": "r1", "sn": "SN-1"}], "doaChanges": [],
+    }))
+    monkeypatch.setattr(service, "send_email", AsyncMock(side_effect=MailSendError("发送失败")))
+    database = AsyncMock()
+    monkeypatch.setattr(api, "get_database", database)
+    payload = FASubmitRequest.model_validate({
+        "application": {
+            "pn": "PN-1", "stages": ["产测"], "repairDateFrom": "2026-10-01",
+            "repairDateTo": "2026-10-31", "selectedRepairIds": ["r1"], "selectedDoaIds": [],
+        },
+        "email": {"to": ["person@example.com"], "content": "正文"},
+    })
+
+    with pytest.raises(HTTPException, match="申请单未保存"):
+        await api.submit_application.__wrapped__(payload=payload, current_user={"username": "tester"})
+    database.assert_not_called()

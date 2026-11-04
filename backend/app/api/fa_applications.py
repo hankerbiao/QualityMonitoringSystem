@@ -73,6 +73,17 @@ async def submit_application(
     selected_doa_rows = [
         row for row in preview_data["doaChanges"] if row["sourceId"] in application.selectedDoaIds
     ]
+    application_info = {
+        "物料号 PN": application.pn,
+        "厂商": application.vendor,
+        "物料描述": preview_data["materialDescription"],
+        "故障现象": application.faultDescription,
+        "发生环节": "、".join(application.stages),
+    }
+    if "产测" in application.stages:
+        application_info["产测计划开始时间"] = f"{application.repairDateFrom} 至 {application.repairDateTo}"
+    if "DOA" in application.stages:
+        application_info["DOA 操作时间"] = f"{application.doaDateFrom} 至 {application.doaDateTo}"
     try:
         to_addresses = normalize_recipients(payload.email.to, label="收件人")
         cc_addresses = normalize_recipients(payload.email.cc, label="抄送人")
@@ -83,6 +94,9 @@ async def submit_application(
             cc=cc_addresses,
             subject=payload.email.subject,
             content=payload.email.content,
+            application=application_info,
+            repair_faults=selected_repair_rows,
+            doa_changes=selected_doa_rows,
         )
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc

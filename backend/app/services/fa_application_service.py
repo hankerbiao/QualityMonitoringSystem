@@ -376,11 +376,82 @@ def normalize_recipients(values: list[str], *, label: str) -> list[str]:
     return list(unique.values())
 
 
-def build_application_email_html(*, subject: str, content: str) -> str:
+_REPAIR_EMAIL_FIELDS = (
+    ("基地", "base"), ("生产订单", "productionOrder"), ("机型", "model"),
+    ("设备 SN", "sn"), ("工站", "station"), ("NG 时间", "ngTime"),
+    ("不良维度3", "faultDimension3"), ("不良维度2", "faultDimension2"),
+    ("维修维度3", "repairDimension3"), ("物料号", "materialNumber"),
+    ("非关键物料号", "nonCriticalMaterialNumber"), ("物料描述", "materialDescription"),
+    ("序列号", "serialNumber"), ("替换前原厂码", "originalFactoryCode"),
+)
+_DOA_EMAIL_FIELDS = (
+    ("PN", "pn"), ("SN", "sn"), ("备件名称", "spareName"),
+    ("原厂原码", "originalCode"), ("报修设备", "reportedDevice"),
+    ("操作时间", "operationTime"),
+)
+
+
+def _email_field_grid(fields: list[tuple[str, Any]]) -> str:
+    cells = []
+    for label, value in fields:
+        safe_label = html.escape(label)
+        safe_value = html.escape(str(value) if value is not None and value != "" else "—")
+        safe_value = safe_value.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
+        cells.append(
+            '<td width="50%" valign="top" style="width:50%;padding:5px 8px;'
+            'font-size:13px;line-height:1.6;word-break:break-word;">'
+            f'<span style="color:#64748b;">{safe_label}：</span>'
+            f'<span style="color:#1e293b;">{safe_value}</span></td>'
+        )
+    rows = "".join(
+        f"<tr>{''.join(cells[index:index + 2])}{'<td></td>' if index + 1 == len(cells) else ''}</tr>"
+        for index in range(0, len(cells), 2)
+    )
+    return f'<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="table-layout:fixed;">{rows}</table>'
+
+
+def _email_fault_section(
+    title: str, rows: list[dict[str, Any]], fields: tuple[tuple[str, str], ...]
+) -> str:
+    if not rows:
+        return ""
+    items = "".join(
+        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
+        'style="margin:0 0 10px;border:1px solid #e2e8f0;background-color:#ffffff;">'
+        f'<tr><td style="padding:8px 12px;background-color:#f1f5f9;color:#334155;'
+        f'font-size:13px;font-weight:600;">{html.escape(title)} {index}</td></tr>'
+        f'<tr><td style="padding:6px;">{_email_field_grid([(label, row.get(key)) for label, key in fields])}</td></tr></table>'
+        for index, row in enumerate(rows, 1)
+    )
+    return (
+        f'<h2 style="margin:22px 0 10px;font-size:15px;color:#0f172a;">'
+        f'{html.escape(title)}（{len(rows)} 条）</h2>{items}'
+    )
+
+
+def build_application_email_html(
+    *,
+    subject: str,
+    content: str,
+    application: dict[str, Any] | None = None,
+    repair_faults: list[dict[str, Any]] | None = None,
+    doa_changes: list[dict[str, Any]] | None = None,
+) -> str:
     safe_subject = html.escape(subject.strip() or "FA 质量反馈通知")
     safe_content = html.escape(content).replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
     if not safe_content:
         safe_content = '<span style="color:#94a3b8;">（未填写正文）</span>'
+    application_html = ""
+    if application is not None:
+        application_html = (
+            '<h2 style="margin:22px 0 10px;font-size:15px;color:#0f172a;">申请信息</h2>'
+            + _email_field_grid(list(application.items()))
+        )
+    details_html = (
+        application_html
+        + _email_fault_section("产测故障", repair_faults or [], _REPAIR_EMAIL_FIELDS)
+        + _email_fault_section("DOA 换下明细", doa_changes or [], _DOA_EMAIL_FIELDS)
+    )
     return f"""<!DOCTYPE html>
 <html lang="zh-CN">
 <head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"></head>
@@ -399,6 +470,7 @@ def build_application_email_html(*, subject: str, content: str) -> str:
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8fafc;border:1px solid #e2e8f0;border-left:3px solid #3b82f6;border-radius:6px;">
             <tr><td style="padding:18px 20px;color:#334155;font-size:14px;line-height:1.85;word-break:break-word;">{safe_content}</td></tr>
           </table>
+          {details_html}
         </td></tr>
         <tr><td style="padding:14px 28px;background-color:#f8fafc;border-top:1px solid #e2e8f0;color:#94a3b8;font-size:11px;line-height:1.6;">
           本邮件由 QualiBoard FA 看板发送，请勿直接回复系统邮箱。
@@ -416,6 +488,9 @@ async def deliver_application_email(
     cc: list[str],
     subject: str,
     content: str,
+    application: dict[str, Any] | None = None,
+    repair_faults: list[dict[str, Any]] | None = None,
+    doa_changes: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     to_addresses = normalize_recipients(to, label="收件人")
     cc_addresses = normalize_recipients(cc, label="抄送人")
@@ -423,7 +498,10 @@ async def deliver_application_email(
     cc_addresses = [value for value in cc_addresses if value.casefold() not in to_keys]
     return await send_email(
         subject=subject.strip(),
-        html_content=build_application_email_html(subject=subject, content=content),
+        html_content=build_application_email_html(
+            subject=subject, content=content, application=application,
+            repair_faults=repair_faults, doa_changes=doa_changes,
+        ),
         to=to_addresses,
         cc=cc_addresses,
     )
