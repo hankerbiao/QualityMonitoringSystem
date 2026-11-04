@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from collections.abc import Callable
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
@@ -132,6 +133,8 @@ def serialize_batch_exception(document: dict[str, Any]) -> dict[str, Any]:
         **editable,
         "sequence": document.get("sequence"),
         "syncYear": document.get("sync_year"),
+        # 合并统计：被合并行指向组内最小 sequence（锚点行本身没有该字段）。
+        "mergedInto": document.get("merged_into"),
     }
 
 
@@ -336,6 +339,85 @@ async def query_batch_exceptions(
         "queriedAt": beijing_now().isoformat(),
         "rows": filtered,
     }
+
+
+async def collect_merge_group(collection: Any, sequences: list[int]) -> dict[int, dict[str, Any]]:
+    """Expand the selected sequences into their full merge groups (flattened)."""
+    documents = await collection.find({"sequence": {"$in": sequences}}).to_list(length=None)
+    if len(documents) != len(sequences):
+        found = {int(document["sequence"]) for document in documents}
+        missing = next(sequence for sequence in sequences if sequence not in found)
+        raise LookupError(missing)
+    # 所选记录可能已经是锚点或成员：把涉及到的整组都取回来，统一拍平。
+    anchors = sorted(
+        {int(document.get("merged_into") or document["sequence"]) for document in documents}
+    )
+    member_documents = await collection.find({"merged_into": {"$in": anchors}}).to_list(length=None)
+    anchor_documents = await collection.find({"sequence": {"$in": anchors}}).to_list(length=None)
+    return {
+        int(document["sequence"]): document for document in [*anchor_documents, *member_documents]
+    }
+
+
+async def merge_batch_exceptions(
+    db: Any,
+    *,
+    sequences: list[int],
+    operator: str,
+    check_access: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Merge the given records (and any groups they belong to) under one anchor."""
+    collection = db[Collections.BATCH_EXCEPTION_RECORDS]
+    unique = list(dict.fromkeys(sequences))
+    if len(unique) < 2:
+        raise ValueError("请至少选择两条记录")
+    group = await collect_merge_group(collection, unique)
+    if check_access:
+        for document in group.values():
+            check_access(document)
+    anchor = min(group)
+    others = [sequence for sequence in group if sequence != anchor]
+    if others:
+        await collection.update_many(
+            {"sequence": {"$in": others}},
+            {
+                "$set": {
+                    "merged_into": anchor,
+                    "merged_by": operator,
+                    "merged_at": beijing_now().isoformat(),
+                }
+            },
+        )
+    # 锚点自身绝不能带 merged_into，兜底清理保证不变量。
+    await collection.update_one(
+        {"sequence": anchor, "merged_into": {"$exists": True}},
+        {"$unset": {"merged_into": "", "merged_by": "", "merged_at": ""}},
+    )
+    return {"anchor": anchor, "merged": len(group)}
+
+
+async def unmerge_batch_exceptions(
+    db: Any,
+    *,
+    sequence: int,
+    check_access: Callable[[dict[str, Any]], None] | None = None,
+) -> dict[str, Any]:
+    """Dissolve the whole group the given record belongs to."""
+    collection = db[Collections.BATCH_EXCEPTION_RECORDS]
+    document = await collection.find_one({"sequence": sequence})
+    if document is None:
+        raise LookupError(sequence)
+    anchor = int(document.get("merged_into") or document["sequence"])
+    if check_access:
+        members = await collection.find({"merged_into": anchor}).to_list(length=None)
+        check_access(document)
+        for member in members:
+            check_access(member)
+    await collection.update_many(
+        {"merged_into": anchor},
+        {"$unset": {"merged_into": "", "merged_by": "", "merged_at": ""}},
+    )
+    return {"anchor": anchor}
 
 
 async def _load_exception_types() -> dict[str, list[str]]:

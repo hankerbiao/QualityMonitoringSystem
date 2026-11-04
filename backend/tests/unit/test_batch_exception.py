@@ -335,3 +335,173 @@ def test_admin_only_status_blocks_regular_users(monkeypatch, batch_exception_sta
         assert client.get("/api/batch-exception/query", params=dates).status_code == 200
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+
+def _matches(document: dict, query: dict) -> bool:
+    for key, condition in query.items():
+        value = document.get(key)
+        if isinstance(condition, dict):
+            for operator, operand in condition.items():
+                if operator == "$in" and value not in operand:
+                    return False
+                if operator == "$exists" and bool(operand) != (key in document):
+                    return False
+        elif value != condition:
+            return False
+    return True
+
+
+class FakeCursor:
+    def __init__(self, rows):
+        self.rows = rows
+
+    async def to_list(self, length=None):
+        return self.rows
+
+
+class FakeCollection:
+    def __init__(self, documents):
+        self.documents = documents
+
+    def _matching(self, query):
+        return [document for document in self.documents if _matches(document, query)]
+
+    def find(self, query):
+        return FakeCursor(self._matching(query))
+
+    async def find_one(self, query):
+        matched = self._matching(query)
+        return matched[0] if matched else None
+
+    async def update_many(self, query, update):
+        matched = self._matching(query)
+        for document in matched:
+            for key, value in update.get("$set", {}).items():
+                document[key] = value
+            for key in update.get("$unset", {}):
+                document.pop(key, None)
+        return len(matched)
+
+    async def update_one(self, query, update):
+        for document in self.documents:
+            if _matches(document, query):
+                for key, value in update.get("$set", {}).items():
+                    document[key] = value
+                for key in update.get("$unset", {}):
+                    document.pop(key, None)
+                break
+
+
+class FakeDatabase:
+    def __init__(self, collection):
+        self.collection = collection
+
+    def __getitem__(self, _name):
+        return self.collection
+
+
+def test_serialize_exposes_merge_anchor():
+    merged = service.serialize_batch_exception(
+        {"source": {"factory": "天津"}, "editable": {}, "sequence": 7, "merged_into": 5}
+    )
+    assert merged["mergedInto"] == 5
+    unmerged = service.serialize_batch_exception({"source": {}, "editable": {}, "sequence": 8})
+    assert unmerged["mergedInto"] is None
+
+
+async def test_merge_and_unmerge_flatten_groups(monkeypatch):
+    monkeypatch.setattr(service, "beijing_now", lambda: datetime(2026, 11, 4))
+    documents = [{"sequence": seq, "source": {}, "editable": {}} for seq in (1, 2, 3, 4)]
+    db = FakeDatabase(FakeCollection(documents))
+
+    data = await service.merge_batch_exceptions(db, sequences=[3, 4], operator="op-a")
+    assert data == {"anchor": 3, "merged": 2}
+    assert documents[3]["merged_into"] == 3
+
+    # 与已有分组再合并：整组拍平到最小序号，锚点自身不带 merged_into
+    data = await service.merge_batch_exceptions(db, sequences=[2, 4], operator="op-b")
+    assert data == {"anchor": 2, "merged": 3}
+    assert [document.get("merged_into") for document in documents] == [None, None, 2, 2]
+    assert documents[2]["merged_by"] == "op-b"
+    assert "merged_into" not in documents[1]
+
+    data = await service.unmerge_batch_exceptions(db, sequence=4)
+    assert data == {"anchor": 2}
+    assert all("merged_into" not in document for document in documents)
+
+    with pytest.raises(ValueError):
+        await service.merge_batch_exceptions(db, sequences=[2, 2], operator="op-a")
+    with pytest.raises(LookupError):
+        await service.merge_batch_exceptions(db, sequences=[2, 99], operator="op-a")
+    with pytest.raises(LookupError):
+        await service.unmerge_batch_exceptions(db, sequence=99)
+
+
+def test_merge_endpoint_flattens_and_unmerge_dissolves(monkeypatch):
+    documents = [
+        {"sequence": 10, "source": {"factory": "天津"}, "editable": {}},
+        {"sequence": 11, "source": {"factory": "天津"}, "editable": {}, "merged_into": 10},
+        {"sequence": 12, "source": {"factory": "天津"}, "editable": {}},
+    ]
+    monkeypatch.setattr(api, "get_database", lambda: FakeDatabase(FakeCollection(documents)))
+    user = {
+        "role": "user",
+        "username": "libiao",
+        "dashboardPermissions": ["batch-exception"],
+        "basePermissions": None,
+    }
+    app.dependency_overrides[get_current_user] = lambda: user
+    try:
+        client = TestClient(app)
+        response = client.post("/api/batch-exception/merge", json={"sequences": [11, 12]})
+        assert response.status_code == 200
+        assert response.json()["data"] == {"anchor": 10, "merged": 3}
+        assert [document.get("merged_into") for document in documents] == [None, 10, 10]
+        assert documents[1]["merged_by"] == "libiao"
+
+        response = client.post("/api/batch-exception/unmerge", json={"sequence": 11})
+        assert response.status_code == 200
+        assert response.json()["data"] == {"anchor": 10}
+        assert all("merged_into" not in document for document in documents)
+
+        assert client.post("/api/batch-exception/merge", json={"sequences": [12]}).status_code == 422
+        assert (
+            client.post("/api/batch-exception/merge", json={"sequences": [12, 99]}).status_code
+            == 404
+        )
+        assert client.post("/api/batch-exception/unmerge", json={"sequence": 99}).status_code == 404
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+def test_merge_and_unmerge_respect_base_scope(monkeypatch):
+    documents = [
+        {"sequence": 20, "source": {"factory": "天津"}, "editable": {}},
+        {"sequence": 21, "source": {"factory": "昆山"}, "editable": {}, "merged_into": 20},
+        {"sequence": 22, "source": {"factory": "天津"}, "editable": {}, "merged_into": 20},
+    ]
+    monkeypatch.setattr(api, "get_database", lambda: FakeDatabase(FakeCollection(documents)))
+    user = {
+        "role": "user",
+        "username": "tj-user",
+        "dashboardPermissions": ["batch-exception"],
+        "basePermissions": ["TJ"],
+    }
+    app.dependency_overrides[get_current_user] = lambda: user
+    try:
+        client = TestClient(app)
+        # 组内包含无权基地（昆山）的成员，合并与解散都必须被拦截
+        assert (
+            client.post("/api/batch-exception/merge", json={"sequences": [20, 21]}).status_code
+            == 403
+        )
+        assert (
+            client.post("/api/batch-exception/unmerge", json={"sequence": 20}).status_code == 403
+        )
+        # 全部成员都在权限范围内时允许解散
+        documents[1]["source"]["factory"] = "天津"
+        assert (
+            client.post("/api/batch-exception/unmerge", json={"sequence": 22}).status_code == 200
+        )
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)

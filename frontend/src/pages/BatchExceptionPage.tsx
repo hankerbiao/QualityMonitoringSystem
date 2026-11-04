@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
   AlertCircle, ArrowLeft, ArrowRight, CalendarDays,
   ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Layers3, Pencil, RefreshCw,
@@ -16,6 +16,8 @@ import { API_BASE_URL } from '../constants';
 import { useAuth } from '../context/AuthContext';
 
 type Row = Record<string, unknown>;
+// 合并统计的展示行：锚点行携带组员，其他内容仍按行独立展示。
+interface DisplayRow { row: Row; members: Row[] }
 
 interface QueryResult {
   upstreamTotal: number;
@@ -350,6 +352,11 @@ export default function BatchExceptionPage() {
   const [bulkEditValues, setBulkEditValues] = useState({ platform: '', customer: '' });
   const [bulkEditError, setBulkEditError] = useState('');
   const [bulkEditLoading, setBulkEditLoading] = useState(false);
+  const [mergeOpen, setMergeOpen] = useState(false);
+  const [mergeError, setMergeError] = useState('');
+  const [mergeLoading, setMergeLoading] = useState(false);
+  const [unmergeLoading, setUnmergeLoading] = useState(false);
+  const [unmergeError, setUnmergeError] = useState('');
   const detailSection = useRef<HTMLElement>(null);
   const requestId = useRef(0);
   const optionsId = useRef(0);
@@ -433,10 +440,15 @@ export default function BatchExceptionPage() {
     return () => window.removeEventListener('keydown', handler);
   }, [detail]);
 
-  const baseChart = useMemo(() => stackedDistribution(result?.rows ?? [], 'base'), [result]);
-  const platformChart = useMemo(() => stackedDistribution(result?.rows ?? [], 'platform'), [result]);
-  const customerChart = useMemo(() => stackedDistribution(result?.rows ?? [], 'customer'), [result]);
-  const categoryChart = useMemo(() => categoryDistribution(result?.rows ?? []), [result]);
+  // 统计口径：被合并的记录不再单独计数，由组内锚点行代表整组。
+  const statRows = useMemo(
+    () => (result?.rows ?? []).filter((row) => row.mergedInto == null),
+    [result],
+  );
+  const baseChart = useMemo(() => stackedDistribution(statRows, 'base'), [statRows]);
+  const platformChart = useMemo(() => stackedDistribution(statRows, 'platform'), [statRows]);
+  const customerChart = useMemo(() => stackedDistribution(statRows, 'customer'), [statRows]);
+  const categoryChart = useMemo(() => categoryDistribution(statRows), [statRows]);
 
   const errTypeOptions = useMemo<FilterOption[]>(() => {
     const types = options?.errTypes ?? {};
@@ -507,9 +519,35 @@ export default function BatchExceptionPage() {
     return rows.filter((row) => String(row[selection.field] ?? '').trim() === selection.raw);
   }, [result, selection]);
 
-  const pages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
-  const rows = filteredRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-  const visibleSequences = rows.map(rowSequence).filter((sequence): sequence is number => sequence !== null);
+  // 合并组按“统计单元”分页与计数：锚点行带上组员紧跟其后渲染，组不会被页边界截断；
+  // 若锚点被明细筛选拆走，组员退化为独立行展示。
+  const groupedRows = useMemo<DisplayRow[]>(() => {
+    const sequenceSet = new Set<number>();
+    for (const row of filteredRows) {
+      const sequence = Number(row.sequence);
+      if (Number.isInteger(sequence) && sequence > 0) sequenceSet.add(sequence);
+    }
+    const membersByAnchor = new Map<number, Row[]>();
+    for (const row of filteredRows) {
+      if (row.mergedInto == null) continue;
+      const anchor = Number(row.mergedInto);
+      if (!sequenceSet.has(anchor)) continue;
+      const members = membersByAnchor.get(anchor) ?? [];
+      members.push(row);
+      membersByAnchor.set(anchor, members);
+    }
+    const display: DisplayRow[] = [];
+    for (const row of filteredRows) {
+      if (row.mergedInto != null && sequenceSet.has(Number(row.mergedInto))) continue;
+      display.push({ row, members: membersByAnchor.get(Number(row.sequence)) ?? [] });
+    }
+    return display;
+  }, [filteredRows]);
+
+  const pages = Math.max(1, Math.ceil(groupedRows.length / PAGE_SIZE));
+  const pageGroups = groupedRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const pageRows = pageGroups.flatMap(({ row, members }) => [row, ...members]);
+  const visibleSequences = pageRows.map(rowSequence).filter((sequence): sequence is number => sequence !== null);
   const allVisibleSelected = visibleSequences.length > 0 && visibleSequences.every((sequence) => selectedSequences.has(sequence));
 
   const toggleSequence = (sequence: number) => {
@@ -531,13 +569,23 @@ export default function BatchExceptionPage() {
 
   const exportData = () => {
     const keys = Object.keys(detailLabels);
-    const values = filteredRows.map((row) =>
+    const orderedRows = groupedRows.flatMap(({ row, members }) => [row, ...members]);
+    const values = orderedRows.map((row) =>
       keys.map((key) => {
         const value = row[key];
         return value == null ? '' : typeof value === 'object' ? JSON.stringify(value) : value;
       }),
     );
     const sheet = XLSX.utils.aoa_to_sheet([keys.map((key) => detailLabels[key]), ...values]);
+    // 序号列按合并组写单元格合并，导出结果与页面展示一致。
+    const merges: XLSX.Range[] = [];
+    let rowIndex = 1;
+    for (const { members } of groupedRows) {
+      const span = members.length + 1;
+      if (span > 1) merges.push({ s: { r: rowIndex, c: 0 }, e: { r: rowIndex + span - 1, c: 0 } });
+      rowIndex += span;
+    }
+    if (merges.length) sheet['!merges'] = merges;
     const workbook = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(workbook, sheet, '批次异常明细');
     XLSX.writeFile(workbook, '批次异常明细.xlsx');
@@ -626,6 +674,117 @@ export default function BatchExceptionPage() {
     }
   };
 
+  // 待合并列表按当前查询结果展开（跨页选择同样有效），确认后提交这些序号。
+  const mergeSelectedRows = useMemo(
+    () =>
+      [...selectedSequences]
+        .sort((a, b) => a - b)
+        .map((sequence) => filteredRows.find((row) => rowSequence(row) === sequence))
+        .filter((row): row is Row => row !== undefined),
+    [filteredRows, selectedSequences],
+  );
+
+  const openMergeDialog = () => {
+    setMergeError('');
+    setMergeOpen(true);
+  };
+
+  const saveMerge = async () => {
+    const sequences = mergeSelectedRows
+      .map(rowSequence)
+      .filter((sequence): sequence is number => sequence !== null);
+    if (sequences.length < 2) {
+      setMergeError('请至少选择两条记录');
+      return;
+    }
+    setMergeLoading(true);
+    setMergeError('');
+    try {
+      await requestData(`${API_BASE_URL}/batch-exception/merge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sequences }),
+      });
+      setMergeOpen(false);
+      setSelectedSequences(new Set());
+      refresh();
+    } catch (err) {
+      setMergeError(err instanceof Error ? err.message : '合并失败');
+    } finally {
+      setMergeLoading(false);
+    }
+  };
+
+  const dissolveGroup = async (row: Row) => {
+    const sequence = rowSequence(row);
+    if (sequence === null) return;
+    setUnmergeLoading(true);
+    setUnmergeError('');
+    try {
+      await requestData(`${API_BASE_URL}/batch-exception/unmerge`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sequence }),
+      });
+      setSelectedSequences(new Set());
+      refresh();
+    } catch (err) {
+      setUnmergeError(err instanceof Error ? err.message : '解散失败');
+    } finally {
+      setUnmergeLoading(false);
+    }
+  };
+
+  // 序号列在锚点行上跨组合并展示（rowSpan），组员行不再渲染序号单元格；其余内容不合并。
+  const renderBodyCell = (row: Row, key: string, mergedSpan = 1) => (
+    <td key={key} className="max-w-56 px-3 py-2.5" rowSpan={key === 'sequence' && mergedSpan > 1 ? mergedSpan : undefined}>
+      {key === 'sequence' ? (
+        <div className="flex flex-col items-start gap-1">
+          <span className="font-mono tabular-nums text-slate-500">{show(row.sequence)}</span>
+          {mergedSpan > 1 && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-violet-50 px-1.5 py-0.5 text-[10px] font-medium text-violet-700 ring-1 ring-violet-200">
+              合并 {mergedSpan} 条
+              {editMode && (
+                <button
+                  type="button"
+                  disabled={unmergeLoading}
+                  onClick={() => dissolveGroup(row)}
+                  title="解散该合并组，组内记录恢复独立统计"
+                  className="font-semibold text-violet-800 hover:text-violet-950 disabled:opacity-40"
+                >
+                  解散
+                </button>
+              )}
+            </span>
+          )}
+        </div>
+      ) : key === 'state' ? (
+        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+          String(row.state) === 'Open' ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200' : 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
+        }`}>{stateLabel(row.state)}</span>
+      ) : key === 'productionGrade' && row.productionGrade ? (
+        <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
+          String(row.productionGrade) === '重大' ? 'bg-rose-50 text-rose-700 ring-1 ring-rose-200' : 'bg-slate-100 text-slate-600'
+        }`}>{String(row.productionGrade)}</span>
+      ) : (
+        <div className="truncate text-slate-600" title={show(row[key])}>{show(row[key])}</div>
+      )}
+    </td>
+  );
+
+  const renderActionCell = (row: Row) => (
+    <td className="px-4 py-3">
+      <div className="flex items-center gap-3">
+        <button type="button" onClick={() => openEditor(row)} className="inline-flex items-center gap-1 whitespace-nowrap font-medium text-blue-700 hover:text-blue-900">
+          <Pencil className="size-3.5" />编辑
+        </button>
+        <button type="button" onClick={() => setDetail(row)} className="inline-flex items-center gap-1 whitespace-nowrap font-medium text-slate-600 hover:text-slate-900">
+          详情<ArrowRight className="size-3" />
+        </button>
+      </div>
+    </td>
+  );
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
       <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/95 backdrop-blur">
@@ -647,6 +806,7 @@ export default function BatchExceptionPage() {
             onClick={() => {
               setEditMode((current) => !current);
               setSelectedSequences(new Set());
+              setUnmergeError('');
             }}
             disabled={loading}
             className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium shadow-sm transition disabled:opacity-50 ${editMode ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700'}`}
@@ -883,24 +1043,36 @@ export default function BatchExceptionPage() {
               <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3">
                 <h2 className="text-sm font-bold text-slate-900">异常记录明细</h2>
                 <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">{applied.causedBy ? `责任单位 = ${applied.causedBy}` : '责任单位：全部'}</span>
-                <span className="rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700">{filteredRows.length} 条</span>
+                <span className="rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700">{groupedRows.length} 条</span>
                 {editMode && (
                   <>
                     <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700">已选 {selectedSequences.size} 条</span>
-                    <button
-                      type="button"
-                      disabled={!selectedSequences.size || bulkEditLoading}
-                      onClick={openBulkEditor}
-                      className="ml-auto inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-40"
-                    >
-                      <Pencil className="size-3.5" />批量修改平台/客户
-                    </button>
+                    {unmergeError && <span role="alert" className="text-xs text-rose-600">{unmergeError}</span>}
+                    <div className="ml-auto flex flex-wrap items-center gap-2">
+                      <button
+                        type="button"
+                        disabled={mergeSelectedRows.length < 2 || mergeLoading}
+                        onClick={openMergeDialog}
+                        title="把选中的记录合并统计为一条"
+                        className="inline-flex items-center gap-1 rounded-md bg-violet-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-violet-700 disabled:opacity-40"
+                      >
+                        <Layers3 className="size-3.5" />合并统计
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!selectedSequences.size || bulkEditLoading}
+                        onClick={openBulkEditor}
+                        className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-40"
+                      >
+                        <Pencil className="size-3.5" />批量修改平台/客户
+                      </button>
+                    </div>
                   </>
                 )}
                 {selection && (
                   <>
                     <span role="status" className="break-all text-xs text-blue-700">
-                      {selection.title}：{selection.label} · {filteredRows.length.toLocaleString()} 条
+                      {selection.title}：{selection.label} · {groupedRows.length.toLocaleString()} 条
                     </span>
                     <button
                       type="button"
@@ -932,54 +1104,50 @@ export default function BatchExceptionPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((row, index) => (
-                      <tr key={String(row.sequence ?? row.id ?? index)} className="border-t border-slate-100 even:bg-slate-50/50 transition-colors hover:bg-blue-50/60">
-                        {editMode && (
-                          <td className="w-10 px-3 py-2.5">
-                            {rowSequence(row) !== null && (
-                              <input
-                                type="checkbox"
-                                checked={selectedSequences.has(rowSequence(row) as number)}
-                                onChange={() => toggleSequence(rowSequence(row) as number)}
-                                aria-label={`选择序号 ${row.sequence}`}
-                                className="size-4 accent-blue-600"
-                              />
+                    {pageGroups.map(({ row, members }) => (
+                      <Fragment key={String(row.sequence ?? row.id)}>
+                        <tr className="border-t border-slate-100 even:bg-slate-50/50 transition-colors hover:bg-blue-50/60">
+                          {editMode && (
+                            <td className="w-10 px-3 py-2.5">
+                              {rowSequence(row) !== null && (
+                                <input
+                                  type="checkbox"
+                                  checked={selectedSequences.has(rowSequence(row) as number)}
+                                  onChange={() => toggleSequence(rowSequence(row) as number)}
+                                  aria-label={`选择序号 ${row.sequence}`}
+                                  className="size-4 accent-blue-600"
+                                />
+                              )}
+                            </td>
+                          )}
+                          {tableColumns.map(([key]) => renderBodyCell(row, key, members.length + 1))}
+                          {renderActionCell(row)}
+                        </tr>
+                        {members.map((member) => (
+                          <tr key={String(member.sequence ?? member.id)} className="border-t border-dashed border-slate-100 bg-blue-50/30 transition-colors hover:bg-blue-50/60">
+                            {editMode && (
+                              <td className="w-10 px-3 py-2.5">
+                                {rowSequence(member) !== null && (
+                                  <input
+                                    type="checkbox"
+                                    checked={selectedSequences.has(rowSequence(member) as number)}
+                                    onChange={() => toggleSequence(rowSequence(member) as number)}
+                                    aria-label={`选择序号 ${member.sequence}`}
+                                    className="size-4 accent-blue-600"
+                                  />
+                                )}
+                              </td>
                             )}
-                          </td>
-                        )}
-                        {tableColumns.map(([key]) => (
-                          <td key={key} className="max-w-56 px-3 py-2.5">
-                            {key === 'sequence' ? (
-                              <span className="font-mono tabular-nums text-slate-500">{show(row.sequence)}</span>
-                            ) : key === 'state' ? (
-                              <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
-                                String(row.state) === 'Open' ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200' : 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
-                              }`}>{stateLabel(row.state)}</span>
-                            ) : key === 'productionGrade' && row.productionGrade ? (
-                              <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
-                                String(row.productionGrade) === '重大' ? 'bg-rose-50 text-rose-700 ring-1 ring-rose-200' : 'bg-slate-100 text-slate-600'
-                              }`}>{String(row.productionGrade)}</span>
-                            ) : (
-                              <div className="truncate text-slate-600" title={show(row[key])}>{show(row[key])}</div>
-                            )}
-                          </td>
+                            {tableColumns.filter(([key]) => key !== 'sequence').map(([key]) => renderBodyCell(member, key))}
+                            {renderActionCell(member)}
+                          </tr>
                         ))}
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-3">
-                            <button type="button" onClick={() => openEditor(row)} className="inline-flex items-center gap-1 whitespace-nowrap font-medium text-blue-700 hover:text-blue-900">
-                              <Pencil className="size-3.5" />编辑
-                            </button>
-                            <button type="button" onClick={() => setDetail(row)} className="inline-flex items-center gap-1 whitespace-nowrap font-medium text-slate-600 hover:text-slate-900">
-                              详情<ArrowRight className="size-3" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
+                      </Fragment>
                     ))}
                   </tbody>
                 </table>
               </div>
-              {rows.length === 0 && (
+              {pageGroups.length === 0 && (
                 <div className="p-10 text-center">
                   <Layers3 className="mx-auto size-8 text-slate-300" />
                   <p className="mt-3 text-sm font-medium text-slate-500">没有符合条件的记录</p>
@@ -987,7 +1155,7 @@ export default function BatchExceptionPage() {
                 </div>
               )}
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-3 text-sm text-slate-500">
-                <span className="text-xs">每页 {PAGE_SIZE} 条 · 第 {page} / {pages} 页 · 共 {filteredRows.length} 条</span>
+                <span className="text-xs">每页 {PAGE_SIZE} 条 · 第 {page} / {pages} 页 · 共 {groupedRows.length} 条</span>
                 <div className="flex items-center gap-2">
                   <button aria-label="上一页" disabled={page <= 1} onClick={() => setPage(page - 1)} className="rounded-lg border border-slate-200 p-2 hover:bg-blue-50 disabled:opacity-40">
                     <ChevronLeft className="size-4" />
@@ -1043,6 +1211,53 @@ export default function BatchExceptionPage() {
               <button type="submit" disabled={bulkEditLoading} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{bulkEditLoading ? '保存中…' : '保存所选记录'}</button>
             </div>
           </form>
+        </div>
+      )}
+
+      {mergeOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm" onClick={() => !mergeLoading && setMergeOpen(false)}>
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="batch-exception-merge-title"
+            onClick={(event) => event.stopPropagation()}
+            className="w-full max-w-lg rounded-xl bg-white shadow-2xl"
+          >
+            <div className="border-b border-slate-100 px-5 py-4">
+              <h2 id="batch-exception-merge-title" className="font-bold text-slate-900">合并统计</h2>
+              <p className="mt-1 text-xs text-slate-500">
+                已选择 {mergeSelectedRows.length} 条记录，合并后以最小序号 {show(mergeSelectedRows[0]?.sequence)} 展示，统计时算作 1 条
+              </p>
+            </div>
+            <div className="max-h-72 overflow-y-auto px-5 py-3">
+              <table className="w-full text-left text-xs">
+                <thead className="text-slate-400">
+                  <tr>
+                    <th className="py-1.5 font-medium">序号</th>
+                    <th className="py-1.5 font-medium">生产机型</th>
+                    <th className="py-1.5 font-medium">生产订单</th>
+                    <th className="py-1.5 font-medium">物料SN</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {mergeSelectedRows.map((row) => (
+                    <tr key={String(row.sequence ?? row.id)} className="border-t border-slate-100">
+                      <td className="py-1.5 font-mono tabular-nums text-slate-500">{show(row.sequence)}</td>
+                      <td className="py-1.5 text-slate-700">{show(row.models)}</td>
+                      <td className="py-1.5 text-slate-700">{show(row.orderID)}</td>
+                      <td className="py-1.5 text-slate-700">{show(row.materialSn)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="px-5 pb-2 text-xs text-slate-400">其他内容不合并，各行仍可单独编辑；统计图表按锚点行的统计字段计数，可随时解散恢复。</p>
+            {mergeError && <p role="alert" className="px-5 pb-2 text-sm text-rose-600">{mergeError}</p>}
+            <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-3">
+              <button type="button" disabled={mergeLoading} onClick={() => setMergeOpen(false)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50">取消</button>
+              <button type="button" disabled={mergeLoading} onClick={saveMerge} className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-50">{mergeLoading ? '合并中…' : '确认合并'}</button>
+            </div>
+          </div>
         </div>
       )}
 

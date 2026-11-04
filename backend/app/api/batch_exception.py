@@ -16,9 +16,11 @@ from app.services.batch_exception import (
     FACTORY_OPTIONS,
     BatchExceptionUpstreamError,
     fetch_options,
+    merge_batch_exceptions,
     query_batch_exceptions,
     serialize_batch_exception,
     sync_current_year,
+    unmerge_batch_exceptions,
 )
 from app.services.settings_service import SettingsService
 
@@ -50,6 +52,14 @@ class BatchExceptionBulkEditableFields(BaseModel):
     sequences: list[int] = Field(min_length=1, max_length=500)
     platform: str | None = Field(default=None, max_length=100)
     customer: str | None = Field(default=None, max_length=100)
+
+
+class BatchExceptionMergePayload(BaseModel):
+    sequences: list[int] = Field(min_length=2, max_length=500)
+
+
+class BatchExceptionUnmergePayload(BaseModel):
+    sequence: int
 
 
 def _validate_factory(factory: str) -> str:
@@ -133,6 +143,17 @@ def _factory_permission_code(value: object) -> str:
     return aliases.get(text.upper(), text)
 
 
+def _ensure_document_base_access(document: dict) -> None:
+    """受限账号只能操作其基地权限范围内的记录。"""
+    if current_base_permissions() is None:
+        return
+    source = document.get("source") or {}
+    source_base = _factory_permission_code(source.get("factory"))
+    if not source_base:
+        raise HTTPException(status_code=403, detail="无权编辑未关联基地的记录")
+    require_base_access(source_base)
+
+
 @router.patch("/bulk-edit")
 async def update_bulk_editable_fields(payload: BatchExceptionBulkEditableFields):
     db = get_database()
@@ -146,11 +167,7 @@ async def update_bulk_editable_fields(payload: BatchExceptionBulkEditableFields)
 
     if current_base_permissions() is not None:
         for document in documents:
-            source = document.get("source") or {}
-            source_base = _factory_permission_code(source.get("factory"))
-            if not source_base:
-                raise HTTPException(status_code=403, detail="无权编辑未关联基地的记录")
-            require_base_access(source_base)
+            _ensure_document_base_access(document)
 
     values = payload.model_dump(exclude_none=True)
     values.pop("sequences", None)
@@ -168,6 +185,40 @@ async def update_bulk_editable_fields(payload: BatchExceptionBulkEditableFields)
     return Response(success=True, data={"updated": len(sequences), "sequences": sequences})
 
 
+@router.post("/merge")
+async def merge_records(
+    payload: BatchExceptionMergePayload,
+    user: Annotated[dict, Depends(require_batch_exception_access)],
+):
+    """把所选记录合并统计为一条：以最小序号为锚点，其余记录不再单独计数。"""
+    db = get_database()
+    try:
+        data = await merge_batch_exceptions(
+            db,
+            sequences=list(dict.fromkeys(payload.sequences)),
+            operator=str(user.get("username") or ""),
+            check_access=_ensure_document_base_access,
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail=f"未找到批次异常记录：{exc.args[0]}") from exc
+    return Response(success=True, data=data)
+
+
+@router.post("/unmerge")
+async def unmerge_records(payload: BatchExceptionUnmergePayload):
+    """解散该记录所在的合并组，组内所有记录恢复独立统计。"""
+    db = get_database()
+    try:
+        data = await unmerge_batch_exceptions(
+            db, sequence=payload.sequence, check_access=_ensure_document_base_access
+        )
+    except LookupError as exc:
+        raise HTTPException(status_code=404, detail="未找到批次异常记录") from exc
+    return Response(success=True, data=data)
+
+
 @router.patch("/{sequence}/editable")
 async def update_editable_fields(sequence: int, payload: BatchExceptionEditableFields):
     db = get_database()
@@ -176,12 +227,7 @@ async def update_editable_fields(sequence: int, payload: BatchExceptionEditableF
     if document is None:
         raise HTTPException(status_code=404, detail="未找到批次异常记录")
 
-    if current_base_permissions() is not None:
-        source = document.get("source") or {}
-        source_base = _factory_permission_code(source.get("factory"))
-        if not source_base:
-            raise HTTPException(status_code=403, detail="无权编辑未关联基地的记录")
-        require_base_access(source_base)
+    _ensure_document_base_access(document)
 
     values = payload.model_dump()
     await collection.update_one(

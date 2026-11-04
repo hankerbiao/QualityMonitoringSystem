@@ -166,3 +166,103 @@ it('locks restricted users to their allowed factory', async () => {
   // 天津工厂只有 2 条记录
   expect(screen.queryByText('SN-003')).toBeNull();
 });
+
+// 带序号的行，9004 已合并到 9001（锚点行）
+const sequenceRows = [
+  {
+    sequence: 9001, factory: '天津', state: 'Open', models: '6210 C2', orderID: 30238291,
+    salesReceipts: '0041003306', materialSn: 'SN-M1', errTypeFirst: '生产缺陷', errTypeSecond: '',
+    errNum: 1, productionCount: 10, productionGrade: '', causedBy: '客户', createTime: '2026-10-01 10:00:00',
+  },
+  {
+    sequence: 9002, factory: '天津', state: 'Closed', models: '6210 C2', orderID: 30238292,
+    salesReceipts: '0041003307', materialSn: 'SN-M2', errTypeFirst: '物料缺陷', errTypeSecond: '',
+    errNum: 2, productionCount: 20, productionGrade: '', causedBy: '供应商', createTime: '2026-10-02 10:00:00',
+  },
+  {
+    sequence: 9003, factory: '昆山', state: 'Closed', models: '6615 X23', orderID: 10349872,
+    salesReceipts: 'XBBJ260370', materialSn: 'SN-M3', errTypeFirst: '生产缺陷', errTypeSecond: '',
+    errNum: 3, productionCount: 30, productionGrade: '', causedBy: '客户', createTime: '2026-10-03 10:00:00',
+  },
+  {
+    sequence: 9004, factory: '昆山', state: 'Open', models: '6615 X23', orderID: 10349999,
+    salesReceipts: 'XBBJ260371', materialSn: 'SN-M4', errTypeFirst: '生产缺陷', errTypeSecond: '',
+    errNum: 4, productionCount: 40, productionGrade: '', causedBy: '客户', createTime: '2026-10-04 10:00:00',
+    mergedInto: 9001,
+  },
+];
+
+let lastMutation: { url: string; body: unknown } | null = null;
+
+function mockQueryRows(rows: Record<string, unknown>[]) {
+  lastMutation = null;
+  vi.mocked(requestData).mockImplementation(async (url: string, init?: RequestInit) => {
+    const text = String(url);
+    if (text.includes('/options')) return optionsResult;
+    if (text.includes('/unmerge') || text.includes('/merge')) {
+      lastMutation = { url: text, body: init?.body ? JSON.parse(String(init.body)) : null };
+      return { anchor: 9001, merged: 2 };
+    }
+    return {
+      upstreamTotal: rows.length,
+      readCount: rows.length,
+      complete: true,
+      queriedAt: '2026-11-03T00:00:00+08:00',
+      sync: { year: 2026, fetched: rows.length, inserted: 0, syncedAt: '2026-11-03T00:00:00+08:00', cached: true },
+      rows,
+    };
+  });
+}
+
+it('renders merged groups with a combined sequence cell and counts statistics rows', async () => {
+  mockQueryRows(sequenceRows);
+  render(<MemoryRouter><BatchExceptionPage /></MemoryRouter>);
+  expect(await screen.findByText('SN-M1')).toBeTruthy();
+
+  // 4 条记录合并后按统计单元计数：3 条
+  expect(screen.getByText('3 条')).toBeTruthy();
+  // 锚点行带合并标记，组员序号不再单独展示，其余内容仍逐行展示
+  expect(screen.getByText('合并 2 条')).toBeTruthy();
+  expect(screen.queryByText('9004')).toBeNull();
+  expect(screen.getByText('9001')).toBeTruthy();
+  expect(screen.getByText('SN-M4')).toBeTruthy();
+
+  // 导出保持全部物理行，序号列写 Excel 合并单元格
+  fireEvent.click(screen.getByRole('button', { name: '导出数据' }));
+  const workbook = vi.mocked(XLSX.writeFile).mock.lastCall?.[0] as XLSX.WorkBook;
+  const sheet = workbook.Sheets['批次异常明细'];
+  expect(sheet['!merges']).toEqual([{ s: { r: 1, c: 0 }, e: { r: 2, c: 0 } }]);
+  const exported = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1 });
+  expect(exported).toHaveLength(5);
+});
+
+it('merges selected records through the merge dialog', async () => {
+  mockQueryRows(sequenceRows);
+  render(<MemoryRouter><BatchExceptionPage /></MemoryRouter>);
+  expect(await screen.findByText('SN-M1')).toBeTruthy();
+
+  fireEvent.click(screen.getByRole('button', { name: '编辑模式' }));
+  fireEvent.click(screen.getByLabelText('选择序号 9001'));
+  fireEvent.click(screen.getByLabelText('选择序号 9002'));
+  fireEvent.click(screen.getByRole('button', { name: '合并统计' }));
+
+  const dialog = await screen.findByRole('dialog');
+  expect(within(dialog).getByText('合并统计')).toBeTruthy();
+  fireEvent.click(within(dialog).getByRole('button', { name: '确认合并' }));
+
+  await waitFor(() => expect(lastMutation?.url).toContain('/batch-exception/merge'));
+  expect(lastMutation?.body).toEqual({ sequences: [9001, 9002] });
+  await waitFor(() => expect(queryUrls()).toHaveLength(2));
+});
+
+it('dissolves a merged group from the anchor row in edit mode', async () => {
+  mockQueryRows(sequenceRows);
+  render(<MemoryRouter><BatchExceptionPage /></MemoryRouter>);
+  expect(await screen.findByText('SN-M1')).toBeTruthy();
+
+  fireEvent.click(screen.getByRole('button', { name: '编辑模式' }));
+  fireEvent.click(screen.getByRole('button', { name: '解散' }));
+
+  await waitFor(() => expect(lastMutation?.url).toContain('/batch-exception/unmerge'));
+  expect(lastMutation?.body).toEqual({ sequence: 9001 });
+});
