@@ -207,9 +207,6 @@ async def _load_orders(
             and not rty_gateway._exclusion_reasons(normalized)
             and (include_all_orders or rty_gateway._matches_scope(normalized, filters.get("orderScope", "normal")))
         ]
-        await rty_gateway._mark_reversed_orders(
-            [normalized for _, normalized in candidates_with_normalized]
-        )
         for detail, normalized in candidates_with_normalized:
             data = dict(_source(detail))
             planned_date = compact_date(data.get("GSTRS") or normalized["gstrs_date"])

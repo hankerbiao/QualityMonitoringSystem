@@ -18,11 +18,14 @@ _REVERSAL_CACHE = AsyncTTLCache(max_entries=32)
 
 
 def is_excluded_order(status: Any = "", order_type: Any = "", reversal_flag: Any = "") -> bool:
-    """Whether a production order is excluded from PN denominator calculations."""
+    """Whether status or order type excludes a production order from PN calculations.
+
+    ``reversal_flag`` remains accepted for callers that still provide it, but
+    CXFLG no longer affects order eligibility.
+    """
     return (
         str(status or "").strip() in EXCLUDED_ORDER_STATUSES
         or str(order_type or "").strip() in EXCLUDED_ORDER_TYPES
-        or str(reversal_flag or "").strip().upper() == "X"
     )
 
 
@@ -47,7 +50,7 @@ async def reversed_orders(order_numbers: list[str] | set[str]) -> set[str]:
         )
         if rows is None:
             log_warning(
-                "生产数据源不支持 BOM 批量导出，跳过 CXFLG 冲销订单过滤；保留既有订单计算口径"
+                "生产数据源不支持 BOM 批量导出，跳过 CXFLG 标识补充查询"
             )
             return set()
         reversed_values: set[str] = set()

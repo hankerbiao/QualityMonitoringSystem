@@ -328,7 +328,7 @@ function FilteredOrdersModal({
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={onClose}>
       <div role="dialog" aria-modal="true" aria-labelledby="lrr-filtered-orders-title" aria-busy={loading} className="flex max-h-[88vh] w-full max-w-7xl flex-col overflow-hidden rounded-md bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
         <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
-          <div className="flex items-center gap-2"><ListFilter className="size-4 text-cyan-600" /><div><h2 id="lrr-filtered-orders-title" className="text-sm font-semibold text-slate-900">被过滤订单</h2><p className="mt-1 text-xs text-slate-500">订单状态、订单类型或冲销标识命中的过账记录</p></div></div>
+          <div className="flex items-center gap-2"><ListFilter className="size-4 text-cyan-600" /><div><h2 id="lrr-filtered-orders-title" className="text-sm font-semibold text-slate-900">被过滤订单</h2><p className="mt-1 text-xs text-slate-500">因订单状态或订单类型被过滤的过账记录</p></div></div>
           <button ref={closeRef} type="button" onClick={onClose} className="rounded p-1 text-slate-500 hover:bg-slate-200" aria-label="关闭"><X className="size-4" /></button>
         </div>
         {loading ? <div className="flex min-h-48 flex-col items-center justify-center gap-3 text-sm text-slate-500"><LoadingSpinner size="md" />正在加载被过滤订单...</div> : error ? (

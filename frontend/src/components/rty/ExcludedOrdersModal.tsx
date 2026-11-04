@@ -49,7 +49,7 @@ export function ExcludedOrdersModal({ filters, onClose }: ExcludedOrdersModalPro
               <h2 id="excluded-orders-title" className="text-base font-semibold text-slate-800">已过滤订单</h2>
               {!loading && <span className="rounded-sm bg-amber-50 px-2 py-0.5 text-xs text-amber-800">{total} 条</span>}
             </div>
-            <p className="mt-1 text-xs text-slate-600">过滤条件：订单状态为 DLID、RELEASED，订单类型为 C001，或订单过账冲销标识为 CXFLG=X。</p>
+            <p className="mt-1 text-xs text-slate-600">过滤条件：订单状态为 DLID、RELEASED，或订单类型为 C001。</p>
           </div>
           <button type="button" onClick={onClose} className="rounded-sm p-1 text-slate-500 transition-colors hover:bg-slate-100" title="关闭" aria-label="关闭">
             <X className="h-4 w-4" />

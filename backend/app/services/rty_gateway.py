@@ -122,13 +122,11 @@ async def _mark_reversed_orders(rows: list[dict[str, Any]]) -> set[str]:
 
 async def _orders(filters: dict[str, Any]) -> list[dict[str, Any]]:
     scope = filters.get("orderScope", "normal")
-    rows = [
+    return [
         row
         for row in await _order_rows(filters)
         if row["aufnr"] and _eligible(row, scope)
     ]
-    reversed_values = await _reversed_orders([row["aufnr"] for row in rows])
-    return [row for row in rows if normalize_order(row["aufnr"]) not in reversed_values]
 
 
 def _selected_order_types(filters: dict[str, Any]) -> set[str]:
@@ -185,13 +183,10 @@ def _exclusion_reasons(row: dict[str, Any]) -> list[str]:
     reasons: list[str] = []
     status = str(data.get("ZSTAT") or "").strip()
     order_type = str(data.get("AUART") or "").strip()
-    reversal_flag = str(row.get("_cxflg") or data.get("CXFLG") or "").strip().upper()
     if is_excluded_order(status, "", ""):
         reasons.append(f"订单状态：{status}")
     if is_excluded_order("", order_type, ""):
         reasons.append(f"订单类型：{order_type}")
-    if is_excluded_order("", "", reversal_flag):
-        reasons.append("冲销标识：CXFLG=X")
     return reasons
 
 
@@ -209,7 +204,6 @@ async def excluded_orders(filters: dict[str, Any], page: int, limit: int) -> dic
     rows = await _order_rows(filters)
     scope = filters.get("orderScope", "normal")
     scoped_rows = [row for row in rows if row["aufnr"] and _matches_scope(row, scope)]
-    await _mark_reversed_orders(scoped_rows)
     excluded = [
         row
         for row in scoped_rows

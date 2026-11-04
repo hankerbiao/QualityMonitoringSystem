@@ -618,13 +618,10 @@ def _filtered_order_reasons(row: dict[str, Any]) -> list[str]:
     reasons: list[str] = []
     status = str(row.get("_order_status") or "").strip()
     order_type = str(row.get("_order_type") or "").strip()
-    reversal_flag = str(row.get("_cxflg") or row.get("CXFLG") or "").strip().upper()
     if is_excluded_order(status, "", ""):
         reasons.append(f"订单状态：{status}")
     if is_excluded_order("", order_type, ""):
         reasons.append("订单类型：C001")
-    if is_excluded_order("", "", reversal_flag):
-        reasons.append("冲销标识：CXFLG=X")
     return reasons
 
 
