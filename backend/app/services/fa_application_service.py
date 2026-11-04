@@ -463,7 +463,6 @@ def build_application_email_html(
         <tr><td style="padding:22px 28px 18px;border-bottom:1px solid #e8eef5;">
           <p style="margin:0 0 7px;color:#2563eb;font-size:11px;font-weight:700;letter-spacing:1px;">QUALIBOARD · FA</p>
           <h1 style="margin:0;font-size:21px;line-height:1.45;color:#0f172a;font-weight:700;">{safe_subject}</h1>
-          <p style="margin:8px 0 0;color:#64748b;font-size:13px;line-height:1.6;">FA 质量反馈与申请信息</p>
         </td></tr>
         <tr><td style="padding:24px 28px 26px;">
           <p style="margin:0 0 12px;color:#475569;font-size:13px;font-weight:600;">邮件正文</p>
