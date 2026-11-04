@@ -217,7 +217,7 @@ it('shows the original system columns in order with the corresponding values', a
   await screen.findByText('DN00');
   const table = screen.getByRole('table');
   expect(within(table).getAllByRole('columnheader').map(header => header.textContent)).toEqual([
-    '检验批号', '物料编号', '物料描述', '到货数量', '供应商', '供应商代码', '库位信息', '到货日期', '订单号',
+    '序号', '检验批号', '物料编号', '物料描述', '到货数量', '供应商', '供应商代码', '库位信息', '到货日期', '订单号',
     '解决时长（H）', '质量成本', '基地', '异常描述', '不良图片', '异常分类', '首件', '不良数量', '录入日期',
     '创建人', '解决方案', '处理日期', '责任单位', '责任人', '原因分析', '8D报告路径', '事件类型', '物料状态',
     '状态', '备注', '处理人', '修改人', '修改时间', '接收邮件人', '创建人', '操作',
