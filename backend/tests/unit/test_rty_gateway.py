@@ -1673,3 +1673,51 @@ async def test_station_details_customer_filter_excludes_other_customers(monkeypa
     )
 
     assert [row.sn for row in rows] == ["SN-A"]
+
+@pytest.mark.asyncio
+async def test_orders_exclude_reversed_bom_orders_with_other_rty_rules(monkeypatch):
+    monkeypatch.setattr(
+        rty_gateway.data_gateway,
+        "all_orders",
+        AsyncMock(
+            return_value=[
+                {"aufnr": "keep", "plannedStartDate": "2026-01-01", "raw": {"data": {"AUFNR": "keep"}}},
+                {"aufnr": "reversed", "plannedStartDate": "2026-01-01", "raw": {"data": {"AUFNR": "reversed"}}},
+                {"aufnr": "status", "plannedStartDate": "2026-01-01", "raw": {"data": {"AUFNR": "status", "ZSTAT": "DLID"}}},
+                {"aufnr": "type", "plannedStartDate": "2026-01-01", "raw": {"data": {"AUFNR": "type", "AUART": "C001"}}},
+            ]
+        ),
+    )
+    monkeypatch.setattr(
+        rty_gateway,
+        "_reversed_orders",
+        AsyncMock(return_value={"reversed"}),
+    )
+
+    rows = await rty_gateway._orders(
+        {"orderScope": "normal", "dateFrom": "2026-01-01", "dateTo": "2026-01-31"}
+    )
+
+    assert [row["aufnr"] for row in rows] == ["keep"]
+    excluded = await rty_gateway.excluded_orders(
+        {"orderScope": "normal", "dateFrom": "2026-01-01", "dateTo": "2026-01-31"}, 1, 50
+    )
+    reasons = {item.productionOrder: item.exclusionReasons for item in excluded["items"]}
+    assert reasons["reversed"] == ["冲销标识：CXFLG=X"]
+
+
+@pytest.mark.asyncio
+async def test_reversed_order_lookup_reads_cxflg_from_complete_bom_rows(monkeypatch):
+    monkeypatch.setattr(rty_gateway.data_gateway, "base_url", "http://gateway.test")
+    export_rows = AsyncMock(
+        return_value=[
+            {"id": "p1", "raw": {"data": {"AUFNR_1": "000000000001", "CXFLG": "x"}}},
+            {"id": "p2", "raw": {"data": {"AUFNR_1": "2", "CXFLG": ""}}},
+        ]
+    )
+    monkeypatch.setattr(rty_gateway.data_gateway, "export_rows", export_rows)
+
+    result = await rty_gateway._reversed_orders(["1", "2"])
+
+    assert result == {"1"}
+    assert export_rows.await_args.args == ("bom", ["000000000001", "000000000002", "1", "2"])

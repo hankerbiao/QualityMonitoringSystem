@@ -1,11 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
-  AlertCircle, AlertTriangle, ArrowLeft, ArrowRight, Boxes, Building2, CalendarDays,
-  ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Layers3, RefreshCw,
+  AlertCircle, ArrowLeft, ArrowRight, CalendarDays,
+  ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Layers3, Pencil, RefreshCw,
   RotateCcw, Search, SlidersHorizontal, X,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
+import {
+  Bar, BarChart, CartesianGrid, Cell, Legend, Pie, PieChart, ResponsiveContainer,
+  Tooltip, XAxis, YAxis,
+} from 'recharts';
 import { requestData } from '../api/authApi';
 import { DateRangePicker } from '../components/shared/DateRangePicker';
 import { API_BASE_URL } from '../constants';
@@ -13,7 +17,14 @@ import { useAuth } from '../context/AuthContext';
 
 type Row = Record<string, unknown>;
 
-interface QueryResult { upstreamTotal: number; readCount: number; complete: boolean; queriedAt: string; rows: Row[] }
+interface QueryResult {
+  upstreamTotal: number;
+  readCount: number;
+  complete: boolean;
+  queriedAt: string;
+  sync: { year: number; fetched: number; inserted: number; syncedAt: string; cached?: boolean };
+  rows: Row[];
+}
 interface FilterOption { value: string; label: string }
 interface OptionsResult {
   factories: FilterOption[];
@@ -56,38 +67,57 @@ const BASE_TO_FACTORY: Record<string, string | null> = {
 };
 const STATE_LABELS: Record<string, string> = { Open: '未关闭', Closed: '已关闭' };
 const PAGE_SIZE = 20;
+const CATEGORY_CHART_FILTER_KEY = 'batch-exception-category-chart-filter-v1';
+type EditableFields = { platform: string; customer: string; base: string; errTypeFirst: string; causedBy: string };
 
 const tableColumns = [
-  ['createTime', '录入时间'], ['factory', '基地'], ['models', '生产机型'], ['orderID', '生产订单'],
-  ['salesReceipts', '销售订单'], ['materialSn', '物料SN'], ['errTypeFirst', '一级类型'],
+  ['sequence', '序号'], ['platform', '平台'], ['customer', '客户'], ['base', '基地'],
+  ['errTypeFirst', '批次类别'], ['causedBy', '责任单位'], ['createTime', '录入时间'],
+  ['models', '生产机型'], ['orderID', '生产订单'], ['salesReceipts', '销售订单'], ['materialSn', '物料SN'],
   ['errTypeSecond', '二级类型'], ['errNum', '异常台数'], ['productionCount', '生产数量'],
-  ['productionGrade', '等级'], ['causedBy', '责任单位'], ['state', '状态'],
+  ['productionGrade', '等级'], ['state', '状态'],
 ] as const;
 
 const detailLabels: Record<string, string> = {
-  id: '异常ID', factory: '基地', state: '处理状态', exceptionId: '异常单号', orderID: '生产订单',
+  sequence: '序号', platform: '平台', customer: '客户', base: '基地', errTypeFirst: '批次类别', causedBy: '责任单位',
+  id: '异常ID', factory: '上游基地', state: '处理状态', exceptionId: '异常单号', orderID: '生产订单',
   salesReceipts: '销售订单', materialSn: '物料SN', models: '生产机型', productionCount: '生产数量',
   errNum: '异常台数', productType: '产品类型', customerId: '客户编码', createTime: '录入时间',
-  errTypeFirst: '一级类型', errTypeSecond: '二级类型', errDesc: '异常描述', tempMeasure: '临时处理措施',
+  errTypeSecond: '二级类型', errDesc: '异常描述', tempMeasure: '临时处理措施',
   causeAnalysis: '原因分析', improveStrategy: '改善对策', customizationIssues: '是否定制问题',
   caseScore: '案例评分', productionGrade: '生产等级', salesBatchEvents: '销售批次事件',
-  responsibleBy: '责任人工号', responsibleByNames: '责任人', causedBy: '责任单位', createdBy: '创建人工号',
+  responsibleBy: '责任人工号', responsibleByNames: '责任人', createdBy: '创建人工号',
   createdByName: '创建人', repairedBy: '处理人工号', repairedByNames: '处理人', repairedTime: '处理时间',
   errTimes: '异常时长（H）', workingHours: '处理工时（H）', delayTime: '延时（H）',
   modifiedBy: '修改人工号', modifiedByName: '修改人', updateTime: '更新时间', remarks: '备注', versionTotal: '版本数',
 };
 
 const fieldLabels: Record<keyof Filters, string> = {
-  factory: '基地', models: '生产机型', orderID: '生产订单', errTypeFirst: '一级类型',
+  factory: '基地', models: '生产机型', orderID: '生产订单', errTypeFirst: '批次类别',
   errTypeSecond: '二级类型', salesReceipts: '销售订单', createTimeStart: '录入开始日期',
   createTimeEnd: '录入结束日期', state: '处理状态', causedBy: '责任单位',
 };
 
 const show = (value: unknown) =>
   value == null || value === '' ? '—' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+const rowSequence = (row: Row) => {
+  const sequence = Number(row.sequence);
+  return Number.isInteger(sequence) && sequence > 0 ? sequence : null;
+};
 const stateLabel = (value: unknown) => STATE_LABELS[String(value ?? '')] ?? show(value);
 const pad = (value: number) => String(value).padStart(2, '0');
 const formatDate = (value: Date) => `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}`;
+
+function readSavedCategorySelection(): string[] | null {
+  try {
+    const saved = localStorage.getItem(CATEGORY_CHART_FILTER_KEY);
+    if (saved === null) return null;
+    const parsed: unknown = JSON.parse(saved);
+    return Array.isArray(parsed) && parsed.every((value) => typeof value === 'string') ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 
 function defaultFilters(factory: string): Filters {
   return {
@@ -97,7 +127,7 @@ function defaultFilters(factory: string): Filters {
     errTypeFirst: '',
     errTypeSecond: '',
     salesReceipts: '',
-    createTimeStart: formatDate(new Date(Date.now() - 30 * 86_400_000)),
+    createTimeStart: `${new Date().getFullYear()}-01-01`,
     createTimeEnd: formatDate(new Date()),
     state: '',
     causedBy: '',
@@ -117,101 +147,177 @@ const inputClass =
   'mt-1.5 h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 hover:border-slate-400 focus:border-blue-600 focus:ring-2 focus:ring-blue-100';
 const labelClass = 'text-xs font-semibold text-slate-600';
 
-type DistributionEntry = { raw: string; label: string; count: number };
+type ChartDatum = { name: string; raw: string; bu: number; nonBu: number };
+type CategoryDatum = { name: string; raw: string; value: number };
 
-function distribution(rows: Row[], read: (row: Row) => string, label: (raw: string) => string): DistributionEntry[] {
-  const counts = new Map<string, number>();
-  for (const row of rows) {
-    const raw = read(row);
-    counts.set(raw, (counts.get(raw) || 0) + 1);
-  }
-  return [...counts]
-    .map(([raw, count]) => ({ raw, label: label(raw), count }))
-    .sort((a, b) => b.count - a.count || a.label.localeCompare(b.label, 'zh-CN'));
+function isBuResponsibilityUnit(value: unknown): boolean {
+  const normalized = String(value ?? '')
+    .trim()
+    .replace(/[,，;；/]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .toLocaleLowerCase();
+  return /(?:^|\s)5000\s+bu(?:$|\s)/.test(normalized);
 }
 
-// 四张独立分布卡：每个维度一块，点击条目可下钻明细。
-function DistributionCard({
-  title, field, subtitle, entries, bar, icon: Icon, onSelect, selected,
-}: {
+function stackedDistribution(rows: Row[], field: 'base' | 'platform' | 'customer'): ChartDatum[] {
+  const counts = new Map<string, ChartDatum>();
+  for (const row of rows) {
+    const raw = String(row[field] ?? '').trim();
+    const name = raw || '未填写';
+    const current = counts.get(raw) ?? { name, raw, bu: 0, nonBu: 0 };
+    // BU/非 BU 只按“责任单位”统计，责任人等其他字段不参与判断。
+    if (isBuResponsibilityUnit(row.causedBy)) current.bu += 1;
+    else current.nonBu += 1;
+    counts.set(raw, current);
+  }
+  return [...counts.values()].sort((a, b) => (b.bu + b.nonBu) - (a.bu + a.nonBu) || a.name.localeCompare(b.name, 'zh-CN'));
+}
+
+function categoryDistribution(rows: Row[]): CategoryDatum[] {
+  const counts = new Map<string, CategoryDatum>();
+  for (const row of rows) {
+    const raw = String(row.errTypeFirst ?? '').trim();
+    const name = raw || '未填写';
+    const current = counts.get(raw) ?? { name, raw, value: 0 };
+    current.value += 1;
+    counts.set(raw, current);
+  }
+  return [...counts.values()].sort((a, b) => b.value - a.value || a.name.localeCompare(b.name, 'zh-CN'));
+}
+
+const CHART_COLORS = ['#2563eb', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6', '#64748b', '#ec4899', '#0f766e'];
+const chartTick = { fontSize: 10, fill: '#64748b' };
+const chartTooltip = { borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 12, boxShadow: '0 8px 24px rgba(15, 23, 42, 0.08)' };
+
+function StackedDistributionChart({ title, data, onSelect }: {
   title: string;
-  field: keyof Filters;
-  subtitle: string;
-  entries: DistributionEntry[];
-  bar: string;
-  icon: typeof AlertTriangle;
-  onSelect: (entry: DistributionEntry) => void;
-  selected: { field: string; raw: string } | null;
+  data: ChartDatum[];
+  onSelect: (datum: ChartDatum) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const visible = expanded ? entries : entries.slice(0, 5);
   return (
-    <div className="min-w-0 rounded-xl border border-slate-200/80 bg-white p-4 shadow-sm">
-      <div className="mb-3 flex items-center gap-2">
-        <span className={`rounded-lg p-2 ${bar.replace('500', '50')} text-slate-700`}>
-          <Icon className="size-4" />
-        </span>
-        <div className="min-w-0 flex-1">
-          <h3 className="text-sm font-bold text-slate-900">{title}</h3>
-          <p className="text-xs text-slate-400">{subtitle}</p>
-        </div>
-        <span className="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium tabular-nums text-slate-500">
-          {entries.length}
-        </span>
-      </div>
-      {visible.length ? (
-        <div className={expanded ? 'max-h-80 space-y-1 overflow-y-auto pr-1' : 'space-y-1'}>
-          {visible.map((entry) => {
-            const top = entries[0]?.count || 1;
-            const body = (
-              <>
-                <span className="w-28 shrink-0 truncate text-slate-600" title={entry.label}>{entry.label}</span>
-                <span className="h-2 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100">
-                  <span
-                    className={`block h-full rounded-full ${bar} transition-[width] duration-500 motion-reduce:transition-none`}
-                    style={{ width: `${(entry.count / top) * 100}%` }}
-                  />
-                </span>
-                <span className="w-10 shrink-0 text-right font-semibold tabular-nums text-slate-700">{entry.count}</span>
-              </>
-            );
-            return entry.raw ? (
-              <button
-                type="button"
-                key={entry.raw}
-                aria-label={`按${title}筛选：${entry.label}`}
-                aria-pressed={selected?.field === field && selected.raw === entry.raw}
-                title="点击按该条件查看明细"
-                onClick={() => onSelect(entry)}
-                className="flex w-full items-center gap-3 rounded px-1 py-1 text-left text-xs transition-colors hover:bg-blue-50 focus-visible:outline-2 focus-visible:outline-blue-600 aria-pressed:bg-blue-100/70"
-              >
-                {body}
-              </button>
-            ) : (
-              <div key={entry.label} className="flex w-full items-center gap-3 rounded px-1 py-1 text-xs text-slate-400" title="上游未填写该字段">
-                {body}
-              </div>
-            );
-          })}
-        </div>
-      ) : (
-        <p className="py-6 text-center text-xs text-slate-400">暂无可统计数据</p>
-      )}
-      {entries.length > 5 && (
-        <div className="mt-3 flex justify-end">
+    <figure className="min-w-0 rounded-xl border border-slate-200/80 bg-white px-3 py-2.5 shadow-sm">
+      <figcaption className="mb-1 flex items-center justify-between gap-2">
+        <h3 className="truncate text-xs font-semibold text-slate-800">{title}</h3>
+        <span className="shrink-0 text-[10px] text-slate-400">点击柱形查看明细</span>
+      </figcaption>
+      {data.length ? (
+        <ResponsiveContainer width="100%" height={194} minWidth={0}>
+          <BarChart
+            data={data}
+            margin={{ top: 4, right: 4, left: -18, bottom: 2 }}
+            onClick={(state) => {
+              const datum = (state as { activePayload?: Array<{ payload?: ChartDatum }> } | undefined)?.activePayload?.[0]?.payload;
+              if (datum) onSelect(datum);
+            }}
+          >
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+            <XAxis dataKey="name" tick={chartTick} interval={0} angle={data.length > 7 ? -25 : 0} textAnchor={data.length > 7 ? 'end' : 'middle'} height={data.length > 7 ? 46 : 24} tickLine={false} axisLine={false} />
+            <YAxis allowDecimals={false} tick={chartTick} width={28} tickLine={false} axisLine={false} />
+            <Tooltip contentStyle={chartTooltip} cursor={{ fill: '#f8fafc' }} />
+            <Legend wrapperStyle={{ fontSize: 11, paddingTop: 2 }} iconSize={8} />
+            <Bar dataKey="bu" name="BU责任" stackId="responsibility" fill="#2563eb" maxBarSize={34} isAnimationActive={false} />
+            <Bar dataKey="nonBu" name="非BU责任" stackId="responsibility" fill="#f59e0b" maxBarSize={34} radius={[3, 3, 0, 0]} isAnimationActive={false} />
+          </BarChart>
+        </ResponsiveContainer>
+      ) : <p className="py-20 text-center text-xs text-slate-400">暂无可统计数据</p>}
+    </figure>
+  );
+}
+
+function CategoryChart({ data, selectedCategories, onSelectedCategoriesChange, onSelect }: {
+  data: CategoryDatum[];
+  selectedCategories: string[] | null;
+  onSelectedCategoriesChange: (value: string[] | null) => void;
+  onSelect: (datum: CategoryDatum) => void;
+}) {
+  const [filterOpen, setFilterOpen] = useState(false);
+  const filteredData = selectedCategories === null
+    ? data
+    : data.filter((entry) => selectedCategories.includes(entry.raw));
+  const total = filteredData.reduce((sum, entry) => sum + entry.value, 0);
+
+  const toggleCategory = (name: string) => {
+    const selected = new Set(selectedCategories ?? data.map((entry) => entry.raw));
+    if (selected.has(name)) selected.delete(name);
+    else selected.add(name);
+    onSelectedCategoriesChange(selected.size === data.length ? null : [...selected]);
+  };
+
+  return (
+    <figure className="min-w-0 rounded-xl border border-slate-200/80 bg-white px-3 py-2.5 shadow-sm">
+      <figcaption className="mb-1 flex items-center justify-between gap-2">
+        <h3 className="truncate text-xs font-semibold text-slate-800">SIMS 批次异常批次类别分布</h3>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="text-[10px] text-slate-400">共 {total.toLocaleString()} 条</span>
           <button
             type="button"
-            aria-label={`${expanded ? '收起' : '展开更多'}${title}`}
-            aria-expanded={expanded}
-            onClick={() => setExpanded((value) => !value)}
-            className="inline-flex items-center gap-1 text-xs font-medium text-blue-700 hover:text-blue-900"
+            aria-expanded={filterOpen}
+            onClick={() => setFilterOpen((open) => !open)}
+            className="rounded border border-slate-200 px-2 py-1 text-[10px] font-medium text-slate-600 hover:bg-slate-50"
           >
-            {expanded ? '收起' : '展开更多'}
-            {expanded ? <ChevronUp className="size-3.5" /> : <ChevronDown className="size-3.5" />}
+            类别筛选{selectedCategories === null ? '' : ` (${selectedCategories.length})`}
           </button>
         </div>
+      </figcaption>
+      {filterOpen && (
+        <div className="mb-2 border-y border-slate-100 py-2">
+          <div className="mb-1 flex justify-end gap-2">
+            <button type="button" onClick={() => onSelectedCategoriesChange(null)} className="text-[10px] font-medium text-blue-700 hover:text-blue-900">全选</button>
+            <button type="button" onClick={() => onSelectedCategoriesChange([])} className="text-[10px] font-medium text-slate-500 hover:text-slate-800">清空</button>
+          </div>
+          <div className="flex max-h-20 flex-wrap gap-x-3 gap-y-1 overflow-y-auto">
+            {data.map((entry, index) => (
+              <label key={entry.raw} className="inline-flex max-w-full items-center gap-1 text-[10px] text-slate-600">
+                <input
+                  type="checkbox"
+                  checked={selectedCategories === null || selectedCategories.includes(entry.raw)}
+                  onChange={() => toggleCategory(entry.raw)}
+                  className="size-3.5 shrink-0 accent-blue-600"
+                />
+                <span className="size-2 shrink-0 rounded-sm" style={{ backgroundColor: CHART_COLORS[index % CHART_COLORS.length] }} />
+                <span className="truncate" title={entry.name}>{entry.name}</span>
+              </label>
+            ))}
+          </div>
+        </div>
       )}
-    </div>
+      {filteredData.length ? (
+        <>
+          <div className="relative h-[174px]">
+            <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+              <PieChart
+                onClick={(state) => {
+                  const datum = (state as { activePayload?: Array<{ payload?: CategoryDatum }> } | undefined)?.activePayload?.[0]?.payload;
+                  if (datum && filteredData.some((entry) => entry.raw === datum.raw)) onSelect(datum);
+                }}
+              >
+                <Pie data={filteredData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={42} outerRadius={67} paddingAngle={2} label={false} isAnimationActive={false}>
+                  {filteredData.map((entry) => {
+                    const colorIndex = data.findIndex((item) => item.raw === entry.raw);
+                    return <Cell key={entry.raw} fill={CHART_COLORS[colorIndex % CHART_COLORS.length]} />;
+                  })}
+                </Pie>
+                <Tooltip contentStyle={chartTooltip} formatter={(value) => [`${value} 条`, '异常数']} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div aria-hidden="true" className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+              <span className="text-lg font-semibold leading-5 tabular-nums text-slate-800">{total.toLocaleString()}</span>
+              <span className="mt-0.5 text-[10px] text-slate-400">异常总数</span>
+            </div>
+          </div>
+          <div className="mt-1 flex max-h-10 flex-wrap justify-center gap-x-3 gap-y-1 overflow-y-auto text-[10px] text-slate-600">
+            {filteredData.map((entry) => {
+              const colorIndex = data.findIndex((item) => item.raw === entry.raw);
+              return <button key={entry.raw} type="button" className="inline-flex items-center gap-1 whitespace-nowrap hover:text-blue-700" onClick={() => onSelect(entry)}>
+                <span className="size-2 rounded-sm" style={{ backgroundColor: CHART_COLORS[colorIndex % CHART_COLORS.length] }} />
+                <span>{entry.name}</span>
+                <span className="tabular-nums text-slate-400">{entry.value}</span>
+              </button>;
+            })}
+          </div>
+        </>
+      ) : <p className="py-20 text-center text-xs text-slate-400">{data.length ? '没有选中的批次类别' : '暂无可统计数据'}</p>}
+    </figure>
   );
 }
 
@@ -232,10 +338,30 @@ export default function BatchExceptionPage() {
   const [expandedFilters, setExpandedFilters] = useState(false);
   const [page, setPage] = useState(1);
   const [detail, setDetail] = useState<Row | null>(null);
-  const [selection, setSelection] = useState<{ field: keyof Filters; raw: string; label: string; title: string } | null>(null);
+  const [selection, setSelection] = useState<{ field: string; raw: string; label: string; title: string } | null>(null);
+  const [editingRow, setEditingRow] = useState<Row | null>(null);
+  const [editValues, setEditValues] = useState<EditableFields>({ platform: '', customer: '', base: '', errTypeFirst: '', causedBy: '' });
+  const [editError, setEditError] = useState('');
+  const [editLoading, setEditLoading] = useState(false);
+  const [editMode, setEditMode] = useState(false);
+  const [selectedSequences, setSelectedSequences] = useState<Set<number>>(new Set());
+  const [selectedChartCategories, setSelectedChartCategories] = useState<string[] | null>(readSavedCategorySelection);
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
+  const [bulkEditValues, setBulkEditValues] = useState({ platform: '', customer: '' });
+  const [bulkEditError, setBulkEditError] = useState('');
+  const [bulkEditLoading, setBulkEditLoading] = useState(false);
   const detailSection = useRef<HTMLElement>(null);
   const requestId = useRef(0);
   const optionsId = useRef(0);
+
+  useEffect(() => {
+    try {
+      if (selectedChartCategories === null) localStorage.removeItem(CATEGORY_CHART_FILTER_KEY);
+      else localStorage.setItem(CATEGORY_CHART_FILTER_KEY, JSON.stringify(selectedChartCategories));
+    } catch {
+      // The chart remains usable when browser storage is unavailable.
+    }
+  }, [selectedChartCategories]);
 
   const factoryOptions: FilterOption[] = useMemo(() => {
     const fromServer = options?.factories;
@@ -247,11 +373,12 @@ export default function BatchExceptionPage() {
 
   const refresh = useCallback(() => {
     setPage(1);
+    setSelectedSequences(new Set());
     setRevision((value) => value + 1);
     setOptionsRevision((value) => value + 1);
   }, []);
 
-  // 查询：筛选条件由上游实时执行，每次查询都直达最新数据。
+  // 每次查询先增量同步本年度新增记录，再从本地数据库读取。
   useEffect(() => {
     const id = ++requestId.current;
     setLoading(true);
@@ -306,22 +433,10 @@ export default function BatchExceptionPage() {
     return () => window.removeEventListener('keydown', handler);
   }, [detail]);
 
-  const byErrType = useMemo(
-    () => distribution(result?.rows ?? [], (row) => String(row.errTypeFirst ?? '').trim(), (raw) => raw || '未分类'),
-    [result],
-  );
-  const byState = useMemo(
-    () => distribution(result?.rows ?? [], (row) => String(row.state ?? '').trim(), stateLabel),
-    [result],
-  );
-  const byCausedBy = useMemo(
-    () => distribution(result?.rows ?? [], (row) => String(row.causedBy ?? '').trim(), (raw) => raw || '未填写'),
-    [result],
-  );
-  const byModel = useMemo(
-    () => distribution(result?.rows ?? [], (row) => String(row.models ?? '').trim(), (raw) => raw || '未填写'),
-    [result],
-  );
+  const baseChart = useMemo(() => stackedDistribution(result?.rows ?? [], 'base'), [result]);
+  const platformChart = useMemo(() => stackedDistribution(result?.rows ?? [], 'platform'), [result]);
+  const customerChart = useMemo(() => stackedDistribution(result?.rows ?? [], 'customer'), [result]);
+  const categoryChart = useMemo(() => categoryDistribution(result?.rows ?? []), [result]);
 
   const errTypeOptions = useMemo<FilterOption[]>(() => {
     const types = options?.errTypes ?? {};
@@ -357,6 +472,7 @@ export default function BatchExceptionPage() {
     setPage(1);
     setDetail(null);
     setSelection(null);
+    setSelectedSequences(new Set());
     setApplied({ ...next });
   };
   const submitSearch = () => {
@@ -378,7 +494,7 @@ export default function BatchExceptionPage() {
     runQuery({ ...initial });
   };
   // 分布面板下钻只过滤当前已加载的明细，不改动上游查询条件，可随时清除。
-  const drillDown = (field: keyof Filters, raw: string, label: string, title: string) => {
+  const drillDown = (field: string, raw: string, label: string, title: string) => {
     setPage(1);
     setDetail(null);
     setSelection({ field, raw, label, title });
@@ -393,6 +509,25 @@ export default function BatchExceptionPage() {
 
   const pages = Math.max(1, Math.ceil(filteredRows.length / PAGE_SIZE));
   const rows = filteredRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const visibleSequences = rows.map(rowSequence).filter((sequence): sequence is number => sequence !== null);
+  const allVisibleSelected = visibleSequences.length > 0 && visibleSequences.every((sequence) => selectedSequences.has(sequence));
+
+  const toggleSequence = (sequence: number) => {
+    setSelectedSequences((current) => {
+      const next = new Set(current);
+      if (next.has(sequence)) next.delete(sequence);
+      else next.add(sequence);
+      return next;
+    });
+  };
+  const toggleAllVisible = () => {
+    setSelectedSequences((current) => {
+      const next = new Set(current);
+      if (allVisibleSelected) visibleSequences.forEach((sequence) => next.delete(sequence));
+      else visibleSequences.forEach((sequence) => next.add(sequence));
+      return next;
+    });
+  };
 
   const exportData = () => {
     const keys = Object.keys(detailLabels);
@@ -423,6 +558,74 @@ export default function BatchExceptionPage() {
 
   const setField = (key: keyof Filters, value: string) => setDraft((current) => ({ ...current, [key]: value }));
 
+  const openEditor = (row: Row) => {
+    setEditValues({
+      platform: String(row.platform ?? ''),
+      customer: String(row.customer ?? ''),
+      base: String(row.base ?? row.factory ?? ''),
+      errTypeFirst: String(row.errTypeFirst ?? ''),
+      causedBy: String(row.causedBy ?? ''),
+    });
+    setEditError('');
+    setEditingRow(row);
+  };
+
+  const saveEdit = async (event: FormEvent) => {
+    event.preventDefault();
+    if (!editingRow?.sequence) return;
+    setEditLoading(true);
+    setEditError('');
+    try {
+      await requestData<Row>(`${API_BASE_URL}/batch-exception/${editingRow.sequence}/editable`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editValues),
+      });
+      setEditingRow(null);
+      refresh();
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : '保存失败');
+    } finally {
+      setEditLoading(false);
+    }
+  };
+
+  const openBulkEditor = () => {
+    setBulkEditValues({ platform: '', customer: '' });
+    setBulkEditError('');
+    setBulkEditOpen(true);
+  };
+
+  const saveBulkEdit = async (event: FormEvent) => {
+    event.preventDefault();
+    const platform = bulkEditValues.platform.trim();
+    const customer = bulkEditValues.customer.trim();
+    if (!selectedSequences.size || (!platform && !customer)) {
+      setBulkEditError('请至少填写平台或客户');
+      return;
+    }
+    setBulkEditLoading(true);
+    setBulkEditError('');
+    try {
+      await requestData<{ updated: number }>(`${API_BASE_URL}/batch-exception/bulk-edit`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sequences: [...selectedSequences],
+          ...(platform ? { platform } : {}),
+          ...(customer ? { customer } : {}),
+        }),
+      });
+      setBulkEditOpen(false);
+      setSelectedSequences(new Set());
+      refresh();
+    } catch (err) {
+      setBulkEditError(err instanceof Error ? err.message : '批量保存失败');
+    } finally {
+      setBulkEditLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
       <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/95 backdrop-blur">
@@ -438,8 +641,18 @@ export default function BatchExceptionPage() {
             <p className="text-xs text-slate-500">质量监控 / 批次异常</p>
           </div>
           <span className="hidden items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 sm:inline-flex">
-            <span className="size-1.5 rounded-full bg-blue-500" />实时查询第三方源
+            <span className="size-1.5 rounded-full bg-blue-500" />本地数据库 · 年度增量同步
           </span>
+          <button
+            onClick={() => {
+              setEditMode((current) => !current);
+              setSelectedSequences(new Set());
+            }}
+            disabled={loading}
+            className={`inline-flex items-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium shadow-sm transition disabled:opacity-50 ${editMode ? 'border-blue-300 bg-blue-50 text-blue-700' : 'border-slate-200 bg-white text-slate-600 hover:border-blue-300 hover:text-blue-700'}`}
+          >
+            <Pencil className="size-4" />{editMode ? '退出编辑' : '编辑模式'}
+          </button>
           <button
             onClick={refresh}
             disabled={loading || optionsLoading}
@@ -458,10 +671,10 @@ export default function BatchExceptionPage() {
             <span className="rounded-lg bg-blue-50 p-2 text-blue-700"><SlidersHorizontal className="size-4" /></span>
             <div className="mr-1">
               <h2 className="text-sm font-bold text-slate-900">查询条件</h2>
-              <p className="mt-0.5 text-xs text-slate-400">条件直接下发到批次异常系统实时执行</p>
+              <p className="mt-0.5 text-xs text-slate-400">默认查看本年度全部责任单位的记录</p>
             </div>
             <span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-500">
-              {activeCount ? `${activeCount} 项条件生效` : '默认：近 30 天'}
+              {activeCount ? `${activeCount} 项条件生效` : '本年度'}
             </span>
             {!expandedFilters && hiddenActiveCount > 0 && (
               <span className="rounded-full bg-blue-50 px-3 py-1 text-xs text-blue-700">收起的筛选中有 {hiddenActiveCount} 项生效</span>
@@ -521,7 +734,7 @@ export default function BatchExceptionPage() {
                 />
               </div>
               <label className={labelClass}>
-                一级类型
+                批次类别（一级类型）
                 <select
                   value={draft.errTypeFirst}
                   onChange={(event) => {
@@ -588,7 +801,7 @@ export default function BatchExceptionPage() {
                   />
                 </label>
                 <label className={labelClass}>
-                  责任单位<span className="ml-1 font-normal text-slate-400">（模糊）</span>
+                  责任单位<span className="ml-1 font-normal text-slate-400">（精确）</span>
                   <input
                     list="batch-exception-caused-by"
                     value={draft.causedBy}
@@ -620,7 +833,7 @@ export default function BatchExceptionPage() {
         {loading && (
           <div role="status" className="flex items-center gap-3 rounded-xl border border-blue-100 bg-white p-6 text-sm text-slate-500">
             <RefreshCw className="size-5 text-blue-600 motion-safe:animate-spin" />
-            正在查询批次异常系统，请稍候…
+            正在查询本地数据库…
           </div>
         )}
 
@@ -629,7 +842,8 @@ export default function BatchExceptionPage() {
             <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500">
               <span className="inline-flex items-center gap-1.5">
                 <CalendarDays className="size-3.5" />
-                {result.complete ? '已加载全部匹配记录' : `匹配 ${result.upstreamTotal} 条，超出单次读取上限，请缩小录入日期范围`}
+                本地匹配 {result.readCount.toLocaleString()} 条 · {result.sync.year} 年数据
+                {result.sync.cached ? '（24 小时缓存）' : `同步读取 ${result.sync.fetched.toLocaleString()} 条，本次新增 ${result.sync.inserted.toLocaleString()} 条`}
               </span>
               <span>更新于 {new Date(result.queriedAt).toLocaleString('zh-CN')}</span>
             </div>
@@ -641,53 +855,48 @@ export default function BatchExceptionPage() {
               </div>
             )}
 
-            <section className="grid items-start gap-3 lg:grid-cols-2 2xl:grid-cols-4">
-              <DistributionCard
-                title="一级类型"
-                field="errTypeFirst"
-                subtitle="当前结果 · 点击可筛选"
-                entries={byErrType}
-                bar="bg-amber-500"
-                icon={AlertTriangle}
-                selected={selection}
-                onSelect={(entry) => drillDown('errTypeFirst', entry.raw, entry.label, '一级类型')}
+            <section className="grid items-start gap-3 lg:grid-cols-2 xl:grid-cols-4">
+              <StackedDistributionChart
+                title="SIMS 批次异常报告分布 by 生产基地"
+                data={baseChart}
+                onSelect={(datum) => drillDown('base', datum.raw, datum.name, '基地')}
               />
-              <DistributionCard
-                title="处理状态"
-                field="state"
-                subtitle="当前结果 · 点击可筛选"
-                entries={byState}
-                bar="bg-emerald-500"
-                icon={AlertCircle}
-                selected={selection}
-                onSelect={(entry) => drillDown('state', entry.raw, entry.label, '处理状态')}
+              <StackedDistributionChart
+                title="SIMS 批次异常平台分布"
+                data={platformChart}
+                onSelect={(datum) => drillDown('platform', datum.raw, datum.name, '平台')}
               />
-              <DistributionCard
-                title="责任单位"
-                field="causedBy"
-                subtitle="当前结果 · 按记录数排名"
-                entries={byCausedBy}
-                bar="bg-violet-500"
-                icon={Building2}
-                selected={selection}
-                onSelect={(entry) => drillDown('causedBy', entry.raw, entry.label, '责任单位')}
+              <StackedDistributionChart
+                title="SIMS 批次异常客户分布"
+                data={customerChart}
+                onSelect={(datum) => drillDown('customer', datum.raw, datum.name, '客户')}
               />
-              <DistributionCard
-                title="生产机型"
-                field="models"
-                subtitle="当前结果 · 按记录数排名"
-                entries={byModel}
-                bar="bg-indigo-500"
-                icon={Boxes}
-                selected={selection}
-                onSelect={(entry) => drillDown('models', entry.raw, entry.label, '生产机型')}
+              <CategoryChart
+                data={categoryChart}
+                selectedCategories={selectedChartCategories}
+                onSelectedCategoriesChange={setSelectedChartCategories}
+                onSelect={(datum) => drillDown('errTypeFirst', datum.raw, datum.name, '批次类别')}
               />
             </section>
 
             <section ref={detailSection} className="scroll-mt-20 overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm">
               <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3">
                 <h2 className="text-sm font-bold text-slate-900">异常记录明细</h2>
+                <span className="rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-700">{applied.causedBy ? `责任单位 = ${applied.causedBy}` : '责任单位：全部'}</span>
                 <span className="rounded-full bg-blue-50 px-2.5 py-0.5 text-xs font-medium text-blue-700">{filteredRows.length} 条</span>
+                {editMode && (
+                  <>
+                    <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700">已选 {selectedSequences.size} 条</span>
+                    <button
+                      type="button"
+                      disabled={!selectedSequences.size || bulkEditLoading}
+                      onClick={openBulkEditor}
+                      className="ml-auto inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-40"
+                    >
+                      <Pencil className="size-3.5" />批量修改平台/客户
+                    </button>
+                  </>
+                )}
                 {selection && (
                   <>
                     <span role="status" className="break-all text-xs text-blue-700">
@@ -704,19 +913,45 @@ export default function BatchExceptionPage() {
                 )}
               </div>
               <div className="overflow-x-auto">
-                <table className="w-full min-w-[1500px] text-left text-sm">
+                <table className="w-full min-w-[1700px] text-left text-sm">
                   <thead className="bg-blue-50/60 text-xs text-slate-600">
                     <tr>
+                      {editMode && (
+                        <th className="w-10 px-3 py-2.5">
+                          <input
+                            type="checkbox"
+                            checked={allVisibleSelected}
+                            onChange={toggleAllVisible}
+                            aria-label="选择当前页全部记录"
+                            className="size-4 accent-blue-600"
+                          />
+                        </th>
+                      )}
                       {tableColumns.map(([key, label]) => <th key={key} className="whitespace-nowrap px-3 py-2.5 font-semibold">{label}</th>)}
                       <th className="px-4 py-3">操作</th>
                     </tr>
                   </thead>
                   <tbody>
                     {rows.map((row, index) => (
-                      <tr key={String(row.id ?? index)} className="border-t border-slate-100 even:bg-slate-50/50 transition-colors hover:bg-blue-50/60">
+                      <tr key={String(row.sequence ?? row.id ?? index)} className="border-t border-slate-100 even:bg-slate-50/50 transition-colors hover:bg-blue-50/60">
+                        {editMode && (
+                          <td className="w-10 px-3 py-2.5">
+                            {rowSequence(row) !== null && (
+                              <input
+                                type="checkbox"
+                                checked={selectedSequences.has(rowSequence(row) as number)}
+                                onChange={() => toggleSequence(rowSequence(row) as number)}
+                                aria-label={`选择序号 ${row.sequence}`}
+                                className="size-4 accent-blue-600"
+                              />
+                            )}
+                          </td>
+                        )}
                         {tableColumns.map(([key]) => (
                           <td key={key} className="max-w-56 px-3 py-2.5">
-                            {key === 'state' ? (
+                            {key === 'sequence' ? (
+                              <span className="font-mono tabular-nums text-slate-500">{show(row.sequence)}</span>
+                            ) : key === 'state' ? (
                               <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
                                 String(row.state) === 'Open' ? 'bg-amber-50 text-amber-700 ring-1 ring-amber-200' : 'bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200'
                               }`}>{stateLabel(row.state)}</span>
@@ -730,12 +965,14 @@ export default function BatchExceptionPage() {
                           </td>
                         ))}
                         <td className="px-4 py-3">
-                          <button
-                            onClick={() => setDetail(row)}
-                            className="inline-flex items-center gap-1 whitespace-nowrap font-medium text-blue-700 hover:text-blue-900"
-                          >
-                            详情<ArrowRight className="size-3" />
-                          </button>
+                          <div className="flex items-center gap-3">
+                            <button type="button" onClick={() => openEditor(row)} className="inline-flex items-center gap-1 whitespace-nowrap font-medium text-blue-700 hover:text-blue-900">
+                              <Pencil className="size-3.5" />编辑
+                            </button>
+                            <button type="button" onClick={() => setDetail(row)} className="inline-flex items-center gap-1 whitespace-nowrap font-medium text-slate-600 hover:text-slate-900">
+                              详情<ArrowRight className="size-3" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -764,6 +1001,100 @@ export default function BatchExceptionPage() {
           </div>
         )}
       </main>
+
+      {bulkEditOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm" onClick={() => !bulkEditLoading && setBulkEditOpen(false)}>
+          <form
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="batch-exception-bulk-edit-title"
+            onSubmit={saveBulkEdit}
+            onClick={(event) => event.stopPropagation()}
+            className="w-full max-w-lg rounded-xl bg-white shadow-2xl"
+          >
+            <div className="border-b border-slate-100 px-5 py-4">
+              <h2 id="batch-exception-bulk-edit-title" className="font-bold text-slate-900">批量修改统计字段</h2>
+              <p className="mt-1 text-xs text-slate-500">已选择 {selectedSequences.size} 条记录；留空的字段保持原值</p>
+            </div>
+            <div className="grid gap-4 p-5 sm:grid-cols-2">
+              <label className={labelClass}>
+                平台
+                <input
+                  autoFocus
+                  value={bulkEditValues.platform}
+                  maxLength={100}
+                  onChange={(event) => setBulkEditValues((current) => ({ ...current, platform: event.target.value }))}
+                  className={inputClass}
+                />
+              </label>
+              <label className={labelClass}>
+                客户
+                <input
+                  value={bulkEditValues.customer}
+                  maxLength={100}
+                  onChange={(event) => setBulkEditValues((current) => ({ ...current, customer: event.target.value }))}
+                  className={inputClass}
+                />
+              </label>
+            </div>
+            {bulkEditError && <p role="alert" className="px-5 pb-2 text-sm text-rose-600">{bulkEditError}</p>}
+            <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-3">
+              <button type="button" disabled={bulkEditLoading} onClick={() => setBulkEditOpen(false)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50">取消</button>
+              <button type="submit" disabled={bulkEditLoading} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{bulkEditLoading ? '保存中…' : '保存所选记录'}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {editingRow && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4 backdrop-blur-sm" onClick={() => !editLoading && setEditingRow(null)}>
+          <form
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="batch-exception-edit-title"
+            onSubmit={saveEdit}
+            onClick={(event) => event.stopPropagation()}
+            className="w-full max-w-xl rounded-xl bg-white shadow-2xl"
+          >
+            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
+              <div>
+                <h2 id="batch-exception-edit-title" className="font-bold text-slate-900">编辑统计字段</h2>
+                <p className="mt-1 text-xs text-slate-400">序号 {show(editingRow.sequence)} · 修改值单独保存，不改动上游原始数据</p>
+              </div>
+              <button type="button" disabled={editLoading} onClick={() => setEditingRow(null)} aria-label="关闭编辑" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 disabled:opacity-50">
+                <X className="size-5" />
+              </button>
+            </div>
+            <div className="grid gap-4 p-5 sm:grid-cols-2">
+              <label className={labelClass}>
+                平台
+                <input value={editValues.platform} maxLength={100} onChange={(event) => setEditValues((current) => ({ ...current, platform: event.target.value }))} className={inputClass} />
+              </label>
+              <label className={labelClass}>
+                客户
+                <input value={editValues.customer} maxLength={100} onChange={(event) => setEditValues((current) => ({ ...current, customer: event.target.value }))} className={inputClass} />
+              </label>
+              <label className={labelClass}>
+                基地
+                <input value={editValues.base} maxLength={100} onChange={(event) => setEditValues((current) => ({ ...current, base: event.target.value }))} className={inputClass} />
+              </label>
+              <label className={labelClass}>
+                批次类别（一级类型）
+                <input value={editValues.errTypeFirst} maxLength={100} onChange={(event) => setEditValues((current) => ({ ...current, errTypeFirst: event.target.value }))} className={inputClass} />
+              </label>
+              <label className={`${labelClass} sm:col-span-2`}>
+                责任单位
+                <input value={editValues.causedBy} maxLength={100} onChange={(event) => setEditValues((current) => ({ ...current, causedBy: event.target.value }))} className={inputClass} />
+              </label>
+            </div>
+            {editError && <p role="alert" className="px-5 pb-2 text-sm text-rose-600">{editError}</p>}
+            <div className="flex justify-end gap-2 border-t border-slate-100 px-5 py-3">
+              <button type="button" disabled={editLoading} onClick={() => setEditingRow(null)} className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-50 disabled:opacity-50">取消</button>
+              <button type="submit" disabled={editLoading} className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50">{editLoading ? '保存中…' : '保存'}</button>
+            </div>
+          </form>
+        </div>
+      )}
 
       {/* 详情改为右侧抽屉，与来料质量的居中弹窗区分 */}
       {detail && (

@@ -10,8 +10,8 @@ import { API_BASE_URL } from '../constants';
 
 type RecordRow = Record<string, unknown>;
 interface Result { queriedAt: string; upstreamTotal: number | null; readCount: number; matchedCount: number; complete: boolean; rows: RecordRow[] }
-interface Filters { keyword: string; bases: string[]; material: string[]; supplier: string[]; order: string[]; lot: string[]; category: string[]; date_from: string; date_to: string }
-const EMPTY: Filters = { keyword: '', bases: [], material: [], supplier: [], order: [], lot: [], category: [], date_from: '', date_to: '' };
+interface Filters { keyword: string; serialNumbers: string; bases: string[]; material: string[]; supplier: string[]; order: string[]; lot: string[]; category: string[]; date_from: string; date_to: string }
+const EMPTY: Filters = { keyword: '', serialNumbers: '', bases: [], material: [], supplier: [], order: [], lot: [], category: [], date_from: '', date_to: '' };
 const bases: Record<string, string> = { TJ: '天津', PJ: '盘锦', KS: '昆山', TY: '太原', AY: '安阳', TX: '桐乡', DT: '大同', QD: '青岛', ML: '马来', '1000': '天津', '2000': '盘锦', '3000': '昆山', '7000': '太原', '8000': '安阳', '9000': '桐乡', D000: '大同' };
 const columns = [
   ['prueflos', '检验批号'], ['selmatnr', '物料编号'], ['ktextmat', '物料描述'],
@@ -30,14 +30,32 @@ const names: Record<string, string> = { ...Object.fromEntries(columns), bad_num:
 const show = (value: unknown) => value == null || value === '' ? '—' : typeof value === 'object' ? JSON.stringify(value) : String(value);
 const displayBase = (value: unknown) => bases[show(value).trim().toUpperCase()] || show(value);
 const inputClass = 'mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10';
-const fieldLabels: Record<keyof Filters, string> = { keyword: '关键词', bases: '基地', material: '物料编号', supplier: '供应商', order: '订单号', lot: '检验批号', category: '异常分类', date_from: '到货开始日期', date_to: '到货结束日期' };
+const textareaClass = inputClass.replace('h-10', 'min-h-20 resize-y py-2');
+const fieldLabels: Record<keyof Filters, string> = { keyword: '关键词', serialNumbers: '序列号', bases: '基地', material: '物料编号', supplier: '供应商', order: '订单号', lot: '检验批号', category: '异常分类', date_from: '到货开始日期', date_to: '到货结束日期' };
 const selectFields = { material: 'selmatnr', supplier: 'supplier', order: 'ebeln', lot: 'prueflos', category: 'abnormal_class' } as const;
+const serialNumberKeys = new Set(['sn', 'serialnumber', 'serialno', 'serial']);
 type SelectField = keyof typeof selectFields;
 type DistributionField = 'basecode' | 'abnormal_class' | 'supplier';
 type DistributionSelection = { field: DistributionField; label: string };
 
 function distributionLabel(row: RecordRow, field: DistributionField) {
   return field === 'basecode' ? displayBase(row[field]) : field === 'supplier' ? String(row[field] ?? '').trim() : show(row[field]);
+}
+
+function normalizeSerialNumber(value: unknown) {
+  return String(value ?? '').trim().toLocaleLowerCase();
+}
+
+function parseSerialNumbers(value: string) {
+  return [...new Set(value.split(/[\r\n,，;；]+/).map(item => item.trim()).filter(Boolean))];
+}
+
+function rowSerialNumbers(row: RecordRow) {
+  return Object.entries(row)
+    .filter(([key]) => serialNumberKeys.has(key.toLocaleLowerCase().replace(/[\s_-]/g, '')))
+    .flatMap(([, value]) => Array.isArray(value) ? value : [value])
+    .map(normalizeSerialNumber)
+    .filter(Boolean);
 }
 
 function distribution(rows: RecordRow[], field: DistributionField) {
@@ -126,8 +144,9 @@ function ReportLinks({ row }: { row: RecordRow }) {
   })}{error && <span role="alert" className="text-xs text-rose-700">{error}</span>}</div>;
 }
 
-function matchesFilters(row: RecordRow, filters: Filters): boolean {
+function matchesFilters(row: RecordRow, filters: Filters, serialOrder: Map<string, number>): boolean {
   if (filters.bases.length && !filters.bases.includes(displayBase(row.basecode))) return false;
+  if (serialOrder.size && !rowSerialNumbers(row).some(value => serialOrder.has(value))) return false;
   for (const key of Object.keys(selectFields) as SelectField[]) {
     const value = String(row[selectFields[key]] ?? '').trim();
     if (filters[key].length && !filters[key].includes(value)) return false;
@@ -181,7 +200,14 @@ export default function IncomingMaterialsPage() {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [preview]);
-  const filteredRows = useMemo(() => (result?.rows ?? []).filter(row => matchesFilters(row, filters)), [result, filters]);
+  const serialOrder = useMemo(() => new Map(parseSerialNumbers(filters.serialNumbers).map((value, index) => [normalizeSerialNumber(value), index] as const)), [filters.serialNumbers]);
+  const filteredRows = useMemo(() => {
+    const matched = (result?.rows ?? []).filter(row => matchesFilters(row, filters, serialOrder));
+    if (!serialOrder.size) return matched;
+    return matched.map((row, index) => ({ row, index, rank: Math.min(...rowSerialNumbers(row).map(value => serialOrder.get(value) ?? Number.POSITIVE_INFINITY)) }))
+      .sort((a, b) => a.rank - b.rank || a.index - b.index)
+      .map(({ row }) => row);
+  }, [result, filters, serialOrder]);
   const detailRows = useMemo(() => selection ? filteredRows.filter(row => distributionLabel(row, selection.field) === selection.label) : filteredRows, [filteredRows, selection]);
   const options = useMemo(() => {
     const data = result?.rows ?? [];
@@ -198,7 +224,7 @@ export default function IncomingMaterialsPage() {
   const bySupplier = useMemo(() => distribution(filteredRows.filter(row => String(row.supplier ?? '').trim()), 'supplier'), [filteredRows]);
   const active = Object.entries(filters).filter(([, value]) => Array.isArray(value) ? value.length > 0 : Boolean(value));
   const invalidDates = Boolean(draft.date_from && draft.date_to && draft.date_from > draft.date_to);
-  const setField = (key: 'keyword' | 'date_from' | 'date_to', value: string) => setDraft(current => ({ ...current, [key]: value }));
+  const setField = (key: 'keyword' | 'serialNumbers' | 'date_from' | 'date_to', value: string) => setDraft(current => ({ ...current, [key]: value }));
   const search = (event: FormEvent) => {
     event.preventDefault();
     if (invalidDates) return;
@@ -244,6 +270,7 @@ export default function IncomingMaterialsPage() {
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3"><div className="flex items-center gap-2"><span className="rounded-lg bg-cyan-50 p-2 text-cyan-700"><SlidersHorizontal className="size-4" /></span><div><h2 className="text-sm font-bold text-slate-900">筛选条件</h2><p className="mt-0.5 text-xs text-slate-400">筛选当前已加载的全部可访问数据</p></div></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-500">{active.length ? `已应用 ${active.length} 项条件` : '全部数据'}</span></div>
         <form onSubmit={search} className="p-4"><div className="grid gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
           <label className="text-xs font-semibold text-slate-600 sm:col-span-2">关键词（搜索所有字段）<input value={draft.keyword} onChange={e => setField('keyword', e.target.value)} maxLength={200} placeholder="物料、供应商、订单等" className={inputClass} /></label>
+          <label className="text-xs font-semibold text-slate-600 sm:col-span-2">序列号（按输入顺序）<textarea value={draft.serialNumbers} onChange={e => setField('serialNumbers', e.target.value)} maxLength={2000} rows={2} placeholder="每行一个，也可用逗号分隔" className={textareaClass} /></label>
           <MultiSelect label="基地" options={options.bases} value={draft.bases} onChange={value => setDraft(current => ({ ...current, bases: value }))} />
           {(Object.keys(selectFields) as SelectField[]).map(key => <MultiSelect key={key} label={fieldLabels[key]} options={options[key]} value={draft[key]} onChange={value => setDraft(current => ({ ...current, [key]: value }))} />)}
           <DateRangePicker label="到货日期" from={draft.date_from} to={draft.date_to} allowOpenEnded onChange={(from, to) => setDraft(current => ({ ...current, date_from: from, date_to: to }))} />

@@ -23,6 +23,7 @@ from app.services.lrr_normalization import (
     normalize_sales_order,
     source_data,
 )
+from app.services.pn_order_filter import is_excluded_order, normalize_order, reversed_orders
 from app.services.rty_shared import order_variants
 
 MAX_BATCH_ORDER_FILTERS = 200
@@ -50,6 +51,7 @@ def normalize_bom(item: dict[str, Any]) -> dict[str, Any]:
         "VBELN_EX": data.get("VBELN_EX", ""),
         "MENGE_A": data.get("MENGE_A", 0),
         "BWART": str(data.get("BWART", "") or "").strip(),
+        "CXFLG": str(data.get("CXFLG", "") or "").strip().upper(),
         "MATNR": data.get("MATNR", ""),
         "MAKTX": data.get("MAKTX", ""),
         "LGORT": data.get("LGORT", ""),
@@ -122,6 +124,7 @@ async def load_bom(
     customer_ids: tuple[str, ...] = (),
     order_types: tuple[str, ...] = (),
     include_order_metadata: bool = False,
+    exclude_rty_orders: bool = False,
     month: str | None = None,
     planned_date_from: str | None = None,
     planned_date_to: str | None = None,
@@ -250,8 +253,7 @@ async def load_bom(
     bom_stream_started_at = perf_counter()
     batches = await asyncio.gather(*requests)
     bom_stream_ms = (perf_counter() - bom_stream_started_at) * 1000
-    for batch in batches:
-        raw_rows.extend(batch)
+    raw_rows = [item for batch in batches for item in batch]
 
     # The low-overhead stream intentionally uses a narrow projection on some
     # gateway versions and therefore has no material description. A PN-scoped
@@ -273,13 +275,24 @@ async def load_bom(
                 item["_match_description"] = str(item.get("MAKTX") or "").strip()
                 item["MAKTX"] = description
     seen: set[str] = set()
+    anonymous_occurrences: dict[str, int] = {}
     rows = []
-    for item in raw_rows:
-        normalized = normalize_bom(item)
-        key = str(normalized.get("id") or normalized.get("_id") or repr(normalized))
-        if key not in seen:
-            seen.add(key)
-            rows.append(normalized)
+    for batch in batches:
+        batch_occurrences: dict[str, int] = {}
+        for item in batch:
+            normalized = normalize_bom(item)
+            identity = normalized.get("id") or normalized.get("_id")
+            if identity:
+                key = str(identity)
+                if key not in seen:
+                    seen.add(key)
+                    rows.append(normalized)
+                continue
+            fingerprint = repr(normalized)
+            batch_occurrences[fingerprint] = batch_occurrences.get(fingerprint, 0) + 1
+            if batch_occurrences[fingerprint] > anonymous_occurrences.get(fingerprint, 0):
+                anonymous_occurrences[fingerprint] = batch_occurrences[fingerprint]
+                rows.append(normalized)
     order_keywords = [value.lower() for value in _split_values(order_keyword)]
     production_values = {
         normalize_production_order(value) for value in _split_values(production_order)
@@ -313,7 +326,15 @@ async def load_bom(
     # keep that lookup within the same date/scope whenever possible.
     product_models = [*(product_models or []), *([product_model] if product_model else [])]
     bases = [*(bases or []), *([base] if base else [])]
-    needs_metadata = bool(include_order_metadata or bases or customer_ids or product_models or order_types or current_base_permissions() is not None)
+    needs_metadata = bool(
+        include_order_metadata
+        or exclude_rty_orders
+        or bases
+        or customer_ids
+        or product_models
+        or order_types
+        or current_base_permissions() is not None
+    )
     metadata_started_at = perf_counter()
     if needs_metadata:
         metadata_filters: dict[str, str] = {}
@@ -330,7 +351,7 @@ async def load_bom(
     else:
         orders = []
     metadata_load_ms = (perf_counter() - metadata_started_at) * 1000
-    metadata: dict[str, tuple[str, str, str, str, Any]] = {}
+    metadata: dict[str, tuple[str, str, str, str, str, Any]] = {}
     allowed_bases = set(bases or [])
     allowed_models = set(product_models or [])
     for item in orders:
@@ -344,16 +365,33 @@ async def load_bom(
                 str(item.get("inventoryLocation", "")).strip(),
                 str(item.get("customerId", "")).strip(),
                 str(item.get("productionModel", "")).strip(),
-                str(order_data.get("AUART") or "").strip(),
+                str(order_data.get("AUART") or item.get("AUART") or "").strip(),
+                str(order_data.get("ZSTAT") or item.get("ZSTAT") or "").strip(),
                 planned_quantity,
             )
+    reversed_values = (
+        await reversed_orders({row.get("AUFNR_1", "") for row in rows})
+        if (include_order_metadata or exclude_rty_orders)
+        else set()
+    )
     result = []
     for row in rows:
-        metadata_values = metadata.get(normalize_production_order(row.get("AUFNR_1")))
+        production_order = normalize_production_order(row.get("AUFNR_1"))
+        normalized_order = normalize_order(production_order)
+        metadata_values = metadata.get(production_order)
         if metadata_values is None:
-            base_value, customer, model, order_type, planned_quantity = "", "", "", "", None
+            (
+                base_value,
+                customer,
+                model,
+                order_type,
+                order_status,
+                planned_quantity,
+            ) = "", "", "", "", "", None
         else:
-            base_value, customer, model, order_type, planned_quantity = metadata_values
+            base_value, customer, model, order_type, order_status, planned_quantity = (
+                metadata_values
+            )
         if not base_allowed(base_value or row.get("LGORT")):
             continue
         if allowed_bases and not ({str(row.get("LGORT") or "").strip(), base_value} & allowed_bases):
@@ -364,9 +402,14 @@ async def load_bom(
             continue
         if order_types and order_type not in order_types:
             continue
+        row["_cxflg"] = "X" if normalized_order in reversed_values else str(row.get("CXFLG") or "").strip().upper()
+        if exclude_rty_orders and is_excluded_order(order_status, order_type, row["_cxflg"]):
+            continue
         row["_base"] = str(row.get("LGORT") or base_value).strip()
         row["_customer_id"] = customer
         row["_product_model"] = model
+        row["_order_type"] = order_type
+        row["_order_status"] = order_status
         row["_planned_quantity"] = planned_quantity
         result.append(row)
     log_info(

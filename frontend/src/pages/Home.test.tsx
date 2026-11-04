@@ -121,8 +121,10 @@ describe('home administrator settings access', () => {
     const coreSection = screen.getByRole('region', { name: '核心质量看板' });
     expect(within(repairSection).getByRole('link', { name: /维修通过率分析/ }).getAttribute('href')).toBe('/repair-quality');
     expect(within(repairSection).getByRole('link', { name: /重插率分析/ }).getAttribute('href')).toBe('/reinsert-rate');
+    expect(within(repairSection).getByRole('link', { name: /FA看板/ }).getAttribute('href')).toBe('/fa');
     expect(within(coreSection).queryByText('维修通过率分析')).toBeNull();
     expect(within(coreSection).queryByText('重插率分析')).toBeNull();
+    expect(within(coreSection).queryByText('FA看板')).toBeNull();
     fireEvent.click(screen.getByRole('tab', { name: '维修过程质量' }));
     expect(screen.queryByRole('region', { name: '核心质量看板' })).toBeNull();
     fireEvent.change(screen.getByRole('searchbox', { name: '搜索功能' }), { target: { value: '重插' } });

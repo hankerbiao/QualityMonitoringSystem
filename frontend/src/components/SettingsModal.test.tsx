@@ -90,6 +90,7 @@ describe('settings pages by role', () => {
         mfr: 'admin-only',
         'incoming-materials': 'admin-only',
         'batch-exception': 'available',
+        fa: 'available',
       },
     }));
   });

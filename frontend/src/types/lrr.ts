@@ -98,6 +98,8 @@ export interface LRRFaultDetailsResponse {
 export interface LRRUsageByOrder {
   productionOrder: string;
   salesOrder: string;
+  materialNumber: string;
+  materialDescription: string;
   productModel: string;
   base: string;
   plannedQuantity: number | null;
@@ -113,4 +115,30 @@ export interface LRRUsageDetailsResponse {
   returnedQuantity: number;
   usageQuantity: number;
   quantityMode: 'movement' | 'legacy';
+}
+
+export interface LRRFilteredOrder {
+  id: string;
+  productionOrder: string;
+  salesOrder: string;
+  materialNumber: string;
+  materialDescription: string;
+  productModel: string;
+  base: string;
+  customerId: string;
+  plannedDate: string;
+  movementType: string;
+  quantity: number | null;
+  orderStatus: string;
+  orderType: string;
+  reversalFlag: string;
+  exclusionReasons: string[];
+}
+
+export interface LRRFilteredOrdersResponse {
+  items: LRRFilteredOrder[];
+  total: number;
+  page: number;
+  limit: number;
+  has_more: boolean;
 }

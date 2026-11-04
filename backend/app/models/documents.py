@@ -21,3 +21,7 @@ class Collections:
     STATION_RECORDS_SAP = "station_records_sap"
     LRR_LIST_CACHE = "lrr_list_cache"
     LRR_LIST_CACHE_LOCKS = "lrr_list_cache_locks"
+    BATCH_EXCEPTION_RECORDS = "batch_exception_records"
+    BATCH_EXCEPTION_COUNTERS = "batch_exception_counters"
+    FA_APPLICATIONS = "fa_applications"
+    FA_APPLICATION_COUNTERS = "fa_application_counters"

@@ -58,6 +58,8 @@ class LRRFaultDetailsResponse(BaseModel):
 class LRRUsageByOrder(BaseModel):
     productionOrder: str = ""
     salesOrder: str = ""
+    materialNumber: str = ""
+    materialDescription: str = ""
     productModel: str = ""
     base: str = ""
     plannedQuantity: float | None = None
@@ -73,6 +75,32 @@ class LRRUsageDetailsResponse(BaseModel):
     returnedQuantity: float = 0.0
     usageQuantity: float = 0.0
     quantityMode: Literal["movement", "legacy"] = "movement"
+
+
+class LRRFilteredOrder(BaseModel):
+    id: str = ""
+    productionOrder: str = ""
+    salesOrder: str = ""
+    materialNumber: str = ""
+    materialDescription: str = ""
+    productModel: str = ""
+    base: str = ""
+    customerId: str = ""
+    plannedDate: str = ""
+    movementType: str = ""
+    quantity: float | None = None
+    orderStatus: str = ""
+    orderType: str = ""
+    reversalFlag: str = ""
+    exclusionReasons: list[str] = Field(default_factory=list)
+
+
+class LRRFilteredOrdersResponse(BaseModel):
+    items: list[LRRFilteredOrder] = Field(default_factory=list)
+    total: int = 0
+    page: int = 1
+    limit: int = 50
+    has_more: bool = False
 
 
 class LRROptions(BaseModel):

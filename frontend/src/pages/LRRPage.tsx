@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeft, BarChart3, BellRing, ChevronLeft, ChevronRight, Download, FileSearch, RotateCcw, X } from 'lucide-react';
+import { ArrowLeft, BarChart3, BellRing, ChevronLeft, ChevronRight, Download, FileSearch, ListFilter, RotateCcw, X } from 'lucide-react';
 import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
@@ -9,7 +9,7 @@ import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
 import { HelpTooltip } from '../components/shared/HelpTooltip';
 import { LoadingSpinner } from '../components/ui';
 import { ApiRequestError } from '../api/authApi';
-import type { LRRData, LRRFaultDetail, LRRFilters, LRRListResponse, LRRMaterialRank, LRRTrendPoint, LRRUsageDetailsResponse } from '../types';
+import type { LRRData, LRRFaultDetail, LRRFilteredOrdersResponse, LRRFilters, LRRListResponse, LRRMaterialRank, LRRTrendPoint, LRRUsageDetailsResponse } from '../types';
 import { displayMaterialNumber } from '../utils/lrr';
 
 const PAGE_SIZE = 50;
@@ -201,6 +201,12 @@ function UsageDetailsModal({
         ['usageQuantity', '历史使用量'] as const,
       ]
     : USAGE_COLUMNS;
+  const exportColumns = [
+    ...usageColumns.slice(0, 2),
+    ['materialNumber', '物料号'] as const,
+    ['materialDescription', '物料描述'] as const,
+    ...usageColumns.slice(2),
+  ];
   const usageColumnWidths: Record<string, string> = response?.quantityMode === 'legacy'
     ? {
         productionOrder: '20%',
@@ -229,8 +235,8 @@ function UsageDetailsModal({
   const exportDetails = () => {
     try {
       const sheet = XLSX.utils.aoa_to_sheet([
-        usageColumns.map(([, label]) => label),
-        ...items.map(item => usageColumns.map(([key]) => item[key])),
+        exportColumns.map(([, label]) => label),
+        ...items.map(item => exportColumns.map(([key]) => item[key])),
       ]);
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, sheet, '订单使用数量');
@@ -291,6 +297,81 @@ function UsageDetailsModal({
           </div>
         )}
         <div className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">{response?.quantityMode === 'legacy' ? '历史使用量' : '净使用数量'}合计 {formatCount(response?.usageQuantity)}</div>
+      </div>
+    </div>
+  );
+}
+
+function FilteredOrdersModal({
+  response,
+  loading,
+  error,
+  onClose,
+  onPageChange,
+}: {
+  response: LRRFilteredOrdersResponse | null;
+  loading: boolean;
+  error: ApiRequestError | null;
+  onClose: () => void;
+  onPageChange: (page: number) => void;
+}) {
+  const closeRef = useRef<HTMLButtonElement>(null);
+  const items = response?.items ?? [];
+  const totalPages = Math.max(1, Math.ceil((response?.total ?? 0) / (response?.limit || 50)));
+  useEffect(() => {
+    closeRef.current?.focus();
+    const handler = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [onClose]);
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={onClose}>
+      <div role="dialog" aria-modal="true" aria-labelledby="lrr-filtered-orders-title" aria-busy={loading} className="flex max-h-[88vh] w-full max-w-7xl flex-col overflow-hidden rounded-md bg-white shadow-xl" onClick={(event) => event.stopPropagation()}>
+        <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+          <div className="flex items-center gap-2"><ListFilter className="size-4 text-cyan-600" /><div><h2 id="lrr-filtered-orders-title" className="text-sm font-semibold text-slate-900">被过滤订单</h2><p className="mt-1 text-xs text-slate-500">订单状态、订单类型或冲销标识命中的过账记录</p></div></div>
+          <button ref={closeRef} type="button" onClick={onClose} className="rounded p-1 text-slate-500 hover:bg-slate-200" aria-label="关闭"><X className="size-4" /></button>
+        </div>
+        {loading ? <div className="flex min-h-48 flex-col items-center justify-center gap-3 text-sm text-slate-500"><LoadingSpinner size="md" />正在加载被过滤订单...</div> : error ? (
+          <div role="alert" className="flex min-h-48 flex-col items-center justify-center gap-3 px-6 text-center text-sm text-red-700">
+            <p>{errorMessage(error)}</p>
+            {error.requestId && <p className="text-xs text-slate-400">请求编号：{error.requestId}</p>}
+          </div>
+        ) : (
+          <div className="overflow-auto p-4">
+            <table className="w-full min-w-[1500px] text-left text-xs">
+              <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-slate-600">
+                <tr>{['生产订单', '销售订单', '物料 PN', '物料描述', '机型', '基地', '计划日期', '移动类型', '数量', '订单状态', '订单类型', 'CXFLG', '过滤原因'].map((label) => <th key={label} className="whitespace-nowrap px-3 py-2 font-semibold">{label}</th>)}</tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {items.map((item) => (
+                  <tr key={item.id} className="text-slate-700 hover:bg-slate-50">
+                    <td className="whitespace-nowrap px-3 py-2 font-mono">{item.productionOrder || '-'}</td>
+                    <td className="whitespace-nowrap px-3 py-2 font-mono">{item.salesOrder || '-'}</td>
+                    <td className="whitespace-nowrap px-3 py-2 font-mono">{displayMaterialNumber(item.materialNumber) || '-'}</td>
+                    <td className="max-w-56 truncate px-3 py-2" title={item.materialDescription}>{item.materialDescription || '-'}</td>
+                    <td className="max-w-44 truncate px-3 py-2" title={item.productModel}>{item.productModel || '-'}</td>
+                    <td className="whitespace-nowrap px-3 py-2">{item.base || '-'}</td>
+                    <td className="whitespace-nowrap px-3 py-2 font-mono">{item.plannedDate || '-'}</td>
+                    <td className="whitespace-nowrap px-3 py-2 font-mono">{item.movementType || '-'}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-right font-mono">{item.quantity == null ? '-' : formatCount(item.quantity)}</td>
+                    <td className="whitespace-nowrap px-3 py-2">{item.orderStatus || '-'}</td>
+                    <td className="whitespace-nowrap px-3 py-2">{item.orderType || '-'}</td>
+                    <td className="whitespace-nowrap px-3 py-2 font-mono">{item.reversalFlag || '-'}</td>
+                    <td className="whitespace-nowrap px-3 py-2 text-red-700">{item.exclusionReasons.join('；')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {!items.length && <p className="px-4 py-12 text-center text-sm text-slate-400">当前筛选范围没有被过滤的订单</p>}
+          </div>
+        )}
+        <div className="flex items-center justify-between border-t border-slate-100 px-5 py-3 text-xs text-slate-500">
+          <span>共 {formatCount(response?.total ?? 0)} 条，第 {response?.page ?? 1} / {totalPages} 页</span>
+          <div className="flex gap-1">
+            <button type="button" onClick={() => onPageChange(Math.max(1, (response?.page ?? 1) - 1))} disabled={loading || !response || (response.page ?? 1) <= 1} className="inline-flex size-8 items-center justify-center rounded-md border border-slate-300 bg-white disabled:opacity-40" aria-label="上一页"><ChevronLeft className="size-3.5" /></button>
+            <button type="button" onClick={() => onPageChange(Math.min(totalPages, (response?.page ?? 1) + 1))} disabled={loading || !response || (response.page ?? 1) >= totalPages} className="inline-flex size-8 items-center justify-center rounded-md border border-slate-300 bg-white disabled:opacity-40" aria-label="下一页"><ChevronRight className="size-3.5" /></button>
+          </div>
+        </div>
       </div>
     </div>
   );
@@ -360,6 +441,10 @@ export default function LRRPage() {
   const [usageLoading, setUsageLoading] = useState(false);
   const [usageError, setUsageError] = useState<ApiRequestError | null>(null);
   const [usageLoadingRow, setUsageLoadingRow] = useState<string | null>(null);
+  const [filteredOrdersResponse, setFilteredOrdersResponse] = useState<LRRFilteredOrdersResponse | null>(null);
+  const [filteredOrdersOpen, setFilteredOrdersOpen] = useState(false);
+  const [filteredOrdersLoading, setFilteredOrdersLoading] = useState(false);
+  const [filteredOrdersError, setFilteredOrdersError] = useState<ApiRequestError | null>(null);
   const [loading, setLoading] = useState(false);
   const [searched, setSearched] = useState(false);
   const [error, setError] = useState<ApiRequestError | null>(null);
@@ -370,6 +455,7 @@ export default function LRRPage() {
   const sequence = useRef(0);
   const detailRequest = useRef(0);
   const usageRequest = useRef(0);
+  const filteredOrdersRequest = useRef(0);
   const queryController = useRef<AbortController | null>(null);
 
   const cancelQuery = useCallback(() => {
@@ -513,6 +599,28 @@ export default function LRRPage() {
     setUsageLoading(false);
     setUsageLoadingRow(null);
     setUsageError(null);
+  }, []);
+
+  const openFilteredOrders = useCallback(async (targetPage = 1) => {
+    const request = ++filteredOrdersRequest.current;
+    setFilteredOrdersOpen(true);
+    setFilteredOrdersLoading(true);
+    setFilteredOrdersError(null);
+    try {
+      const result = await lrrApi.getFilteredOrders(filters, targetPage, 50);
+      if (request === filteredOrdersRequest.current) setFilteredOrdersResponse(result);
+    } catch (err) {
+      if (request === filteredOrdersRequest.current) setFilteredOrdersError(normalizeApiError(err));
+    } finally {
+      if (request === filteredOrdersRequest.current) setFilteredOrdersLoading(false);
+    }
+  }, [filters]);
+
+  const closeFilteredOrders = useCallback(() => {
+    filteredOrdersRequest.current += 1;
+    setFilteredOrdersOpen(false);
+    setFilteredOrdersLoading(false);
+    setFilteredOrdersError(null);
   }, []);
 
   const openMaterialDetails = (item: LRRMaterialRank) => {
@@ -724,6 +832,7 @@ export default function LRRPage() {
               <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 sm:px-5">
                 <h2 className="text-sm font-semibold">物料 PN 明细</h2>
                 <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => { void openFilteredOrders(); }} disabled={loading || filteredOrdersLoading} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:cursor-wait disabled:opacity-50"><ListFilter className="size-3.5" />过滤订单</button>
                   <span className="text-xs text-slate-500">{loading ? '正在更新' : `共 ${formatCount(response?.total ?? 0)} 条`}</span>
                 </div>
               </div>
@@ -805,6 +914,15 @@ export default function LRRPage() {
           loading={usageLoading}
           error={usageError}
           onClose={closeUsageDetails}
+        />
+      )}
+      {filteredOrdersOpen && (
+        <FilteredOrdersModal
+          response={filteredOrdersResponse}
+          loading={filteredOrdersLoading}
+          error={filteredOrdersError}
+          onClose={closeFilteredOrders}
+          onPageChange={(nextPage) => { void openFilteredOrders(nextPage); }}
         />
       )}
       {loading && (

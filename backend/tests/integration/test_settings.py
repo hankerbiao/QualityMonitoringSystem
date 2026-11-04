@@ -42,6 +42,7 @@ class TestGetAllSettings:
             "mfr": "admin-only",
             "incoming-materials": "available",
             "batch-exception": "available",
+            "fa": "available",
         }
         assert data["data"]["cycleStatsConfig"]["selectedModels"] == []
 

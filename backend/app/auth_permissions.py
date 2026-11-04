@@ -17,6 +17,7 @@ ALL_DASHBOARD_PERMISSIONS: Final[tuple[str, ...]] = (
     "batch-exception",
     "doa",
     "doa-repairs",
+    "fa",
     "mfr",
 )
 
@@ -31,6 +32,7 @@ DASHBOARD_LABELS: Final[dict[str, str]] = {
     "batch-exception": "批次异常",
     "doa": "DOA 报修率",
     "doa-repairs": "DOA 维修明细",
+    "fa": "FA 提交看板",
     "mfr": "MFR 现网月化故障率",
 }
 

@@ -1,6 +1,7 @@
 import type {
   LRRFilters,
   LRRData,
+  LRRFilteredOrdersResponse,
   LRRFaultDetail,
   LRRFaultDetailsResponse,
   LRRListResponse,
@@ -143,6 +144,17 @@ export const lrrApi = {
     const url = `${API_BASE_URL}/lrr/usage-details${qs}`;
     return cachedRequest(url, () => requestJson<LRRUsageDetailsResponse>(url));
   },
+
+  /** 获取因 RTY 订单规则或冲销标识被排除的订单过账记录 */
+  async getFilteredOrders(
+    filters: LRRFilters = {},
+    page = 1,
+    pageSize = 50,
+  ): Promise<LRRFilteredOrdersResponse> {
+    const qs = buildQuery(filters, { page, limit: pageSize });
+    const url = `${API_BASE_URL}/lrr/filtered-orders${qs}`;
+    return cachedRequest(url, () => requestJson<LRRFilteredOrdersResponse>(url));
+  },
 };
 
-export type { LRRFilters, LRRFaultDetail, LRRFaultDetailsResponse, LRRListResponse, LRROptions, LRRUsageDetailsResponse };
+export type { LRRFilters, LRRFaultDetail, LRRFaultDetailsResponse, LRRFilteredOrdersResponse, LRRListResponse, LRROptions, LRRUsageDetailsResponse };

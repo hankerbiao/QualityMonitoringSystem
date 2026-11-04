@@ -65,6 +65,11 @@ class Settings(BaseSettings):
     )
     MAIL_PROXY_TOKEN: str = ""
 
+    # OA employee directory credentials are used server-side only.
+    OA_USER_API_URL: str = "https://central-data.1oa.com.cn/api/v1/centralData/datasets/oa_user"
+    OA_USER_API_KEY: str = ""
+    OA_USER_CACHE_TTL_SECONDS: int = 604800
+
     # 日志配置
     LOG_DIR: str = "logs"
     LOG_LEVEL: str = "INFO"

@@ -14,6 +14,7 @@ const PERMISSIONS = [
   ['batch-exception', '批次异常'],
   ['doa', 'DOA 报修率'],
   ['doa-repairs', 'DOA 维修明细'],
+  ['fa', 'FA看板'],
   ['mfr', 'MFR 现网月化故障率'],
 ] as const;
 

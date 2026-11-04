@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.api.lrr import _usage_by_order
 from app.base_access import base_access_scope
 from app.services import lrr_gateway
 from app.services.data_gateway_client import DataGatewayClient, DataGatewayError
@@ -22,6 +23,131 @@ async def test_lrr_bom_filters_multiple_order_types_using_order_metadata(monkeyp
     assert {int(row['AUFNR_1']) for row in filtered} == {1, 2}
     all_types = await lrr_gateway.load_bom(planned_date_from="2026-03-01", planned_date_to="2026-03-31")
     assert {int(row['AUFNR_1']) for row in all_types} == {1, 2, 3, 4}
+
+
+@pytest.mark.asyncio
+async def test_lrr_bom_excludes_rty_ineligible_orders(monkeypatch):
+    async def all_bom_rows(**_filters):
+        return [
+            {
+                "id": str(index),
+                "AUFNR_1": str(index),
+                "GSTRS": "20260301",
+                "MATNR": "PN",
+                "MENGE_A": 1,
+            }
+            for index in range(1, 5)
+        ]
+
+    async def all_orders(**_filters):
+        return [
+            {
+                "aufnr": "1",
+                "inventoryLocation": "1000",
+                "raw": {"data": {"AUART": "PP01", "ZSTAT": ""}},
+            },
+            {
+                "aufnr": "2",
+                "inventoryLocation": "1000",
+                "raw": {"data": {"AUART": "PP01", "ZSTAT": "DLID"}},
+            },
+            {
+                "aufnr": "3",
+                "inventoryLocation": "1000",
+                "raw": {"data": {"AUART": "PP01", "ZSTAT": "RELEASED"}},
+            },
+            {
+                "aufnr": "4",
+                "inventoryLocation": "1000",
+                "raw": {"data": {"AUART": "C001", "ZSTAT": ""}},
+            },
+        ]
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_orders", all_orders)
+
+    rows = await lrr_gateway.load_bom(
+        planned_date_from="2026-03-01",
+        planned_date_to="2026-03-31",
+        exclude_rty_orders=True,
+    )
+
+    assert [row["AUFNR_1"] for row in rows] == ["000000000001"]
+
+
+@pytest.mark.asyncio
+async def test_lrr_pn_filter_excludes_an_order_reversed_on_another_material(monkeypatch):
+    async def reversed_orders(_orders):
+        return {"1"}
+
+    async def all_bom_rows(**_filters):
+        return [
+            {
+                "id": "selected-pn-posting",
+                "AUFNR_1": "1",
+                "MATNR": "PN-SELECTED",
+                "MENGE_A": 1,
+                "BWART": "261",
+                "GSTRS": "20260301",
+            }
+        ]
+
+    async def all_orders(**_filters):
+        return [
+            {
+                "aufnr": "1",
+                "inventoryLocation": "1000",
+                "raw": {"data": {"AUART": "PP01", "ZSTAT": "ACTIVE"}},
+            }
+        ]
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_orders", all_orders)
+    monkeypatch.setattr(lrr_gateway, "reversed_orders", reversed_orders)
+
+    rows = await lrr_gateway.load_bom(
+        material_number="PN-SELECTED",
+        planned_date_from="2026-03-01",
+        planned_date_to="2026-03-31",
+        include_order_metadata=True,
+        exclude_rty_orders=True,
+    )
+
+    assert rows == []
+
+
+@pytest.mark.asyncio
+async def test_lrr_filtered_order_rows_mark_orders_reversed_on_another_material(monkeypatch):
+    async def reversed_orders(_orders):
+        return {"1"}
+
+    async def all_bom_rows(**_filters):
+        return [
+            {
+                "id": "selected-pn-posting",
+                "AUFNR_1": "1",
+                "MATNR": "PN-SELECTED",
+                "MENGE_A": 1,
+                "BWART": "261",
+                "GSTRS": "20260301",
+            }
+        ]
+
+    async def all_orders(**_filters):
+        return [{"aufnr": "1", "raw": {"data": {"AUART": "PP01", "ZSTAT": "ACTIVE"}}}]
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_orders", all_orders)
+    monkeypatch.setattr(lrr_gateway, "reversed_orders", reversed_orders)
+
+    rows = await lrr_gateway.load_bom(
+        material_number="PN-SELECTED",
+        planned_date_from="2026-03-01",
+        planned_date_to="2026-03-31",
+        include_order_metadata=True,
+    )
+
+    assert rows[0]["_cxflg"] == "X"
 
 
 def test_lrr_order_type_filter_excludes_faults_without_verified_order():
@@ -147,6 +273,57 @@ async def test_load_bom_normalizes_gateway_rows_and_applies_exact_filters(monkey
             "keyword": "1",
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_load_bom_keeps_identical_postings_but_deduplicates_overlapping_keyword_reads(
+    monkeypatch,
+):
+    calls = 0
+    postings = [
+        {
+            "AUFNR_1": "000030237838",
+            "VBELN_EX": "100002099",
+            "MATNR": "PN-1",
+            "GSTRS": "20261104",
+            "BWART": "261",
+            "MENGE_A": "4",
+        },
+        {
+            "AUFNR_1": "000030237838",
+            "VBELN_EX": "100002099",
+            "MATNR": "PN-1",
+            "GSTRS": "20261104",
+            "BWART": "261",
+            "MENGE_A": "4",
+        },
+        {
+            "AUFNR_1": "000030237838",
+            "VBELN_EX": "100002099",
+            "MATNR": "PN-1",
+            "GSTRS": "20261104",
+            "BWART": "262",
+            "MENGE_A": "4",
+        },
+    ]
+
+    async def all_bom_rows(**_filters):
+        nonlocal calls
+        calls += 1
+        return [dict(row) for row in postings]
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
+
+    rows = await lrr_gateway.load_bom(
+        order_keyword="000030237838,100002099",
+        planned_date_from="2026-11-04",
+        planned_date_to="2026-11-04",
+    )
+
+    assert calls == 2
+    assert len(rows) == 3
+    usage = _usage_by_order(rows, "PN-1", "2026-11")
+    assert (usage.issuedQuantity, usage.returnedQuantity, usage.usageQuantity) == (8, 4, 4)
 
 
 @pytest.mark.asyncio

@@ -12,6 +12,7 @@ const dashboards = [
   { path: '/reinsert-rate', id: 'reinsert-rate', label: '重插率', description: '重插率分析' },
   { path: '/lrr', id: 'lrr', label: '部件故障率', description: '工厂阶段部件故障率' },
   { path: '/doa', id: 'doa', label: '开箱报修率', description: 'DOA 报修率' },
+  { path: '/fa', id: 'fa', label: 'FA 提交', description: 'FA 申请单' },
   { path: '/mfr', id: 'mfr', label: '现网月化故障率', description: 'MFR 整机故障率' },
 ] as const;
 
@@ -61,6 +62,7 @@ export function DashboardSwitcher() {
             const status = settings.dashboardStatuses[dashboard.id] ?? DEFAULT_DASHBOARD_STATUSES[dashboard.id];
             if (status === 'admin-only' && !isAdmin) return null;
             if (dashboard.id === 'reinsert-rate' && !isAdmin && !user?.dashboardPermissions?.includes(dashboard.id)) return null;
+            if (dashboard.id === 'fa' && !isAdmin && !user?.dashboardPermissions?.includes(dashboard.id)) return null;
             return (
               <Link
                 key={dashboard.path}

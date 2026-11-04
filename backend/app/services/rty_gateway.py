@@ -28,10 +28,9 @@ from app.schemas.rty import (
 from app.services.async_ttl_cache import AsyncTTLCache
 from app.services.data_gateway_client import DataGatewayError, data_gateway
 from app.services.lrr_normalization import compact_date
+from app.services.pn_order_filter import is_excluded_order, reversed_orders
 from app.services.rty_shared import (
     COMPOSITE_MODEL_ITEMS,
-    EXCLUDED_ORDER_STATUSES,
-    EXCLUDED_ORDER_TYPES,
     MAX_BINDING_ROW_COUNT,
     MAX_DETAIL_ROW_COUNT,
     YEAR_END,
@@ -107,11 +106,29 @@ def normalize_fault_row(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def _reversed_orders(order_numbers: list[str] | set[str]) -> set[str]:
+    """Compatibility wrapper for the shared PN order eligibility service."""
+    return await reversed_orders(order_numbers)
+
+
+async def _mark_reversed_orders(rows: list[dict[str, Any]]) -> set[str]:
+    reversed_values = await _reversed_orders([row.get("aufnr", "") for row in rows])
+    for row in rows:
+        if normalize_order(row.get("aufnr")) in reversed_values:
+            row["_cxflg"] = "X"
+            row.setdefault("data", {})["CXFLG"] = "X"
+    return reversed_values
+
+
 async def _orders(filters: dict[str, Any]) -> list[dict[str, Any]]:
-    rows = await _order_rows(filters)
-    return [
-        row for row in rows if row["aufnr"] and _eligible(row, filters.get("orderScope", "normal"))
+    scope = filters.get("orderScope", "normal")
+    rows = [
+        row
+        for row in await _order_rows(filters)
+        if row["aufnr"] and _eligible(row, scope)
     ]
+    reversed_values = await _reversed_orders([row["aufnr"] for row in rows])
+    return [row for row in rows if normalize_order(row["aufnr"]) not in reversed_values]
 
 
 def _selected_order_types(filters: dict[str, Any]) -> set[str]:
@@ -168,10 +185,13 @@ def _exclusion_reasons(row: dict[str, Any]) -> list[str]:
     reasons: list[str] = []
     status = str(data.get("ZSTAT") or "").strip()
     order_type = str(data.get("AUART") or "").strip()
-    if status in EXCLUDED_ORDER_STATUSES:
+    reversal_flag = str(row.get("_cxflg") or data.get("CXFLG") or "").strip().upper()
+    if is_excluded_order(status, "", ""):
         reasons.append(f"订单状态：{status}")
-    if order_type in EXCLUDED_ORDER_TYPES:
+    if is_excluded_order("", order_type, ""):
         reasons.append(f"订单类型：{order_type}")
+    if is_excluded_order("", "", reversal_flag):
+        reasons.append("冲销标识：CXFLG=X")
     return reasons
 
 
@@ -185,13 +205,15 @@ def _eligible(row: dict[str, Any], scope: str) -> bool:
 
 
 async def excluded_orders(filters: dict[str, Any], page: int, limit: int) -> dict[str, Any]:
-    """Return orders excluded by RTY status/type rules within the selected L6 scope."""
+    """Return orders excluded by RTY rules within the selected L6 scope."""
     rows = await _order_rows(filters)
     scope = filters.get("orderScope", "normal")
+    scoped_rows = [row for row in rows if row["aufnr"] and _matches_scope(row, scope)]
+    await _mark_reversed_orders(scoped_rows)
     excluded = [
         row
-        for row in rows
-        if row["aufnr"] and _matches_scope(row, scope) and _exclusion_reasons(row)
+        for row in scoped_rows
+        if _exclusion_reasons(row)
     ]
     excluded.sort(key=lambda row: (row["gstrs_date"], row["aufnr"]), reverse=True)
     page_rows = excluded[(page - 1) * limit : page * limit]

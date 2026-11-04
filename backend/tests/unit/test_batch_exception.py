@@ -1,4 +1,4 @@
-from datetime import date
+from datetime import date, datetime
 from unittest.mock import AsyncMock
 
 import pytest
@@ -14,6 +14,18 @@ from app.services import batch_exception as service
 def batch_exception_status(monkeypatch):
     statuses = {"batch-exception": "available"}
     monkeypatch.setattr(api, "get_database", lambda: None)
+    monkeypatch.setattr(
+        api,
+        "sync_current_year",
+        AsyncMock(
+            return_value={
+                "year": 2026,
+                "fetched": 0,
+                "inserted": 0,
+                "syncedAt": "2026-11-03T00:00:00+08:00",
+            }
+        ),
+    )
     monkeypatch.setattr(
         api,
         "SettingsService",
@@ -41,42 +53,59 @@ def sample_rows(count=2):
     ]
 
 
-async def test_query_builds_upstream_params_and_omits_blank_filters(monkeypatch):
-    captured: dict = {}
+async def test_query_filters_local_snapshots_by_responsibility_token(monkeypatch):
+    class Cursor:
+        def __init__(self, rows):
+            self.rows = rows
 
-    async def fake_query_rows(params):
-        captured.update(params)
-        return 1, [{"id": "a"}]
+        def sort(self, *_args):
+            return self
 
-    monkeypatch.setattr(service, "_query_rows", fake_query_rows)
+        async def to_list(self, length=None):
+            return self.rows
+
+    documents = [
+        {
+            "sync_year": 2026,
+            "sequence": sequence,
+            "source": {
+                "factory": "天津",
+                "createTime": "2026-10-03",
+                "models": "6210 C2",
+                "state": "Open",
+            },
+            "editable": {"causedBy": responsibility},
+        }
+        for sequence, responsibility in enumerate(
+            ("5000 BU", "5000 BU,供应商", "15000 BU"), start=1
+        )
+    ]
+
+    class Collection:
+        def find(self, query):
+            assert query == {"sync_year": 2026}
+            return Cursor(documents)
+
+    class Database:
+        def __getitem__(self, _name):
+            return Collection()
+
+    monkeypatch.setattr(service, "beijing_now", lambda: datetime(2026, 11, 3))
     data = await service.query_batch_exceptions(
+        Database(),
         factory="1000",
         create_time_start=date(2026, 10, 3),
         create_time_end=date(2026, 11, 3),
         models="6210 C2",
         state="Open",
+        caused_by="5000",
     )
-    assert captured == {
-        "factory": "1000",
-        "createTimeStart": "2026-10-03",
-        "createTimeEnd": "2026-11-03",
-        "models": "6210 C2",
-        "state": "Open",
-    }
-    assert data["upstreamTotal"] == 1
-    assert data["readCount"] == 1
+    assert [row["sequence"] for row in data["rows"]] == [1, 2]
+    assert data["upstreamTotal"] == 2
+    assert data["readCount"] == 2
     assert data["complete"] is True
     assert data["queriedAt"]
-
-    captured.clear()
-    await service.query_batch_exceptions(
-        factory="", create_time_start=date(2026, 10, 3), create_time_end=date(2026, 11, 3)
-    )
-    assert captured == {
-        "factory": "",
-        "createTimeStart": "2026-10-03",
-        "createTimeEnd": "2026-11-03",
-    }
+    assert service._responsibility_matches("15000 BU", "5000") is False
 
 
 async def test_options_derive_from_sample_and_cache(monkeypatch):
@@ -152,9 +181,7 @@ async def test_exception_types_endpoint_has_no_code_envelope(monkeypatch):
 
     monkeypatch.setattr(service, "_client", lambda: ErrorClient())
     with pytest.raises(service.BatchExceptionUpstreamError, match="系统繁忙"):
-        await service.query_batch_exceptions(
-            factory="", create_time_start=date(2026, 10, 3), create_time_end=date(2026, 11, 3)
-        )
+        await service._get_json(service.QUERY_URL, {})
 
 
 def test_query_requires_permission_and_validates_filters(monkeypatch):

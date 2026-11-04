@@ -4,6 +4,7 @@ import {
   AlertTriangle,
   BarChart3,
   Camera,
+  ClipboardCheck,
   Factory,
   Gauge,
   Layers3,
@@ -35,6 +36,7 @@ export const DEFAULT_DASHBOARD_STATUSES: Record<string, HomeModuleStatus> = {
   mfr: 'admin-only',
   'incoming-materials': 'available',
   'batch-exception': 'available',
+  fa: 'available',
 };
 
 export const qualityModules: readonly HomeModuleDefinition[] = [
@@ -110,6 +112,16 @@ export const repairProcessModules: readonly HomeModuleDefinition[] = [
     accent: 'cyan',
     path: '/reinsert-rate',
     status: 'admin-only',
+  },
+  {
+    id: 'fa',
+    code: 'FA',
+    title: 'FA看板',
+    description: '按产测或 DOA 环节创建 FA 申请，选择故障明细并发送邮件。',
+    icon: ClipboardCheck,
+    accent: 'blue',
+    path: '/fa',
+    status: 'available',
   },
 ];
 

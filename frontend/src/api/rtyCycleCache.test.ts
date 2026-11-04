@@ -8,7 +8,7 @@ vi.mock('./authApi', () => ({ requestData: vi.fn(), requestJson: vi.fn() }));
 const HOUR = 60 * 60 * 1_000;
 const now = new Date('2026-10-15T13:56:21+08:00').getTime();
 const options = { dateFrom: '2026-10-05', dateTo: '2026-10-11' };
-const storageKey = 'qualiboard:rty-cycle-data:v2:cycle-data-gamng:normal::2026-10-05:2026-10-11';
+const storageKey = 'qualiboard:rty-cycle-data:v3:cycle-data-gamng:normal::2026-10-05:2026-10-11';
 
 describe('RTY cycle cache lifetime', () => {
   beforeEach(() => {

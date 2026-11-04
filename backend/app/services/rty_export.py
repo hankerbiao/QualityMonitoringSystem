@@ -195,12 +195,25 @@ async def _load_orders(
     # exporting fields or applying rules that depend on source fields.
     for index in range(0, len(candidates), 1000):
         details = await _full_orders(candidates[index : index + 1000])
+        valid_details = [detail for detail in details if not isinstance(detail, BaseException)]
         for detail in details:
             if isinstance(detail, BaseException):
                 raise detail
-            normalized = rty_gateway.normalize_order_row(detail)
+        normalized_details = [rty_gateway.normalize_order_row(detail) for detail in valid_details]
+        candidates_with_normalized = [
+            (detail, normalized)
+            for detail, normalized in zip(valid_details, normalized_details, strict=True)
+            if normalized["aufnr"]
+            and not rty_gateway._exclusion_reasons(normalized)
+            and (include_all_orders or rty_gateway._matches_scope(normalized, filters.get("orderScope", "normal")))
+        ]
+        await rty_gateway._mark_reversed_orders(
+            [normalized for _, normalized in candidates_with_normalized]
+        )
+        for detail, normalized in candidates_with_normalized:
             data = dict(_source(detail))
             planned_date = compact_date(data.get("GSTRS") or normalized["gstrs_date"])
+            excluded = bool(rty_gateway._exclusion_reasons(normalized))
             if (
                 normalized["aufnr"]
                 and advanced_filters.order_matches(normalized["aufnr"], data.get("VBELN"), production_values, sales_values)
@@ -208,7 +221,7 @@ async def _load_orders(
                 and base_allowed(data.get("LGORT") or normalized["data"].get("LGORT"))
                 and start <= planned_date <= end
                 and (not selected_order_types or str(data.get("AUART") or "").strip() in selected_order_types)
-                and (include_all_orders or rty_gateway._eligible(normalized, filters.get("orderScope", "normal")))
+                and not excluded
                 and (selected_models is None or data.get("MAKTX_TH") in selected_models)
                 and (selected_bases is None or data.get("LGORT") in selected_bases)
                 and (selected_customers is None or customer_matches(data.get("KID")))
@@ -345,7 +358,7 @@ async def _load_sources(
     if start > end:
         raise HTTPException(status_code=422, detail="开始日期不能晚于结束日期")
     key = (
-        "export-sources-v2",
+        "export-sources-v3",
         current_base_permissions(),
         data_gateway.base_url,
         tuple(sorted(filters.items())),
@@ -655,7 +668,7 @@ async def build_export_response(
         return Response(success=True, data=data).model_dump_json().encode()
 
     key = (
-        "export-response-v5",
+        "export-response-v6",
         kind,
         current_base_permissions(),
         data_gateway.base_url,

@@ -21,6 +21,8 @@ from app.schemas.lrr import (
     LRRData,
     LRRFaultDetail,
     LRRFaultDetailsResponse,
+    LRRFilteredOrder,
+    LRRFilteredOrdersResponse,
     LRRListResponse,
     LRRMaterialRank,
     LRROptions,
@@ -38,6 +40,7 @@ from app.services.lrr_normalization import (
     normalize_production_order,
     normalize_sales_order,
 )
+from app.services.pn_order_filter import is_excluded_order
 
 router = APIRouter(dependencies=[Depends(dashboard_dependency("lrr"))])
 MAX_LRR_DATE_RANGE_DAYS = 366
@@ -346,6 +349,8 @@ def _usage_by_order(
             {
                 "production_order": production_order or "未关联生产订单",
                 "sales_order": sales_order,
+                "material_number": str(row.get("MATNR") or material_number).strip(),
+                "material_description": str(row.get("MAKTX") or "").strip(),
                 "product_model": str(row.get("_product_model") or "").strip(),
                 "base": str(row.get("_base") or row.get("LGORT") or "").strip(),
                 "planned_quantity": row.get("_planned_quantity"),
@@ -354,6 +359,8 @@ def _usage_by_order(
                 "legacy": Decimal(0),
             },
         )
+        if not group["material_description"] and row.get("MAKTX"):
+            group["material_description"] = str(row["MAKTX"]).strip()
         quantity = _quantity(row.get("MENGE_A"))
         movement_type = str(row.get("BWART") or "").strip().upper()
         if movement_type == "261":
@@ -373,6 +380,8 @@ def _usage_by_order(
             LRRUsageByOrder(
                 productionOrder=group["production_order"],
                 salesOrder=group["sales_order"],
+                materialNumber=group["material_number"],
+                materialDescription=group["material_description"],
                 productModel=group["product_model"],
                 base=group["base"],
                 plannedQuantity=_optional_quantity(group["planned_quantity"]),
@@ -605,6 +614,41 @@ def _advanced_faults(faults: list[dict[str, Any]], serial_numbers: tuple[str, ..
     return [row for row in faults if str(row.get("PCODE") or "").strip() in serial_values] if serial_values else faults
 
 
+def _filtered_order_reasons(row: dict[str, Any]) -> list[str]:
+    reasons: list[str] = []
+    status = str(row.get("_order_status") or "").strip()
+    order_type = str(row.get("_order_type") or "").strip()
+    reversal_flag = str(row.get("_cxflg") or row.get("CXFLG") or "").strip().upper()
+    if is_excluded_order(status, "", ""):
+        reasons.append(f"订单状态：{status}")
+    if is_excluded_order("", order_type, ""):
+        reasons.append("订单类型：C001")
+    if is_excluded_order("", "", reversal_flag):
+        reasons.append("冲销标识：CXFLG=X")
+    return reasons
+
+
+def _serialize_filtered_order(row: dict[str, Any], reasons: list[str]) -> LRRFilteredOrder:
+    quantity = _quantity(row.get("MENGE_A"))
+    return LRRFilteredOrder(
+        id=str(row.get("_id") or row.get("id") or ""),
+        productionOrder=str(row.get("AUFNR_1") or ""),
+        salesOrder=str(row.get("VBELN_EX") or ""),
+        materialNumber=str(row.get("MATNR") or ""),
+        materialDescription=str(row.get("MAKTX") or ""),
+        productModel=str(row.get("_product_model") or ""),
+        base=str(row.get("_base") or row.get("LGORT") or ""),
+        customerId=str(row.get("_customer_id") or ""),
+        plannedDate=str(row.get("GSTRS") or ""),
+        movementType=str(row.get("BWART") or ""),
+        quantity=float(quantity) if quantity.is_finite() else None,
+        orderStatus=str(row.get("_order_status") or ""),
+        orderType=str(row.get("_order_type") or ""),
+        reversalFlag=str(row.get("_cxflg") or row.get("CXFLG") or ""),
+        exclusionReasons=reasons,
+    )
+
+
 async def _load(query: LRRListQuery) -> LRRListResponse:
     started = perf_counter()
     bom = await lrr_gateway.load_bom(
@@ -613,6 +657,8 @@ async def _load(query: LRRListQuery) -> LRRListResponse:
         bases=[*query.bases, *([query.base] if query.base else [])],
         customer_ids=query.customer_ids,
         order_types=query.order_types,
+        include_order_metadata=True,
+        exclude_rty_orders=True,
         planned_date_from=query.planned_date_from,
         planned_date_to=query.planned_date_to,
     )
@@ -759,6 +805,72 @@ async def get_lrr_options(request: Request):
     return LRROptions(**(await lrr_gateway.options()))
 
 
+@router.get("/filtered-orders", response_model=LRRFilteredOrdersResponse)
+@audit_log("QUERY", "lrr_filtered_orders")
+async def get_lrr_filtered_orders(
+    request: Request,
+    page: int = Query(1, ge=1),
+    limit: int = Query(50, ge=1, le=500),
+    plannedDateFrom: str | None = None,
+    plannedDateTo: str | None = None,
+    materialNumber: str | None = None,
+    productModel: Annotated[list[str] | None, Query()] = None,
+    base: Annotated[list[str] | None, Query()] = None,
+    customerId: Annotated[list[str] | None, Query()] = None,
+    orderTypes: Annotated[list[str] | None, Query()] = None,
+    serialNumbers: Annotated[list[str] | None, Query()] = None,
+    productionOrders: Annotated[list[str] | None, Query()] = None,
+    salesOrders: Annotated[list[str] | None, Query()] = None,
+    month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
+):
+    del request
+    _require_bounded_bom_scope(materialNumber, plannedDateFrom, plannedDateTo)
+    if not plannedDateFrom and not plannedDateTo:
+        plannedDateTo = _today_in_china()
+    has_scope_filter = _has_lrr_scope_filter(materialNumber, productModel, base, customerId)
+    _validate_lrr_date_range(
+        plannedDateFrom,
+        plannedDateTo,
+        "计划日期",
+        require_scope_filter=not has_scope_filter,
+    )
+    bom = await lrr_gateway.load_bom(
+        material_number=materialNumber,
+        product_models=productModel,
+        bases=base,
+        customer_ids=tuple(sorted(set(customerId or []))),
+        order_types=tuple(sorted(set(orderTypes or []))),
+        include_order_metadata=True,
+        exclude_rty_orders=False,
+        month=month,
+        planned_date_from=plannedDateFrom,
+        planned_date_to=plannedDateTo,
+    )
+    bom = await _advanced_bom(
+        bom,
+        tuple(serialNumbers or []),
+        tuple(productionOrders or []),
+        tuple(salesOrders or []),
+        plannedDateFrom or "",
+        plannedDateTo or "",
+    )
+    items = []
+    for row in bom:
+        reasons = _filtered_order_reasons(row)
+        if reasons:
+            items.append(_serialize_filtered_order(row, reasons))
+    items.sort(key=lambda item: (item.plannedDate, item.productionOrder, item.materialNumber), reverse=True)
+    start = (page - 1) * limit
+    page_items = items[start : start + limit]
+    return LRRFilteredOrdersResponse(
+        items=page_items,
+        total=len(items),
+        page=page,
+        limit=limit,
+        has_more=start + limit < len(items),
+    )
+
+
 @router.get("/fault-details", response_model=LRRFaultDetailsResponse)
 @audit_log("QUERY", "lrr_fault_details")
 async def get_lrr_fault_details(
@@ -802,6 +914,7 @@ async def get_lrr_fault_details(
         customer_ids=tuple(sorted(set(customerId or []))),
         order_types=tuple(sorted(set(orderTypes or []))),
         include_order_metadata=True,
+        exclude_rty_orders=True,
         month=month,
         planned_date_from=plannedDateFrom,
         planned_date_to=plannedDateTo,
@@ -864,6 +977,7 @@ async def get_lrr_usage_details(
         customer_ids=tuple(sorted(set(customerId or []))),
         order_types=tuple(sorted(set(orderTypes or []))),
         include_order_metadata=True,
+        exclude_rty_orders=True,
         month=month,
         planned_date_from=plannedDateFrom,
         planned_date_to=plannedDateTo,

@@ -187,7 +187,7 @@ async def test_order_loader_can_include_all_order_types_for_reinsert_analysis(mo
         order("4", IF_L6="X"),
     ])
     rows = await rty_export._load_orders(FILTERS, include_all_orders=True)
-    assert [row["AUFNR"] for row in rows] == ["1", "2", "3", "4"]
+    assert [row["AUFNR"] for row in rows] == ["1", "4"]
 
 
 @pytest.mark.asyncio
@@ -983,3 +983,16 @@ async def test_export_response_refreshes_packaging_after_60_seconds_but_reuses_s
     assert json.loads(second)["data"]["orders"][0]["packagingQuantity"] == 1
     assert source_load.await_count == 1
     assert stations.await_count == 2
+
+@pytest.mark.asyncio
+async def test_rty_and_station_exports_exclude_reversed_orders_from_population(monkeypatch):
+    source(monkeypatch, [order("1"), order("2")])
+    monkeypatch.setattr(
+        rty_export.rty_gateway,
+        "_reversed_orders",
+        AsyncMock(return_value={"2"}),
+    )
+    template = await rty_export.build_template_export(FILTERS)
+    station = await rty_export.build_source_export(FILTERS)
+    assert [row["AUFNR"] for row in template.orders] == ["1"]
+    assert [row["AUFNR"] for row in station.orders] == ["1"]

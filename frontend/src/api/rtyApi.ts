@@ -9,7 +9,7 @@ const rtyListCache = new Map<string, { expiresAt: number; promise: Promise<Pagin
 const rtyListInFlight = new Map<string, Promise<PaginatedRTYResponse>>();
 const RTY_OPTIONS_CACHE_TTL_MS = 5 * 60 * 60 * 1_000;
 const RTY_CYCLE_CACHE_TTL_MS = 60 * 60 * 1_000;
-const RTY_CYCLE_CACHE_STORAGE_PREFIX = 'qualiboard:rty-cycle-data:v2:';
+const RTY_CYCLE_CACHE_STORAGE_PREFIX = 'qualiboard:rty-cycle-data:v3:';
 const rtyOptionsCache = new Map<string, { expiresAt: number; promise: Promise<unknown> }>();
 const rtyCycleCache = new Map<string, {
   expiresAt: number;

@@ -76,6 +76,20 @@ async def create_indexes() -> None:
     # does not run once per dashboard visit or backend restart.
     await mongodb.db.lrr_list_cache.create_index("expiresAt", expireAfterSeconds=0)
     await mongodb.db.lrr_list_cache_locks.create_index("expiresAt", expireAfterSeconds=0)
+
+    # Batch exception source snapshots are append-only; editable dashboard
+    # values live in a separate subdocument.
+    await mongodb.db.batch_exception_records.create_index("source_key", unique=True)
+    await mongodb.db.batch_exception_records.create_index("sequence", unique=True)
+    await mongodb.db.batch_exception_records.create_index([("sync_year", 1), ("sequence", 1)])
+    await mongodb.db.batch_exception_records.create_index(
+        [("source.factory", 1), ("source.createTime", 1)]
+    )
+
+    # FA application identifiers are generated from an atomic counter.
+    await mongodb.db.fa_applications.create_index("applicationId", unique=True)
+    await mongodb.db.fa_applications.create_index([("createdAt", -1)])
+
     # Derived per-order material totals, shared by RTY and station exports.
     await mongodb.db.repair_material_usage_cache.create_index("expiresAt", expireAfterSeconds=0)
 

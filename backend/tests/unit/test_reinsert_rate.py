@@ -241,3 +241,27 @@ def test_single_month_daily_trends_use_planned_order_dates_and_daily_denominator
     across_months = reinsert_rate.aggregate(orders, faults, {}, "2026-01-01", "2026-02-01")
     assert "days" not in across_months["models"][0]["bases"][0]
     assert "dailyReinsertCounts" not in across_months["models"][0]["bases"][0]["components"][0]
+
+@pytest.mark.asyncio
+async def test_reinsert_usage_ignores_reversed_bom_postings(monkeypatch):
+    source_orders = [order("1", "01")]
+    monkeypatch.setattr(reinsert_rate.rty_export, "_load_orders", AsyncMock(return_value=source_orders))
+
+    async def faults(*args, **kwargs):
+        yield [{"id": "f1", "raw": {"AUFNR": "1", "PCODE": "SN", "ZNGGZ": "OP", "ZWXWD3": "重插", "ZCCLH": "PN1"}}]
+
+    monkeypatch.setattr(reinsert_rate.rty_export, "_source_batches", faults)
+    monkeypatch.setattr(
+        reinsert_rate.data_gateway,
+        "export_rows",
+        AsyncMock(
+            return_value=[
+                {"id": "p1", "raw": {"AUFNR_1": "1", "MATNR": "PN1", "BWART": "261", "MENGE_A": "10", "CXFLG": "X"}},
+                {"id": "p2", "raw": {"AUFNR_1": "1", "MATNR": "PN1", "BWART": "261", "MENGE_A": "3"}},
+            ]
+        ),
+    )
+    monkeypatch.setattr(reinsert_rate, "_CACHE", reinsert_rate.AsyncTTLCache())
+    orders, rows, usage, postings = await reinsert_rate.load_sources("2026-01-01", "2026-01-31", [], [], [])
+    assert usage["1"].quantities["PN1"] == 3
+    assert len(postings) == 1

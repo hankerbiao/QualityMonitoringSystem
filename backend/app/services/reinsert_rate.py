@@ -85,6 +85,7 @@ async def load_sources(
     if start > end:
         raise HTTPException(status_code=422, detail="开始日期不能晚于结束日期")
     key = (
+        "reinsert-source-v2",
         data_gateway.base_url,
         current_base_permissions(),
         start,
@@ -177,6 +178,8 @@ async def load_sources(
             number = repair_integration.identifier(raw.get("AUFNR_1"))
             if number not in usage_orders:
                 raise DataGatewayError("发料查询返回未选择的生产订单")
+            if str(raw.get("CXFLG") or "").strip().upper() == "X":
+                continue
             raw["_source_id"] = _text(item.get("id") or raw.get("_source_key") or raw.get("_id"))
             posting_groups[number].append(raw)
         usage = {

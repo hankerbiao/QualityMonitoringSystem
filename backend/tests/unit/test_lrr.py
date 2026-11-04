@@ -150,6 +150,27 @@ async def test_lrr_uses_planned_range_for_fault_lookup_without_ng_range(monkeypa
 
 
 @pytest.mark.asyncio
+async def test_lrr_load_requests_rty_order_metadata_filter(monkeypatch):
+    captured: dict[str, object] = {}
+
+    async def load_bom(**kwargs):
+        captured.update(kwargs)
+        return []
+
+    monkeypatch.setattr(lrr_api.lrr_gateway, "load_bom", load_bom)
+    await lrr_api._load(
+        LRRListQuery(
+            planned_date_from="2026-01-01",
+            planned_date_to="2026-01-31",
+            product_model="MODEL-1",
+        )
+    )
+
+    assert captured["include_order_metadata"] is True
+    assert captured["exclude_rty_orders"] is True
+
+
+@pytest.mark.asyncio
 async def test_lrr_fault_details_uses_planned_range_without_ng_range(monkeypatch):
     captured: dict[str, object] = {}
 
