@@ -85,6 +85,7 @@ function mockUpstream() {
       readCount: filtered.length,
       complete: true,
       queriedAt: '2026-11-03T00:00:00+08:00',
+      sync: { year: 2026, fetched: rows.length, inserted: rows.length, syncedAt: '2026-11-03T00:00:00+08:00', cached: false },
       rows: filtered,
     };
   });
@@ -126,9 +127,8 @@ it('drills down locally, applies form filters to the query and exports rows', as
   expect(await screen.findByText('SN-001')).toBeTruthy();
 
   // 分布卡下钻：本地过滤明细，不追加新的上游查询
-  fireEvent.click(screen.getByRole('button', { name: '按一级类型筛选：生产缺陷' }));
-  expect(await screen.findByText('一级类型：生产缺陷 · 2 条')).toBeTruthy();
-  expect(screen.getByRole('button', { name: '按一级类型筛选：生产缺陷' }).getAttribute('aria-pressed')).toBe('true');
+  fireEvent.click(screen.getByRole('button', { name: '生产缺陷2' }));
+  expect(await screen.findByText('批次类别：生产缺陷 · 2 条')).toBeTruthy();
   expect(screen.getByText('SN-001')).toBeTruthy();
   expect(screen.queryByText('SN-002')).toBeNull();
   expect(queryUrls()).toHaveLength(1);

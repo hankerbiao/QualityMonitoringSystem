@@ -1,5 +1,6 @@
 """FA application dashboard and submission workflow."""
 
+import re
 from datetime import datetime, timezone
 from typing import Annotated
 
@@ -153,12 +154,39 @@ async def submit_application(
 async def list_applications(
     page: int = Query(1, ge=1),
     pageSize: int = Query(20, ge=1, le=100),
+    pn: str | None = Query(default=None, max_length=100),
+    creator: str | None = Query(default=None, max_length=100),
+    emailStatus: str | None = Query(default=None, pattern="^(sent|failed|pending|all)$"),
+    dateFrom: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
+    dateTo: str | None = Query(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$"),
 ):
     db = get_database()
-    sent_filter = {"email.status": "sent"}
-    total = await db.fa_applications.count_documents(sent_filter)
+    # 默认只看已发送，保持「已发申请单」语义；显式 emailStatus 可覆盖。
+    query: dict = {"email.status": "sent"}
+    if emailStatus == "all":
+        query.pop("email.status", None)
+    elif emailStatus:
+        query["email.status"] = emailStatus
+
+    if pn and (keyword := pn.strip()):
+        query["pn"] = {"$regex": re.escape(keyword), "$options": "i"}
+    if creator and (keyword := creator.strip()):
+        query["$or"] = [
+            {"createdByName": {"$regex": re.escape(keyword), "$options": "i"}},
+            {"createdBy": {"$regex": re.escape(keyword), "$options": "i"}},
+        ]
+    # createdAt 是 UTC ISO 字符串，按日期前缀做字典序范围比较。
+    if dateFrom or dateTo:
+        bounds: dict = {}
+        if dateFrom:
+            bounds["$gte"] = f"{dateFrom}T00:00:00"
+        if dateTo:
+            bounds["$lte"] = f"{dateTo}T23:59:59.999999"
+        query["createdAt"] = bounds
+
+    total = await db.fa_applications.count_documents(query)
     docs = await (
-        db.fa_applications.find(sent_filter)
+        db.fa_applications.find(query)
         .sort("createdAt", -1)
         .skip((page - 1) * pageSize)
         .limit(pageSize)

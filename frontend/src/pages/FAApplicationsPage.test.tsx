@@ -34,8 +34,13 @@ it('previews the selected fault records alongside the editable email body', asyn
   fireEvent.change(screen.getByPlaceholderText('输入物料号'), { target: { value: 'PN-1' } });
   fireEvent.click(screen.getByRole('button', { name: '查询并继续' }));
   await screen.findByLabelText('选择 r2');
+  const repairFilter = screen.getByPlaceholderText('过滤 SN / 基地 / 工站 / 机型 / 物料号');
+  fireEvent.change(repairFilter, { target: { value: 'UNSELECTED-SN' } });
+  expect(screen.queryByLabelText('选择 r1')).toBeNull();
+  expect(screen.getByLabelText('选择 r2')).toBeTruthy();
+  fireEvent.change(repairFilter, { target: { value: '' } });
   fireEvent.click(screen.getByLabelText('选择 r2'));
-  fireEvent.click(screen.getByRole('button', { name: '确认明细并继续' }));
+  fireEvent.click(screen.getByRole('button', { name: /确认明细并继续/ }));
   fireEvent.change(screen.getByPlaceholderText('输入邮件正文，可使用换行分段'), { target: { value: '正文 <测试>' } });
 
   await waitFor(() => {
@@ -48,4 +53,47 @@ it('previews the selected fault records alongside the editable email body', asyn
     expect(html).toContain('ORIGINAL-1');
     expect(html).not.toContain('UNSELECTED-SN');
   });
+});
+
+function mockEmptyList(total = 0) {
+  vi.mocked(faApplicationsApi.list).mockImplementation(async (params = {}) => ({
+    items: [], total, page: params.page ?? 1, pageSize: 20,
+  }));
+  vi.mocked(faApplicationsApi.listEmployees).mockResolvedValue({ items: [] });
+}
+
+it('按发生环节条件渲染日期范围，并展示提交前的查询摘要', () => {
+  mockEmptyList();
+  render(<MemoryRouter><FAApplicationsPage /></MemoryRouter>);
+
+  expect(screen.getByText('产测计划开始时间')).toBeTruthy();
+  expect(screen.getByText('DOA 操作时间')).toBeTruthy();
+  expect(screen.getByText(/将查询 未填 PN/)).toBeTruthy();
+
+  fireEvent.click(screen.getByRole('button', { name: 'DOA' }));
+  expect(screen.queryByText('DOA 操作时间')).toBeNull();
+  expect(screen.getByText('产测计划开始时间')).toBeTruthy();
+});
+
+it('申请单记录按页拉取，翻页时把页码传给后端', async () => {
+  mockEmptyList(45);
+  render(<MemoryRouter><FAApplicationsPage /></MemoryRouter>);
+  fireEvent.click(screen.getByRole('tab', { name: /申请单记录/ }));
+
+  expect(screen.getByText('还没有申请单')).toBeTruthy();
+  await waitFor(() => expect(faApplicationsApi.list).toHaveBeenCalledWith(expect.objectContaining({ page: 1, pageSize: 20 })));
+  expect(screen.getByText('第 1 / 3 页')).toBeTruthy();
+
+  fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+  await waitFor(() => expect(faApplicationsApi.list).toHaveBeenCalledWith(expect.objectContaining({ page: 2 })));
+});
+
+it('筛选条件下推到后端查询，而不是只过滤当前页', async () => {
+  mockEmptyList();
+  render(<MemoryRouter><FAApplicationsPage /></MemoryRouter>);
+  fireEvent.click(screen.getByRole('tab', { name: /申请单记录/ }));
+  fireEvent.change(screen.getByPlaceholderText('按 PN 筛选'), { target: { value: 'B2400036' } });
+
+  await waitFor(() => expect(faApplicationsApi.list).toHaveBeenCalledWith(expect.objectContaining({ pn: 'B2400036', page: 1 })));
+  expect(screen.getByText('没有符合条件的申请单')).toBeTruthy();
 });

@@ -78,3 +78,4 @@ uv run uvicorn app.main:app --reload --host 0.0.0.0 --port 4001
 - ✅ 本地登录 + 双 Token 自动刷新
 - 🚧 LRR/DOA/MFR 页面
 - 🚧 邮件发送
+Avoid unnecessary secondary labels and descriptions. Let the layout do the explaining.

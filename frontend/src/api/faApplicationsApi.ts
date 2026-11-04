@@ -19,6 +19,16 @@ export interface FAApplicationList {
   pageSize: number;
 }
 
+export interface FAListParams {
+  page?: number;
+  pageSize?: number;
+  pn?: string;
+  creator?: string;
+  emailStatus?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}
+
 export interface OAEmployee {
   itcode: string;
   realname: string;
@@ -42,7 +52,11 @@ export const faApplicationsApi = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(request),
   }),
-  list: (page = 1, pageSize = 20) => requestJson<FAApplicationList>(
-    `${API_BASE_URL}/fa/applications?page=${page}&pageSize=${pageSize}`,
-  ),
+  list: (params: FAListParams = {}) => {
+    const query = new URLSearchParams();
+    for (const [key, value] of Object.entries(params)) {
+      if (value !== undefined && value !== null && String(value) !== '') query.set(key, String(value));
+    }
+    return requestJson<FAApplicationList>(`${API_BASE_URL}/fa/applications?${query.toString()}`);
+  },
 };
