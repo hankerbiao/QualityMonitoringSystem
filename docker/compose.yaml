@@ -18,6 +18,9 @@ x-backend-environment: &backend-environment
   APP_PUBLIC_BASE_URL: ${APP_PUBLIC_BASE_URL:-https://apps.1oa.com.cn/QualiBoard}
   MAIL_PROXY_URL: ${MAIL_PROXY_URL:-https://one.1oa.com.cn/springboard/api/v1/integrations/mail/app}
   MAIL_PROXY_TOKEN: ${MAIL_PROXY_TOKEN:-}
+  OA_USER_API_URL: ${OA_USER_API_URL:-https://central-data.1oa.com.cn/api/v1/centralData/datasets/oa_user}
+  OA_USER_API_KEY: ${OA_USER_API_KEY:-}
+  OA_USER_CACHE_TTL_SECONDS: ${OA_USER_CACHE_TTL_SECONDS:-604800}
   LOG_DIR: /app/logs
   LOG_LEVEL: ${LOG_LEVEL:-INFO}
   LOG_JSON_FORMAT: ${LOG_JSON_FORMAT:-false}
