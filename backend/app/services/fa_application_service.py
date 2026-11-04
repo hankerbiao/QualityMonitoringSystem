@@ -387,7 +387,7 @@ def build_application_email_html(*, subject: str, content: str) -> str:
 <body style="margin:0;padding:0;background-color:#eef3f8;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,'Helvetica Neue',Arial,'PingFang SC','Microsoft YaHei',sans-serif;color:#1e293b;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#eef3f8;padding:28px 12px;">
     <tr><td align="center">
-      <table role="presentation" width="640" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:640px;background-color:#ffffff;border:1px solid #dbe4ee;border-radius:12px;overflow:hidden;">
+      <table role="presentation" width="800" cellpadding="0" cellspacing="0" border="0" style="width:100%;max-width:800px;background-color:#ffffff;border:1px solid #dbe4ee;border-radius:12px;overflow:hidden;">
         <tr><td style="height:5px;background-color:#2563eb;font-size:0;line-height:0;">&nbsp;</td></tr>
         <tr><td style="padding:22px 28px 18px;border-bottom:1px solid #e8eef5;">
           <p style="margin:0 0 7px;color:#2563eb;font-size:11px;font-weight:700;letter-spacing:1px;">QUALIBOARD · FA</p>
@@ -399,7 +399,6 @@ def build_application_email_html(*, subject: str, content: str) -> str:
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background-color:#f8fafc;border:1px solid #e2e8f0;border-left:3px solid #3b82f6;border-radius:6px;">
             <tr><td style="padding:18px 20px;color:#334155;font-size:14px;line-height:1.85;word-break:break-word;">{safe_content}</td></tr>
           </table>
-          <p style="margin:20px 0 0;color:#64748b;font-size:13px;line-height:1.7;">如需补充信息，请直接回复本邮件与申请人联系。</p>
         </td></tr>
         <tr><td style="padding:14px 28px;background-color:#f8fafc;border-top:1px solid #e2e8f0;color:#94a3b8;font-size:11px;line-height:1.6;">
           本邮件由 QualiBoard FA 看板发送，请勿直接回复系统邮箱。
