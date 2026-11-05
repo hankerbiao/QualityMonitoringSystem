@@ -100,6 +100,25 @@ const optionUrls = () =>
     .map(([url]) => String(url))
     .filter((url) => url.includes('/batch-exception/options'));
 
+it('changes detail page size and keeps table headings in the scroll region', async () => {
+  const manyRows = Array.from({ length: 12 }, (_, index) => ({ ...rows[0], id: `row-${index}`, sequence: index + 1, materialSn: `PN-${index + 1}` }));
+  vi.mocked(requestData).mockImplementation(async (url: string) => String(url).includes('/options') ? optionsResult : {
+    upstreamTotal: 12, readCount: 12, complete: true, queriedAt: '2026-11-03T00:00:00+08:00', rows: manyRows,
+    sync: { year: 2026, fetched: 12, inserted: 12, syncedAt: '2026-11-03T00:00:00+08:00', cached: false },
+  });
+  render(<MemoryRouter><BatchExceptionPage /></MemoryRouter>);
+  await screen.findByText('PN-12');
+  fireEvent.change(screen.getByLabelText('每页'), { target: { value: '5' } });
+  const region = screen.getByRole('region', { name: '批次异常记录明细表' });
+  expect(within(region).getByText('PN-5')).toBeTruthy();
+  expect(within(region).queryByText('PN-6')).toBeNull();
+  expect(region.querySelector('thead')?.classList.contains('sticky')).toBe(true);
+  fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+  expect(within(region).getByText('PN-6')).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('每页'), { target: { value: '10' } });
+  expect(within(region).getByText('PN-1')).toBeTruthy();
+});
+
 it('queries upstream with default range, shows stats and opens detail', async () => {
   mockUpstream();
   render(<MemoryRouter><BatchExceptionPage /></MemoryRouter>);

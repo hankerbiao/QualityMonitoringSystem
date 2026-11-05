@@ -207,10 +207,10 @@ function BaseOverview({ models, months, open, onSelect }: { models: ReinsertDash
       <div><h2 id="base-overview-title" className="text-sm font-semibold text-slate-900">机型与基地汇总</h2><p className="mt-1 text-xs text-slate-500">点击基地查看趋势，点击数值查看明细</p></div>
       <div className="flex flex-wrap items-center gap-3 text-xs text-slate-500"><span className="inline-flex items-center gap-1.5"><span className="size-2 rounded-full bg-amber-500" />有重插记录</span><span className="rounded-full bg-slate-200/70 px-2.5 py-1 font-medium text-slate-600">{models.length} 个机型</span></div>
     </div>
-    <div className="overflow-auto rounded-lg border border-slate-200 bg-white shadow-sm">
+    <div role="region" aria-label="机型与基地汇总表" tabIndex={0} className="max-h-[60dvh] overflow-auto rounded-lg border border-slate-200 bg-white shadow-sm">
       <table className="w-full table-fixed border-collapse text-right text-xs tabular-nums" style={{ minWidth: 272 + months.length * 360 }}>
         <colgroup><col style={{ width: 160 }} /><col style={{ width: 112 }} />{months.flatMap(month => Array.from({ length: 4 }, (_, index) => <col key={`${month}-${index}`} />))}</colgroup>
-        <thead className="bg-slate-50 text-slate-600">
+        <thead className="sticky top-0 z-20 bg-slate-50 text-slate-600">
           <tr><th rowSpan={2} className="sticky left-0 z-10 border border-slate-200 bg-slate-50 px-3 py-2.5 text-left">机型</th><th rowSpan={2} className="border border-slate-200 px-3 py-2.5 text-left">基地</th>{months.map(month => <th key={month} colSpan={4} className="border border-slate-200 bg-cyan-50 px-2 py-2.5 text-center font-semibold text-cyan-900">{month}</th>)}</tr>
           <tr>{months.flatMap(month => ['重插数', '维修数', '计划量', '整机重插率'].map(label => <th key={`${month}-${label}`} className={`border border-slate-200 px-2 py-2 text-center ${label === '整机重插率' ? 'bg-cyan-50/50 text-cyan-900' : ''}`}>{label}</th>))}</tr>
         </thead>

@@ -12,7 +12,6 @@ import { ApiRequestError } from '../api/authApi';
 import type { LRRData, LRRFaultDetail, LRRFilteredOrdersResponse, LRRFilters, LRRListResponse, LRRMaterialRank, LRRTrendPoint, LRRUsageDetailsResponse } from '../types';
 import { displayMaterialNumber } from '../utils/lrr';
 
-const PAGE_SIZE = 50;
 const EMPTY_FILTERS: LRRFilters = { sortBy: 'month', sortDir: 'asc' };
 const FILTER_KEYS: Array<keyof LRRFilters> = [
   'plannedDateFrom',
@@ -452,6 +451,7 @@ export default function LRRPage() {
   const [exportError, setExportError] = useState<ApiRequestError | null>(null);
   const [loadedQueryKey, setLoadedQueryKey] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(50);
   const sequence = useRef(0);
   const detailRequest = useRef(0);
   const usageRequest = useRef(0);
@@ -474,7 +474,7 @@ export default function LRRPage() {
     };
   }, []);
 
-  const load = useCallback(async (targetPage: number, nextFilters: LRRFilters) => {
+  const load = useCallback(async (targetPage: number, nextFilters: LRRFilters, targetPageSize = pageSize) => {
     const current = ++sequence.current;
     queryController.current?.abort();
     const controller = new AbortController();
@@ -482,7 +482,7 @@ export default function LRRPage() {
     setLoading(true);
     setError(null);
     try {
-      const result = await lrrApi.getLRRData(targetPage, PAGE_SIZE, nextFilters, controller.signal);
+      const result = await lrrApi.getLRRData(targetPage, targetPageSize, nextFilters, controller.signal);
       if (current === sequence.current) {
         setResponse(result);
         setPage(result.page);
@@ -497,7 +497,7 @@ export default function LRRPage() {
       if (queryController.current === controller) queryController.current = null;
       if (current === sequence.current) setLoading(false);
     }
-  }, []);
+  }, [pageSize]);
 
   const applyFilters = useCallback((next: LRRFilters) => {
     clearLrrApiCache();
@@ -678,7 +678,7 @@ export default function LRRPage() {
   };
 
   const data = response?.items ?? [];
-  const totalPages = Math.max(1, Math.ceil((response?.total ?? 0) / PAGE_SIZE));
+  const totalPages = Math.max(1, Math.ceil((response?.total ?? 0) / pageSize));
   const trend = useMemo(() => {
     if (response?.trend) return response.trend;
     const map = new Map<string, LRRTrendPoint>();
@@ -757,7 +757,7 @@ export default function LRRPage() {
               })}
             </section>
 
-            <section className="grid gap-3 lg:grid-cols-[minmax(0,1.45fr)_minmax(300px,0.72fr)]">
+            <section className="grid gap-3 lg:grid-cols-2">
               <div className="overflow-hidden rounded-md border border-slate-200 bg-white px-4 py-4 shadow-sm sm:px-5">
                 <div className="mb-4 flex items-center justify-between gap-3">
                   <div className="flex items-center gap-2">
@@ -792,14 +792,14 @@ export default function LRRPage() {
 
               <div className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
                 <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 sm:px-5">
-                  <h2 className="text-sm font-semibold">故障物料</h2>
-                  <span className="font-mono text-xs text-slate-400">{loading ? '' : hotspots.length}</span>
+                  <h2 className="text-sm font-semibold">故障物料 Top 5</h2>
+                  <span className="font-mono text-xs text-slate-400">{loading ? '' : Math.min(hotspots.length, 5)}</span>
                 </div>
                 {loading && !hotspots.length ? (
                   <div className="flex h-64 items-center justify-center gap-2 text-sm text-slate-400"><LoadingSpinner size="sm" />正在汇总故障物料...</div>
                 ) : hotspots.length ? (
                   <div>
-                    {hotspots.map((item) => (
+                    {hotspots.slice(0, 5).map((item) => (
                       <button
                         key={item.materialNumber}
                         type="button"
@@ -828,17 +828,17 @@ export default function LRRPage() {
               </div>
             </section>
 
-            <section className="overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
-              <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3 sm:px-5">
+            <section className="flex h-[calc(100dvh-5.75rem)] min-h-64 flex-col overflow-hidden rounded-md border border-slate-200 bg-white shadow-sm">
+              <div className="flex shrink-0 items-center justify-between border-b border-slate-200 px-4 py-3 sm:px-5">
                 <h2 className="text-sm font-semibold">物料 PN 明细</h2>
                 <div className="flex items-center gap-2">
                   <button type="button" onClick={() => { void openFilteredOrders(); }} disabled={loading || filteredOrdersLoading} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-amber-200 bg-amber-50 px-2.5 text-xs font-medium text-amber-800 hover:bg-amber-100 disabled:cursor-wait disabled:opacity-50"><ListFilter className="size-3.5" />过滤订单</button>
                   <span className="text-xs text-slate-500">{loading ? '正在更新' : `共 ${formatCount(response?.total ?? 0)} 条`}</span>
                 </div>
               </div>
-              <div className="overflow-x-auto">
+              <div role="region" aria-label="物料 PN 明细表" tabIndex={0} className="min-h-0 flex-1 overflow-auto">
                 <table className="w-full min-w-[900px] border-separate border-spacing-0 text-left text-sm">
-                  <thead className="text-xs font-semibold text-slate-600">
+                  <thead className="sticky top-0 z-10 text-xs font-semibold text-slate-600">
                     <tr>{['月份', '物料 PN', '物料描述', '使用总数', '故障总数', '故障率'].map((name) => <th key={name} className="border-b border-r border-slate-200 bg-slate-50 px-4 py-3">{name}</th>)}</tr>
                   </thead>
                   <tbody className="text-xs">
@@ -886,11 +886,11 @@ export default function LRRPage() {
                 </table>
               </div>
               {response && (
-                <div className="flex items-center justify-between border-t border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
-                  <span>第 {page} / {totalPages} 页，共 {response.total.toLocaleString('zh-CN')} 条</span>
+                <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-t border-slate-200 bg-slate-50 px-4 py-3 text-xs text-slate-500">
+                  <div className="flex items-center gap-2"><label htmlFor="lrr-page-size">每页</label><select id="lrr-page-size" value={pageSize} disabled={loading} onChange={(event) => { const size = Number(event.target.value); setPageSize(size); setPage(1); void load(1, filters, size); }} className="rounded border border-slate-300 bg-white px-2 py-1">{[5, 10, 30, 50].map(size => <option key={size} value={size}>{size}</option>)}</select><span>条 · 第 {page} / {totalPages} 页，共 {response.total.toLocaleString('zh-CN')} 条</span></div>
                   <div className="flex gap-1">
-                    <button type="button" onClick={() => { const next = Math.max(1, page - 1); setPage(next); void load(next, filters); }} disabled={page <= 1} className="inline-flex size-8 items-center justify-center rounded-md border border-slate-300 bg-white disabled:opacity-40" aria-label="上一页"><ChevronLeft className="size-3.5" /></button>
-                    <button type="button" onClick={() => { const next = Math.min(totalPages, page + 1); setPage(next); void load(next, filters); }} disabled={page >= totalPages} className="inline-flex size-8 items-center justify-center rounded-md border border-slate-300 bg-white disabled:opacity-40" aria-label="下一页"><ChevronRight className="size-3.5" /></button>
+                    <button type="button" onClick={() => { const next = Math.max(1, page - 1); setPage(next); void load(next, filters); }} disabled={loading || page <= 1} className="inline-flex size-8 items-center justify-center rounded-md border border-slate-300 bg-white disabled:opacity-40" aria-label="上一页"><ChevronLeft className="size-3.5" /></button>
+                    <button type="button" onClick={() => { const next = Math.min(totalPages, page + 1); setPage(next); void load(next, filters); }} disabled={loading || page >= totalPages} className="inline-flex size-8 items-center justify-center rounded-md border border-slate-300 bg-white disabled:opacity-40" aria-label="下一页"><ChevronRight className="size-3.5" /></button>
                   </div>
                 </div>
               )}

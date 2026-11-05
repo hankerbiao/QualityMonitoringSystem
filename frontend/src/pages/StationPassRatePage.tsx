@@ -2,6 +2,7 @@ import { AdvancedFilters, EMPTY_ADVANCED_FILTERS, advancedQuery, type AdvancedFi
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ArrowLeft,
+  BarChart3,
   ChevronDown,
   Download,
   Factory,
@@ -280,6 +281,12 @@ export default function StationPassRatePage() {
   const [selectedStations, setSelectedStations] = useState<string[]>([]);
   const [onlyAvailableStations, setOnlyAvailableStations] = useState(true);
   const [stationConfigOpen, setStationConfigOpen] = useState(false);
+  const [findingsOpen, setFindingsOpen] = useState(false);
+  const findingsDialogRef = useRef<HTMLDialogElement>(null);
+
+  useEffect(() => {
+    if (findingsOpen && findingsDialogRef.current && !findingsDialogRef.current.open) findingsDialogRef.current.showModal();
+  }, [findingsOpen]);
   const [stationConfigSaving, setStationConfigSaving] = useState(false);
   const [stationConfigError, setStationConfigError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -705,7 +712,7 @@ export default function StationPassRatePage() {
           </div>
 
           <form className={`flex flex-wrap items-end gap-x-2 gap-y-3 bg-slate-50/80 px-4 py-3 ${(loading || error || hasSearched) ? 'border-b border-slate-100' : ''}`} onSubmit={(event) => { event.preventDefault(); void load(); }}>
-            <div className="min-w-0 basis-full flex-1 sm:min-w-[280px] xl:basis-auto xl:min-w-64 xl:max-w-sm">
+            <div className="min-w-0 basis-full flex-1 sm:min-w-64 xl:w-64 xl:flex-none xl:basis-auto">
               <DateRangePicker label="计划开始日期（GSTRS）" from={dateFrom} to={dateTo} allowOpenEnded onChange={updateDateRange} />
             </div>
               <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:min-w-28 xl:max-w-44">统计维度<select value={groupBy} onChange={(event) => updateField('groupBy', setGroupBy, event.target.value as StationGroupBy)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none transition-colors focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"><option value="salesOrder">销售订单号</option><option value="productionOrder">生产订单号</option><option value="productModel">机型</option></select></label>
@@ -742,7 +749,7 @@ export default function StationPassRatePage() {
               }}
             />
             <div className="flex items-center gap-1.5"><button type="button" onClick={reset} className="inline-flex size-9 items-center justify-center rounded-md border border-slate-300 bg-white text-slate-600 transition-colors hover:border-slate-400 hover:bg-slate-100" title="重置条件" aria-label="重置条件"><RotateCcw className="size-4" /></button><button type="submit" disabled={loading} className="inline-flex h-9 items-center gap-1.5 rounded-md bg-cyan-600 px-3 text-sm font-medium text-white transition-colors hover:bg-cyan-700 disabled:cursor-wait disabled:opacity-60">{loading ? <RefreshCw className="size-4 animate-spin" /> : <Search className="size-4" />}{loading ? '正在计算' : '查询'}</button></div>
-            <AdvancedFilters value={advanced} onChange={value => updateField('advanced', setAdvanced, value)} />
+            <AdvancedFilters inline value={advanced} onChange={value => updateField('advanced', setAdvanced, value)} />
           </form>
 
           {!loading && !error && (!hasSearched || matrix.rows.length === 0) && (
@@ -763,18 +770,9 @@ export default function StationPassRatePage() {
             />
           )}
 
-          {hasSearched && !loading && !error && matrix.rows.length > 0 && (
-            <StationPassFindings
-              summary={findings}
-              focus={rowFocus}
-              onFocusChange={setRowFocus}
-              onOpen={(rate) => void openDetail(rate)}
-            />
-          )}
+          {hasSearched && <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3"><div><div className="text-xs font-semibold text-slate-700">组合工站</div><div className="mt-0.5 text-xs text-slate-400">已选 {selectedStations.length} / {STATION_CODES.length} 个工站</div></div><div className="flex flex-wrap items-center gap-3">{selectedStations.length > 0 && <label className="inline-flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" checked={onlyAvailableStations} onChange={(event) => setOnlyAvailableStations(event.target.checked)} className="size-4 rounded border-slate-300 text-cyan-600" />仅计算当前有值工站</label>}<button type="button" onClick={() => setFindingsOpen(true)} disabled={loading || !!error || matrix.rows.length === 0} aria-haspopup="dialog" className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:border-cyan-300 hover:bg-cyan-50 disabled:opacity-50"><BarChart3 className="size-4" />工位分析</button>{canConfigureStations && <button type="button" onClick={() => setStationConfigOpen(true)} aria-haspopup="dialog" aria-expanded={stationConfigOpen} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700"><Settings2 className="size-4" />配置工站</button>}</div></div>}
 
-          {hasSearched && <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3"><div><div className="text-xs font-semibold text-slate-700">组合工站</div><div className="mt-0.5 text-xs text-slate-400">已选 {selectedStations.length} / {STATION_CODES.length} 个工站</div></div><div className="flex items-center gap-3">{selectedStations.length > 0 && <label className="inline-flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" checked={onlyAvailableStations} onChange={(event) => setOnlyAvailableStations(event.target.checked)} className="size-4 rounded border-slate-300 text-cyan-600" />仅计算当前有值工站</label>}{canConfigureStations && <button type="button" onClick={() => setStationConfigOpen(true)} aria-haspopup="dialog" aria-expanded={stationConfigOpen} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700"><Settings2 className="size-4" />配置工站</button>}</div></div>}
-
-          {(loading || error || hasSearched) && <div className="overflow-auto">
+          {(loading || error || hasSearched) && <div role="region" aria-label="工位过站直通率搜索结果" tabIndex={0} className="max-h-[65dvh] overflow-auto">
             <table className="w-full min-w-max border-separate border-spacing-0 text-left">
           <thead className="text-xs font-semibold text-slate-600"><tr><th className="sticky left-0 top-0 z-20 min-w-52 border-b border-r border-slate-200 bg-slate-50 px-4 py-3 text-left shadow-[1px_0_0_0_rgb(226_232_240)]">{dimensionLabel}</th><th className="sticky left-52 top-0 z-20 min-w-30 border-b border-r border-slate-200 bg-slate-100 px-3 py-3 text-center shadow-[1px_0_0_0_rgb(226_232_240)]">RTY直通率</th><th className="sticky left-[20.5rem] top-0 z-20 min-w-32 border-b border-r border-slate-200 bg-cyan-50 px-3 py-3 text-center"><span className="inline-flex items-center justify-center gap-1">组合工站直通率<HelpTooltip label="查看组合工站直通率计算方法">将选中工站的单站直通率转为小数后相乘，再转回百分比。只反映已选工站组合表现，不是 RTY 汇总值。</HelpTooltip></span></th>{matrix.stations.map((station) => { const description = stationDescription(station); return <th key={station} className="sticky top-0 z-10 min-w-32 border-b border-r border-slate-200 bg-slate-50 px-3 py-3 text-center font-mono"><span className="inline-flex items-center justify-center gap-1 text-slate-700">{station}{description && <HelpTooltip label={`查看工位 ${station} 说明`}>{description}</HelpTooltip>}</span></th>; })}</tr></thead>
               <tbody className="text-xs">
@@ -784,6 +782,10 @@ export default function StationPassRatePage() {
           </div>}
         </section>
       </main>
+      {findingsOpen && <dialog ref={findingsDialogRef} onClose={() => setFindingsOpen(false)} aria-labelledby="station-findings-title" className="m-auto max-h-[85vh] w-[min(64rem,calc(100%-2rem))] overflow-hidden rounded-md bg-white p-0 shadow-xl backdrop:bg-slate-900/40">
+        <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3"><h2 id="station-findings-title" className="text-sm font-semibold text-slate-900">工位分析</h2><button type="button" onClick={() => findingsDialogRef.current?.close()} aria-label="关闭工位分析" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100"><X className="size-4" /></button></div>
+        <div className="max-h-[calc(85vh-3.5rem)] overflow-y-auto"><StationPassFindings summary={findings} focus={rowFocus} onFocusChange={(value) => { setRowFocus(value); findingsDialogRef.current?.close(); }} onOpen={(rate) => { findingsDialogRef.current?.close(); void openDetail(rate); }} /></div>
+      </dialog>}
 
 
       {stationConfigOpen && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4" onClick={closeStationConfig}><div role="dialog" aria-modal="true" aria-labelledby="station-config-title" className="flex max-h-[80vh] w-full max-w-2xl flex-col overflow-hidden rounded-md bg-white shadow-xl" onClick={(event) => event.stopPropagation()}><div className="flex items-center justify-between border-b border-slate-200 px-5 py-4"><div className="flex items-center gap-1"><h2 id="station-config-title" className="text-sm font-semibold text-slate-900">配置组合工站</h2><HelpTooltip label="查看组合工站说明">当前选择的工站用于计算工站直通率，并会保存供后续查询使用。</HelpTooltip></div><button type="button" onClick={closeStationConfig} disabled={stationConfigSaving} aria-label="关闭" title="关闭" className="rounded-md p-1.5 text-slate-500 hover:bg-slate-100 disabled:opacity-40"><X className="size-4" /></button></div><div className="flex items-center justify-between border-b border-slate-100 px-5 py-3"><span className="text-xs text-slate-500">已选 {selectedStations.length} / {STATION_CODES.length} 个</span><div className="flex items-center gap-3"><button type="button" onClick={() => setSelectedStations(STATION_CODES)} disabled={stationConfigSaving} className="text-xs font-medium text-cyan-700 hover:text-cyan-800 disabled:opacity-40">全选</button><button type="button" onClick={() => setSelectedStations([])} disabled={!selectedStations.length || stationConfigSaving} className="text-xs font-medium text-slate-500 hover:text-slate-700 disabled:cursor-not-allowed disabled:opacity-40">清空</button></div></div><div className="grid grid-cols-2 gap-x-6 gap-y-2 overflow-y-auto px-5 py-4 sm:grid-cols-3">{STATION_CODES.map((station) => <label key={station} className="inline-flex items-center gap-2 text-sm text-slate-700"><input type="checkbox" checked={selectedStations.includes(station)} disabled={stationConfigSaving} onChange={() => toggleStation(station)} className="size-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" /><span className="font-mono">{station}</span></label>)}</div><div className="flex items-center justify-between border-t border-slate-100 px-5 py-3">{stationConfigError ? <span className="text-xs text-red-600">{stationConfigError}</span> : <span className="text-xs text-slate-400">当前选择将在后续查询中自动恢复</span>}<button type="button" onClick={() => void saveStationConfig()} disabled={stationConfigSaving} className="inline-flex h-9 items-center rounded-md bg-cyan-600 px-4 text-sm font-medium text-white hover:bg-cyan-700 disabled:cursor-wait disabled:opacity-60">{stationConfigSaving ? '保存中...' : '完成'}</button></div></div></div>}

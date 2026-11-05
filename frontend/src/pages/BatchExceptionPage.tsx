@@ -68,7 +68,6 @@ const BASE_TO_FACTORY: Record<string, string | null> = {
   ML: null, 马来: null,
 };
 const STATE_LABELS: Record<string, string> = { Open: '未关闭', Closed: '已关闭' };
-const PAGE_SIZE = 20;
 const CATEGORY_CHART_FILTER_KEY = 'batch-exception-category-chart-filter-v1';
 type EditableFields = { platform: string; customer: string; base: string; errTypeFirst: string; causedBy: string };
 
@@ -339,6 +338,7 @@ export default function BatchExceptionPage() {
   const [optionsLoading, setOptionsLoading] = useState(true);
   const [expandedFilters, setExpandedFilters] = useState(false);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(30);
   const [detail, setDetail] = useState<Row | null>(null);
   const [selection, setSelection] = useState<{ field: string; raw: string; label: string; title: string } | null>(null);
   const [editingRow, setEditingRow] = useState<Row | null>(null);
@@ -544,8 +544,8 @@ export default function BatchExceptionPage() {
     return display;
   }, [filteredRows]);
 
-  const pages = Math.max(1, Math.ceil(groupedRows.length / PAGE_SIZE));
-  const pageGroups = groupedRows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const pages = Math.max(1, Math.ceil(groupedRows.length / pageSize));
+  const pageGroups = groupedRows.slice((page - 1) * pageSize, page * pageSize);
   const pageRows = pageGroups.flatMap(({ row, members }) => [row, ...members]);
   const visibleSequences = pageRows.map(rowSequence).filter((sequence): sequence is number => sequence !== null);
   const allVisibleSelected = visibleSequences.length > 0 && visibleSequences.every((sequence) => selectedSequences.has(sequence));
@@ -1084,9 +1084,9 @@ export default function BatchExceptionPage() {
                   </>
                 )}
               </div>
-              <div className="overflow-x-auto">
+              <div role="region" aria-label="批次异常记录明细表" tabIndex={0} className="max-h-[60dvh] overflow-auto">
                 <table className="w-full min-w-[1700px] text-left text-sm">
-                  <thead className="bg-blue-50/60 text-xs text-slate-600">
+                  <thead className="sticky top-0 z-10 bg-blue-50 text-xs text-slate-600">
                     <tr>
                       {editMode && (
                         <th className="w-10 px-3 py-2.5">
@@ -1155,7 +1155,7 @@ export default function BatchExceptionPage() {
                 </div>
               )}
               <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-3 text-sm text-slate-500">
-                <span className="text-xs">每页 {PAGE_SIZE} 条 · 第 {page} / {pages} 页 · 共 {groupedRows.length} 条</span>
+                <div className="flex items-center gap-2 text-xs"><label htmlFor="batch-page-size">每页</label><select id="batch-page-size" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }} className="rounded border border-slate-200 bg-white px-2 py-1">{[5, 10, 30, 50].map(size => <option key={size} value={size}>{size}</option>)}</select><span>条 · 第 {page} / {pages} 页 · 共 {groupedRows.length} 条</span></div>
                 <div className="flex items-center gap-2">
                   <button aria-label="上一页" disabled={page <= 1} onClick={() => setPage(page - 1)} className="rounded-lg border border-slate-200 p-2 hover:bg-blue-50 disabled:opacity-40">
                     <ChevronLeft className="size-4" />

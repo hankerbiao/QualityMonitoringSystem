@@ -902,9 +902,9 @@ export default function AlertConfigModal({
                     <h5 className="text-xs font-semibold text-slate-700">RTY 热力图</h5>
                   </div>
                 </div>
-                <div className="overflow-x-auto border border-slate-200 rounded-sm">
+                <div role="region" aria-label="RTY 热力图表格" tabIndex={0} className="max-h-[60dvh] overflow-auto border border-slate-200 rounded-sm">
                   <table className="w-full text-left border-collapse">
-                    <thead className="bg-[#f8fafc] border-b border-slate-200">
+                    <thead className="sticky top-0 z-20 bg-[#f8fafc] border-b border-slate-200">
                       <tr>
                         <th className="px-3 py-2 border-r border-slate-100 text-[11px] font-semibold text-slate-600 whitespace-nowrap sticky left-0 bg-[#f8fafc] z-10">机型</th>
                         <th className="px-2 py-2 border-r border-slate-100 text-[10px] text-slate-600 text-center whitespace-nowrap">集团标准</th>

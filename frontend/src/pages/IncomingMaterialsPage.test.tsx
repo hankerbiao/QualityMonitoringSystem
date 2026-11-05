@@ -10,6 +10,46 @@ vi.mock('../api/authApi', () => ({ requestData: vi.fn(), apiFetch: vi.fn().mockR
 vi.mock('xlsx', async importOriginal => ({ ...await importOriginal<typeof import('xlsx')>(), writeFile: vi.fn() }));
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
 
+it('filters by source fields and entry date', async () => {
+  vi.mocked(requestData).mockResolvedValue({
+    queriedAt: '2026-11-05T00:00:00Z', upstreamTotal: 2, readCount: 2, matchedCount: 2, complete: true,
+    rows: [
+      { id: 1, selmatnr: 'MATCH', event_type: '异常事件', material_state: '待处理', states: '未关闭', business_unit: '质量部', entry_date: '2026-11-05 09:00:00' },
+      { id: 2, selmatnr: 'OTHER', event_type: '异常事件', material_state: '待处理', states: '未关闭', business_unit: '质量部', entry_date: '2026-10-05 09:00:00' },
+    ],
+  });
+  render(<MemoryRouter><IncomingMaterialsPage /></MemoryRouter>);
+  await screen.findByText('MATCH');
+  for (const [label, value] of [['事件类型', '异常事件'], ['物料状态', '待处理'], ['状态', '未关闭'], ['责任单位', '质量部']]) {
+    fireEvent.click(screen.getByRole('button', { name: `${label}（多选）` }));
+    fireEvent.click(screen.getByRole('checkbox', { name: value }));
+    fireEvent.click(screen.getByRole('button', { name: `${label}（多选）` }));
+  }
+  fireEvent.click(screen.getByRole('button', { name: '录入日期' }));
+  fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-11-01' } });
+  fireEvent.click(screen.getByRole('button', { name: '确定' }));
+  fireEvent.click(screen.getByRole('button', { name: '筛选数据' }));
+  const table = screen.getByRole('table');
+  expect(within(table).getByText('MATCH')).toBeTruthy();
+  expect(within(table).queryByText('OTHER')).toBeNull();
+});
+
+it('changes incoming detail page size and resets to the first page', async () => {
+  const rows = Array.from({ length: 12 }, (_, index) => ({ id: index, selmatnr: `PN-${index + 1}` }));
+  vi.mocked(requestData).mockResolvedValue({ queriedAt: '2026-11-05T00:00:00Z', upstreamTotal: 12, readCount: 12, matchedCount: 12, complete: true, rows });
+  render(<MemoryRouter><IncomingMaterialsPage /></MemoryRouter>);
+  await screen.findByText('PN-12');
+  fireEvent.change(screen.getByLabelText('每页'), { target: { value: '5' } });
+  const table = screen.getByRole('table');
+  expect(within(table).getByText('PN-5')).toBeTruthy();
+  expect(within(table).queryByText('PN-6')).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+  expect(within(table).getByText('PN-6')).toBeTruthy();
+  fireEvent.change(screen.getByLabelText('每页'), { target: { value: '10' } });
+  expect(within(table).getByText('PN-1')).toBeTruthy();
+  expect(within(table).queryByText('PN-11')).toBeNull();
+});
+
 it('shows matching details for each distribution and exports the selected records', async () => {
   vi.mocked(requestData).mockResolvedValue({
     queriedAt: '2026-10-29T00:00:00Z', upstreamTotal: 4, readCount: 4, matchedCount: 4, complete: true,
@@ -21,17 +61,23 @@ it('shows matching details for each distribution and exports the selected record
     ],
   });
   render(<MemoryRouter><IncomingMaterialsPage /></MemoryRouter>);
-  fireEvent.click(await screen.findByRole('button', { name: '查看基地分布：天津明细' }));
+  const statistics = await screen.findByRole('button', { name: '统计' });
+  await waitFor(() => expect((statistics as HTMLButtonElement).disabled).toBe(false));
+  expect(screen.queryByRole('heading', { name: '基地分布' })).toBeNull();
+  fireEvent.click(statistics);
+  fireEvent.click(screen.getByRole('button', { name: '查看基地分布：天津明细' }));
   let table = screen.getByRole('table');
   expect(within(table).getByText('MAT-A')).toBeTruthy();
   expect(within(table).getByText('MAT-B')).toBeTruthy();
   expect(within(table).queryByText('MAT-C')).toBeNull();
   expect(screen.getByText('基地：天津 · 2 条')).toBeTruthy();
+  fireEvent.click(statistics);
   expect(screen.getByRole('button', { name: '查看基地分布：天津明细' }).getAttribute('aria-pressed')).toBe('true');
   fireEvent.click(screen.getByRole('button', { name: '查看异常分类：外观明细' }));
   table = screen.getByRole('table');
   expect(within(table).getByText('MAT-C')).toBeTruthy();
   expect(within(table).queryByText('MAT-B')).toBeNull();
+  fireEvent.click(statistics);
   fireEvent.click(screen.getByRole('button', { name: '查看厂商分布 TOP 5：厂商 A明细' }));
   expect(within(table).getByText('MAT-D')).toBeTruthy();
   expect(within(table).queryByText('MAT-C')).toBeNull();
@@ -41,6 +87,7 @@ it('shows matching details for each distribution and exports the selected record
   expect(exported).toHaveLength(3);
   expect(exported[1]).toContain('MAT-A');
   expect(exported[2]).toContain('MAT-D');
+  fireEvent.click(statistics);
   fireEvent.click(screen.getByRole('button', { name: '查看异常分类：—明细' }));
   expect(within(table).getByText('MAT-D')).toBeTruthy();
   expect(within(table).queryByText('MAT-A')).toBeNull();
@@ -57,7 +104,9 @@ it('expands and collapses each distribution independently for the filtered resul
   }));
   vi.mocked(requestData).mockResolvedValue({ queriedAt: '2026-10-29T00:00:00Z', upstreamTotal: 7, readCount: 7, matchedCount: 7, complete: true, rows });
   render(<MemoryRouter><IncomingMaterialsPage /></MemoryRouter>);
-  await screen.findByRole('heading', { name: '基地分布' });
+  const statistics = await screen.findByRole('button', { name: '统计' });
+  await waitFor(() => expect((statistics as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(statistics);
   for (const [title, sixth] of [['基地分布', 'BASE6'], ['异常分类', '分类6'], ['厂商分布 TOP 5', '厂商6']]) {
     const button = screen.getByRole('button', { name: `展开更多${title}` });
     const card = button.parentElement!.parentElement!;
@@ -74,13 +123,14 @@ it('expands and collapses each distribution independently for the filtered resul
   fireEvent.change(screen.getByLabelText('关键词（搜索所有字段）'), { target: { value: 'MATCH' } });
   fireEvent.click(screen.getByRole('button', { name: '筛选数据' }));
   expect(screen.queryByText('供应商：厂商6 · 1 条')).toBeNull();
+  fireEvent.click(statistics);
+  fireEvent.click(screen.getByRole('button', { name: '展开更多厂商分布 TOP 5' }));
   const supplierCard = screen.getByRole('button', { name: '收起厂商分布 TOP 5' }).parentElement!.parentElement!;
   expect(within(supplierCard).getByTitle('厂商6')).toBeTruthy();
   expect(within(supplierCard).queryByTitle('厂商7')).toBeNull();
   fireEvent.click(within(supplierCard).getByRole('button', { name: '查看厂商分布 TOP 5：厂商6明细' }));
   expect(screen.getByText('供应商：厂商6 · 1 条')).toBeTruthy();
-  fireEvent.click(screen.getByRole('button', { name: '收起厂商分布 TOP 5' }));
-  expect(within(supplierCard).queryByTitle('厂商6')).toBeNull();
+  expect(screen.queryByRole('dialog', { name: '来料质量统计' })).toBeNull();
   expect(requestData).toHaveBeenCalledTimes(1);
 });
 
@@ -92,16 +142,21 @@ it('ranks the top five suppliers by filtered abnormal record count', async () =>
     rows: suppliers.map((supplier, index) => ({ id: index, supplier, basecode: index < 6 ? 'TJ' : 'KS' })),
   });
   render(<MemoryRouter><IncomingMaterialsPage /></MemoryRouter>);
-  expect(await screen.findByRole('heading', { name: '来料质量' })).toBeTruthy();
-  const chart = screen.getByRole('heading', { name: '厂商分布 TOP 5' }).closest('div')?.parentElement?.parentElement;
+  const statistics = await screen.findByRole('button', { name: '统计' });
+  await waitFor(() => expect((statistics as HTMLButtonElement).disabled).toBe(false));
+  fireEvent.click(statistics);
+  let chart = screen.getByRole('heading', { name: '厂商分布 TOP 5' }).closest('div')?.parentElement?.parentElement;
   expect(chart).toBeTruthy();
   const labels = within(chart as HTMLElement).getAllByTitle(/.+/).map(item => item.textContent);
   expect(labels).toEqual(['甲', '乙', '丙', '丁', '戊']);
   expect(within(chart as HTMLElement).getByText('6')).toBeTruthy();
+  fireEvent.click(screen.getByRole('button', { name: '关闭统计' }));
   fireEvent.click(screen.getByRole('button', { name: '基地（多选）' }));
   fireEvent.click(screen.getByRole('checkbox', { name: '天津' }));
   fireEvent.click(screen.getByRole('button', { name: '基地（多选）' }));
   fireEvent.click(screen.getByRole('button', { name: '筛选数据' }));
+  fireEvent.click(statistics);
+  chart = screen.getByRole('heading', { name: '厂商分布 TOP 5' }).closest('div')?.parentElement?.parentElement;
   expect(within(chart as HTMLElement).getAllByTitle(/.+/).map(item => item.textContent)).toEqual(['甲']);
   expect(within(chart as HTMLElement).getByText('6')).toBeTruthy();
 });
@@ -276,15 +331,10 @@ it('submits combined filters and rejects an inverted date range', async () => {
   fireEvent.click(screen.getByRole('checkbox', { name: '天津' }));
   fireEvent.click(screen.getByRole('checkbox', { name: '昆山' }));
   fireEvent.click(screen.getByRole('button', { name: '基地（多选）' }));
-  fireEvent.click(screen.getByRole('button', { name: '物料编号（多选）' }));
-  fireEvent.change(screen.getByLabelText('搜索物料编号'), { target: { value: '123' } });
-  expect(screen.queryByRole('checkbox', { name: 'MAT-456' })).toBeNull();
-  fireEvent.click(screen.getByRole('checkbox', { name: 'MAT-123' }));
-  fireEvent.click(screen.getByRole('button', { name: '物料编号（多选）' }));
-  fireEvent.click(screen.getByRole('button', { name: '供应商（多选）' }));
-  fireEvent.click(screen.getByRole('checkbox', { name: '供应商 A' }));
-  fireEvent.click(screen.getByRole('button', { name: '供应商（多选）' }));
-  for (const [label, option] of [['订单号', 'PO1'], ['检验批号', 'B1'], ['异常分类', '外观']]) {
+  for (const [label, value] of [['物料编号', '123'], ['供应商', '供应商 A'], ['订单号', 'PO1'], ['检验批号', 'B1']]) {
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  }
+  for (const [label, option] of [['异常分类', '外观']]) {
     fireEvent.click(screen.getByRole('button', { name: `${label}（多选）` }));
     fireEvent.change(screen.getByLabelText(`搜索${label}`), { target: { value: option } });
     fireEvent.click(screen.getByRole('checkbox', { name: option }));

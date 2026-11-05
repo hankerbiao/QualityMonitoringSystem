@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
-import { AlertCircle, ArrowLeft, ArrowRight, Building2, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Layers3, PackageSearch, RefreshCw, RotateCcw, Search, SlidersHorizontal, X, type LucideIcon } from 'lucide-react';
+import { AlertCircle, ArrowLeft, ArrowRight, BarChart3, Building2, CalendarDays, ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Layers3, PackageSearch, RefreshCw, RotateCcw, Search, SlidersHorizontal, X, type LucideIcon } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import * as XLSX from 'xlsx';
 import { apiFetch, requestData } from '../api/authApi';
@@ -10,8 +10,8 @@ import { API_BASE_URL } from '../constants';
 
 type RecordRow = Record<string, unknown>;
 interface Result { queriedAt: string; upstreamTotal: number | null; readCount: number; matchedCount: number; complete: boolean; rows: RecordRow[] }
-interface Filters { keyword: string; serialNumbers: string; bases: string[]; material: string[]; supplier: string[]; order: string[]; lot: string[]; category: string[]; date_from: string; date_to: string }
-const EMPTY: Filters = { keyword: '', serialNumbers: '', bases: [], material: [], supplier: [], order: [], lot: [], category: [], date_from: '', date_to: '' };
+interface Filters { keyword: string; serialNumbers: string; bases: string[]; material: string; supplier: string; order: string; lot: string; category: string[]; eventType: string[]; materialState: string[]; state: string[]; businessUnit: string[]; date_from: string; date_to: string; entry_from: string; entry_to: string }
+const EMPTY: Filters = { keyword: '', serialNumbers: '', bases: [], material: '', supplier: '', order: '', lot: '', category: [], eventType: [], materialState: [], state: [], businessUnit: [], date_from: '', date_to: '', entry_from: '', entry_to: '' };
 const bases: Record<string, string> = { TJ: '天津', PJ: '盘锦', KS: '昆山', TY: '太原', AY: '安阳', TX: '桐乡', DT: '大同', QD: '青岛', ML: '马来', '1000': '天津', '2000': '盘锦', '3000': '昆山', '7000': '太原', '8000': '安阳', '9000': '桐乡', D000: '大同' };
 const columns = [
   ['prueflos', '检验批号'], ['selmatnr', '物料编号'], ['ktextmat', '物料描述'],
@@ -31,8 +31,9 @@ const show = (value: unknown) => value == null || value === '' ? '—' : typeof 
 const displayBase = (value: unknown) => bases[show(value).trim().toUpperCase()] || show(value);
 const inputClass = 'mt-1.5 h-10 w-full rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 hover:border-slate-300 focus:border-cyan-500 focus:ring-4 focus:ring-cyan-500/10';
 const textareaClass = inputClass.replace('h-10', 'min-h-20 resize-y py-2');
-const fieldLabels: Record<keyof Filters, string> = { keyword: '关键词', serialNumbers: '序列号', bases: '基地', material: '物料编号', supplier: '供应商', order: '订单号', lot: '检验批号', category: '异常分类', date_from: '到货开始日期', date_to: '到货结束日期' };
-const selectFields = { material: 'selmatnr', supplier: 'supplier', order: 'ebeln', lot: 'prueflos', category: 'abnormal_class' } as const;
+const fieldLabels: Record<keyof Filters, string> = { keyword: '关键词', serialNumbers: '序列号', bases: '基地', material: '物料编号', supplier: '供应商', order: '订单号', lot: '检验批号', category: '异常分类', eventType: '事件类型', materialState: '物料状态', state: '状态', businessUnit: '责任单位', date_from: '到货开始日期', date_to: '到货结束日期', entry_from: '录入开始日期', entry_to: '录入结束日期' };
+const textFields = { lot: 'prueflos', material: 'selmatnr', supplier: 'supplier', order: 'ebeln' } as const;
+const selectFields = { category: 'abnormal_class', eventType: 'event_type', materialState: 'material_state', state: 'states', businessUnit: 'business_unit' } as const;
 const serialNumberKeys = new Set(['sn', 'serialnumber', 'serialno', 'serial']);
 type SelectField = keyof typeof selectFields;
 type DistributionField = 'basecode' | 'abnormal_class' | 'supplier';
@@ -147,6 +148,9 @@ function ReportLinks({ row }: { row: RecordRow }) {
 function matchesFilters(row: RecordRow, filters: Filters, serialOrder: Map<string, number>): boolean {
   if (filters.bases.length && !filters.bases.includes(displayBase(row.basecode))) return false;
   if (serialOrder.size && !rowSerialNumbers(row).some(value => serialOrder.has(value))) return false;
+  for (const key of Object.keys(textFields) as (keyof typeof textFields)[]) {
+    if (filters[key] && !String(row[textFields[key]] ?? '').toLocaleLowerCase().includes(filters[key].toLocaleLowerCase())) return false;
+  }
   for (const key of Object.keys(selectFields) as SelectField[]) {
     const value = String(row[selectFields[key]] ?? '').trim();
     if (filters[key].length && !filters[key].includes(value)) return false;
@@ -155,6 +159,11 @@ function matchesFilters(row: RecordRow, filters: Filters, serialOrder: Map<strin
     const arrival = String(row.pastrterm ?? '').slice(0, 10);
     if (!/^\d{4}-\d{2}-\d{2}$/.test(arrival) ||
       (filters.date_from && arrival < filters.date_from) || (filters.date_to && arrival > filters.date_to)) return false;
+  }
+  if (filters.entry_from || filters.entry_to) {
+    const entered = String(row.entry_date ?? '').slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(entered) ||
+      (filters.entry_from && entered < filters.entry_from) || (filters.entry_to && entered > filters.entry_to)) return false;
   }
   if (filters.keyword) {
     const needle = filters.keyword.toLocaleLowerCase();
@@ -172,10 +181,15 @@ export default function IncomingMaterialsPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(30);
+  const [statisticsOpen, setStatisticsOpen] = useState(false);
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [detail, setDetail] = useState<RecordRow | null>(null);
   const [preview, setPreview] = useState<IncomingPhoto | null>(null);
   const [selection, setSelection] = useState<DistributionSelection | null>(null);
   const detailSection = useRef<HTMLElement>(null);
+  const statisticsDialog = useRef<HTMLElement>(null);
+  const statisticsButton = useRef<HTMLButtonElement>(null);
   const requestId = useRef(0);
   const refresh = useCallback(() => { setPage(1); setSelection(null); setRevision(value => value + 1); }, []);
   useEffect(() => {
@@ -188,6 +202,19 @@ export default function IncomingMaterialsPage() {
     }).finally(() => { if (id === requestId.current) setLoading(false); });
     return () => { requestId.current += 1; };
   }, [revision]);
+  useEffect(() => {
+    if (!statisticsOpen) return;
+    const handler = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { setStatisticsOpen(false); return; }
+      if (event.key !== 'Tab' || !statisticsDialog.current) return;
+      const controls = Array.from(statisticsDialog.current.querySelectorAll<HTMLElement>('button:not(:disabled), [href], [tabindex]:not([tabindex="-1"])'));
+      if (!controls.length) return;
+      if (event.shiftKey && document.activeElement === controls[0]) { event.preventDefault(); controls[controls.length - 1].focus(); }
+      else if (!event.shiftKey && document.activeElement === controls[controls.length - 1]) { event.preventDefault(); controls[0].focus(); }
+    };
+    window.addEventListener('keydown', handler);
+    return () => { window.removeEventListener('keydown', handler); statisticsButton.current?.focus(); };
+  }, [statisticsOpen]);
   useEffect(() => {
     if (!detail || preview) return;
     const handler = (event: KeyboardEvent) => { if (event.key === 'Escape') setDetail(null); };
@@ -223,8 +250,8 @@ export default function IncomingMaterialsPage() {
   const byCategory = useMemo(() => distribution(filteredRows, 'abnormal_class'), [filteredRows]);
   const bySupplier = useMemo(() => distribution(filteredRows.filter(row => String(row.supplier ?? '').trim()), 'supplier'), [filteredRows]);
   const active = Object.entries(filters).filter(([, value]) => Array.isArray(value) ? value.length > 0 : Boolean(value));
-  const invalidDates = Boolean(draft.date_from && draft.date_to && draft.date_from > draft.date_to);
-  const setField = (key: 'keyword' | 'serialNumbers' | 'date_from' | 'date_to', value: string) => setDraft(current => ({ ...current, [key]: value }));
+  const invalidDates = Boolean((draft.date_from && draft.date_to && draft.date_from > draft.date_to) || (draft.entry_from && draft.entry_to && draft.entry_from > draft.entry_to));
+  const setField = (key: 'keyword' | 'serialNumbers' | keyof typeof textFields, value: string) => setDraft(current => ({ ...current, [key]: value }));
   const search = (event: FormEvent) => {
     event.preventDefault();
     if (invalidDates) return;
@@ -234,7 +261,7 @@ export default function IncomingMaterialsPage() {
   };
   const reset = () => { setDraft({ ...EMPTY }); setFilters({ ...EMPTY }); setPage(1); setDetail(null); setSelection(null); };
   const selectDistribution = (next: DistributionSelection) => {
-    setSelection(next); setPage(1); setDetail(null);
+    setSelection(next); setPage(1); setDetail(null); setStatisticsOpen(false);
     detailSection.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
   };
   const exportData = () => {
@@ -252,8 +279,8 @@ export default function IncomingMaterialsPage() {
     XLSX.utils.book_append_sheet(workbook, sheet, '异常记录明细');
     XLSX.writeFile(workbook, '来料异常明细.xlsx');
   };
-  const pages = Math.max(1, Math.ceil(detailRows.length / 30));
-  const rows = detailRows.slice((page - 1) * 30, page * 30);
+  const pages = Math.max(1, Math.ceil(detailRows.length / pageSize));
+  const rows = detailRows.slice((page - 1) * pageSize, page * pageSize);
 
   return <div className="min-h-screen bg-[#f4f7fb] text-slate-800">
     <header className="sticky top-0 z-20 border-b border-slate-200/80 bg-white/95 backdrop-blur">
@@ -262,37 +289,47 @@ export default function IncomingMaterialsPage() {
         <span className="flex size-9 items-center justify-center rounded-xl bg-cyan-100 text-cyan-700"><PackageSearch className="size-5" /></span>
         <div className="min-w-0 flex-1"><h1 className="font-bold tracking-tight text-slate-950">来料质量</h1><p className="text-xs text-slate-500">质量监控 / 来料质量</p></div>
         <span className="hidden items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 sm:inline-flex"><span className="size-1.5 rounded-full bg-emerald-500" />按需刷新</span>
+        <button ref={statisticsButton} type="button" onClick={() => setStatisticsOpen(true)} disabled={!result || loading} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-sm hover:border-cyan-300 hover:text-cyan-700 disabled:opacity-50"><BarChart3 className="size-4" />统计</button>
         <button onClick={refresh} disabled={loading} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm font-medium text-slate-600 shadow-sm transition hover:border-cyan-300 hover:text-cyan-700 disabled:opacity-50"><RefreshCw className={`size-4 ${loading ? 'motion-safe:animate-spin' : ''}`} />刷新</button>
       </div>
     </header>
-    <main className="mx-auto max-w-[1900px] space-y-3 p-3 sm:p-4">
+    <main className="mx-auto flex max-w-[1900px] flex-col gap-3 p-3 sm:p-4 lg:h-[calc(100dvh-4.25rem)]">
+      <div className={`space-y-3 lg:min-h-0 lg:flex-none lg:overflow-y-auto ${advancedOpen ? 'lg:max-h-[70%]' : 'lg:max-h-[55%]'}`}>
       <section className="rounded-2xl border border-slate-200/80 bg-white shadow-sm">
         <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-4 py-3"><div className="flex items-center gap-2"><span className="rounded-lg bg-cyan-50 p-2 text-cyan-700"><SlidersHorizontal className="size-4" /></span><div><h2 className="text-sm font-bold text-slate-900">筛选条件</h2><p className="mt-0.5 text-xs text-slate-400">筛选当前已加载的全部可访问数据</p></div></div><span className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-500">{active.length ? `已应用 ${active.length} 项条件` : '全部数据'}</span></div>
         <form onSubmit={search} className="p-4"><div className="grid gap-x-3 gap-y-2 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
           <label className="text-xs font-semibold text-slate-600 sm:col-span-2">关键词（搜索所有字段）<input value={draft.keyword} onChange={e => setField('keyword', e.target.value)} maxLength={200} placeholder="物料、供应商、订单等" className={inputClass} /></label>
-          <label className="text-xs font-semibold text-slate-600 sm:col-span-2">序列号（按输入顺序）<textarea value={draft.serialNumbers} onChange={e => setField('serialNumbers', e.target.value)} maxLength={2000} rows={2} placeholder="每行一个，也可用逗号分隔" className={textareaClass} /></label>
+          <label className="text-xs font-semibold text-slate-600">检验批号<input value={draft.lot} onChange={event => setField('lot', event.target.value)} placeholder="请输入检验批号" className={inputClass} /></label>
           <MultiSelect label="基地" options={options.bases} value={draft.bases} onChange={value => setDraft(current => ({ ...current, bases: value }))} />
+          <div className="flex flex-wrap items-end gap-2 sm:col-span-2"><button type="submit" disabled={loading || invalidDates || !result} className="inline-flex items-center gap-2 rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-cyan-800 disabled:opacity-50"><Search className="size-4" />筛选数据</button><button type="button" onClick={reset} disabled={loading} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"><RotateCcw className="size-4" />清空</button><button type="button" onClick={exportData} disabled={loading || !result || !detailRows.length} className="inline-flex items-center gap-2 rounded-lg border border-cyan-200 px-4 py-2 text-sm font-medium text-cyan-700 transition hover:bg-cyan-50 disabled:opacity-50"><Download className="size-4" />导出数据</button></div>
+        </div>
+        <button type="button" aria-expanded={advancedOpen} aria-controls="incoming-advanced-filters" onClick={() => setAdvancedOpen(value => !value)} className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-cyan-700 hover:text-cyan-900">高级筛选{advancedOpen ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}</button>
+        {advancedOpen && <div id="incoming-advanced-filters" className="mt-3 grid gap-x-3 gap-y-2 border-t border-dashed border-slate-200 pt-3 sm:grid-cols-2 lg:grid-cols-4 xl:grid-cols-6">
+          <label className="text-xs font-semibold text-slate-600 sm:col-span-2">序列号（按输入顺序）<textarea value={draft.serialNumbers} onChange={e => setField('serialNumbers', e.target.value)} maxLength={2000} rows={2} placeholder="每行一个，也可用逗号分隔" className={textareaClass} /></label>
+          {(['material', 'supplier', 'order'] as const).map(key => <label key={key} className="text-xs font-semibold text-slate-600">{fieldLabels[key]}<input value={draft[key]} onChange={event => setField(key, event.target.value)} placeholder={`请输入${fieldLabels[key]}`} className={inputClass} /></label>)}
           {(Object.keys(selectFields) as SelectField[]).map(key => <MultiSelect key={key} label={fieldLabels[key]} options={options[key]} value={draft[key]} onChange={value => setDraft(current => ({ ...current, [key]: value }))} />)}
           <DateRangePicker label="到货日期" from={draft.date_from} to={draft.date_to} allowOpenEnded onChange={(from, to) => setDraft(current => ({ ...current, date_from: from, date_to: to }))} />
-        </div>{invalidDates && <p role="alert" className="mt-3 text-xs text-red-600">到货开始日期不能晚于结束日期</p>}
-        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-slate-100 pt-3"><button type="submit" disabled={loading || invalidDates || !result} className="inline-flex items-center gap-2 rounded-lg bg-cyan-700 px-4 py-2 text-sm font-semibold text-white shadow-sm transition hover:bg-cyan-800 disabled:opacity-50"><Search className="size-4" />筛选数据</button><button type="button" onClick={reset} disabled={loading} className="inline-flex items-center gap-2 rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium text-slate-600 transition hover:bg-slate-50 disabled:opacity-50"><RotateCcw className="size-4" />清空</button><button type="button" onClick={exportData} disabled={loading || !result || !detailRows.length} className="inline-flex items-center gap-2 rounded-lg border border-cyan-200 px-4 py-2 text-sm font-medium text-cyan-700 transition hover:bg-cyan-50 disabled:opacity-50"><Download className="size-4" />导出数据</button><p className="ml-auto text-xs text-slate-400">{selection ? '导出当前明细' : '导出当前筛选结果'}</p></div></form>
+          <DateRangePicker label="录入日期" from={draft.entry_from} to={draft.entry_to} allowOpenEnded onChange={(from, to) => setDraft(current => ({ ...current, entry_from: from, entry_to: to }))} />
+        </div>}{invalidDates && <p role="alert" className="mt-3 text-xs text-red-600">开始日期不能晚于结束日期</p>}
+        </form>
       </section>
       {error && <div role="alert" className="flex items-start gap-2 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"><AlertCircle className="mt-0.5 size-4 shrink-0" />{error}</div>}
       {loading && <div role="status" className="flex items-center gap-3 rounded-xl border border-cyan-100 bg-white p-6 text-sm text-slate-500"><RefreshCw className="size-5 text-cyan-600 motion-safe:animate-spin" />正在读取上游数据，请稍候…</div>}
       {result && <div className="space-y-3 motion-safe:animate-[login-entry_400ms_ease-out_both]">
         <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-slate-500"><span className="inline-flex items-center gap-1.5"><CalendarDays className="size-3.5" />{result.complete ? '已读取全部上游分页' : '数据未完整读取，不代表全量数据'}</span><span>更新于 {new Date(result.queriedAt).toLocaleString('zh-CN')}</span></div>
         {active.length > 0 && <div className="flex flex-wrap items-center gap-2 text-xs"><span className="font-medium text-slate-500">已应用：</span>{active.map(([key, value]) => <span key={key} className="rounded-full border border-cyan-100 bg-cyan-50 px-2.5 py-1 text-cyan-700">{fieldLabels[key as keyof Filters]}：{Array.isArray(value) ? value.join('、') : value}</span>)}</div>}
-        <section className="grid items-start gap-3 lg:grid-cols-2 2xl:grid-cols-3">{([{ title: '基地分布', subtitle: '当前结果 · 前 5 个基地', data: byBase, bar: 'bg-cyan-500', icon: Layers3, field: 'basecode' }, { title: '异常分类', subtitle: '当前结果 · 前 5 个分类', data: byCategory, bar: 'bg-violet-500', icon: AlertCircle, field: 'abnormal_class' }, { title: '厂商分布 TOP 5', subtitle: '当前结果 · 按异常记录数排名', data: bySupplier, bar: 'bg-amber-500', icon: Building2, field: 'supplier' }] as const).map(card => <DistributionCard key={card.title} {...card} selected={selection} onSelect={selectDistribution} />)}</section>
-        <section ref={detailSection} className="scroll-mt-20 overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm"><div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3"><h2 className="text-sm font-bold text-slate-900">异常记录明细</h2>{selection && <><span role="status" className="break-all text-xs text-cyan-700">{selection.field === 'basecode' ? '基地' : selection.field === 'supplier' ? '供应商' : '异常分类'}：{selection.label} · {detailRows.length.toLocaleString()} 条</span><button type="button" onClick={() => { setSelection(null); setPage(1); }} className="ml-auto inline-flex items-center gap-1 text-xs text-slate-600 hover:text-cyan-700"><X className="size-3.5" />清除明细筛选</button></>}</div>
-          <div className="overflow-x-auto"><table className="w-full min-w-[1400px] text-left text-sm"><thead className="bg-slate-50/80 text-xs text-slate-500"><tr><th className="w-12 whitespace-nowrap px-3 py-2.5 text-right font-semibold">序号</th>{columns.map(([key, label]) => <th key={key} className="whitespace-nowrap px-3 py-2.5 font-semibold">{label}</th>)}<th className="px-4 py-3">操作</th></tr></thead><tbody>{rows.map((row, index) => {
-            const no = (page - 1) * 30 + index + 1;
+      </div>}
+      </div>
+      {result && <section ref={detailSection} className="scroll-mt-20 overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm lg:flex lg:min-h-0 lg:flex-1 lg:flex-col"><div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3"><h2 className="text-sm font-bold text-slate-900">异常记录明细</h2>{selection && <><span role="status" className="break-all text-xs text-cyan-700">{selection.field === 'basecode' ? '基地' : selection.field === 'supplier' ? '供应商' : '异常分类'}：{selection.label} · {detailRows.length.toLocaleString()} 条</span><button type="button" onClick={() => { setSelection(null); setPage(1); }} className="ml-auto inline-flex items-center gap-1 text-xs text-slate-600 hover:text-cyan-700"><X className="size-3.5" />清除明细筛选</button></>}</div>
+          <div role="region" aria-label="异常记录明细表" tabIndex={0} className="max-h-[55dvh] overflow-auto lg:max-h-none lg:min-h-0 lg:flex-1"><table className="w-full min-w-[1400px] text-left text-sm"><thead className="sticky top-0 z-10 bg-slate-50 text-xs text-slate-500"><tr><th className="w-12 whitespace-nowrap px-3 py-2.5 text-right font-semibold">序号</th>{columns.map(([key, label]) => <th key={key} className="whitespace-nowrap px-3 py-2.5 font-semibold">{label}</th>)}<th className="px-4 py-3">操作</th></tr></thead><tbody>{rows.map((row, index) => {
+            const no = (page - 1) * pageSize + index + 1;
             return <tr key={String(row.id ?? index)} className="border-t border-slate-100 transition-colors hover:bg-cyan-50/40"><td className="whitespace-nowrap px-3 py-2.5 text-right tabular-nums text-slate-400">{no}</td>{columns.map(([key]) => <td key={key} className="max-w-56 px-3 py-2.5">{key === 'bad_img' ? <PhotoStrip row={row} onPreview={setPreview} /> : key === 'report_attachment' ? <ReportLinks row={row} /> : <div className={key === 'location_info' ? 'inline-flex rounded-md bg-cyan-50 px-2 py-1 font-semibold text-cyan-700' : 'truncate text-slate-600'} title={show(row[key])}>{key === 'basecode' ? displayBase(row[key]) : show(row[key])}</div>}</td>)}<td className="px-4 py-3"><button onClick={() => setDetail(row)} className="inline-flex items-center gap-1 whitespace-nowrap font-medium text-cyan-700 hover:text-cyan-900">详情<ArrowRight className="size-3" /></button></td></tr>;
           })}</tbody></table></div>
           {rows.length === 0 && <div className="p-10 text-center"><PackageSearch className="mx-auto size-8 text-slate-300" /><p className="mt-3 text-sm font-medium text-slate-500">没有符合条件的记录</p><p className="mt-1 text-xs text-slate-400">可调整筛选条件后重新查询</p></div>}
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-3 text-sm text-slate-500"><span className="text-xs">每页 30 条 · 第 {page} / {pages} 页</span><div className="flex items-center gap-2"><button aria-label="上一页" disabled={page <= 1} onClick={() => setPage(page - 1)} className="rounded-lg border border-slate-200 p-2 hover:bg-slate-50 disabled:opacity-40"><ChevronLeft className="size-4" /></button><button aria-label="下一页" disabled={page >= pages} onClick={() => setPage(page + 1)} className="rounded-lg border border-slate-200 p-2 hover:bg-slate-50 disabled:opacity-40"><ChevronRight className="size-4" /></button></div></div>
-        </section>
-      </div>}
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-3 text-sm text-slate-500"><div className="flex items-center gap-2 text-xs"><label htmlFor="incoming-page-size">每页</label><select id="incoming-page-size" value={pageSize} onChange={event => { setPageSize(Number(event.target.value)); setPage(1); }} className="rounded border border-slate-200 bg-white px-2 py-1">{[5, 10, 30, 50].map(size => <option key={size} value={size}>{size}</option>)}</select><span>条 · 第 {page} / {pages} 页</span></div><div className="flex items-center gap-2"><button aria-label="上一页" disabled={page <= 1} onClick={() => setPage(page - 1)} className="rounded-lg border border-slate-200 p-2 hover:bg-slate-50 disabled:opacity-40"><ChevronLeft className="size-4" /></button><button aria-label="下一页" disabled={page >= pages} onClick={() => setPage(page + 1)} className="rounded-lg border border-slate-200 p-2 hover:bg-slate-50 disabled:opacity-40"><ChevronRight className="size-4" /></button></div></div>
+        </section>}
     </main>
+    {statisticsOpen && result && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4" onClick={() => setStatisticsOpen(false)}><section ref={statisticsDialog} role="dialog" aria-modal="true" aria-labelledby="incoming-statistics-title" onClick={event => event.stopPropagation()} className="flex max-h-[85dvh] w-full max-w-6xl flex-col overflow-hidden rounded-lg bg-white shadow-xl"><div className="flex items-center justify-between border-b border-slate-200 px-4 py-3"><h2 id="incoming-statistics-title" className="text-base font-semibold text-slate-900">来料质量统计</h2><button autoFocus type="button" onClick={() => setStatisticsOpen(false)} aria-label="关闭统计" className="rounded p-2 text-slate-500 hover:bg-slate-100"><X className="size-4" /></button></div><div className="grid items-start gap-3 overflow-auto p-4 lg:grid-cols-3">{([{ title: '基地分布', subtitle: '当前结果 · 前 5 个基地', data: byBase, bar: 'bg-cyan-500', icon: Layers3, field: 'basecode' }, { title: '异常分类', subtitle: '当前结果 · 前 5 个分类', data: byCategory, bar: 'bg-violet-500', icon: AlertCircle, field: 'abnormal_class' }, { title: '厂商分布 TOP 5', subtitle: '当前结果 · 按异常记录数排名', data: bySupplier, bar: 'bg-amber-500', icon: Building2, field: 'supplier' }] as const).map(card => <DistributionCard key={card.title} {...card} selected={selection} onSelect={selectDistribution} />)}</div></section></div>}
     {detail && <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4 backdrop-blur-sm" onClick={() => setDetail(null)}><section role="dialog" aria-modal="true" aria-labelledby="incoming-detail-title" onClick={event => event.stopPropagation()} className="max-h-[85vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white p-6 shadow-2xl"><div className="flex items-center justify-between border-b border-slate-100 pb-4"><div><h2 id="incoming-detail-title" className="font-bold text-slate-900">异常记录详情</h2><p className="mt-1 text-xs text-slate-400">查看这条记录的完整字段</p></div><button autoFocus onClick={() => setDetail(null)} aria-label="关闭详情" className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700"><X className="size-5" /></button></div><dl className="mt-4 grid gap-4 sm:grid-cols-2">{Object.entries(detail).filter(([key]) => key !== '_incomingPhotos' && key !== '_incomingReports').map(([key, value]) => <div key={key} className="min-w-0 border-b border-slate-100 pb-3"><dt className="text-xs font-medium text-slate-400">{names[key] ?? key}</dt><dd className="mt-1 whitespace-pre-wrap break-all text-sm text-slate-700">{key === 'bad_img' ? <PhotoStrip row={detail} onPreview={setPreview} /> : key === 'report_attachment' ? <ReportLinks row={detail} /> : key === 'basecode' ? displayBase(value) : show(value)}</dd></div>)}</dl></section></div>}
     {preview && <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/80 p-4" onClick={() => setPreview(null)}><section role="dialog" aria-modal="true" aria-label="不良图片预览" onClick={event => event.stopPropagation()} className="relative flex max-h-[90vh] max-w-[95vw] items-center justify-center rounded-lg bg-white p-4"><button autoFocus type="button" aria-label="关闭图片预览" onClick={() => setPreview(null)} className="absolute right-2 top-2 rounded bg-white/90 p-2 text-slate-700 shadow"><X className="size-5" /></button><IncomingMaterialImage photo={preview} alt="不良图片大图" large /></section></div>}
   </div>;

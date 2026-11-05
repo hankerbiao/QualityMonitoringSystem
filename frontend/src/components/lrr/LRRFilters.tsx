@@ -178,11 +178,11 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
   };
 
   return (
-    <section className="bg-slate-50/70 px-4 py-4 sm:px-5 lg:px-6">
+    <section className="bg-slate-50/70 px-4 py-3 sm:px-5 lg:px-6">
       {optionsError && <div role="alert" className="mb-4 flex flex-wrap items-center justify-between gap-2 border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"><span>{optionsError.message || '筛选选项加载失败，请重试'}</span><button type="button" onClick={() => void loadOptions()} className="inline-flex items-center gap-1 font-medium hover:underline"><RotateCcw className="size-3.5" />重试</button></div>}
       {(scopeFilterWarning || bomScopeWarning) && <p role="alert" className="mb-4 border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">{scopeFilterWarning || bomScopeWarning}</p>}
-      <form onSubmit={submit} className="grid grid-cols-1 gap-4 lg:grid-cols-12 lg:gap-x-5 lg:gap-y-4">
-        <div className="flex min-h-5 items-center justify-between gap-3 lg:col-span-12">
+      <form onSubmit={submit} className="grid grid-cols-1 gap-3 xl:grid-cols-12 xl:gap-x-3 xl:gap-y-2">
+        <div className="flex min-h-5 flex-wrap items-center justify-between gap-3 xl:col-span-12">
           <div className="flex items-center gap-2 text-sm font-semibold text-slate-800"><SlidersHorizontal className="size-4 text-cyan-700" />筛选条件</div>
           <div className="flex flex-wrap items-center justify-end gap-2 text-xs" aria-live="polite">
             <div className="flex flex-wrap gap-1">
@@ -213,11 +213,11 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
         </div>
 
         {/* 故障时间跟随维修记录计划生产时间 GSTRS，和物料计划开始时间使用同一周期。 */}
-        <div className="min-w-0 lg:col-span-6">
+        <div className="min-w-0 xl:col-span-3">
           <DateRangePicker label="计划开始时间（GSTRS）" from={draft.plannedDateFrom ?? ''} to={draft.plannedDateTo ?? ''} allowOpenEnded
             onChange={(from, to) => setDraft((current) => ({ ...current, plannedDateFrom: from || null, plannedDateTo: to || null }))} />
         </div>
-        <div className="grid min-w-0 grid-cols-1 gap-4 sm:grid-cols-[minmax(0,1fr)_auto] lg:col-span-6 lg:self-start lg:gap-3">
+        <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto] xl:col-span-3 xl:self-start xl:gap-2">
           <label className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">物料号</span><div className="relative"><Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><input type="search" value={draft.materialNumber ?? ''} onChange={(e) => setFilter('materialNumber', e.target.value)} placeholder="输入 8 位或完整物料号" className={`${inputClass} w-full pl-9`} /></div></label>
           <div className="flex items-end gap-2">
             <button type="submit" className="inline-flex h-10 min-w-28 items-center justify-center gap-1.5 rounded-md bg-cyan-600 px-4 text-sm font-medium text-white transition-colors hover:bg-cyan-700 focus:outline-none focus:ring-2 focus:ring-cyan-300 focus:ring-offset-2"><Search className="size-4" />查询</button>
@@ -225,8 +225,8 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 border-t border-slate-200 pt-4 sm:grid-cols-2 lg:col-span-12 lg:grid-cols-4 lg:gap-5"><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">机型</span><SearchableSelect value={draft.productModels} options={options.productModels} allLabel="全部机型" multiple onChange={(value) => setFilter('productModels', (value as string[] | null) ?? undefined)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">基地</span><SearchableSelect value={draft.bases} options={options.bases} allLabel="全部基地" multiple onChange={(value) => setFilter('bases', (value as string[] | null) ?? undefined)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">客户 ID</span><SearchableSelect value={draft.customerIds} options={options.customerIds} allLabel="全部客户" multiple customerIds onChange={(value) => setFilter('customerIds', (value as string[] | null) ?? undefined)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">订单类型</span><SearchableSelect value={draft.orderTypes} options={options.orderTypes || []} allLabel="全部订单类型" multiple onChange={(value) => setFilter('orderTypes', (value as string[] | null) ?? undefined)} /></div></div>
-        <div className="lg:col-span-12"><AdvancedFilters value={advanced} onChange={setAdvanced} /></div>
+        <div className="grid min-w-0 grid-cols-1 gap-3 sm:grid-cols-2 xl:col-span-6 xl:grid-cols-4"><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">机型</span><SearchableSelect value={draft.productModels} options={options.productModels} allLabel="全部机型" multiple onChange={(value) => setFilter('productModels', (value as string[] | null) ?? undefined)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">基地</span><SearchableSelect value={draft.bases} options={options.bases} allLabel="全部基地" multiple onChange={(value) => setFilter('bases', (value as string[] | null) ?? undefined)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">客户 ID</span><SearchableSelect value={draft.customerIds} options={options.customerIds} allLabel="全部客户" multiple customerIds onChange={(value) => setFilter('customerIds', (value as string[] | null) ?? undefined)} /></div><div className="flex min-w-0 flex-col gap-2"><span className="text-xs font-semibold text-slate-600">订单类型</span><SearchableSelect value={draft.orderTypes} options={options.orderTypes || []} allLabel="全部订单类型" multiple onChange={(value) => setFilter('orderTypes', (value as string[] | null) ?? undefined)} /></div></div>
+        <div className="xl:col-span-12"><AdvancedFilters value={advanced} onChange={setAdvanced} /></div>
       </form>
       {scopeFilterWarning && <div role="alert" className="border-t border-amber-200 bg-amber-50 px-4 py-2.5 text-xs text-amber-800 sm:px-5 lg:px-6">{scopeFilterWarning}</div>}
     </section>
