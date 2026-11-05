@@ -145,7 +145,7 @@ export const lrrApi = {
     return cachedRequest(url, () => requestJson<LRRUsageDetailsResponse>(url));
   },
 
-  /** 获取因订单状态或订单类型规则被排除的订单过账记录 */
+  /** 获取因订单未匹配、订单状态或订单类型被排除的过账记录 */
   async getFilteredOrders(
     filters: LRRFilters = {},
     page = 1,

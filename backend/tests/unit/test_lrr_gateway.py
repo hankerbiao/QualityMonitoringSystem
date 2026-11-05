@@ -9,6 +9,48 @@ from app.services.data_gateway_client import DataGatewayClient, DataGatewayError
 
 
 @pytest.mark.asyncio
+async def test_lrr_requires_sales_order_match_even_outside_metadata_date_scope(monkeypatch):
+    async def all_bom_rows(**_filters):
+        return [
+            {"id": str(i), "AUFNR_1": order, "GSTRS": "20260301", "MATNR": "PN", "MENGE_A": 1, "BWART": "261"}
+            for i, order in enumerate(("1", "2", "3", ""))
+        ]
+
+    lookups = []
+
+    async def all_orders(**filters):
+        if "productionOrder" not in filters:
+            return [{"aufnr": "000000000001", "raw": {"data": {"AUART": "PP01"}}}]
+        lookups.append(filters["productionOrder"])
+        if filters["productionOrder"] == "000000000002":
+            return [{"aufnr": "2", "raw": {"data": {"AUART": "PP01"}}}]
+        return []
+
+    async def reversed_orders(_orders):
+        return set()
+
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_bom_rows", all_bom_rows)
+    monkeypatch.setattr(lrr_gateway.data_gateway, "all_orders", all_orders)
+    monkeypatch.setattr(lrr_gateway, "reversed_orders", reversed_orders)
+    rows = await lrr_gateway.load_bom(
+        planned_date_from="2026-03-01", planned_date_to="2026-03-31",
+        include_order_metadata=True, exclude_rty_orders=True, verify_order_exists=True,
+    )
+    assert {row["AUFNR_1"] for row in rows} == {"000000000001", "000000000002"}
+    assert set(lookups) == {"000000000002", "000000000003"}
+
+    rows = await lrr_gateway.load_bom(
+        planned_date_from="2026-03-01", planned_date_to="2026-03-31",
+        include_order_metadata=True, verify_order_exists=True,
+    )
+    from app.api.lrr import _filtered_order_reasons
+
+    missing = [row for row in rows if row["_order_missing"]]
+    assert {row["AUFNR_1"] for row in missing} == {"000000000003", ""}
+    assert all(_filtered_order_reasons(row) == ["销售订单表中未找到生产订单"] for row in missing)
+
+
+@pytest.mark.asyncio
 async def test_lrr_bom_filters_multiple_order_types_using_order_metadata(monkeypatch):
     async def all_bom_rows(**_filters):
         return [{"id": str(i), "AUFNR_1": str(i), "GSTRS": "20260301", "MATNR": "PN", "MENGE_A": 1} for i in range(1, 5)]
@@ -76,7 +118,7 @@ async def test_lrr_bom_excludes_rty_ineligible_orders(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_lrr_pn_filter_excludes_an_order_reversed_on_another_material(monkeypatch):
+async def test_lrr_pn_filter_keeps_an_order_reversed_on_another_material(monkeypatch):
     async def reversed_orders(_orders):
         return {"1"}
 
@@ -113,7 +155,7 @@ async def test_lrr_pn_filter_excludes_an_order_reversed_on_another_material(monk
         exclude_rty_orders=True,
     )
 
-    assert rows == []
+    assert [row["AUFNR_1"] for row in rows] == ["000000000001"]
 
 
 @pytest.mark.asyncio

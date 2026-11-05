@@ -616,6 +616,8 @@ def _advanced_faults(faults: list[dict[str, Any]], serial_numbers: tuple[str, ..
 
 def _filtered_order_reasons(row: dict[str, Any]) -> list[str]:
     reasons: list[str] = []
+    if row.get("_order_missing"):
+        reasons.append("销售订单表中未找到生产订单")
     status = str(row.get("_order_status") or "").strip()
     order_type = str(row.get("_order_type") or "").strip()
     if is_excluded_order(status, "", ""):
@@ -656,6 +658,7 @@ async def _load(query: LRRListQuery) -> LRRListResponse:
         order_types=query.order_types,
         include_order_metadata=True,
         exclude_rty_orders=True,
+        verify_order_exists=True,
         planned_date_from=query.planned_date_from,
         planned_date_to=query.planned_date_to,
     )
@@ -839,6 +842,7 @@ async def get_lrr_filtered_orders(
         order_types=tuple(sorted(set(orderTypes or []))),
         include_order_metadata=True,
         exclude_rty_orders=False,
+        verify_order_exists=True,
         month=month,
         planned_date_from=plannedDateFrom,
         planned_date_to=plannedDateTo,
@@ -912,6 +916,7 @@ async def get_lrr_fault_details(
         order_types=tuple(sorted(set(orderTypes or []))),
         include_order_metadata=True,
         exclude_rty_orders=True,
+        verify_order_exists=True,
         month=month,
         planned_date_from=plannedDateFrom,
         planned_date_to=plannedDateTo,
@@ -975,6 +980,7 @@ async def get_lrr_usage_details(
         order_types=tuple(sorted(set(orderTypes or []))),
         include_order_metadata=True,
         exclude_rty_orders=True,
+        verify_order_exists=True,
         month=month,
         planned_date_from=plannedDateFrom,
         planned_date_to=plannedDateTo,

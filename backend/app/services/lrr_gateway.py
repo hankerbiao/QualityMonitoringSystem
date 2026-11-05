@@ -125,6 +125,7 @@ async def load_bom(
     order_types: tuple[str, ...] = (),
     include_order_metadata: bool = False,
     exclude_rty_orders: bool = False,
+    verify_order_exists: bool = False,
     month: str | None = None,
     planned_date_from: str | None = None,
     planned_date_to: str | None = None,
@@ -329,6 +330,7 @@ async def load_bom(
     needs_metadata = bool(
         include_order_metadata
         or exclude_rty_orders
+        or verify_order_exists
         or bases
         or customer_ids
         or product_models
@@ -369,6 +371,37 @@ async def load_bom(
                 str(order_data.get("ZSTAT") or item.get("ZSTAT") or "").strip(),
                 planned_quantity,
             )
+    if verify_order_exists:
+        missing_orders = {
+            normalize_production_order(row.get("AUFNR_1")) for row in rows
+        } - metadata.keys() - {""}
+        semaphore = asyncio.Semaphore(8)
+
+        async def find_order(number: str) -> list[dict[str, Any]]:
+            async with semaphore:
+                return await data_gateway.all_orders(productionOrder=number)
+
+        for number, matches in zip(
+            sorted(missing_orders),
+            await asyncio.gather(*(find_order(number) for number in sorted(missing_orders))),
+            strict=True,
+        ):
+            for item in matches:
+                if normalize_production_order(item.get("aufnr")) != number:
+                    continue
+                order_data = source_data(item)
+                planned_quantity = item.get("orderQuantity")
+                if planned_quantity is None or not str(planned_quantity).strip():
+                    planned_quantity = order_data.get("GAMNG")
+                metadata[number] = (
+                    str(item.get("inventoryLocation", "")).strip(),
+                    str(item.get("customerId", "")).strip(),
+                    str(item.get("productionModel", "")).strip(),
+                    str(order_data.get("AUART") or item.get("AUART") or "").strip(),
+                    str(order_data.get("ZSTAT") or item.get("ZSTAT") or "").strip(),
+                    planned_quantity,
+                )
+                break
     reversed_values = (
         await reversed_orders({row.get("AUFNR_1", "") for row in rows})
         if (include_order_metadata or exclude_rty_orders)
@@ -379,6 +412,9 @@ async def load_bom(
         production_order = normalize_production_order(row.get("AUFNR_1"))
         normalized_order = normalize_order(production_order)
         metadata_values = metadata.get(production_order)
+        row["_order_missing"] = verify_order_exists and metadata_values is None
+        if row["_order_missing"] and exclude_rty_orders:
+            continue
         if metadata_values is None:
             (
                 base_value,
