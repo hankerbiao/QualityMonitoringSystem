@@ -51,6 +51,16 @@ def _advanced_kwargs(serial_numbers, production_orders, sales_orders):
     return {key: value for key, value in (("serial_numbers", serial_numbers), ("production_orders", production_orders), ("sales_orders", sales_orders)) if value}
 
 
+def _require_station_filters(date_from, date_to, customers, customer):
+    if not date_from or not date_to:
+        raise HTTPException(status_code=422, detail="请选择开始日期和结束日期")
+    start, end = validate_date(date_from), validate_date(date_to)
+    if start > end:
+        raise HTTPException(status_code=422, detail="开始日期不能晚于结束日期")
+    if not any(value and value.strip() for value in [*(customers or []), customer]):
+        raise HTTPException(status_code=422, detail="请至少选择一个客户 ID")
+
+
 @router.get("/reinsert-rate/options", dependencies=[Depends(require_reinsert_access)])
 async def get_reinsert_options():
     return Response(success=True, data=await repair_quality.options())
@@ -299,6 +309,7 @@ async def get_station_pass_rates(
     overseas: bool = False,
     orderTypes: Annotated[list[str] | None, Query()] = None,
 ):
+    _require_station_filters(dateFrom, dateTo, customers, customer)
     rows = await rty_gateway.station_rates(
         dateFrom,
         dateTo,
@@ -341,6 +352,7 @@ async def get_station_pass_details(
     overseas: bool = False,
     orderTypes: Annotated[list[str] | None, Query()] = None,
 ):
+    _require_station_filters(dateFrom, dateTo, customers, customer)
     rows = await rty_gateway.station_details(
         stationCode.strip(),
         dateFrom,
@@ -385,6 +397,7 @@ async def get_station_pass_export(
     orderTypes: Annotated[list[str] | None, Query()] = None,
 ):
     del request
+    _require_station_filters(dateFrom, dateTo, customers, customer)
     advanced = {key: ",".join(values or []) for key, values in (("_serialNumbers", serialNumbers), ("_productionOrders", productionOrders), ("_salesOrders", salesOrders)) if values}
     data = await rty_export.build_export_response(
         "source",

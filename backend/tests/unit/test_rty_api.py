@@ -71,7 +71,7 @@ async def test_cycle_and_station_forward_multiple_order_types(monkeypatch):
     monkeypatch.setattr(rty_gateway, 'station_rates', station)
     monkeypatch.setattr(rty, '_targets', AsyncMock(return_value={}))
     await rty.get_rty_cycle_data(orderTypes=['PP01', 'G001'])
-    await rty.get_station_pass_rates(orderTypes=['PP01', 'G001'])
+    await rty.get_station_pass_rates(dateFrom='2026-04-14', dateTo='2026-04-20', customer='B02', orderTypes=['PP01', 'G001'])
     assert cycle.await_args.kwargs['order_types'] == ['PP01', 'G001']
     assert station.await_args.kwargs['order_types'] == ['PP01', 'G001']
 
@@ -168,10 +168,10 @@ async def test_station_pass_endpoints_forward_customer_filter(monkeypatch):
     monkeypatch.setattr(rty_gateway, "station_rates", station_rates)
     monkeypatch.setattr(rty_gateway, "station_details", station_details)
 
-    rates_response = await rty.get_station_pass_rates(customer="customer-1")
+    rates_response = await rty.get_station_pass_rates(dateFrom="2026-04-14", dateTo="2026-04-20", customer="customer-1")
     details_response = await rty.get_station_pass_details(
         stationCode="OP10",
-        customer="customer-1",
+        dateFrom="2026-04-14", dateTo="2026-04-20", customer="customer-1",
     )
 
     assert rates_response.success
@@ -187,8 +187,8 @@ async def test_station_pass_endpoints_forward_overseas_filter(monkeypatch):
     monkeypatch.setattr(rty_gateway, "station_rates", station_rates)
     monkeypatch.setattr(rty_gateway, "station_details", station_details)
 
-    await rty.get_station_pass_rates(overseas=True)
-    await rty.get_station_pass_details(stationCode="OP10", overseas=True)
+    await rty.get_station_pass_rates(dateFrom="2026-04-14", dateTo="2026-04-20", customer="B02", overseas=True)
+    await rty.get_station_pass_details(stationCode="OP10", dateFrom="2026-04-14", dateTo="2026-04-20", customer="B02", overseas=True)
 
     assert station_rates.await_args.kwargs["overseas"] is True
     assert station_details.await_args.kwargs["overseas"] is True
@@ -446,6 +446,7 @@ async def test_station_export_forwards_overseas_filter(monkeypatch):
         request=None,
         dateFrom="2026-10-05",
         dateTo="2026-10-11",
+        customer="B02",
         overseas=True,
     )
 
@@ -514,3 +515,17 @@ async def test_station_export_uses_station_permission_and_applied_filters(
         )
     else:
         export.assert_not_awaited()
+
+@pytest.mark.parametrize(
+    ('start', 'end', 'customers', 'customer'),
+    [(None, '2026-10-31', ['B02'], None), ('2026-10-01', None, ['B02'], None),
+     ('2026-10-01', '2026-10-31', [], None), ('2026-10-31', '2026-10-01', ['B02'], None)],
+)
+def test_station_filters_require_dates_and_customer(start, end, customers, customer):
+    with pytest.raises(HTTPException) as error:
+        rty._require_station_filters(start, end, customers, customer)
+    assert error.value.status_code == 422
+
+
+def test_station_filters_accept_customer_and_no_customer_choice():
+    rty._require_station_filters('2026-10-01', '2026-10-31', ['__NO_CUSTOMER_ID__'], None)

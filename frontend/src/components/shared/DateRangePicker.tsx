@@ -1,7 +1,9 @@
 import { CalendarDays, ChevronDown, X } from 'lucide-react';
 import { useEffect, useId, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { dateRangePresets, type DateRange } from '../../utils/dateRange';
 import { MonthQuickPicker } from './MonthQuickPicker';
+import { useFloatingFilter } from './useFloatingFilter';
 
 type DateRangeAccent = 'teal' | 'blue';
 
@@ -42,15 +44,18 @@ interface DateRangePickerProps extends DateRange {
   disabled?: boolean;
   allowOpenEnded?: boolean;
   accent?: DateRangeAccent;
+  floating?: boolean;
   onChange: (from: string, to: string) => void;
 }
 
-export function DateRangePicker({ label, from, to, disabled = false, allowOpenEnded = false, accent = 'teal', onChange }: DateRangePickerProps) {
+export function DateRangePicker({ label, from, to, disabled = false, allowOpenEnded = false, accent = 'teal', floating = false, onChange }: DateRangePickerProps) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<DateRange>({ from, to });
   const root = useRef<HTMLDivElement>(null);
   const trigger = useRef<HTMLButtonElement>(null);
   const startInput = useRef<HTMLInputElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const floatingStyle = useFloatingFilter(open && floating && !disabled, trigger, panel, 420);
   const id = useId();
   const presets = dateRangePresets();
   const selected = presets.find(item => item.from === from && item.to === to);
@@ -62,9 +67,9 @@ export function DateRangePicker({ label, from, to, disabled = false, allowOpenEn
 
   useEffect(() => {
     if (!open) return;
-    startInput.current?.focus();
+    startInput.current?.focus({ preventScroll: true });
     const outside = (event: MouseEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
+      if (!root.current?.contains(event.target as Node) && !panel.current?.contains(event.target as Node)) setOpen(false);
     };
     const escape = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return;
@@ -91,7 +96,7 @@ export function DateRangePicker({ label, from, to, disabled = false, allowOpenEn
   };
 
   return (
-    <div ref={root} className="relative flex min-w-0 basis-full flex-col gap-1 sm:min-w-64 sm:flex-[1.3]">
+    <div ref={root} className={`relative flex min-w-0 basis-full flex-col gap-1 sm:flex-[1.3] ${floating ? '' : 'sm:min-w-64'}`}>
       <span id={`${id}-label`} className="text-[11px] font-medium text-slate-600">{label}</span>
       <button ref={trigger} type="button" disabled={disabled} aria-labelledby={`${id}-label`} aria-haspopup="dialog"
         aria-expanded={open && !disabled} aria-controls={open && !disabled ? `${id}-dialog` : undefined}
@@ -102,8 +107,9 @@ export function DateRangePicker({ label, from, to, disabled = false, allowOpenEn
         {selected && <span className={`shrink-0 text-[10px] ${tone.selected}`}>{selected.label}</span>}
         <ChevronDown className={`size-3.5 shrink-0 text-slate-400 ${open ? 'rotate-180' : ''}`} aria-hidden="true" />
       </button>
-      {open && !disabled && <div id={`${id}-dialog`} role="dialog" aria-label="选择日期范围"
-        className="absolute left-0 top-full z-50 mt-1 w-full max-w-[calc(100vw-2rem)] rounded-md border border-slate-200 bg-white shadow-lg sm:w-[420px]"
+      {open && !disabled && (floating ? createPortal : (content: React.ReactNode) => content)(<div ref={panel} id={`${id}-dialog`} role="dialog" aria-label="选择日期范围"
+        style={floating ? floatingStyle : undefined}
+        className={`${floating ? 'z-[100]' : 'absolute left-0 top-full z-50 mt-1 w-full max-w-[calc(100vw-2rem)] sm:w-[420px]'} rounded-md border border-slate-200 bg-white shadow-lg`}
         onKeyDown={event => {
           if (event.key === 'Enter' && event.target instanceof HTMLInputElement) {
             event.preventDefault();
@@ -141,7 +147,7 @@ export function DateRangePicker({ label, from, to, disabled = false, allowOpenEn
           <button type="button" onClick={cancel} className="h-8 rounded-md border border-slate-200 px-3 text-xs text-slate-600 hover:bg-slate-50">取消</button>
           <button type="button" disabled={!valid} onClick={() => commit(draft)} className={`h-8 rounded-md px-3 text-xs font-medium text-white disabled:cursor-not-allowed disabled:opacity-50 ${tone.confirm}`}>确定</button>
         </div>
-      </div>}
+      </div>, document.body)}
     </div>
   );
 }

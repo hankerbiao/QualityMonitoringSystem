@@ -341,6 +341,16 @@ export default function StationPassRatePage() {
   const load = useCallback(async (snapshot?: StationQueryState) => {
     const next = snapshot ?? queryRef.current;
     const requestId = ++loadRequestId.current;
+    if (!next.dateFrom || !next.dateTo) {
+      setError('请选择开始日期和结束日期');
+      setRows([]);
+      return;
+    }
+    if (!next.customers.some((customer) => customer.trim())) {
+      setError('请至少选择一个客户 ID');
+      setRows([]);
+      return;
+    }
     if (next.dateFrom > next.dateTo) {
       setError('开始日期不能晚于结束日期');
       setRows([]);
@@ -713,13 +723,13 @@ export default function StationPassRatePage() {
 
           <form className={`flex flex-wrap items-end gap-x-2 gap-y-3 bg-slate-50/80 px-4 py-3 ${(loading || error || hasSearched) ? 'border-b border-slate-100' : ''}`} onSubmit={(event) => { event.preventDefault(); void load(); }}>
             <div className="min-w-0 basis-full flex-1 sm:min-w-64 xl:w-64 xl:flex-none xl:basis-auto">
-              <DateRangePicker label="计划开始日期（GSTRS）" from={dateFrom} to={dateTo} allowOpenEnded onChange={updateDateRange} />
+              <DateRangePicker label="计划开始日期（GSTRS）*" from={dateFrom} to={dateTo} onChange={updateDateRange} />
             </div>
               <label className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:min-w-28 xl:max-w-44">统计维度<select value={groupBy} onChange={(event) => updateField('groupBy', setGroupBy, event.target.value as StationGroupBy)} className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-800 outline-none transition-colors focus:border-cyan-500 focus:ring-2 focus:ring-cyan-100"><option value="salesOrder">销售订单号</option><option value="productionOrder">生产订单号</option><option value="productModel">机型</option></select></label>
               <div className="flex min-w-36 flex-col gap-1 text-xs font-medium text-slate-600"><span>订单范围</span><div className="inline-flex h-9 overflow-hidden rounded-md border border-slate-300 bg-white"><button type="button" onClick={() => updateField('orderScope', setOrderScope, 'normal')} className={`px-3 text-xs ${orderScope === 'normal' ? 'bg-cyan-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>普通订单</button><button type="button" onClick={() => updateField('orderScope', setOrderScope, 'l6')} className={`border-l border-slate-300 px-3 text-xs ${orderScope === 'l6' ? 'bg-cyan-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>L6 订单</button></div></div>
               <label className="inline-flex h-9 min-w-24 items-center gap-2 self-end rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 xl:min-w-0"><input type="checkbox" checked={overseas} onChange={(event) => updateField('overseas', setOverseas, event.target.checked)} className="size-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />海外</label>
             <StationFilterMultiSelect
-              label="客户 ID"
+              label="客户 ID（必选）"
               selected={selectedCustomers}
               options={[{ value: NO_CUSTOMER_ID, label: customerIdLabel(NO_CUSTOMER_ID) }, ...customers.filter((value) => value !== NO_CUSTOMER_ID).map((value) => ({ value }))]}
               onChange={(values) => {

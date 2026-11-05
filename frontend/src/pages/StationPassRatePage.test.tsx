@@ -39,6 +39,14 @@ vi.mock('../components/station/StationPassWorkspace', () => ({
   StationQueryLaunch: () => null,
 }));
 
+async function ensureCustomer() {
+  const button = await screen.findByRole('button', { name: '客户 ID（必选）（多选）' });
+  if (!button.textContent?.includes('全部客户')) return;
+  if (button.getAttribute('aria-expanded') !== 'true') fireEvent.click(button);
+  fireEvent.click(await screen.findByRole('checkbox', { name: '无客户ID' }));
+  fireEvent.click(button);
+}
+
 describe('StationPassRatePage customer filter', () => {
   beforeEach(() => {
     vi.resetAllMocks();
@@ -62,6 +70,7 @@ describe('StationPassRatePage customer filter', () => {
     fireEvent.change(screen.getByLabelText('SN'), { target: { value: 'SN1\nSN2' } });
     fireEvent.change(screen.getByLabelText('生产订单'), { target: { value: '1\n2' } });
     fireEvent.change(screen.getByLabelText('销售订单'), { target: { value: 'S1\nS2' } });
+    await ensureCustomer();
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
     const expected = expect.objectContaining({ serialNumbers: ['SN1', 'SN2'], productionOrders: ['1', '2'], salesOrders: ['S1', 'S2'] });
     await waitFor(() => expect(rtyApi.getStationPassRates).toHaveBeenCalledWith(expected));
@@ -80,11 +89,13 @@ describe('StationPassRatePage customer filter', () => {
     render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
     expect(screen.getByRole('button', { name: '订单类型（多选）' }).textContent).toContain('全部订单类型');
     expect(screen.queryByLabelText('服务器 SN')).toBeNull();
+    await ensureCustomer();
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
     await waitFor(() => expect(rtyApi.getStationPassRates).toHaveBeenCalledWith(expect.not.objectContaining({ orderTypes: expect.anything() })));
     fireEvent.click(screen.getByRole('button', { name: '订单类型（多选）' }));
     fireEvent.click(await screen.findByRole('checkbox', { name: 'PP01' }));
     fireEvent.click(screen.getByRole('checkbox', { name: 'G001' }));
+    await ensureCustomer();
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
     await waitFor(() => expect(rtyApi.getStationPassRates).toHaveBeenLastCalledWith(expect.objectContaining({ orderTypes: ['PP01', 'G001'] })));
     expect(vi.mocked(rtyApi.getStationPassRates).mock.lastCall?.[0]).not.toHaveProperty('serialNumber');
@@ -99,14 +110,16 @@ describe('StationPassRatePage customer filter', () => {
       inputCount: 10, defectCount: 1, passRate: 90, totalInputCount: 10, totalDefectCount: 1,
     }]);
     render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
+    await ensureCustomer();
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
     await screen.findByText('已选 1 / 45 个工站');
-    fireEvent.click(screen.getByRole('button', { name: '计划开始日期（GSTRS）' }));
+    fireEvent.click(screen.getByRole('button', { name: '计划开始日期（GSTRS）*' }));
     fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-01-01' } });
     fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-01-31' } });
     fireEvent.click(screen.getByRole('button', { name: '确定' }));
     expect(rtyApi.getStationPassRates).toHaveBeenCalledTimes(1);
     expect(screen.queryByText('已选 1 / 45 个工站')).toBeNull();
+    await ensureCustomer();
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
     await waitFor(() => expect(rtyApi.getStationPassRates).toHaveBeenLastCalledWith(
       expect.objectContaining({ dateFrom: '2026-01-01', dateTo: '2026-01-31' }),
@@ -122,6 +135,7 @@ describe('StationPassRatePage customer filter', () => {
         inputCount: 10, defectCount: 0, passRate: 100, totalInputCount: 20, totalDefectCount: 1 },
     ]);
     render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
+    await ensureCustomer();
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
     expect(await screen.findByText('已选 1 / 45 个工站')).toBeTruthy();
     expect(screen.queryByRole('button', { name: '配置工站' })).toBeNull();
@@ -166,6 +180,7 @@ describe('StationPassRatePage customer filter', () => {
     }]);
     render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
 
+    await ensureCustomer();
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
 
     const stationTable = (await screen.findByRole('columnheader', { name: /OP10/ })).closest('table');
@@ -200,6 +215,7 @@ describe('StationPassRatePage customer filter', () => {
     ]);
     context.updateSettings.mockResolvedValue(undefined);
     render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
+    await ensureCustomer();
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
     fireEvent.click(await screen.findByRole('button', { name: '配置工站' }));
     fireEvent.click(screen.getByRole('button', { name: '清空' }));
@@ -217,8 +233,9 @@ describe('StationPassRatePage customer filter', () => {
   it('passes the selected customer to the station query', async () => {
     render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
 
-    fireEvent.click(await screen.findByRole('button', { name: '客户 ID（多选）' }));
+    fireEvent.click(await screen.findByRole('button', { name: '客户 ID（必选）（多选）' }));
     fireEvent.click(await screen.findByRole('checkbox', { name: 'CUST-A' }));
+    await ensureCustomer();
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
 
     await waitFor(() => expect(rtyApi.getStationPassRates).toHaveBeenCalledWith(
@@ -235,7 +252,7 @@ describe('StationPassRatePage customer filter', () => {
     render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
 
     for (const [trigger, dialog, values] of [
-      ['客户 ID（多选）', '选择客户 ID', ['CUST-A', 'CUST-B']],
+      ['客户 ID（必选）（多选）', '选择客户 ID（必选）', ['CUST-A', 'CUST-B']],
       ['机型（多选）', '选择机型', ['Model A', 'Model B']],
       ['工厂地点（多选）', '选择工厂地点', ['Factory A', 'Factory B']],
     ] as const) {
@@ -248,6 +265,7 @@ describe('StationPassRatePage customer filter', () => {
       fireEvent.change(within(menu).getByRole('searchbox'), { target: { value: values[1] } });
       fireEvent.click(within(menu).getByRole('checkbox', { name: new RegExp(values[1]) }));
     }
+    await ensureCustomer();
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
 
     await waitFor(() => expect(rtyApi.getStationPassRates).toHaveBeenCalledWith(
@@ -263,6 +281,7 @@ describe('StationPassRatePage customer filter', () => {
     render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
 
     fireEvent.click(screen.getByRole('checkbox', { name: '海外' }));
+    await ensureCustomer();
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
 
     await waitFor(() => expect(rtyApi.getStationPassRates).toHaveBeenCalledWith(
@@ -290,8 +309,9 @@ describe('StationPassRatePage customer filter', () => {
     render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
     const exportButton = screen.getByRole('button', { name: '导出透视表、销售订单及维修故障明细记录' });
     expect((exportButton as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(await screen.findByRole('button', { name: '客户 ID（多选）' }));
+    fireEvent.click(await screen.findByRole('button', { name: '客户 ID（必选）（多选）' }));
     fireEvent.click(await screen.findByRole('checkbox', { name: 'CUST-A' }));
+    await ensureCustomer();
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
     await waitFor(() => expect((exportButton as HTMLButtonElement).disabled).toBe(false));
     expect(screen.getByText('80.00%')).toBeTruthy();
@@ -326,9 +346,10 @@ describe('StationPassRatePage customer filter', () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
-      fireEvent.click(await screen.findByRole('button', { name: '客户 ID（多选）' }));
+      fireEvent.click(await screen.findByRole('button', { name: '客户 ID（必选）（多选）' }));
       await screen.findByRole('checkbox', { name: 'CUST-A' });
-      fireEvent.click(screen.getByRole('button', { name: '查询' }));
+      await ensureCustomer();
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
       const button = screen.getByRole('button', { name: '导出透视表、销售订单及维修故障明细记录' });
       await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
       fireEvent.click(button);
@@ -375,6 +396,7 @@ describe('StationPassRatePage customer filter', () => {
       },
     }]);
     render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
+    await ensureCustomer();
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
     fireEvent.click(await screen.findByRole('button', { name: /90\.00%/ }));
     fireEvent.click(await screen.findByRole('button', { name: '维修 SN' }));
@@ -414,7 +436,8 @@ describe('StationPassRatePage customer filter', () => {
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
       render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
-      fireEvent.click(screen.getByRole('button', { name: '查询' }));
+      await ensureCustomer();
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
       fireEvent.click(await screen.findByRole('button', { name: /90\.00%/ }));
       fireEvent.click(await screen.findByRole('button', { name: '维修 SN' }));
       expect(await screen.findByRole('alert')).toHaveProperty('textContent', '维修明细读取失败');

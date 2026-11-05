@@ -1,17 +1,23 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { ChevronDown } from 'lucide-react';
+import { useFloatingFilter } from './useFloatingFilter';
 
 interface MultiSelectProps {
   label: string;
   options: string[];
   value: string[];
   onChange: (value: string[]) => void;
+  floating?: boolean;
 }
 
-export function MultiSelect({ label, options, value, onChange }: MultiSelectProps) {
+export function MultiSelect({ label, options, value, onChange, floating = false }: MultiSelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const root = useRef<HTMLDivElement>(null);
+  const trigger = useRef<HTMLButtonElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
+  const floatingStyle = useFloatingFilter(open && floating, trigger, panel, 224);
   const available = [...new Set([...options, ...value])];
   const normalizedSearch = search.trim().toLocaleLowerCase();
   const filtered = available.filter((option) => option.toLocaleLowerCase().includes(normalizedSearch));
@@ -23,7 +29,7 @@ export function MultiSelect({ label, options, value, onChange }: MultiSelectProp
 
   useEffect(() => {
     const closeOnOutsideClick = (event: MouseEvent) => {
-      if (!root.current?.contains(event.target as Node)) setOpen(false);
+      if (!root.current?.contains(event.target as Node) && !panel.current?.contains(event.target as Node)) setOpen(false);
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === 'Escape') setOpen(false);
@@ -40,6 +46,7 @@ export function MultiSelect({ label, options, value, onChange }: MultiSelectProp
     <div ref={root} className="relative flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-700">
       <span>{title}</span>
       <button
+        ref={trigger}
         type="button"
         aria-label={ariaLabel}
         aria-expanded={open}
@@ -56,11 +63,13 @@ export function MultiSelect({ label, options, value, onChange }: MultiSelectProp
           <ChevronDown className={`size-4 transition-transform ${open ? 'rotate-180' : ''}`} />
         </span>
       </button>
-      {open && (
+      {open && (floating ? createPortal : (content: React.ReactNode) => content)(
         <div
+          ref={panel}
           role="dialog"
           aria-label={`选择${title}`}
-          className="absolute right-0 top-full z-50 mt-1 w-full min-w-56 max-w-[calc(100vw-2rem)] overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg"
+          style={floating ? floatingStyle : undefined}
+          className={`${floating ? 'z-[100]' : 'absolute right-0 top-full z-50 mt-1 w-full min-w-56 max-w-[calc(100vw-2rem)]'} overflow-hidden rounded-md border border-slate-200 bg-white shadow-lg`}
         >
           <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2">
             <span className="text-xs text-slate-500">已选 {value.length} 项</span>
@@ -96,7 +105,7 @@ export function MultiSelect({ label, options, value, onChange }: MultiSelectProp
               </p>
             )}
           </div>
-        </div>
+        </div>, document.body
       )}
     </div>
   );

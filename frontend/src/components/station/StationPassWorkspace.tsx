@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { HelpTooltip } from '../shared/HelpTooltip';
 import {
   datePresetRange,
