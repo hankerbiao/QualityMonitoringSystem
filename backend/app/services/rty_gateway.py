@@ -807,7 +807,7 @@ def _station_gstrs_date(item: dict[str, Any]) -> str:
 
 
 async def _station_records_in_range(
-    start: str, end: str, *, serial_number: str | None
+    start: str, end: str, *, serial_number: str | None, production_orders: set[str] | None = None
 ) -> list[dict[str, Any]]:
     """Read long station ranges in calendar-month windows below the stream cap."""
     start_date = datetime.strptime(start, "%Y%m%d").date()
@@ -821,6 +821,9 @@ async def _station_records_in_range(
         months.append((window_start.isoformat(), window_end.isoformat()))
         cursor = (month_end + timedelta(days=1)).replace(day=1)
 
+    if production_orders is not None and not production_orders:
+        return []
+    order_filter = ",".join(sorted(production_orders or ()))
     semaphore = asyncio.Semaphore(4)
 
     async def read_month(month_start: str, month_end: str) -> list[dict[str, Any]]:
@@ -830,6 +833,7 @@ async def _station_records_in_range(
                 dateTo=month_end,
                 timeField="planned",
                 sn=serial_number or "",
+                productionOrder=order_filter,
             )
 
     batches = await asyncio.gather(*(read_month(*window) for window in months))
@@ -870,20 +874,22 @@ async def station_rates(
     selected_customers = {value.strip() for value in [*(customers or []), customer] if value and value.strip()}
     include_empty_customer = NO_CUSTOMER_ID in selected_customers
     selected_customers.discard(NO_CUSTOMER_ID)
-    records, orders = await asyncio.gather(
-        _station_records_in_range(start, end, serial_number=serial_number),
-        # Reuse cycle RTY grouping below; individual station metrics stay separate.
-        _orders(
-            {
-                "dateFrom": date_from_iso,
-                "dateTo": date_to_iso,
-                "serialNumber": serial_number or "",
-                "orderScope": order_scope,
-                "overseas": "true" if overseas else "",
-                "orderTypes": ",".join(order_types or []),
-            }
-        ),
-    )
+    order_filters = {
+        "dateFrom": date_from_iso,
+        "dateTo": date_to_iso,
+        "serialNumber": serial_number or "",
+        "orderScope": order_scope,
+        "overseas": "true" if overseas else "",
+        "orderTypes": ",".join(order_types or []),
+    }
+    if selected_customers or selected_models or selected_bases:
+        orders = await _orders(order_filters)
+        records = None
+    else:
+        records, orders = await asyncio.gather(
+            _station_records_in_range(start, end, serial_number=serial_number),
+            _orders(order_filters),
+        )
     orders = [
         row for row in orders
         if advanced_filters.order_matches(row["aufnr"], row["data"].get("VBELN"), production_values, sales_values)
@@ -896,6 +902,13 @@ async def station_rates(
             or include_empty_customer and not str(row["data"].get("KID") or "").strip()
         )
     ]
+    if records is None:
+        records = await _station_records_in_range(
+            start,
+            end,
+            serial_number=serial_number,
+            production_orders={normalize_order(row["aufnr"]) for row in orders if normalize_order(row["aufnr"])},
+        )
     records = _station_rows_in_planned_range(records, start, end)
     if serial_values:
         records = [item for item in records if str(_raw(item).get("PCODE") or "").strip() in serial_values]
