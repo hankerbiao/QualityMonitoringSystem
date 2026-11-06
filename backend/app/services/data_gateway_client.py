@@ -80,6 +80,7 @@ class DataGatewayClient:
         configured = base_url if base_url is not None else settings.DATA_GATEWAY_URL
         self.base_url = configured.rstrip("/")
         self.timeout = timeout if timeout is not None else settings.DATA_GATEWAY_TIMEOUT_SECONDS
+        self.query_concurrency = max(1, settings.DATA_GATEWAY_QUERY_CONCURRENCY)
         self.cache_ttl = max(0.0, settings.DATA_GATEWAY_CACHE_TTL_SECONDS)
         self._client: httpx.AsyncClient | None = None
         self._orders_cache: dict[
@@ -123,7 +124,10 @@ class DataGatewayClient:
                 # The gateway is a local/private service. Avoid inheriting a
                 # shell proxy and keep connections warm across RTY subqueries.
                 trust_env=False,
-                limits=httpx.Limits(max_connections=32, max_keepalive_connections=16),
+                limits=httpx.Limits(
+                    max_connections=max(32, self.query_concurrency * 4),
+                    max_keepalive_connections=max(16, self.query_concurrency * 2),
+                ),
             )
         return self._client
 
@@ -882,8 +886,23 @@ class DataGatewayClient:
         **filters: str,
     ) -> list[dict[str, Any]]:
         """Read the station source projection through the TSV stream."""
+        path = "/api/views/Z_V_ZMES_T_001/stream"
+        batch_orders = list(
+            dict.fromkeys(
+                value.strip()
+                for value in filters.get("productionOrder", "").split(",")
+                if value.strip()
+            )
+        )
+        batch_filter_keys = {"dateFrom", "dateTo", "timeField", "productionOrder", "sn"}
+        use_batch = (
+            bool(batch_orders)
+            and len(batch_orders) <= 500
+            and not filters.get("sn")
+            and set(filters).issubset(batch_filter_keys)
+        )
         cache_key = (
-            "/api/views/Z_V_ZMES_T_001/stream",
+            f"{('POST' if use_batch else 'GET')} {path}",
             tuple(sorted((str(key), str(value)) for key, value in filters.items() if value)),
             required_fields,
         )
@@ -901,9 +920,21 @@ class DataGatewayClient:
                 if cached:
                     self._text_cache.pop(cache_key, None)
         try:
-            async with (await self._http()).stream(
-                "GET", "/api/views/Z_V_ZMES_T_001/stream", params=filters
-            ) as response:
+            client = await self._http()
+            if use_batch:
+                request = client.stream(
+                    "POST",
+                    path,
+                    json={
+                        "dateFrom": filters.get("dateFrom", ""),
+                        "dateTo": filters.get("dateTo", ""),
+                        "timeField": filters.get("timeField", ""),
+                        "productionOrders": batch_orders,
+                    },
+                )
+            else:
+                request = client.stream("GET", path, params=filters)
+            async with request as response:
                 if not response.is_success:
                     raise DataGatewayError(
                         "生产数据源拒绝了本次工位查询",

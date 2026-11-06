@@ -32,6 +32,7 @@ class Settings(BaseSettings):
     # authoritative source for all migrated quality dashboard data.
     DATA_GATEWAY_URL: str = ""
     DATA_GATEWAY_TIMEOUT_SECONDS: float = 120.0
+    DATA_GATEWAY_QUERY_CONCURRENCY: int = 32
     # Short-lived source cache shared by dashboard requests.  This caches
     # gateway responses only; all dashboard calculations remain in this app.
     DATA_GATEWAY_CACHE_TTL_SECONDS: float = 10.0

@@ -829,10 +829,15 @@ async def _station_records_in_range(
     if production_orders is not None and not production_orders:
         return []
     order_values = sorted(production_orders or ())
-    # Keep query strings and gateway-side IN clauses bounded. The gateway
-    # handles several small requests more reliably than one very large stream.
-    order_chunks = [order_values[index : index + 100] for index in range(0, len(order_values), 100)] or [[]]
-    semaphore = asyncio.Semaphore(4)
+    # The gateway batch endpoint accepts up to 500 production orders per
+    # request. Keep the date windows short so each response remains bounded.
+    order_chunks = [
+        order_values[index : index + 500] for index in range(0, len(order_values), 500)
+    ] or [[]]
+    # The gateway's HANA source is shared by all station requests. Keep the
+    # client-side fan-out configurable, while allowing the remote service to
+    # advertise a lower safe level when its DB pool is constrained.
+    semaphore = asyncio.Semaphore(data_gateway.query_concurrency)
 
     async def read_window(window: tuple[str, str], orders: list[str]) -> list[dict[str, Any]]:
         window_start, window_end = window
