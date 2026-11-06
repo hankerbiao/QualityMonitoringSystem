@@ -81,6 +81,7 @@ class DataGatewayClient:
         self.base_url = configured.rstrip("/")
         self.timeout = timeout if timeout is not None else settings.DATA_GATEWAY_TIMEOUT_SECONDS
         self.query_concurrency = max(1, settings.DATA_GATEWAY_QUERY_CONCURRENCY)
+        self._station_paged_fallback = False
         self.cache_ttl = max(0.0, settings.DATA_GATEWAY_CACHE_TTL_SECONDS)
         self._client: httpx.AsyncClient | None = None
         self._orders_cache: dict[
@@ -331,6 +332,7 @@ class DataGatewayClient:
         *,
         filters: dict[str, Any] | None = None,
         max_rows: int = 250_000,
+        page_concurrency: int = 8,
     ) -> list[dict[str, Any]]:
         """Read a bounded complete result set from a gateway list endpoint."""
 
@@ -388,7 +390,7 @@ class DataGatewayClient:
 
         first_page, total = await fetch_page(1)
         page_count = math.ceil(total / 100)
-        semaphore = asyncio.Semaphore(8)
+        semaphore = asyncio.Semaphore(max(1, page_concurrency))
 
         async def fetch_bounded(page: int) -> list[dict[str, Any]]:
             async with semaphore:
@@ -887,6 +889,7 @@ class DataGatewayClient:
     ) -> list[dict[str, Any]]:
         """Read the station source projection through the TSV stream."""
         path = "/api/views/Z_V_ZMES_T_001/stream"
+        paged_path = "/api/views/Z_V_ZMES_T_001"
         batch_orders = list(
             dict.fromkeys(
                 value.strip()
@@ -902,7 +905,7 @@ class DataGatewayClient:
             and set(filters).issubset(batch_filter_keys)
         )
         cache_key = (
-            f"{('POST' if use_batch else 'GET')} {path}",
+            path,
             tuple(sorted((str(key), str(value)) for key, value in filters.items() if value)),
             required_fields,
         )
@@ -919,6 +922,31 @@ class DataGatewayClient:
                     return copy.deepcopy(cached[1])
                 if cached:
                     self._text_cache.pop(cache_key, None)
+
+        async def read_paged_rows() -> list[dict[str, Any]]:
+            paged_rows = await self.all_pages(
+                "GET",
+                paged_path,
+                filters={**filters, "timeField": filters.get("timeField", "planned")},
+                max_rows=max_rows,
+                page_concurrency=1,
+            )
+            if (
+                required_fields
+                and paged_rows
+                and not set(required_fields).issubset(paged_rows[0])
+            ):
+                raise DataGatewayError("工位查询响应缺少必要字段，无法完整导出")
+            if self.cache_ttl > 0:
+                async with self._orders_cache_lock:
+                    self._text_cache[cache_key] = (
+                        time.monotonic() + self.cache_ttl,
+                        paged_rows,
+                    )
+            return paged_rows
+
+        if self._station_paged_fallback:
+            return await read_paged_rows()
         try:
             client = await self._http()
             if use_batch:
@@ -935,6 +963,9 @@ class DataGatewayClient:
             else:
                 request = client.stream("GET", path, params=filters)
             async with request as response:
+                if response.status_code in {400, 404, 405, 501}:
+                    self._station_paged_fallback = True
+                    return await read_paged_rows()
                 if not response.is_success:
                     raise DataGatewayError(
                         "生产数据源拒绝了本次工位查询",
