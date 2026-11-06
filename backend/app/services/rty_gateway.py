@@ -809,35 +809,56 @@ def _station_gstrs_date(item: dict[str, Any]) -> str:
 async def _station_records_in_range(
     start: str, end: str, *, serial_number: str | None, production_orders: set[str] | None = None
 ) -> list[dict[str, Any]]:
-    """Read long station ranges in calendar-month windows below the stream cap."""
+    """Read station rows in short windows so large gateway streams start promptly."""
     start_date = datetime.strptime(start, "%Y%m%d").date()
     end_date = datetime.strptime(end, "%Y%m%d").date()
-    months: list[tuple[str, str]] = []
-    cursor = start_date.replace(day=1)
-    while cursor <= end_date:
-        month_end = cursor.replace(day=calendar.monthrange(cursor.year, cursor.month)[1])
-        window_start = max(start_date, cursor)
-        window_end = min(end_date, month_end)
-        months.append((window_start.isoformat(), window_end.isoformat()))
-        cursor = (month_end + timedelta(days=1)).replace(day=1)
+    windows: list[tuple[str, str]] = []
+    cursor = start_date
+    if production_orders is None:
+        while cursor <= end_date:
+            month_end = cursor.replace(day=calendar.monthrange(cursor.year, cursor.month)[1])
+            window_end = min(end_date, month_end)
+            windows.append((cursor.isoformat(), window_end.isoformat()))
+            cursor = window_end + timedelta(days=1)
+    else:
+        while cursor <= end_date:
+            window_end = min(end_date, cursor + timedelta(days=6))
+            windows.append((cursor.isoformat(), window_end.isoformat()))
+            cursor = window_end + timedelta(days=1)
 
     if production_orders is not None and not production_orders:
         return []
-    order_filter = ",".join(sorted(production_orders or ()))
+    order_values = sorted(production_orders or ())
+    # Keep query strings and gateway-side IN clauses bounded. The gateway
+    # handles several small requests more reliably than one very large stream.
+    order_chunks = [order_values[index : index + 100] for index in range(0, len(order_values), 100)] or [[]]
     semaphore = asyncio.Semaphore(4)
 
-    async def read_month(month_start: str, month_end: str) -> list[dict[str, Any]]:
+    async def read_window(window: tuple[str, str], orders: list[str]) -> list[dict[str, Any]]:
+        window_start, window_end = window
         async with semaphore:
             return await data_gateway.all_station_rows(
-                dateFrom=month_start,
-                dateTo=month_end,
+                dateFrom=window_start,
+                dateTo=window_end,
                 timeField="planned",
                 sn=serial_number or "",
-                productionOrder=order_filter,
+                productionOrder=",".join(orders),
             )
 
-    batches = await asyncio.gather(*(read_month(*window) for window in months))
-    return [row for batch in batches for row in batch]
+    batches = await asyncio.gather(
+        *(read_window(window, orders) for window in windows for orders in order_chunks)
+    )
+    unique: dict[tuple[str, str, str, str], dict[str, Any]] = {}
+    for row in (item for batch in batches for item in batch):
+        raw = _raw(row)
+        key = (
+            str(raw.get("PCODE") or ""),
+            str(raw.get("AUFNR") or ""),
+            str(raw.get("GSTRS") or ""),
+            str(raw.get("SPEC") or raw.get("LINE_CODE") or ""),
+        )
+        unique.setdefault(key, row)
+    return list(unique.values())
 
 
 async def station_rates(
