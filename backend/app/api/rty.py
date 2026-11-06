@@ -227,6 +227,7 @@ def _order_filters(
     overseas: str = "",
     order_type: str | None = None,
     order_types: list[str] | None = None,
+    material_number: str | None = None,
 ) -> dict[str, str]:
     result = {
         "salesOrder": sales_order or "",
@@ -246,6 +247,8 @@ def _order_filters(
         result["orderType"] = order_type.strip()
     if order_types:
         result["orderTypes"] = ",".join(sorted({value.strip() for value in order_types if value.strip()}))
+    if material_number and material_number.strip():
+        result["materialNumber"] = material_number.strip()
     return result
 
 
@@ -265,6 +268,7 @@ async def get_rty_cycle_data(
     customers: Annotated[list[str] | None, Query()] = None,
     dateFrom: str | None = None,
     dateTo: str | None = None,
+    materialNumber: str | None = None,
     orderType: str | None = None,
     orderTypes: Annotated[list[str] | None, Query()] = None,
 ):
@@ -280,6 +284,7 @@ async def get_rty_cycle_data(
         customers=customers,
         date_from=date_from,
         date_to=date_to,
+        **({"material_number": materialNumber} if materialNumber else {}),
         order_type=orderType,
         order_types=orderTypes,
     )
@@ -431,6 +436,7 @@ async def get_cycle_details(
     request: Request,
     dateFrom: str | None = None,
     dateTo: str | None = None,
+    materialNumber: str | None = None,
     customer: str | None = None,
     orderScope: OrderScopeQuery = "normal",
     productModels: Annotated[list[str] | None, Query()] = None,
@@ -444,6 +450,7 @@ async def get_cycle_details(
         _order_filters(
             date_from=dateFrom,
             date_to=dateTo,
+            material_number=materialNumber,
             customer=customer,
             order_scope=orderScope,
             order_type=orderType,
@@ -470,6 +477,7 @@ async def get_cycle_export(
     request: Request,
     dateFrom: str | None = None,
     dateTo: str | None = None,
+    materialNumber: str | None = None,
     customer: str | None = None,
     orderScope: OrderScopeQuery = "normal",
     productModels: Annotated[list[str] | None, Query()] = None,
@@ -484,6 +492,7 @@ async def get_cycle_export(
         _order_filters(
             date_from=dateFrom,
             date_to=dateTo,
+            material_number=materialNumber,
             customer=customer,
             order_scope=orderScope,
             order_type=orderType,
@@ -509,6 +518,7 @@ async def get_rty_template_export(
     salesOrder: str | None = None,
     productionOrder: str | None = None,
     serialNumber: str | None = None,
+    materialNumber: str | None = None,
     base: str | None = None,
     productModel: str | None = None,
     customer: str | None = None,
@@ -529,6 +539,7 @@ async def get_rty_template_export(
             sales_order=salesOrder,
             production_order=productionOrder,
             serial_number=serialNumber,
+            material_number=materialNumber,
             base=base,
             product_model=productModel,
             customer=customer,
@@ -561,6 +572,7 @@ async def get_rty_list(
     salesOrder: str | None = None,
     productionOrder: str | None = None,
     serialNumber: str | None = None,
+    materialNumber: str | None = None,
     base: str | None = None,
     productModel: str | None = None,
     customer: str | None = None,
@@ -580,6 +592,7 @@ async def get_rty_list(
             sales_order=salesOrder,
             production_order=productionOrder,
             serial_number=serialNumber,
+            material_number=materialNumber,
             base=base,
             product_model=productModel,
             customer=customer,
@@ -609,6 +622,7 @@ async def get_excluded_orders(
     salesOrder: str | None = None,
     productionOrder: str | None = None,
     serialNumber: str | None = None,
+    materialNumber: str | None = None,
     base: str | None = None,
     productModel: str | None = None,
     customer: str | None = None,
@@ -627,6 +641,7 @@ async def get_excluded_orders(
             sales_order=salesOrder,
             production_order=productionOrder,
             serial_number=serialNumber,
+            material_number=materialNumber,
             base=base,
             product_model=productModel,
             customer=customer,
@@ -652,6 +667,7 @@ async def get_defect_details_by_filters(
     salesOrder: str | None = None,
     productionOrder: str | None = None,
     serialNumber: str | None = None,
+    materialNumber: str | None = None,
     base: str | None = None,
     productModel: str | None = None,
     customer: str | None = None,
@@ -670,6 +686,7 @@ async def get_defect_details_by_filters(
         sales_order=salesOrder,
         production_order=productionOrder,
         serial_number=serialNumber,
+        material_number=materialNumber,
         base=base,
         product_model=productModel,
         customer=customer,

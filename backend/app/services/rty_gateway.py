@@ -87,6 +87,28 @@ def normalize_order_row(item: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+async def material_order_numbers(material_number: str) -> set[str]:
+    """Find production orders referenced by postings for the requested material."""
+    material = material_number.strip()
+    if not material:
+        return set()
+    canonical = material.lstrip("0") or "0" if material.isdigit() else material
+    search = material.zfill(18) if material.isdigit() and len(material) <= 18 else material
+    postings = await data_gateway.all_bom_rows(materialCode=search)
+    orders = set()
+    for posting in postings:
+        data = _raw(posting)
+        if isinstance(data.get("data"), dict):
+            data = data["data"]
+        value = str(data.get("MATNR") or "").strip()
+        normalized = value.lstrip("0") or "0" if value.isdigit() else value
+        if normalized == canonical:
+            order = normalize_order(data.get("AUFNR_1"))
+            if order:
+                orders.add(order)
+    return orders
+
+
 def normalize_fault_row(item: dict[str, Any]) -> dict[str, Any]:
     raw = _raw(item)
     return {
@@ -136,16 +158,32 @@ def _selected_order_types(filters: dict[str, Any]) -> set[str]:
 async def _order_rows(filters: dict[str, Any]) -> list[dict[str, Any]]:
     if current_base_permissions() == ():
         return []
+    material_number = str(filters.get("materialNumber") or "").strip()
+    material_orders = await material_order_numbers(material_number) if material_number else None
+    if material_orders is not None and not material_orders:
+        return []
     gateway_filters = {
         key: value
         for key, value in filters.items()
-        if key not in {"orderScope", "calculationMethod", "orderType", "orderTypes", "_productModels", "_bases", "_customers"} and value
+        if key not in {
+            "orderScope",
+            "calculationMethod",
+            "orderType",
+            "orderTypes",
+            "materialNumber",
+            "_productModels",
+            "_bases",
+            "_customers",
+        }
+        and value
     }
     rows = [
         normalize_order_row(item)
         for item in await data_gateway.all_orders(max_rows=1_000_000, **gateway_filters)
     ]
     rows = [row for row in rows if base_allowed(row["data"].get("LGORT"))]
+    if material_orders is not None:
+        rows = [row for row in rows if normalize_order(row["aufnr"]) in material_orders]
     order_types = _selected_order_types(filters)
     if order_types:
         rows = [row for row in rows if str(row["data"].get("AUART") or "").strip() in order_types]
@@ -619,6 +657,7 @@ async def cycle_data(
     customers: list[str] | None = None,
     date_from: str = YEAR_START,
     date_to: str = YEAR_END,
+    material_number: str | None = None,
     order_type: str | None = None,
     order_types: list[str] | None = None,
 ) -> list[RTYData]:
@@ -635,6 +674,7 @@ async def cycle_data(
         tuple(selected_customers),
         date_from,
         date_to,
+        (material_number or "").strip(),
         order_type or "",
         tuple(sorted(set(order_types or []))),
         tuple(sorted(targets.items())),
@@ -642,7 +682,14 @@ async def cycle_data(
     return await _RTY_CYCLE_CACHE.get_or_set(
         key,
         lambda: _build_cycle_data(
-            order_scope, selected_customers, targets, date_from, date_to, order_type, order_types
+            order_scope,
+            selected_customers,
+            targets,
+            date_from,
+            date_to,
+            order_type,
+            order_types,
+            material_number,
         ),
         ttl_seconds=RTY_CYCLE_CACHE_TTL_SECONDS,
     )
@@ -698,6 +745,7 @@ async def _build_cycle_data(
     date_to: str,
     order_type: str | None = None,
     order_types: list[str] | None = None,
+    material_number: str | None = None,
 ) -> list[RTYData]:
     selected_customers = (
         [customers] if isinstance(customers, str) and customers else customers or []
@@ -710,6 +758,7 @@ async def _build_cycle_data(
             "dateTo": date_to,
             "orderType": order_type or "",
             "orderTypes": ",".join(order_types or []),
+            "materialNumber": (material_number or "").strip(),
         }
     )
     groups = await _rty_order_groups(orders)

@@ -113,6 +113,7 @@ function buildRtyQuery(params: RTYFilterParams): URLSearchParams {
   if (params.salesOrder) qs.set('salesOrder', params.salesOrder);
   if (params.productionOrder) qs.set('productionOrder', params.productionOrder);
   if (params.serialNumber) qs.set('serialNumber', params.serialNumber);
+  if (params.materialNumber?.trim()) qs.set('materialNumber', params.materialNumber.trim());
   if (params.orderType) qs.set('orderType', params.orderType);
   params.orderTypes?.forEach(value => qs.append('orderTypes', value));
   qs.set('orderScope', params.orderScope);
@@ -161,6 +162,7 @@ export const rtyApi = {
     bases?: string[];
     orderType?: string;
     orderTypes?: string[];
+    materialNumber?: string;
   }): Promise<StationPassExport> {
     const qs = new URLSearchParams({
       dateFrom: params.dateFrom, dateTo: params.dateTo, orderScope: params.orderScope,
@@ -169,6 +171,7 @@ export const rtyApi = {
     params.customers?.forEach(customer => qs.append('customers', customer));
     params.productModels?.forEach(model => qs.append('productModels', model));
     params.bases?.forEach(base => qs.append('bases', base));
+    if (params.materialNumber?.trim()) qs.set('materialNumber', params.materialNumber.trim());
     if (params.orderType) qs.set('orderType', params.orderType);
     params.orderTypes?.forEach(value => qs.append('orderTypes', value));
     return requestData<StationPassExport>(`${API_BASE_URL}/rty/cycle-export?${qs}`);
@@ -182,6 +185,7 @@ export const rtyApi = {
     params.customers?.forEach(customer => qs.append('customers', customer));
     params.productModels?.forEach(model => qs.append('productModels', model));
     params.bases?.forEach(base => qs.append('bases', base));
+    if (params.materialNumber?.trim()) qs.set('materialNumber', params.materialNumber.trim());
     if (params.orderType) qs.set('orderType', params.orderType);
     params.orderTypes?.forEach(value => qs.append('orderTypes', value));
     return requestData<RTYCycleDetails>(`${API_BASE_URL}/rty/cycle-details?${qs}`);
@@ -234,13 +238,14 @@ export const rtyApi = {
   async getCycleData(
     orderScope: RTYFilterParams['orderScope'] = 'normal',
     customer?: string | string[],
-    options: { dateFrom?: string; dateTo?: string; forceRefresh?: boolean; orderType?: string; orderTypes?: string[] } = {},
+    options: { dateFrom?: string; dateTo?: string; forceRefresh?: boolean; orderType?: string; orderTypes?: string[]; materialNumber?: string } = {},
   ): Promise<CycleDataResult> {
     const dateFrom = options.dateFrom || '';
     const dateTo = options.dateTo || '';
     const customers = [...new Set([...(Array.isArray(customer) ? customer : customer ? [customer] : [])])].sort();
     const orderTypes = [...new Set(options.orderTypes || [])].sort();
-    const key = scopedKey(`cycle-data-gamng:${orderScope}:${customers.join(',')}:${dateFrom}:${dateTo}${options.orderType ? `:type=${options.orderType}` : ''}${orderTypes.length ? `:types=${JSON.stringify(orderTypes)}` : ''}`);
+    const materialNumber = options.materialNumber?.trim() || '';
+    const key = scopedKey(`cycle-data-gamng:${orderScope}:${customers.join(',')}:${dateFrom}:${dateTo}:${materialNumber}${options.orderType ? `:type=${options.orderType}` : ''}${orderTypes.length ? `:types=${JSON.stringify(orderTypes)}` : ''}`);
     if (options.forceRefresh) {
       rtyCycleCache.delete(key);
       removeStoredCycleData(key);
@@ -267,6 +272,7 @@ export const rtyApi = {
       if (dateFrom) qs.set('dateFrom', dateFrom);
       if (dateTo) qs.set('dateTo', dateTo);
       if (options.orderType) qs.set('orderType', options.orderType);
+      if (materialNumber) qs.set('materialNumber', materialNumber);
       orderTypes.forEach(value => qs.append('orderTypes', value));
       return requestData<RTYData[]>(`${API_BASE_URL}/rty/cycle-data?${qs.toString()}`);
     })();

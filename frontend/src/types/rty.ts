@@ -58,6 +58,7 @@ export interface RTYCycleDetailQuery {
   productModels?: string[];
   customers?: string[];
   bases?: string[];
+  materialNumber?: string;
   orderType?: string;
   orderTypes?: string[];
 }
@@ -213,6 +214,7 @@ export interface RTYFilterParams {
   salesOrder: string;
   productionOrder: string;
   serialNumber: string;
+  materialNumber?: string;
   orderScope: 'normal' | 'l6';
   orderType?: string;
   orderTypes?: string[];

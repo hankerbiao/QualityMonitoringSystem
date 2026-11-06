@@ -155,8 +155,12 @@ async def _load_orders(
     gateway_filters = {
         key: value
         for key, value in filters.items()
-        if value and key not in {"orderScope", "calculationMethod", "orderType", "orderTypes", "_serialNumbers", "_productionOrders", "_salesOrders"}
+        if value and key not in {"orderScope", "calculationMethod", "orderType", "orderTypes", "materialNumber", "_serialNumbers", "_productionOrders", "_salesOrders"}
     }
+    material_number = filters.get("materialNumber", "").strip()
+    material_orders = await rty_gateway.material_order_numbers(material_number) if material_number else None
+    if material_orders is not None and not material_orders:
+        return []
     items = await data_gateway.all_orders(max_rows=MAX_EXPORT_ORDERS, **gateway_filters)
     start = compact_date(validate_date(filters["dateFrom"]))
     end = compact_date(validate_date(filters["dateTo"]))
@@ -178,6 +182,7 @@ async def _load_orders(
         planned_date = compact_date(normalized["gstrs_date"])
         if (
             normalized["aufnr"]
+            and (material_orders is None or normalize_order(normalized["aufnr"]) in material_orders)
             and base_allowed(normalized["data"].get("LGORT"))
             and start <= planned_date <= end
             and (selected_models is None or normalized["data"].get("MAKTX_TH") in selected_models)

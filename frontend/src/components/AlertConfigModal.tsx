@@ -325,6 +325,8 @@ export default function AlertConfigModal({
   const [selectedModels, setSelectedModels] = useState<Set<string> | null>(null);
   const [selectedBases, setSelectedBases] = useState<Set<string> | null>(null);
   const [selectedCustomers, setSelectedCustomers] = useState<string[]>([]);
+  const [draftMaterialNumber, setDraftMaterialNumber] = useState('');
+  const [selectedMaterialNumber, setSelectedMaterialNumber] = useState('');
   const [customerList, setCustomerList] = useState<string[]>([]);
   
   // 视图模式：chart = 双图表，heatmap = 热力图
@@ -343,7 +345,7 @@ export default function AlertConfigModal({
   const allRawData = scopeRawData[orderScope];
   const latestFetchId = useRef(0);
   const [loadedQueryKey, setLoadedQueryKey] = useState<string | null>(null);
-  const queryKey = JSON.stringify([orderScope, selectedOrderTypes.slice().sort(), selectedCustomers.slice().sort(), appliedRange.start, appliedRange.end]);
+  const queryKey = JSON.stringify([orderScope, selectedOrderTypes.slice().sort(), selectedCustomers.slice().sort(), appliedRange.start, appliedRange.end, selectedMaterialNumber]);
   const [fetchError, setFetchError] = useState('');
   const [exportError, setExportError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -365,6 +367,7 @@ export default function AlertConfigModal({
         (['normal', 'l6'] as const).map(scope => rtyApi.getCycleData(scope, selectedCustomers, {
           dateFrom: appliedRange.start,
           dateTo: appliedRange.end,
+          materialNumber: selectedMaterialNumber || undefined,
           forceRefresh,
           ...(selectedOrderTypes.length ? { orderTypes: selectedOrderTypes } : {}),
         })),
@@ -431,6 +434,7 @@ export default function AlertConfigModal({
       setTimeFilter('custom');
     }
     forceNextSearch.current = true;
+    setSelectedMaterialNumber(draftMaterialNumber.trim());
     setAppliedRange(draftRange);
     setSearchRevision(revision => revision + 1);
   };
@@ -482,6 +486,7 @@ export default function AlertConfigModal({
         customers: selectedCustomers.length ? selectedCustomers : undefined,
         productModels: selectedModels?.size ? Array.from(selectedModels) : undefined,
         bases: selectedBases?.size ? Array.from(selectedBases) : undefined,
+        materialNumber: selectedMaterialNumber || undefined,
         ...(selectedOrderTypes.length ? { orderTypes: selectedOrderTypes } : {}),
       });
       const book = XLSX.utils.book_new();
@@ -560,6 +565,7 @@ export default function AlertConfigModal({
           : undefined,
       bases: selectedBases?.size ? Array.from(selectedBases) : undefined,
       customers: selectedCustomers.length ? selectedCustomers : undefined,
+      materialNumber: selectedMaterialNumber || undefined,
       ...(selectedOrderTypes.length ? { orderTypes: selectedOrderTypes } : {}),
     };
     setCycleDetailSelection({ title, query, inputCount, defectCount });
@@ -782,7 +788,7 @@ export default function AlertConfigModal({
                   </div>
                 )}
               </div>
-              <div className="flex flex-wrap items-center gap-3">
+              <div className="flex max-w-full items-center gap-3 overflow-x-auto">
                 <div className="flex items-center gap-2 text-xs text-slate-400" title={cacheTimeLabel ? `周期统计${cycleCacheInfo.fromCache ? '缓存' : '数据'}时间：${cacheTimeLabel}` : '周期统计数据尚未加载'}>
                   <span>{cacheTimeLabel ? `${cycleCacheInfo.fromCache ? '缓存于' : '更新于'} ${cacheTimeLabel}` : '数据尚未加载'}</span>
                   <button
@@ -843,11 +849,24 @@ export default function AlertConfigModal({
                   onCustomRangeChange={setDraftRange}
                   onCustomRangeApply={() => searchCurrentFilters(true)}
                 />
+                <label className="shrink-0">
+                  <span className="sr-only">物料号</span>
+                  <input
+                    type="text"
+                    value={draftMaterialNumber}
+                    onChange={(event) => setDraftMaterialNumber(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter') searchCurrentFilters();
+                    }}
+                    placeholder="输入物料号"
+                    className="h-9 w-40 rounded-md border border-slate-300 bg-white px-2.5 text-sm text-slate-700 outline-none transition-colors focus:border-blue-400 focus:ring-2 focus:ring-blue-500/15"
+                  />
+                </label>
                 <button
                   type="button"
                   onClick={() => searchCurrentFilters()}
                   disabled={loading || !draftRange.start || !draftRange.end || draftRange.start > draftRange.end}
-                  className="inline-flex h-9 items-center gap-1.5 rounded-md bg-blue-600 px-3 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  className="inline-flex h-9 shrink-0 items-center gap-1.5 rounded-md bg-blue-600 px-3 text-sm font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                   <Search className="size-4" aria-hidden="true" />
                   搜索

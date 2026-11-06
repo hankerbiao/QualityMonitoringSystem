@@ -20,6 +20,7 @@ const EMPTY_FILTERS: RTYFilterParams = {
   salesOrder: '',
   productionOrder: '',
   serialNumber: '',
+  materialNumber: '',
   orderScope: 'normal',
 };
 
