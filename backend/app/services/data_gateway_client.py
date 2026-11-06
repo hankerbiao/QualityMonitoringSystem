@@ -929,7 +929,7 @@ class DataGatewayClient:
                 paged_path,
                 filters={**filters, "timeField": filters.get("timeField", "planned")},
                 max_rows=max_rows,
-                page_concurrency=1,
+                page_concurrency=4,
             )
             if (
                 required_fields
