@@ -165,7 +165,7 @@ async def _load_sources_uncached(
             if isinstance(batch, BaseException):
                 raise batch
             if batch is None:
-                raise DataGatewayError("数据源不支持完整订单读取，无法按实际开始日期分析")
+                raise DataGatewayError("数据源不支持完整订单读取，无法按生产订单计划开始时间分析")
             full_rows.extend(batch)
     full_by_id = {str(item.get("_id") or ""): item for item in full_rows}
     if len(full_rows) != len(identities) or set(full_by_id) != set(identities):
@@ -189,7 +189,7 @@ async def _load_sources_uncached(
         if (
             not order
             or not base_allowed(base)
-            or not _date_in_range(data.get("ZDATE_STARTED"), start, end)
+            or not _date_in_range(data.get("GSTRS"), start, end)
             or models and model not in models
             or customer_values and customer not in customer_values
             or base_values and base not in base_values

@@ -138,7 +138,7 @@ export default function RepairQualityPage() {
             <span className="flex size-8 shrink-0 items-center justify-center rounded-md bg-emerald-50 text-emerald-700"><Wrench className="size-4" /></span>
             <div className="flex min-w-0 items-center gap-1"><h1 className="truncate text-base font-semibold text-slate-900">维修通过率分析</h1><HelpTooltip label="查看维修通过率分析说明">
               <p>分析首修通过率及维修 SN 的完整生命周期复修次数。</p>
-              <p className="mt-1">按订单实际开始日期筛选 SN；维修次数按完整生命周期内的 SN 和 NG 时间去重，同一 SN 的相同 NG 时间计为 1 次。默认周期为最近 7 天。</p>
+              <p className="mt-1">按生产订单计划开始时间筛选 SN；维修次数按完整生命周期内的 SN 和 NG 时间去重，同一 SN 的相同 NG 时间计为 1 次。默认周期为最近 7 天。</p>
             </HelpTooltip></div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
@@ -155,7 +155,7 @@ export default function RepairQualityPage() {
       <main className="mx-auto max-w-[1720px] space-y-3 px-3 py-3 sm:px-5">
         <form onSubmit={query} className="border-b border-slate-200 pb-3">
           <div className="flex flex-wrap items-end gap-2">
-            <DateRangePicker label="实际开始日期（订单）" from={dateFrom} to={dateTo} disabled={loading || exporting}
+            <DateRangePicker label="计划开始时间（生产订单）" from={dateFrom} to={dateTo} disabled={loading || exporting}
               onChange={(from, to) => { setDateFrom(from); setDateTo(to); }} />
             <MultiSelect label="客户（多选）" options={options.customers} value={customers} onChange={setCustomers} />
             <MultiSelect label="基地（多选）" options={options.bases} value={bases} onChange={setBases} />

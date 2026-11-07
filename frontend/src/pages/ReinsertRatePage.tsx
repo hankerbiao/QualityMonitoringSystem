@@ -1,4 +1,5 @@
 import { AdvancedFilters, EMPTY_ADVANCED_FILTERS, advancedQuery } from '../components/shared/AdvancedFilters';
+import { buildFaultDetailSheet } from '../components/rty/templateExport';
 import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import { AlertTriangle, ArrowLeft, ChevronDown, ChevronRight, Download, RotateCcw, Search, Wrench, X } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
@@ -88,8 +89,7 @@ export default function ReinsertRatePage() {
         items.push(...result.items);
       }
       const workbook = buildReinsertWorkbook(data, applied);
-      const sheet = XLSX.utils.json_to_sheet(items.map(item => flattenRecord(item)));
-      XLSX.utils.book_append_sheet(workbook, sheet, '故障明细');
+      XLSX.utils.book_append_sheet(workbook, buildFaultDetailSheet(items), '维修故障明细记录');
       XLSX.writeFile(workbook, `重插率分析_${applied.dateFrom}_${applied.dateTo}.xlsx`);
     } catch (reason) {
       setExportError(reason instanceof Error ? reason.message : '导出失败，请重试');
