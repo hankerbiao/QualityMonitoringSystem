@@ -147,8 +147,10 @@ function StationFilterMultiSelect({
   selected,
   options,
   onChange,
+  showMultipleHint = true,
 }: {
   label: string;
+  showMultipleHint?: boolean;
   selected: string[];
   options: StationFilterOption[];
   onChange: (values: string[]) => void;
@@ -173,11 +175,11 @@ function StationFilterMultiSelect({
 
   return (
     <div ref={containerRef} className="flex min-w-36 flex-1 flex-col gap-1 text-xs font-medium text-slate-600 xl:min-w-24 xl:max-w-48">
-      <span>{label}（多选）</span>
+      <span>{label}{showMultipleHint && '（多选）'}</span>
       <div className="relative">
         <button
           type="button"
-          aria-label={`${label}（多选）`}
+          aria-label={showMultipleHint ? `${label}（多选）` : label}
           aria-expanded={open}
           aria-haspopup="dialog"
           title={selected.length ? selected.join('、') : undefined}
@@ -343,11 +345,6 @@ export default function StationPassRatePage() {
     const requestId = ++loadRequestId.current;
     if (!next.dateFrom || !next.dateTo) {
       setError('请选择开始日期和结束日期');
-      setRows([]);
-      return;
-    }
-    if (!next.customers.some((customer) => customer.trim())) {
-      setError('请至少选择一个客户 ID');
       setRows([]);
       return;
     }
@@ -729,7 +726,8 @@ export default function StationPassRatePage() {
               <div className="flex min-w-36 flex-col gap-1 text-xs font-medium text-slate-600"><span>订单范围</span><div className="inline-flex h-9 overflow-hidden rounded-md border border-slate-300 bg-white"><button type="button" onClick={() => updateField('orderScope', setOrderScope, 'normal')} className={`px-3 text-xs ${orderScope === 'normal' ? 'bg-cyan-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>普通订单</button><button type="button" onClick={() => updateField('orderScope', setOrderScope, 'l6')} className={`border-l border-slate-300 px-3 text-xs ${orderScope === 'l6' ? 'bg-cyan-700 text-white' : 'text-slate-600 hover:bg-slate-50'}`}>L6 订单</button></div></div>
               <label className="inline-flex h-9 min-w-24 items-center gap-2 self-end rounded-md border border-slate-300 bg-white px-3 text-xs font-medium text-slate-700 xl:min-w-0"><input type="checkbox" checked={overseas} onChange={(event) => updateField('overseas', setOverseas, event.target.checked)} className="size-4 rounded border-slate-300 text-cyan-600 focus:ring-cyan-500" />海外</label>
             <StationFilterMultiSelect
-              label="客户 ID（必选）"
+              label="客户 ID"
+              showMultipleHint={false}
               selected={selectedCustomers}
               options={[{ value: NO_CUSTOMER_ID, label: customerIdLabel(NO_CUSTOMER_ID) }, ...customers.filter((value) => value !== NO_CUSTOMER_ID).map((value) => ({ value }))]}
               onChange={(values) => {

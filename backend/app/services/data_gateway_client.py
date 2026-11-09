@@ -49,7 +49,7 @@ def _repair_row_has_planned_field(row: dict[str, Any]) -> bool:
 # A full year of station passes is already above one million rows (about 1.67
 # million in 2026). Keep a hard ceiling so an unbounded stream cannot exhaust
 # the API process, but leave room for the rest of this year.
-STATION_STREAM_MAX_ROWS = 500_000
+STATION_MAX_ROWS = 500_000
 # shortcut: 10,000 rows, update if the gateway stream cap changes.
 BOM_STREAM_MAX_ROWS = 10_000
 BOM_UNBOUNDED_QUERY_MESSAGE = "BOM 查询必须包含日期、物料号或订单筛选条件，未限定范围的查询已禁用"
@@ -81,7 +81,6 @@ class DataGatewayClient:
         self.base_url = configured.rstrip("/")
         self.timeout = timeout if timeout is not None else settings.DATA_GATEWAY_TIMEOUT_SECONDS
         self.query_concurrency = max(1, settings.DATA_GATEWAY_QUERY_CONCURRENCY)
-        self._station_paged_fallback = False
         self.cache_ttl = max(0.0, settings.DATA_GATEWAY_CACHE_TTL_SECONDS)
         self._client: httpx.AsyncClient | None = None
         self._orders_cache: dict[
@@ -883,150 +882,108 @@ class DataGatewayClient:
     async def all_station_rows(
         self,
         *,
-        max_rows: int = STATION_STREAM_MAX_ROWS,
+        max_rows: int = STATION_MAX_ROWS,
         required_fields: tuple[str, ...] = (),
         **filters: str,
     ) -> list[dict[str, Any]]:
-        """Read the station source projection through the TSV stream."""
-        path = "/api/views/Z_V_ZMES_T_001/stream"
-        paged_path = "/api/views/Z_V_ZMES_T_001"
-        batch_orders = list(
-            dict.fromkeys(
-                value.strip()
-                for value in filters.get("productionOrder", "").split(",")
-                if value.strip()
-            )
-        )
-        batch_filter_keys = {"dateFrom", "dateTo", "timeField", "productionOrder", "sn"}
-        use_batch = (
-            bool(batch_orders)
-            and len(batch_orders) <= 500
-            and not filters.get("sn")
-            and set(filters).issubset(batch_filter_keys)
-        )
-        cache_key = (
-            path,
-            tuple(sorted((str(key), str(value)) for key, value in filters.items() if value)),
-            required_fields,
-        )
-        now = time.monotonic()
+        """Read complete station batches; partition oversized queries without pagination."""
+        path = "/api/views/Z_V_ZMES_T_001/all"
+        filters = {**filters, "timeField": filters.get("timeField", "planned")}
+        cache_key = (path, tuple(sorted(filters.items())), required_fields)
+
+        def validate(rows: list[dict[str, Any]]) -> None:
+            if len(rows) > max_rows:
+                raise DataGatewayError("工位查询结果超过处理上限", code="QUERY_TOO_LARGE")
+            fields = set(required_fields)
+            if filters["timeField"] == "planned":
+                fields.add("GSTRS")
+
+            def has_fields(row: dict[str, Any]) -> bool:
+                sources = [row]
+                raw = row.get("raw")
+                if isinstance(raw, dict):
+                    sources.append(raw)
+                    if isinstance(raw.get("data"), dict):
+                        sources.append(raw["data"])
+                if isinstance(row.get("data"), dict):
+                    sources.append(row["data"])
+                aliases = {"AUFNR": ("AUFNR", "productionOrder")}
+                return all(
+                    any(
+                        candidate in source
+                        for source in sources
+                        for candidate in aliases.get(field, (field,))
+                    )
+                    for field in fields
+                )
+
+            if any(not has_fields(row) for row in rows):
+                raise DataGatewayError("工位查询响应缺少必要字段，无法完整导出")
+
         if self.cache_ttl > 0:
             async with self._orders_cache_lock:
                 cached = self._text_cache.get(cache_key)
-                if cached and cached[0] > now and isinstance(cached[1], list):
-                    if len(cached[1]) > max_rows:
-                        raise DataGatewayError(
-                            f"工位查询结果超过本系统单次处理上限 {max_rows} 条",
-                            code="QUERY_TOO_LARGE",
-                        )
+                if cached and cached[0] > time.monotonic():
+                    validate(cached[1])
                     return copy.deepcopy(cached[1])
-                if cached:
-                    self._text_cache.pop(cache_key, None)
+                self._text_cache.pop(cache_key, None)
 
-        async def read_paged_rows() -> list[dict[str, Any]]:
-            paged_rows = await self.all_pages(
-                "GET",
-                paged_path,
-                filters={**filters, "timeField": filters.get("timeField", "planned")},
-                max_rows=max_rows,
-                page_concurrency=4,
-            )
+        async def read_batch(params: dict[str, str], budget: int) -> list[dict[str, Any]]:
+            payload = await self.request_json("GET", path, params=params)
             if (
-                required_fields
-                and paged_rows
-                and not set(required_fields).issubset(paged_rows[0])
+                not isinstance(payload, dict)
+                or type(payload.get("total")) is not int
+                or payload["total"] < 0
+                or not isinstance(payload.get("items"), list)
+                or any(not isinstance(row, dict) for row in payload["items"])
+                or len(payload["items"]) > payload["total"]
             ):
-                raise DataGatewayError("工位查询响应缺少必要字段，无法完整导出")
-            if self.cache_ttl > 0:
-                async with self._orders_cache_lock:
-                    self._text_cache[cache_key] = (
-                        time.monotonic() + self.cache_ttl,
-                        paged_rows,
-                    )
-            return paged_rows
+                raise DataGatewayError("工位批量查询响应格式错误")
+            if payload["total"] > budget:
+                raise DataGatewayError("工位查询结果超过处理上限", code="QUERY_TOO_LARGE")
+            if len(payload["items"]) == payload["total"]:
+                return payload["items"]
 
-        if self._station_paged_fallback:
-            return await read_paged_rows()
-        try:
-            client = await self._http()
-            if use_batch:
-                request = client.stream(
-                    "POST",
-                    path,
-                    json={
-                        "dateFrom": filters.get("dateFrom", ""),
-                        "dateTo": filters.get("dateTo", ""),
-                        "timeField": filters.get("timeField", ""),
-                        "productionOrders": batch_orders,
-                    },
-                )
+            # Disjoint dates/orders preserve every row without skip/limit pages.
+            partitions = []
+            try:
+                start = date.fromisoformat(params.get("dateFrom", ""))
+                end = date.fromisoformat(params.get("dateTo", ""))
+            except ValueError:
+                start = end = None
+            if start is not None and end is not None and start < end:
+                middle = start + (end - start) // 2
+                partitions = [
+                    {**params, "dateTo": middle.isoformat()},
+                    {**params, "dateFrom": (middle + timedelta(days=1)).isoformat()},
+                ]
             else:
-                request = client.stream("GET", path, params=filters)
-            async with request as response:
-                if response.status_code in {400, 404, 405, 501}:
-                    self._station_paged_fallback = True
-                    return await read_paged_rows()
-                if not response.is_success:
-                    raise DataGatewayError(
-                        "生产数据源拒绝了本次工位查询",
-                        status_code=response.status_code,
-                        code=(
-                            "DATA_GATEWAY_UNAVAILABLE"
-                            if response.status_code >= 500 or response.status_code == 429
-                            else "DATA_GATEWAY_REJECTED"
-                        ),
-                        retryable=response.status_code >= 500 or response.status_code == 429,
-                    )
-                fields: list[str] = []
-                rows: list[dict[str, Any]] = []
-                async for line in response.aiter_lines():
-                    if not line:
-                        continue
-                    values = line.split("\t")
-                    if not fields:
-                        fields = values
-                        if required_fields and (
-                            not set(required_fields).issubset(fields)
-                            or len(set(fields)) != len(fields)
-                        ):
-                            raise DataGatewayError("工位查询响应缺少必要字段或字段重复，无法完整导出")
-                        continue
-                    if required_fields and len(values) != len(fields):
-                        raise DataGatewayError("工位查询响应行字段不完整，无法完整导出")
-                    rows.append(dict(zip(fields, values, strict=False)))
-                    if len(rows) > max_rows:
-                        raise DataGatewayError(
-                            f"工位查询结果超过本系统单次处理上限 {max_rows} 条，请缩小日期或增加筛选条件",
-                            code="QUERY_TOO_LARGE",
-                        )
-        except httpx.TimeoutException as exc:
-            raise DataGatewayError(
-                "生产数据源响应超时，请缩小查询范围后重试",
-                code="DATA_GATEWAY_TIMEOUT",
-                retryable=True,
-            ) from exc
-        except httpx.HTTPError as exc:
-            raise DataGatewayError(
-                "生产数据源暂时不可用，请稍后重试",
-                code="DATA_GATEWAY_UNAVAILABLE",
-                retryable=True,
-            ) from exc
-        if required_fields and not fields:
-            raise DataGatewayError("工位查询响应缺少表头，无法完整导出")
-        if filters.get("timeField") == "planned" and "GSTRS" not in fields:
-            # Older gateway deployments omit the planned start date from the
-            # station stream projection. Use the paginated view so the RTY
-            # service can enforce its GSTRS date contract locally.
-            return await self.all_pages(
-                "GET",
-                "/api/views/Z_V_ZMES_T_001",
-                filters={**filters, "timeField": "planned"},
-                max_rows=max_rows,
-            )
+                orders = list(dict.fromkeys(
+                    normalize_order(value) if value.strip().isdigit() else value.strip()
+                    for value in params.get("productionOrder", "").split(",") if value.strip()
+                ))
+                if len(orders) > 1:
+                    middle = len(orders) // 2
+                    partitions = [
+                        {**params, "productionOrder": ",".join(orders[:middle])},
+                        {**params, "productionOrder": ",".join(orders[middle:])},
+                    ]
+            if not partitions:
+                raise DataGatewayError(
+                    "工位批量结果被截断，请缩小日期范围或增加订单筛选条件",
+                    code="QUERY_TOO_LARGE",
+                )
+            rows = []
+            for partition in partitions:
+                rows.extend(await read_batch(partition, budget - len(rows)))
+            return rows
+
+        rows = await read_batch(filters, max_rows)
+        validate(rows)
         if self.cache_ttl > 0:
             async with self._orders_cache_lock:
                 self._text_cache[cache_key] = (time.monotonic() + self.cache_ttl, rows)
-        return rows
+        return copy.deepcopy(rows)
 
     async def packaging_counts(self, production_orders: list[str]) -> list[dict[str, Any]] | None:
         """Return gateway-aggregated packaging counts for selected production orders."""

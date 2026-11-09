@@ -996,3 +996,37 @@ async def test_rty_and_station_exports_exclude_reversed_orders_from_population(m
     station = await rty_export.build_source_export(FILTERS)
     assert [row["AUFNR"] for row in template.orders] == ["1"]
     assert [row["AUFNR"] for row in station.orders] == ["1"]
+
+
+@pytest.mark.asyncio
+async def test_packaging_bulk_accepts_alternative_station_fields_and_deduplicates_hosts(monkeypatch):
+    rows = [
+        {"AUFNR": "0001", "PCODE": "A", "SPEC": "TXM-OP300"},
+        {"AUFNR": "1", "PCODE": "A", "OPERATION": "OP310：包装"},
+        {"AUFNR": "1", "PCODE": "B", "LINE_CODE": "TXM-OP310:包装"},
+        {"AUFNR": "1", "SPEC": "TXM-OP200"},
+        {"AUFNR": "2", "PCODE": "A", "SPEC": "TXM-OP300"},
+    ]
+    def handler(request):
+        assert request.url.path == "/api/views/Z_V_ZMES_T_001/all"
+        assert request.url.params["timeField"] == "actual"
+        assert "dateFrom" not in request.url.params
+        return httpx.Response(200, json={"items": rows, "total": len(rows)})
+    client = DataGatewayClient("http://gateway.test")
+    client._client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url=client.base_url)
+    monkeypatch.setattr(rty_export, "data_gateway", client)
+    try:
+        assert await rty_export._packaging_batch_legacy(["1", "2", "3"]) == {"1": 2, "2": 1, "3": 0}
+    finally:
+        await client.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("row,message", [
+    ({"AUFNR": "1", "PCODE": "A"}, "缺少工位标识"),
+    ({"AUFNR": "1", "SPEC": "TXM-OP300"}, "缺少主机条码"),
+])
+async def test_packaging_bulk_rejects_missing_station_or_packaging_barcode(monkeypatch, row, message):
+    monkeypatch.setattr(rty_export.data_gateway, "all_station_rows", AsyncMock(return_value=[row]))
+    with pytest.raises(DataGatewayError, match=message):
+        await rty_export._packaging_batch_legacy(["1"])

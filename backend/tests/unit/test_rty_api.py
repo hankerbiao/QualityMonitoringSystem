@@ -516,16 +516,14 @@ async def test_station_export_uses_station_permission_and_applied_filters(
     else:
         export.assert_not_awaited()
 
-@pytest.mark.parametrize(
-    ('start', 'end', 'customers', 'customer'),
-    [(None, '2026-10-31', ['B02'], None), ('2026-10-01', None, ['B02'], None),
-     ('2026-10-01', '2026-10-31', [], None), ('2026-10-31', '2026-10-01', ['B02'], None)],
-)
-def test_station_filters_require_dates_and_customer(start, end, customers, customer):
+@pytest.mark.parametrize('start,end', [
+    (None, '2026-10-31'), ('2026-10-01', None), ('2026-10-31', '2026-10-01'),
+])
+def test_station_filters_require_valid_dates(start, end):
     with pytest.raises(HTTPException) as error:
-        rty._require_station_filters(start, end, customers, customer)
+        rty._require_station_dates(start, end)
     assert error.value.status_code == 422
 
 
-def test_station_filters_accept_customer_and_no_customer_choice():
-    rty._require_station_filters('2026-10-01', '2026-10-31', ['__NO_CUSTOMER_ID__'], None)
+def test_station_filters_accept_dates_without_customer():
+    rty._require_station_dates('2026-10-01', '2026-10-31')

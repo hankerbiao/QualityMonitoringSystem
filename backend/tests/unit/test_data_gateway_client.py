@@ -788,65 +788,8 @@ async def test_bom_stream_splits_a_capped_date_range_without_paging():
     assert calls == []
 
 
-@pytest.mark.asyncio
-async def test_station_rows_reuses_short_lived_cache():
-    calls = 0
-
-    def handler(_request: httpx.Request) -> httpx.Response:
-        nonlocal calls
-        calls += 1
-        return httpx.Response(200, text="id\tPCODE\nrow-1\tSN1\n")
-
-    client = DataGatewayClient("http://gateway.test", timeout=2)
-    client.cache_ttl = 10
-    client._client = httpx.AsyncClient(
-        transport=httpx.MockTransport(handler), base_url=client.base_url
-    )
-    try:
-        first = await client.all_station_rows(dateFrom="2026-01-01")
-        second = await client.all_station_rows(dateFrom="2026-01-01")
-    finally:
-        await client.close()
-
-    assert calls == 1
-    assert first == second == [{"id": "row-1", "PCODE": "SN1"}]
 
 
-@pytest.mark.asyncio
-async def test_station_rows_falls_back_to_paginated_view_when_planned_gstrs_is_missing():
-    client = DataGatewayClient("http://gateway.test", timeout=2)
-    captured: dict[str, object] = {}
-
-    async def request_json(method: str, path: str, **kwargs: object):
-        captured.update({"method": method, "path": path, **kwargs})
-        return {"items": [{"id": "station-1", "GSTRS": "2026-07-15"}], "total": 1}
-
-    client.request_json = request_json  # type: ignore[method-assign]
-    client._client = httpx.AsyncClient(
-        transport=httpx.MockTransport(
-            lambda _request: httpx.Response(200, text="id\tPCODE\nrow-1\tSN1\n")
-        ),
-        base_url=client.base_url,
-    )
-    try:
-        rows = await client.all_station_rows(
-            dateFrom="2026-07-01", dateTo="2026-07-31", timeField="planned"
-        )
-    finally:
-        await client.close()
-
-    assert rows == [{"id": "station-1", "GSTRS": "2026-07-15"}]
-    assert captured == {
-        "method": "GET",
-        "path": "/api/views/Z_V_ZMES_T_001",
-        "params": {
-            "page": 1,
-            "pageSize": 100,
-            "dateFrom": "2026-07-01",
-            "dateTo": "2026-07-31",
-            "timeField": "planned",
-        },
-    }
 
 
 @pytest.mark.asyncio
@@ -932,78 +875,79 @@ async def test_fault_rows_without_date_filter_keep_rows_missing_planned_date():
 
 
 @pytest.mark.asyncio
-async def test_station_rows_reject_a_stream_above_the_row_cap():
-    def handler(_request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, text="id\tPCODE\n1\tA\n2\tB\n")
-
-    client = DataGatewayClient("http://gateway.test", timeout=2)
-    client._client = httpx.AsyncClient(
-        transport=httpx.MockTransport(handler), base_url=client.base_url
-    )
-    try:
-        with pytest.raises(DataGatewayError, match="单次处理上限 1 条"):
-            await client.all_station_rows(dateFrom="2026-01-01", max_rows=1)
-    finally:
-        await client.close()
-
-
-@pytest.mark.asyncio
-async def test_station_cache_does_not_silently_truncate_at_a_lower_cap():
-    client = DataGatewayClient("http://gateway.test", timeout=2)
-    client.cache_ttl = 10
-    client._client = httpx.AsyncClient(
-        transport=httpx.MockTransport(
-            lambda _: httpx.Response(200, text="id\tPCODE\n1\tA\n2\tB\n")
-        ),
-        base_url=client.base_url,
-    )
-    try:
-        await client.all_station_rows(productionOrder="1")
-        with pytest.raises(DataGatewayError) as exc:
-            await client.all_station_rows(productionOrder="1", max_rows=1)
-        assert exc.value.code == "QUERY_TOO_LARGE"
-    finally:
-        await client.close()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("body", [
-    "",
-    "id\tPCODE\n1\tA\n",
-    "AUFNR\tPCODE\tSPEC\n1\tA\n",
-    "AUFNR\tPCODE\tSPEC\n1\tA\tOP300\textra\n",
-    "AUFNR\tPCODE\tSPEC\tPCODE\n1\tA\tOP300\tB\n",
-])
-async def test_station_required_fields_reject_incomplete_streams_even_after_a_cached_read(body):
-    client = DataGatewayClient("http://gateway.test", timeout=2)
-    client.cache_ttl = 10
-    client._client = httpx.AsyncClient(
-        transport=httpx.MockTransport(lambda _: httpx.Response(200, text=body)),
-        base_url=client.base_url,
-    )
-    try:
-        await client.all_station_rows(productionOrder="1")
-        with pytest.raises(DataGatewayError, match="无法完整导出"):
-            await client.all_station_rows(
-                productionOrder="1", required_fields=("AUFNR", "PCODE", "SPEC")
-            )
-    finally:
-        await client.close()
-
-
-@pytest.mark.asyncio
-async def test_station_valid_header_only_is_a_complete_empty_result():
+async def test_station_bulk_uses_only_all_and_cache_is_isolated():
     def handler(request):
-        assert dict(request.url.params) == {"productionOrder": "1"}
-        return httpx.Response(200, text="AUFNR\tPCODE\tSPEC\n")
-
-    client = DataGatewayClient("http://gateway.test", timeout=2)
-    client._client = httpx.AsyncClient(
-        transport=httpx.MockTransport(handler), base_url=client.base_url
-    )
+        assert request.method == "GET"
+        assert request.url.path == "/api/views/Z_V_ZMES_T_001/all"
+        assert "page" not in request.url.params
+        return httpx.Response(200, json={"total": 1, "items": [{"GSTRS": "20261001", "PCODE": "A"}]})
+    client = DataGatewayClient("http://gateway.test")
+    client._client = httpx.AsyncClient(transport=httpx.MockTransport(handler), base_url=client.base_url)
+    client.cache_ttl = 10
     try:
-        assert await client.all_station_rows(
-            productionOrder="1", required_fields=("AUFNR", "PCODE", "SPEC")
-        ) == []
+        first = await client.all_station_rows()
+        first[0]["PCODE"] = "mutated"
+        assert (await client.all_station_rows())[0]["PCODE"] == "A"
+        with pytest.raises(DataGatewayError, match="无法完整导出"):
+            await client.all_station_rows(required_fields=("SPEC",))
+        with pytest.raises(DataGatewayError) as error:
+            await client.all_station_rows(max_rows=0)
+        assert error.value.code == "QUERY_TOO_LARGE"
     finally:
         await client.close()
+
+
+@pytest.mark.asyncio
+async def test_station_truncated_bulk_splits_disjoint_dates_without_pages():
+    client = DataGatewayClient("http://gateway.test")
+    client.request_json = AsyncMock(side_effect=[
+        {"total": 2, "items": [{"GSTRS": "20261001"}]},
+        {"total": 1, "items": [{"GSTRS": "20261001"}]},
+        {"total": 1, "items": [{"GSTRS": "20261002"}]},
+    ])
+    client.all_pages = AsyncMock(side_effect=AssertionError("pagination must not be used"))
+    assert await client.all_station_rows(dateFrom="2026-10-01", dateTo="2026-10-02") == [
+        {"GSTRS": "20261001"}, {"GSTRS": "20261002"},
+    ]
+    params = [c.kwargs["params"] for c in client.request_json.await_args_list]
+    assert params[1]["dateTo"] == "2026-10-01"
+    assert params[2]["dateFrom"] == "2026-10-02"
+    client.all_pages.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_station_truncated_bulk_splits_normalized_orders_without_duplicates():
+    client = DataGatewayClient("http://gateway.test")
+    client.request_json = AsyncMock(side_effect=[
+        {"total": 2, "items": [{"GSTRS": "20261001"}]},
+        {"total": 1, "items": [{"GSTRS": "20261001", "AUFNR": "1"}]},
+        {"total": 1, "items": [{"GSTRS": "20261001", "AUFNR": "2"}]},
+    ])
+    rows = await client.all_station_rows(productionOrder="0001,1,0002")
+    assert [row["AUFNR"] for row in rows] == ["1", "2"]
+    assert [c.kwargs["params"]["productionOrder"] for c in client.request_json.await_args_list[1:]] == ["1", "2"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [
+    {"total": 1, "items": []},
+    {"total": 2, "items": [{"GSTRS": "20261001"}]},
+    {"total": -1, "items": []},
+    {"total": 1, "items": [None]},
+    {"total": 0, "items": [{}]},
+    {"total": 1, "items": [{"PCODE": "missing date"}]},
+])
+async def test_station_bulk_rejects_incomplete_or_invalid_results(payload):
+    client = DataGatewayClient("http://gateway.test")
+    client.request_json = AsyncMock(return_value=payload)
+    client.all_pages = AsyncMock(side_effect=AssertionError("pagination must not be used"))
+    with pytest.raises(DataGatewayError):
+        await client.all_station_rows(dateFrom="2026-10-01", dateTo="2026-10-01", productionOrder="1")
+    client.all_pages.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+async def test_station_bulk_complete_empty_result():
+    client = DataGatewayClient("http://gateway.test")
+    client.request_json = AsyncMock(return_value={"total": 0, "items": []})
+    assert await client.all_station_rows(required_fields=("PCODE",)) == []

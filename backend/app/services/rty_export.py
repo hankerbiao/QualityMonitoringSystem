@@ -478,7 +478,10 @@ async def _packaging_batch_legacy(numbers: list[str]) -> dict[str, int]:
         rows = await data_gateway.all_station_rows(
             productionOrder=",".join(order_variants(numbers)),
             max_rows=500_000,
-            required_fields=("AUFNR", "PCODE", "LINE_CODE", "SPEC", "OPERATION"),
+            # Packaging is an order's distinct hosts at OP300/OP310 across
+            # its station history; it does not require a planned-date field.
+            timeField="actual",
+            required_fields=("AUFNR",),
         )
     except DataGatewayError as exc:
         if exc.code != "QUERY_TOO_LARGE" and exc.status_code != 413:
@@ -500,7 +503,9 @@ async def _packaging_batch_legacy(numbers: list[str]) -> dict[str, int]:
     barcodes: dict[str, set[str]] = {normalize_order(number): set() for number in numbers}
     for item in rows:
         raw = _source(item)
-        number = normalize_order(raw.get("AUFNR"))
+        number = normalize_order(raw.get("AUFNR") or item.get("productionOrder"))
+        if not number:
+            raise DataGatewayError("工位过站记录缺少生产订单号，无法完整计算包装数量")
         if number not in barcodes:
             continue
         station = normalize_station_code(
@@ -509,9 +514,11 @@ async def _packaging_batch_legacy(numbers: list[str]) -> dict[str, int]:
             or raw.get("SPEC")
             or raw.get("OPERATION")
         )
+        if not station:
+            raise DataGatewayError(f"生产订单 {number} 的过站记录缺少工位标识，无法完整导出")
         if station not in {"OP300", "OP310"}:
             continue
-        sn = str(raw.get("PCODE") or "").strip()
+        sn = str(raw.get("PCODE") or item.get("hostBarcode") or "").strip()
         if not sn:
             raise DataGatewayError(f"生产订单 {number} 的包装过站记录缺少主机条码，无法完整导出")
         barcodes[number].add(sn)
