@@ -40,7 +40,19 @@ export interface OAEmployee {
   directBoss: string;
 }
 
+export interface FAMaterialVendor {
+  pn: string;
+  vendor: string | null;
+  cached: boolean;
+}
+
 export const faApplicationsApi = {
+  lookupVendor: (pn: string) => requestJson<FAMaterialVendor>(`${API_BASE_URL}/fa/vendor?pn=${encodeURIComponent(pn)}`),
+  rememberVendor: (pn: string, vendor: string) => requestJson<FAMaterialVendor>(`${API_BASE_URL}/fa/vendor`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ pn, vendor }),
+  }),
   listEmployees: () => requestJson<{ items: OAEmployee[] }>(`${API_BASE_URL}/fa/employees`),
   preview: (query: FAPreviewRequest) => requestJson<FAPreview>(`${API_BASE_URL}/fa/preview`, {
     method: 'POST',

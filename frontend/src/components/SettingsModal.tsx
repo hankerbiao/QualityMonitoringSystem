@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Settings, Save, BellRing, Target, X, CheckCircle, Loader2, Camera, Users, PanelsTopLeft, RefreshCw, KeyRound } from 'lucide-react';
 import { useSettings } from '../context/SettingsContext';
-import { ChangePasswordTab, DashboardStatusTab, ModelTargetsTab, EmailAlertTab, ProcessRecordConfigTab, UserManagementTab } from './settings';
+import { ChangePasswordTab, DashboardStatusTab, ModelTargetsTab, EmailAlertTab, ProcessRecordConfigTab, UserManagementTab, MdmVendorConfigTab } from './settings';
 import { useAuth } from '../context/AuthContext';
 import type { ProcessRecordConfig } from '../types';
 import type { HomeModuleStatus } from '../config/homeModules';
@@ -11,10 +11,11 @@ interface SettingsModalProps {
   onSaved: () => void;
 }
 
-type TabKey = 'processRecords' | 'rty' | 'email' | 'dashboardStatuses' | 'users' | 'password';
+type TabKey = 'processRecords' | 'mdmVendor' | 'rty' | 'email' | 'dashboardStatuses' | 'users' | 'password';
 
 const TABS: { key: TabKey; label: string; icon: typeof Save }[] = [
   { key: 'processRecords', label: '影像数据源', icon: Camera },
+  { key: 'mdmVendor', label: 'MDM 厂商查询', icon: KeyRound },
   { key: 'rty', label: '机型指标配置', icon: Target },
   { key: 'email', label: '邮件预警规则', icon: BellRing },
   { key: 'dashboardStatuses', label: '看板状态', icon: PanelsTopLeft },
@@ -36,7 +37,7 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
   const { settings, updateSettings, loading: settingsLoading, error: loadError, reloadSettings } = useSettings();
   const { user } = useAuth();
   const isAdmin = user?.role === 'admin';
-  const visibleTabs = TABS.filter(({ key }) => isAdmin || key === 'rty' || key === 'email' || key === 'password');
+  const visibleTabs = TABS.filter(({ key }) => isAdmin || key === 'mdmVendor' || key === 'rty' || key === 'email' || key === 'password');
   const selectedTab = visibleTabs.some(({ key }) => key === activeTab) ? activeTab : visibleTabs[0].key;
 
   const [processRecordConfig, setProcessRecordConfig] = useState<ProcessRecordConfig>({ ...settings.processRecords, password: '' });
@@ -101,7 +102,7 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2 sm:gap-3">
-            {selectedTab !== 'password' && selectedTab !== 'users' && <button
+            {selectedTab !== 'password' && selectedTab !== 'users' && selectedTab !== 'mdmVendor' && <button
               onClick={handleSave}
               disabled={saving || modelTargetsBusy || settingsLoading || !!loadError}
               className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-md text-sm font-medium transition-colors flex items-center gap-1.5 whitespace-nowrap shadow-sm sm:px-4"
@@ -156,6 +157,7 @@ export default function SettingsModal({ onClose, onSaved }: SettingsModalProps) 
               {selectedTab === 'processRecords' && (
                 <ProcessRecordConfigTab config={processRecordConfig} onChange={setProcessRecordConfig} keyMismatch={error.includes('加密密钥与已保存密码不匹配')} />
               )}
+              {selectedTab === 'mdmVendor' && <MdmVendorConfigTab />}
               {selectedTab === 'rty' && (
                 <ModelTargetsTab targets={modelTargets} onChange={setModelTargets} companyTargets={company5000Targets} onCompanyChange={setCompany5000Targets} disabled={saving} onBusyChange={setModelTargetsBusy} />
               )}

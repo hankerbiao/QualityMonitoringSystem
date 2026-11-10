@@ -27,6 +27,8 @@ from app.schemas.settings import (
     EmailAlertConfig,
     EmailAlertConfigUpdate,
     ManualWeeklyEmailCheckRequest,
+    MdmVendorConfig,
+    MdmVendorConfigUpdate,
     ModelTargetsResponse,
     ProcessRecordConfig,
     ProcessRecordConfigUpdate,
@@ -112,7 +114,11 @@ async def update_all_settings(
 ):
     """批量更新当前角色可管理的配置，先校验权限再写入。"""
     is_admin = current_user.get("role") == "admin"
-    if not is_admin and request.model_fields_set - {"modelTargets", "company5000Targets", "emailAlert"}:
+    if not is_admin and request.model_fields_set - {
+        "modelTargets",
+        "company5000Targets",
+        "emailAlert",
+    }:
         raise HTTPException(status_code=403, detail="仅管理员可修改此配置")
     try:
         data = await _service().update_all(request)
@@ -159,7 +165,10 @@ async def update_process_record_config(config: ProcessRecordConfigUpdate):
     allow_reset = data.pop("allowPasswordReset", False)
     try:
         validate_credential_update(
-            await _read_doc("process_record_config") or {}, data.get("username"), password, allow_reset
+            await _read_doc("process_record_config") or {},
+            data.get("username"),
+            password,
+            allow_reset,
         )
         if password:
             data["passwordCiphertext"] = encrypt_credential(password)
@@ -178,6 +187,42 @@ async def update_process_record_config(config: ProcessRecordConfigUpdate):
         data=_process_records_from_doc(doc),
         message="关键工位影像追溯凭据已更新",
     )
+
+
+def _mdm_vendor_config_key(username: str) -> str:
+    return f"mdm_vendor_cookie:{username}"
+
+
+@router.get("/mdm-vendor", response_model=Response[MdmVendorConfig])
+async def get_mdm_vendor_config(current_user: Annotated[dict, Depends(get_current_user)]):
+    """Return only the current user's MDM cookie configuration status."""
+    username = str(current_user.get("username") or current_user.get("itcode") or "").strip()
+    doc = await _read_doc(_mdm_vendor_config_key(username)) if username else None
+    return Response(
+        success=True, data=MdmVendorConfig(hasCookie=bool(doc and doc.get("cookieCiphertext")))
+    )
+
+
+@router.put("/mdm-vendor", response_model=Response[MdmVendorConfig])
+async def update_mdm_vendor_config(
+    config: MdmVendorConfigUpdate,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Save the current user's encrypted MDM cookie without returning it."""
+    username = str(current_user.get("username") or current_user.get("itcode") or "").strip()
+    cookie = config.cookie.strip()
+    if not username or not cookie:
+        raise HTTPException(status_code=422, detail="Cookie 不能为空")
+    try:
+        ciphertext = encrypt_credential(cookie)
+    except CredentialEncryptionError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    await get_database()[CONFIGS].update_one(
+        {"key": _mdm_vendor_config_key(username)},
+        {"$set": {"cookieCiphertext": ciphertext, "updatedAt": datetime.now(timezone.utc)}},
+        upsert=True,
+    )
+    return Response(success=True, data=MdmVendorConfig(hasCookie=True), message="MDM Cookie 已保存")
 
 
 @router.post(
@@ -353,7 +398,9 @@ async def send_current_email_alerts(request: ManualWeeklyEmailCheckRequest):
 async def get_qualified_models(threshold: int = Query(..., ge=0)):
     """查询达到生产量阈值且 RTY 未达标的机型，不触发邮件发送。"""
     config = await _read_doc("email_alert_config")
-    result = await get_weekly_production_candidates(threshold, standards=(config or {}).get("alertStandards", ["group"]))
+    result = await get_weekly_production_candidates(
+        threshold, standards=(config or {}).get("alertStandards", ["group"])
+    )
     return Response(success=True, data=result, message="符合条件的机型已获取")
 
 
@@ -361,8 +408,10 @@ async def get_qualified_models(threshold: int = Query(..., ge=0)):
 async def preview_qualified_models(request: ManualWeeklyEmailCheckRequest):
     """使用当前表单标准预览，不发送邮件。"""
     result = await get_weekly_production_candidates(
-        request.weeklyProductionThreshold, targets=request.modelTargets,
-        company_targets=request.company5000Targets, standards=request.alertStandards,
+        request.weeklyProductionThreshold,
+        targets=request.modelTargets,
+        company_targets=request.company5000Targets,
+        standards=request.alertStandards,
     )
     return Response(success=True, data=result, message="符合条件的机型已获取")
 

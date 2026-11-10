@@ -384,8 +384,7 @@ _REPAIR_EMAIL_FIELDS = (
     ("替换原厂码", "originalFactoryCode"),
 )
 _DOA_EMAIL_FIELDS = (
-    ("PN", "pn"), ("SN", "sn"), ("备件名称", "spareName"),
-    ("原厂原码", "originalCode"), ("报修设备", "reportedDevice"),
+    ("SN", "sn"), ("原厂原码", "originalCode"), ("报修设备", "reportedDevice"),
     ("操作时间", "operationTime"),
 )
 

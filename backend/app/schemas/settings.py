@@ -8,7 +8,20 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 DashboardStatus = Literal["available", "admin-only"]
-DASHBOARD_STATUS_KEYS = frozenset({"rty", "station-pass-rate", "repair-quality", "reinsert-rate", "lrr", "doa", "mfr", "incoming-materials", "batch-exception", "fa"})
+DASHBOARD_STATUS_KEYS = frozenset(
+    {
+        "rty",
+        "station-pass-rate",
+        "repair-quality",
+        "reinsert-rate",
+        "lrr",
+        "doa",
+        "mfr",
+        "incoming-materials",
+        "batch-exception",
+        "fa",
+    }
+)
 DEFAULT_DASHBOARD_STATUSES: dict[str, DashboardStatus] = {
     "rty": "available",
     "station-pass-rate": "available",
@@ -41,6 +54,14 @@ class ProcessRecordConfigUpdate(BaseModel):
     username: str | None = None
     password: str | None = None
     allowPasswordReset: bool = False
+
+
+class MdmVendorConfig(BaseModel):
+    hasCookie: bool = False
+
+
+class MdmVendorConfigUpdate(BaseModel):
+    cookie: str = Field(min_length=1, max_length=16000)
 
 
 # ============== 机型指标配置 ==============
@@ -117,7 +138,9 @@ class EmailAlertConfigBase(BaseModel):
         ge=0,
         description="周生产量阈值（台）：窗口内某机型投入台数达到该值才纳入 RTY 判定",
     )
-    alertStandards: list[Literal["group", "company5000"]] = Field(default_factory=lambda: ["group"], min_length=1)
+    alertStandards: list[Literal["group", "company5000"]] = Field(
+        default_factory=lambda: ["group"], min_length=1
+    )
 
 
 class EmailAlertConfig(EmailAlertConfigBase):
@@ -144,7 +167,9 @@ class ManualWeeklyEmailCheckRequest(BaseModel):
     weeklyProductionThreshold: int = Field(..., ge=0)
     modelTargets: dict[str, float] | None = None
     company5000Targets: dict[str, float] | None = None
-    alertStandards: list[Literal["group", "company5000"]] = Field(default_factory=lambda: ["group"], min_length=1)
+    alertStandards: list[Literal["group", "company5000"]] = Field(
+        default_factory=lambda: ["group"], min_length=1
+    )
 
     @field_validator("modelTargets", "company5000Targets", mode="before")
     @classmethod

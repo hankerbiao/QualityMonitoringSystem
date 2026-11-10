@@ -8,6 +8,16 @@ from pydantic import BaseModel, Field, field_validator, model_validator
 Stage = Literal["产测", "DOA"]
 
 
+class FAMaterialVendorCacheUpdate(BaseModel):
+    pn: str = Field(min_length=1, max_length=80)
+    vendor: str = Field(min_length=1, max_length=120)
+
+    @field_validator("pn", "vendor")
+    @classmethod
+    def trim_values(cls, value: str) -> str:
+        return value.strip()
+
+
 class FAPreviewRequest(BaseModel):
     pn: str = Field(min_length=1, max_length=80)
     vendor: str = Field(default="", max_length=120)

@@ -8,34 +8,6 @@ import { dateRangePresets } from '../utils/dateRange';
 import { emailPreviewHtml } from '../utils/faEmailPreview';
 
 const today = new Date().toISOString().slice(0, 10);
-const VENDOR_STORAGE_KEY = 'fa-vendor-by-pn-v1';
-
-function savedVendor(pn: string): string {
-  try {
-    const vendors: unknown = JSON.parse(localStorage.getItem(VENDOR_STORAGE_KEY) || '{}');
-    return vendors && typeof vendors === 'object' && !Array.isArray(vendors)
-      ? String((vendors as Record<string, unknown>)[pn.trim()] ?? '')
-      : '';
-  } catch {
-    return '';
-  }
-}
-
-function saveVendor(pn: string, vendor: string) {
-  const key = pn.trim();
-  if (!key) return;
-  try {
-    const current = JSON.parse(localStorage.getItem(VENDOR_STORAGE_KEY) || '{}');
-    const vendors = current && typeof current === 'object' && !Array.isArray(current)
-      ? current as Record<string, unknown>
-      : {};
-    if (vendor.trim()) vendors[key] = vendor.trim();
-    else delete vendors[key];
-    localStorage.setItem(VENDOR_STORAGE_KEY, JSON.stringify(vendors));
-  } catch {
-    // Keep the form usable when browser storage is unavailable.
-  }
-}
 
 const initialForm: FAPreviewRequest = {
   pn: '',
@@ -262,6 +234,11 @@ export default function FAApplicationsPage() {
   const [error, setError] = useState('');
   const [pnError, setPnError] = useState('');
   const [vendorError, setVendorError] = useState('');
+  const [vendorLookup, setVendorLookup] = useState<{ pn: string; vendor: string | null } | null>(null);
+  const [vendorLookupError, setVendorLookupError] = useState('');
+  const [vendorLookupLoading, setVendorLookupLoading] = useState(false);
+  const vendorLookupRequestId = useRef(0);
+  const vendorInputRef = useRef<HTMLInputElement>(null);
   const [stageError, setStageError] = useState('');
   const [vendorAutoFilled, setVendorAutoFilled] = useState(false);
   const [listPn, setListPn] = useState('');
@@ -271,6 +248,31 @@ export default function FAApplicationsPage() {
   const [listDateTo, setListDateTo] = useState('');
   const [recentPn, setRecentPn] = useState<string[]>(loadRecentPn);
   const listRequestId = useRef(0);
+
+  useEffect(() => {
+    const pn = form.pn.trim();
+    const requestId = ++vendorLookupRequestId.current;
+    setVendorLookup(null);
+    setVendorLookupError('');
+    if (!pn) {
+      setVendorLookupLoading(false);
+      return;
+    }
+    const timer = window.setTimeout(async () => {
+      setVendorLookupLoading(true);
+      try {
+        const result = await faApplicationsApi.lookupVendor(pn);
+        if (requestId === vendorLookupRequestId.current) setVendorLookup({ pn, vendor: result.vendor });
+      } catch (reason) {
+        if (requestId === vendorLookupRequestId.current) {
+          setVendorLookupError(reason instanceof Error ? reason.message : '厂商查询失败');
+        }
+      } finally {
+        if (requestId === vendorLookupRequestId.current) setVendorLookupLoading(false);
+      }
+    }, 450);
+    return () => window.clearTimeout(timer);
+  }, [form.pn]);
 
   const filtersKey = [listPn.trim(), listCreator.trim(), listStatus, listDateFrom, listDateTo].join('|');
   const hasListFilter = Boolean(listPn.trim() || listCreator.trim() || listStatus || listDateFrom || listDateTo);
@@ -335,17 +337,26 @@ export default function FAApplicationsPage() {
     setStageError('');
   };
   const updatePn = (pn: string) => {
-    const remembered = savedVendor(pn);
-    mutateForm({ pn, vendor: remembered });
-    setVendorAutoFilled(Boolean(remembered.trim()));
+    mutateForm({ pn, vendor: '' });
+    setVendorAutoFilled(false);
     if (pn.trim()) setPnError('');
   };
   const updateVendor = (vendor: string) => {
     mutateForm({ vendor });
     if (vendor.trim()) setVendorError('');
     setVendorAutoFilled(false);
-    saveVendor(form.pn, vendor);
   };
+  useEffect(() => {
+    if (
+      vendorLookup?.pn === form.pn.trim()
+      && vendorLookup.vendor
+      && !form.vendor.trim()
+      && vendorInputRef.current === document.activeElement
+    ) {
+      updateVendor(vendorLookup.vendor);
+      setVendorAutoFilled(true);
+    }
+  }, [vendorLookup, form.pn, form.vendor]);
   const resetForm = () => {
     setForm({ ...initialForm });
     setPreview(null);
@@ -494,10 +505,13 @@ export default function FAApplicationsPage() {
                 <label>
                   <span className="mb-1 block text-xs font-semibold text-slate-600">厂商 <span className="text-red-600">*</span></span>
                   <div className="relative">
-                    <input value={form.vendor} onChange={event => updateVendor(event.target.value)} placeholder="输入厂商" className="h-10 w-full rounded-md border border-slate-300 px-3 pr-16 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+                    <input ref={vendorInputRef} value={form.vendor} onFocus={() => { if (!form.vendor.trim() && vendorLookup?.pn === form.pn.trim() && vendorLookup.vendor) { updateVendor(vendorLookup.vendor); setVendorAutoFilled(true); } }} onBlur={() => { if (form.pn.trim() && form.vendor.trim()) void faApplicationsApi.rememberVendor(form.pn.trim(), form.vendor.trim()).catch(() => undefined); }} onChange={event => updateVendor(event.target.value)} placeholder="查询后点击此处填入厂商" className="h-10 w-full rounded-md border border-slate-300 px-3 pr-16 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
                     {vendorAutoFilled && form.vendor && <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-700" title="已自动填充上次输入的厂商，可直接修改">已记忆</span>}
                   </div>
                   {vendorError && <p className="mt-1 text-xs text-red-600">{vendorError}</p>}
+                  {vendorLookupLoading && <p className="mt-1 text-xs text-slate-500">正在查询物料厂商…</p>}
+                  {!vendorLookupLoading && vendorLookup?.pn === form.pn.trim() && vendorLookup.vendor && !form.vendor.trim() && <p className="mt-1 text-xs text-blue-700">已查到厂商：{vendorLookup.vendor}，点击输入框自动填入</p>}
+                  {vendorLookupError && <p className="mt-1 text-xs text-red-600">{vendorLookupError}</p>}
                 </label>
                 <label className="xl:col-span-2">
                   <span className="mb-1 block text-xs font-semibold text-slate-600">故障现象 <span className="font-normal text-slate-400">（选填）</span></span>

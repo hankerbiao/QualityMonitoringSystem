@@ -9,19 +9,22 @@ from pymongo import ReturnDocument
 
 from app.api.auth import get_current_user
 from app.auth_permissions import dashboard_dependency
-from app.core.logger import audit_log
+from app.core.logger import audit_log, log_error
 from app.db.mongodb import get_database
 from app.schemas.fa_applications import (
     FAApplicationListResponse,
+    FAMaterialVendorCacheUpdate,
     FAPreviewRequest,
     FASubmitRequest,
 )
+from app.services.credential_crypto import CredentialEncryptionError, decrypt_credential
 from app.services.fa_application_service import (
     build_preview,
     deliver_application_email,
     normalize_recipients,
 )
 from app.services.mail_service import MailSendError
+from app.services.mdm_vendor_service import MdmCookieExpired, lookup_vendor
 from app.services.oa_user_directory import list_employees, search_employees
 
 router = APIRouter(dependencies=[Depends(dashboard_dependency("fa"))])
@@ -33,6 +36,73 @@ async def employees(q: str | None = Query(default=None, min_length=2, max_length
         return {"items": await (search_employees(q) if q else list_employees())}
     except Exception as exc:
         raise HTTPException(status_code=502, detail="员工通讯录查询失败，请稍后重试") from exc
+
+
+@router.get("/vendor")
+async def lookup_material_vendor(
+    current_user: Annotated[dict, Depends(get_current_user)],
+    pn: str = Query(min_length=1, max_length=100),
+):
+    """Look up a material vendor, preferring the shared positive-result cache."""
+    material_number = pn.strip()
+    if not material_number:
+        raise HTTPException(status_code=422, detail="请输入物料号")
+    db = get_database()
+    cache_key = material_number.upper()
+    cached = await db.mdm_vendor_cache.find_one({"_id": cache_key}, {"vendor": 1})
+    if cached and cached.get("vendor"):
+        return {"pn": material_number, "vendor": cached["vendor"], "cached": True}
+
+    username = str(current_user.get("username") or current_user.get("itcode") or "").strip()
+    config = (
+        await db.configs.find_one({"key": f"mdm_vendor_cookie:{username}"}) if username else None
+    )
+    ciphertext = (config or {}).get("cookieCiphertext")
+    if not ciphertext:
+        raise HTTPException(
+            status_code=400, detail="尚未配置 MDM Cookie，请到系统配置管理的 MDM 厂商查询中填写"
+        )
+    try:
+        cookie = decrypt_credential(ciphertext)
+        vendor = await lookup_vendor(material_number, cookie)
+    except MdmCookieExpired as exc:
+        raise HTTPException(
+            status_code=401,
+            detail="MDM 登录信息已失效，请到系统配置管理的 MDM 厂商查询中更新 Cookie",
+        ) from exc
+    except CredentialEncryptionError as exc:
+        raise HTTPException(
+            status_code=400, detail="MDM Cookie 无法解密，请重新到系统配置管理中保存 Cookie"
+        ) from exc
+    except Exception as exc:
+        # Keep the user-facing response generic, but log the upstream failure
+        # details for diagnosis. Exception text contains request/status info,
+        # never the Cookie header.
+        log_error(f"FA MDM vendor lookup failed: {type(exc).__name__}: {exc}")
+        raise HTTPException(status_code=502, detail="MDM 厂商查询暂时失败，请稍后重试") from exc
+
+    if vendor:
+        await db.mdm_vendor_cache.update_one(
+            {"_id": cache_key},
+            {"$set": {"pn": material_number, "vendor": vendor}},
+            upsert=True,
+        )
+    return {"pn": material_number, "vendor": vendor, "cached": False}
+
+
+@router.post("/vendor")
+async def save_material_vendor(
+    payload: FAMaterialVendorCacheUpdate,
+    current_user: Annotated[dict, Depends(get_current_user)],
+):
+    """Remember a manually entered vendor for future PN lookups."""
+    del current_user
+    await get_database().mdm_vendor_cache.update_one(
+        {"_id": payload.pn.upper()},
+        {"$set": {"pn": payload.pn, "vendor": payload.vendor}},
+        upsert=True,
+    )
+    return {"pn": payload.pn, "vendor": payload.vendor, "cached": True}
 
 
 def _now() -> str:
@@ -69,7 +139,9 @@ async def submit_application(
         raise HTTPException(status_code=422, detail="DOA 明细选择已过期，请重新查询")
 
     selected_repair_rows = [
-        row for row in preview_data["repairFaults"] if row["sourceId"] in application.selectedRepairIds
+        row
+        for row in preview_data["repairFaults"]
+        if row["sourceId"] in application.selectedRepairIds
     ]
     selected_doa_rows = [
         row for row in preview_data["doaChanges"] if row["sourceId"] in application.selectedDoaIds
@@ -82,7 +154,9 @@ async def submit_application(
         "发生环节": "、".join(application.stages),
     }
     if "产测" in application.stages:
-        application_info["产测计划开始时间"] = f"{application.repairDateFrom} 至 {application.repairDateTo}"
+        application_info["产测计划开始时间"] = (
+            f"{application.repairDateFrom} 至 {application.repairDateTo}"
+        )
     if "DOA" in application.stages:
         application_info["DOA 操作时间"] = f"{application.doaDateFrom} 至 {application.doaDateTo}"
     try:
@@ -123,7 +197,9 @@ async def submit_application(
         "faultDescription": application.faultDescription,
         "materialDescription": preview_data["materialDescription"],
         "stages": application.stages,
-        "repairDateFrom": application.repairDateFrom.isoformat() if application.repairDateFrom else None,
+        "repairDateFrom": application.repairDateFrom.isoformat()
+        if application.repairDateFrom
+        else None,
         "repairDateTo": application.repairDateTo.isoformat() if application.repairDateTo else None,
         "doaDateFrom": application.doaDateFrom.isoformat() if application.doaDateFrom else None,
         "doaDateTo": application.doaDateTo.isoformat() if application.doaDateTo else None,
