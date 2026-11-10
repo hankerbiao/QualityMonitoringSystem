@@ -87,6 +87,7 @@ export interface LRRFaultDetail {
   repairPerson: string;
   repairTime: string;
   ngTime: string;
+  raw?: Record<string, unknown>;
 }
 
 export interface LRRFaultDetailsResponse {

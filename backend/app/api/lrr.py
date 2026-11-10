@@ -43,6 +43,43 @@ from app.services.lrr_normalization import (
 from app.services.pn_order_filter import is_excluded_order
 
 router = APIRouter(dependencies=[Depends(dashboard_dependency("lrr"))])
+LRR_SOURCE_FAULT_FIELDS = (
+    "FACTORY",
+    "VBELN",
+    "AUFNR",
+    "ZJXMC",
+    "PCODE",
+    "ZNGGZ",
+    "U_FIND",
+    "T_FIND",
+    "ZNGWD3",
+    "ZNGWD2",
+    "U_FIX",
+    "ZWXDT",
+    "ZWXWD3",
+    "SECFLG",
+    "ZBJ",
+    "ZZRFL",
+    "ZCCLH",
+    "SECOND_PART_NO",
+    "FIX_REMARKS",
+    "MATNR",
+    "MAKTX",
+    "ZMCOD1",
+    "ZRCOD1",
+    "ZMCOD2",
+    "ZRCOD2",
+    "RECORD01REPAIRM",
+    "ERROR_CODE",
+    "ERROR_MSG",
+    "REJUDGE",
+    "RET",
+    "RPDESC",
+    "RNOTE",
+    "U_RMA_NAM",
+    "RMA_RESULT",
+    "AUART",
+)
 MAX_LRR_DATE_RANGE_DAYS = 366
 MAX_LRR_UNFILTERED_MONTHS = 2
 LRR_SCOPE_FILTER_MESSAGE = "查询周期超过 2 个月，请至少增加物料号、机型、基地或客户 ID 筛选条件"
@@ -186,6 +223,7 @@ def aggregate_lrr(
     fault_rows: list[dict[str, Any]],
     *,
     include_details: bool = True,
+    include_source_fields: bool = False,
 ) -> tuple[list[LRRData], list[LRRFaultDetail]]:
     groups: dict[str, dict[str, Any]] = {}
     order_models: dict[str, set[str]] = defaultdict(set)
@@ -306,6 +344,15 @@ def aggregate_lrr(
                         station=str(fault.get("ZNGGZ") or ""),
                         repairPerson=str(fault.get("U_FIX") or ""),
                         repairTime=str(fault.get("ZWXDT") or ""),
+                        raw=(
+                            {
+                                field: fault[field]
+                                for field in LRR_SOURCE_FAULT_FIELDS
+                                if field in fault
+                            }
+                            if include_source_fields
+                            else None
+                        ),
                     ),
                 )
 
@@ -872,7 +919,11 @@ async def get_lrr_filtered_orders(
     )
 
 
-@router.get("/fault-details", response_model=LRRFaultDetailsResponse)
+@router.get(
+    "/fault-details",
+    response_model=LRRFaultDetailsResponse,
+    response_model_exclude_none=True,
+)
 @audit_log("QUERY", "lrr_fault_details")
 async def get_lrr_fault_details(
     request: Request,
@@ -890,6 +941,7 @@ async def get_lrr_fault_details(
     salesOrders: Annotated[list[str] | None, Query()] = None,
     month: str | None = Query(None, pattern=r"^\d{4}-\d{2}$"),
     limit: int = Query(50000, ge=1, le=50000),
+    includeSourceFields: bool = False,
 ):
     del request
     _require_bounded_bom_scope(materialNumber, plannedDateFrom, plannedDateTo)
@@ -931,7 +983,16 @@ async def get_lrr_fault_details(
         date_from=ngDateFrom or plannedDateFrom,
         date_to=ngDateTo or plannedDateTo,
     )
-    details = aggregate_lrr(bom, _faults_in_selected_orders(bom, _advanced_faults(faults, tuple(serialNumbers or [])), tuple(orderTypes or productionOrders or salesOrders or serialNumbers or [])))[1]
+    selected_faults = _faults_in_selected_orders(
+        bom,
+        _advanced_faults(faults, tuple(serialNumbers or [])),
+        tuple(orderTypes or productionOrders or salesOrders or serialNumbers or []),
+    )
+    details = aggregate_lrr(
+        bom,
+        selected_faults,
+        include_source_fields=includeSourceFields,
+    )[1]
     return LRRFaultDetailsResponse(
         items=details[:limit], total=len(details), truncated=len(details) > limit
     )

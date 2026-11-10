@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import html
 import re
@@ -282,7 +283,7 @@ async def _doa_rows(pn: str, start: date, end: date) -> list[dict[str, Any]]:
         dateFrom=start.isoformat(),
         dateTo=end.isoformat(),
     )
-    selected: list[dict[str, Any]] = []
+    candidates: list[tuple[dict[str, Any], str]] = []
     normalized_pn = normalize_material_number(pn)
     for change in changes:
         if change.get("is_revoked") or _plain(change.get("change_type")) != "换下":
@@ -290,31 +291,32 @@ async def _doa_rows(pn: str, start: date, end: date) -> list[dict[str, Any]]:
         if normalize_material_number(change.get("part_number")) != normalized_pn:
             continue
         operation_time = _operation_time(change)
-        if not _in_range(operation_time, start, end):
-            continue
+        if _in_range(operation_time, start, end):
+            candidates.append((change, operation_time))
+
+    semaphore = asyncio.Semaphore(8)
+
+    async def format_row(change: dict[str, Any], operation_time: str) -> dict[str, Any]:
         raw = _row_data(change)
-        selected.append(
-            {
-                "sourceId": _stable_id("doa", change),
-                "pn": _plain(change.get("part_number")) or pn,
-                "sn": _plain(change.get("part_sn")),
-                "spareName": _plain(change.get("part_name")),
-                "originalCode": _plain(
-                    _first(
-                        raw,
-                        "original_factory_code",
-                        "original_code",
-                        "old_factory_code",
-                        "old_part_number",
-                        "old_material_code",
-                        "before_original_code",
-                        "ZRCOD1",
-                    )
-                ),
-                "reportedDevice": _plain(change.get("device_sn")),
-                "operationTime": _plain(operation_time),
-            }
-        )
+        original_code = _first(raw, "original_code") or _first(change, "original_code")
+        if not original_code:
+            async with semaphore:
+                detail = await scs_gateway.detail("SCS_CHANGE", _plain(change.get("id")))
+            original_code = _first(_row_data(detail), "original_code") or _first(detail, "original_code")
+        return {
+            "sourceId": _stable_id("doa", change),
+            "pn": _plain(change.get("part_number")) or pn,
+            "sn": _plain(change.get("part_sn")),
+            "spareName": _plain(change.get("part_name")),
+            "originalCode": _plain(original_code),
+            "reportedDevice": _plain(change.get("device_sn")),
+            "operationTime": _plain(operation_time),
+        }
+
+    selected: list[dict[str, Any]] = []
+    for offset in range(0, len(candidates), 40):
+        batch = candidates[offset:offset + 40]
+        selected.extend(await asyncio.gather(*(format_row(change, time) for change, time in batch)))
     return selected
 
 
@@ -377,12 +379,9 @@ def normalize_recipients(values: list[str], *, label: str) -> list[str]:
 
 
 _REPAIR_EMAIL_FIELDS = (
-    ("基地", "base"), ("生产订单", "productionOrder"), ("机型", "model"),
-    ("设备 SN", "sn"), ("工站", "station"), ("NG 时间", "ngTime"),
-    ("不良维度3", "faultDimension3"), ("不良维度2", "faultDimension2"),
-    ("维修维度3", "repairDimension3"), ("物料号", "materialNumber"),
-    ("非关键物料号", "nonCriticalMaterialNumber"), ("物料描述", "materialDescription"),
-    ("序列号", "serialNumber"), ("替换前原厂码", "originalFactoryCode"),
+    ("SN", "sn"), ("序列号", "serialNumber"), ("生产订单", "productionOrder"), ("机型", "model"),
+    ("NG时间", "ngTime"), ("不良维度3", "faultDimension3"), ("不良维度2", "faultDimension2"),
+    ("替换原厂码", "originalFactoryCode"),
 )
 _DOA_EMAIL_FIELDS = (
     ("PN", "pn"), ("SN", "sn"), ("备件名称", "spareName"),
@@ -415,17 +414,28 @@ def _email_fault_section(
 ) -> str:
     if not rows:
         return ""
-    items = "".join(
-        '<table role="presentation" width="100%" cellpadding="0" cellspacing="0" '
-        'style="margin:0 0 10px;border:1px solid #e2e8f0;background-color:#ffffff;">'
-        f'<tr><td style="padding:8px 12px;background-color:#f1f5f9;color:#334155;'
-        f'font-size:13px;font-weight:600;">{html.escape(title)} {index}</td></tr>'
-        f'<tr><td style="padding:6px;">{_email_field_grid([(label, row.get(key)) for label, key in fields])}</td></tr></table>'
-        for index, row in enumerate(rows, 1)
+    headers = "".join(
+        f'<th style="{"width:160px;min-width:160px;" if index == 0 else ""}padding:4px 6px;border:1px solid #cbd5e1;background:#f1f5f9;'
+        f'text-align:left;font-size:11px;white-space:nowrap;">{html.escape(label)}</th>'
+        for index, (label, _) in enumerate(fields)
     )
+    body_rows = []
+    for row in rows:
+        cells = []
+        for index, (_, key) in enumerate(fields):
+            value = html.escape(str(row.get(key) if row.get(key) not in (None, "") else "—"))
+            value = value.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "<br>")
+            cells.append(
+                f'<td style="{"width:160px;min-width:160px;" if index == 0 else ""}padding:3px 6px;border:1px solid #cbd5e1;font-size:11px;'
+                f'line-height:1.35;vertical-align:top;word-break:break-word;">{value}</td>'
+            )
+        body_rows.append(f"<tr>{''.join(cells)}</tr>")
     return (
-        f'<h2 style="margin:22px 0 10px;font-size:15px;color:#0f172a;">'
-        f'{html.escape(title)}（{len(rows)} 条）</h2>{items}'
+        f'<h2 style="margin:14px 0 5px;font-size:13px;color:#0f172a;">'
+        f'{html.escape(title)}（{len(rows)} 条）</h2>'
+        '<div style="width:100%;overflow-x:auto;"><table width="100%" cellpadding="0" '
+        'cellspacing="0" style="border-collapse:collapse;table-layout:auto;"><thead><tr>'
+        f'{headers}</tr></thead><tbody>{"".join(body_rows)}</tbody></table></div>'
     )
 
 

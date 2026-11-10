@@ -1,12 +1,9 @@
 import type { FADOAChange, FAPreviewRequest, FARepairFault } from '../types/faApplications';
 
 const repairFields: Array<[string, keyof FARepairFault]> = [
-  ['基地', 'base'], ['生产订单', 'productionOrder'], ['机型', 'model'],
-  ['设备 SN', 'sn'], ['工站', 'station'], ['NG 时间', 'ngTime'],
-  ['不良维度3', 'faultDimension3'], ['不良维度2', 'faultDimension2'],
-  ['维修维度3', 'repairDimension3'], ['物料号', 'materialNumber'],
-  ['非关键物料号', 'nonCriticalMaterialNumber'], ['物料描述', 'materialDescription'],
-  ['序列号', 'serialNumber'], ['替换前原厂码', 'originalFactoryCode'],
+  ['SN', 'sn'], ['序列号', 'serialNumber'], ['生产订单', 'productionOrder'], ['机型', 'model'],
+  ['NG时间', 'ngTime'], ['不良维度3', 'faultDimension3'], ['不良维度2', 'faultDimension2'],
+  ['替换原厂码', 'originalFactoryCode'],
 ];
 const doaFields: Array<[string, keyof FADOAChange]> = [
   ['PN', 'pn'], ['SN', 'sn'], ['备件名称', 'spareName'],
@@ -31,11 +28,12 @@ function fieldGrid(fields: Array<[string, string | undefined]>) {
 
 function faultSection<T>(title: string, rows: T[], fields: Array<[string, keyof T]>) {
   if (!rows.length) return '';
-  const items = rows.map((row, index) => {
-    const values: Array<[string, string | undefined]> = fields.map(([label, key]) => [label, String(row[key] ?? '')]);
-    return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin:0 0 10px;border:1px solid #e2e8f0;background-color:#ffffff;"><tr><td style="padding:8px 12px;background-color:#f1f5f9;color:#334155;font-size:13px;font-weight:600;">${escapeHtml(title)} ${index + 1}</td></tr><tr><td style="padding:6px;">${fieldGrid(values)}</td></tr></table>`;
-  }).join('');
-  return `<h2 style="margin:22px 0 10px;font-size:15px;color:#0f172a;">${escapeHtml(title)}（${rows.length} 条）</h2>${items}`;
+  const headers = fields.map(([label], index) => `<th style="${index === 0 ? 'width:160px;min-width:160px;' : ''}padding:4px 6px;border:1px solid #cbd5e1;background:#f1f5f9;text-align:left;font-size:11px;white-space:nowrap;">${escapeHtml(label)}</th>`).join('');
+  const body = rows.map(row => `<tr>${fields.map(([, key], index) => {
+    const value = escapeHtml(String(row[key] ?? '—')).replace(/\r\n|\r|\n/g, '<br>');
+    return `<td style="${index === 0 ? 'width:160px;min-width:160px;' : ''}padding:3px 6px;border:1px solid #cbd5e1;font-size:11px;line-height:1.35;vertical-align:top;word-break:break-word;">${value}</td>`;
+  }).join('')}</tr>`).join('');
+  return `<h2 style="margin:14px 0 5px;font-size:13px;color:#0f172a;">${escapeHtml(title)}（${rows.length} 条）</h2><div style="width:100%;overflow-x:auto;"><table width="100%" cellpadding="0" cellspacing="0" style="border-collapse:collapse;table-layout:auto;"><thead><tr>${headers}</tr></thead><tbody>${body}</tbody></table></div>`;
 }
 
 export function emailPreviewHtml(

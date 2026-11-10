@@ -1,6 +1,6 @@
 """Pydantic models for the material-PN LRR dashboard."""
 
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
@@ -127,3 +127,4 @@ class LRRFaultDetail(BaseModel):
     repairPerson: str = ""
     repairTime: str = ""
     ngTime: str = Field("", deprecated=True, description="已停用，保留空值兼容旧客户端")
+    raw: dict[str, Any] | None = None

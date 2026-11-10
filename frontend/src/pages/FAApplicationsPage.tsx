@@ -41,7 +41,7 @@ const initialForm: FAPreviewRequest = {
   pn: '',
   vendor: '',
   faultDescription: '',
-  stages: ['产测', 'DOA'],
+  stages: [],
   repairDateFrom: today,
   repairDateTo: today,
   doaDateFrom: today,
@@ -169,7 +169,7 @@ function RepairTable({ rows, selected, onToggle, onSetMany, disabled = false }: 
     <TableToolbar filter={filter} onFilter={setFilter} placeholder="过滤 SN / 基地 / 工站 / 机型 / 物料号"
       selectedCount={selected.size} totalCount={rows.length} filteredCount={filtered.length}
       allSelected={allSelected} onSelectAll={selectFiltered} disabled={disabled} />
-    <div className="overflow-auto rounded-md border border-slate-200"><table className="min-w-[1450px] w-full text-xs"><thead className="bg-slate-50 text-left text-slate-500"><tr><th className="sticky left-0 z-10 w-9 bg-slate-50 px-2 py-2"><input type="checkbox" disabled={disabled} checked={allSelected} onChange={selectFiltered} aria-label="全选产测故障" /></th><th className="sticky left-9 z-10 bg-slate-50 px-2 py-2">SN</th>{['基地', '生产订单', '机型', '工站', 'NG时间', '不良维度3', '不良维度2', '维修维度3', '物料号', '物料描述', '序列号', '替换前原厂码'].map(label => <th key={label} className="whitespace-nowrap px-2 py-2">{label}</th>)}</tr></thead><tbody>{filtered.map(row => <tr key={row.sourceId} className="group border-t border-slate-100 hover:bg-blue-50"><td className="sticky left-0 z-10 bg-white px-2 py-2 group-hover:bg-blue-50"><input type="checkbox" disabled={disabled} checked={selected.has(row.sourceId)} onChange={() => onToggle(row.sourceId)} aria-label={`选择 ${row.sourceId}`} /></td><td className="sticky left-9 z-10 whitespace-nowrap bg-white px-2 py-2 font-medium text-slate-700 group-hover:bg-blue-50">{show(row.sn)}</td><td className="px-2 py-2">{show(row.base)}</td><td className="px-2 py-2">{show(row.productionOrder)}</td><td className="px-2 py-2">{show(row.model)}</td><td className="px-2 py-2">{show(row.station)}</td><td className="px-2 py-2">{show(row.ngTime)}</td><td className="px-2 py-2">{show(row.faultDimension3)}</td><td className="px-2 py-2">{show(row.faultDimension2)}</td><td className="px-2 py-2">{show(row.repairDimension3)}</td><td className="px-2 py-2">{show(row.materialNumber)}{row.nonCriticalMaterialNumber && <div className="text-[10px] text-amber-700">非关键：{row.nonCriticalMaterialNumber}</div>}</td><td className="px-2 py-2">{show(row.materialDescription)}</td><td className="px-2 py-2">{show(row.serialNumber)}</td><td className="px-2 py-2">{show(row.originalFactoryCode)}</td></tr>)}</tbody></table>{rows.length === 0 && <p className="p-6 text-center text-xs text-slate-400">暂无产测故障明细</p>}{rows.length > 0 && filtered.length === 0 && <p className="p-6 text-center text-xs text-slate-400">没有匹配「{filter.trim()}」的记录</p>}</div>
+    <div className="overflow-auto rounded-md border border-slate-200"><table className="min-w-[1450px] w-full text-xs"><thead className="sticky top-0 z-20 bg-slate-50 text-left text-slate-500"><tr><th className="sticky left-0 z-10 w-9 bg-slate-50 px-2 py-2"><input type="checkbox" disabled={disabled} checked={allSelected} onChange={selectFiltered} aria-label="全选产测故障" /></th><th className="sticky left-9 z-10 bg-slate-50 px-2 py-2">SN</th>{['基地', '生产订单', '机型', '工站', 'NG时间', '不良维度3', '不良维度2', '维修维度3', '物料号', '物料描述', '序列号', '替换前原厂码'].map(label => <th key={label} className="whitespace-nowrap px-2 py-2">{label}</th>)}</tr></thead><tbody>{filtered.map(row => <tr key={row.sourceId} className="group border-t border-slate-100 hover:bg-blue-50"><td className="sticky left-0 z-10 bg-white px-2 py-2 group-hover:bg-blue-50"><input type="checkbox" disabled={disabled} checked={selected.has(row.sourceId)} onChange={() => onToggle(row.sourceId)} aria-label={`选择 ${row.sourceId}`} /></td><td className="sticky left-9 z-10 whitespace-nowrap bg-white px-2 py-2 font-medium text-slate-700 group-hover:bg-blue-50">{show(row.sn)}</td><td className="px-2 py-2">{show(row.base)}</td><td className="px-2 py-2">{show(row.productionOrder)}</td><td className="px-2 py-2">{show(row.model)}</td><td className="px-2 py-2">{show(row.station)}</td><td className="px-2 py-2">{show(row.ngTime)}</td><td className="px-2 py-2">{show(row.faultDimension3)}</td><td className="px-2 py-2">{show(row.faultDimension2)}</td><td className="px-2 py-2">{show(row.repairDimension3)}</td><td className="px-2 py-2">{show(row.materialNumber)}{row.nonCriticalMaterialNumber && <div className="text-[10px] text-amber-700">非关键：{row.nonCriticalMaterialNumber}</div>}</td><td className="px-2 py-2">{show(row.materialDescription)}</td><td className="px-2 py-2">{show(row.serialNumber)}</td><td className="px-2 py-2">{show(row.originalFactoryCode)}</td></tr>)}</tbody></table>{rows.length === 0 && <p className="p-6 text-center text-xs text-slate-400">暂无产测故障明细</p>}{rows.length > 0 && filtered.length === 0 && <p className="p-6 text-center text-xs text-slate-400">没有匹配「{filter.trim()}」的记录</p>}</div>
   </div>;
 }
 
@@ -261,6 +261,7 @@ export default function FAApplicationsPage() {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [pnError, setPnError] = useState('');
+  const [vendorError, setVendorError] = useState('');
   const [stageError, setStageError] = useState('');
   const [vendorAutoFilled, setVendorAutoFilled] = useState(false);
   const [listPn, setListPn] = useState('');
@@ -341,6 +342,7 @@ export default function FAApplicationsPage() {
   };
   const updateVendor = (vendor: string) => {
     mutateForm({ vendor });
+    if (vendor.trim()) setVendorError('');
     setVendorAutoFilled(false);
     saveVendor(form.pn, vendor);
   };
@@ -349,7 +351,7 @@ export default function FAApplicationsPage() {
     setPreview(null);
     setSelectedRepair(new Set());
     setSelectedDoa(new Set());
-    setPnError(''); setStageError(''); setVendorAutoFilled(false);
+    setPnError(''); setStageError(''); setVendorError(''); setVendorAutoFilled(false);
     setStep(1); setNotice(''); setError('');
   };
   const applyQuickRange = (from: string, to: string) => {
@@ -373,9 +375,11 @@ export default function FAApplicationsPage() {
   const runQuery = () => {
     const pnMissing = !form.pn.trim();
     const stageMissing = stages.length === 0;
+    const vendorMissing = !form.vendor.trim();
     setPnError(pnMissing ? '请输入物料号 PN 后再查询' : '');
     setStageError(stageMissing ? '请至少选择一个发生环节' : '');
-    if (pnMissing || stageMissing || loading) return;
+    setVendorError(vendorMissing ? '请输入厂商' : '');
+    if (pnMissing || stageMissing || vendorMissing || loading) return;
     void runPreview();
   };
   const toggle = (set: Set<string>, id: string, setter: (value: Set<string>) => void) => { const next = new Set(set); if (next.has(id)) next.delete(id); else next.add(id); setter(next); };
@@ -488,15 +492,16 @@ export default function FAApplicationsPage() {
                   {pnError && <p className="mt-1 text-xs text-red-600">{pnError}</p>}
                 </label>
                 <label>
-                  <span className="mb-1 block text-xs font-semibold text-slate-600">厂商</span>
+                  <span className="mb-1 block text-xs font-semibold text-slate-600">厂商 <span className="text-red-600">*</span></span>
                   <div className="relative">
                     <input value={form.vendor} onChange={event => updateVendor(event.target.value)} placeholder="输入厂商" className="h-10 w-full rounded-md border border-slate-300 px-3 pr-16 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
                     {vendorAutoFilled && form.vendor && <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-700" title="已自动填充上次输入的厂商，可直接修改">已记忆</span>}
                   </div>
+                  {vendorError && <p className="mt-1 text-xs text-red-600">{vendorError}</p>}
                 </label>
                 <label className="xl:col-span-2">
                   <span className="mb-1 block text-xs font-semibold text-slate-600">故障现象 <span className="font-normal text-slate-400">（选填）</span></span>
-                  <input value={form.faultDescription} onChange={event => mutateForm({ faultDescription: event.target.value })} placeholder="输入故障现象" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+                  <input value={form.faultDescription} onChange={event => mutateForm({ faultDescription: event.target.value })} placeholder="一句话描述故障现象（邮件主题）" className="h-10 w-full rounded-md border border-slate-300 px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
                 </label>
               </div>
             </div>

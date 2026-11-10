@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
 import { clearLrrApiCache, lrrApi } from '../api/lrrApi';
 import LRRFiltersPanel from '../components/lrr/LRRFilters';
+import { FAULT_COLUMNS } from '../components/rty/templateExport';
 import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
 import { HelpTooltip } from '../components/shared/HelpTooltip';
 import { LoadingSpinner } from '../components/ui';
@@ -97,11 +98,51 @@ function ErrorBanner({ error, onRetry }: { error: ApiRequestError; onRetry?: () 
   );
 }
 
-const DETAIL_COLUMNS = [
-  ['matchedModel', '计入机型'], ['sn', '维修记录SN'], ['salesOrder', '销售订单'],
-  ['productionOrder', '维修记录订单'], ['faultPhenomenon', '故障现象'], ['repairAction', '维修措施'],
-  ['station', '故障工站'], ['repairPerson', '维修人员'], ['repairTime', '维修时间'],
+const LRR_EXTRA_FAULT_COLUMNS = [
+  ['lrrMonth', 'LRR归属月份'],
+  ['lrrMaterialNumber', 'LRR物料PN'],
+  ['lrrFullMaterialNumber', 'LRR完整物料PN'],
+  ['lrrMaterialDescription', 'LRR物料描述'],
+  ['lrrMatchedModel', 'LRR计入机型'],
+  ['lrrFaultType', 'LRR故障类型'],
+  ['lrrFaultDescription', 'LRR故障描述'],
 ] as const;
+const LRR_FAULT_EXPORT_COLUMNS = [...FAULT_COLUMNS, ...LRR_EXTRA_FAULT_COLUMNS] as const;
+
+function toLrrFaultExportRow(item: LRRFaultDetail): Record<string, unknown> {
+  const raw = item.raw ?? {};
+  return {
+    ...raw,
+    PCODE: raw.PCODE || item.sn,
+    VBELN: raw.VBELN || item.salesOrder,
+    AUFNR: raw.AUFNR || item.productionOrder,
+    ZJXMC: raw.ZJXMC || item.matchedModel,
+    ZNGGZ: raw.ZNGGZ || item.station,
+    U_FIX: raw.U_FIX || item.repairPerson,
+    ZWXDT: raw.ZWXDT || item.repairTime,
+    ZNGWD3: raw.ZNGWD3 || item.faultPhenomenon,
+    ZWXWD3: raw.ZWXWD3 || item.repairAction,
+    lrrMonth: item.month,
+    lrrMaterialNumber: displayMaterialNumber(item.materialNumber),
+    lrrFullMaterialNumber: item.materialNumber,
+    lrrMaterialDescription: item.materialDescription,
+    lrrMatchedModel: item.matchedModel,
+    lrrFaultType: raw.ZNGWD || item.faultType,
+    lrrFaultDescription: raw.ZWXWD || item.faultDesc,
+  };
+}
+
+function buildLrrFaultDetailSheet(rows: readonly Record<string, unknown>[]): XLSX.WorkSheet {
+  const sheet = XLSX.utils.aoa_to_sheet([
+    LRR_FAULT_EXPORT_COLUMNS.map(([, label]) => label),
+    ...rows.map((row) => LRR_FAULT_EXPORT_COLUMNS.map(([key]) => row[key] ?? null)),
+  ]);
+  sheet['!cols'] = LRR_FAULT_EXPORT_COLUMNS.map(([, label]) => ({
+    wch: Math.min(48, Math.max(16, label.length * 1.4)),
+  }));
+  sheet['!autofilter'] = { ref: sheet['!ref']! };
+  return sheet;
+}
 
 export function DetailModal({ title, items, loading, error, onClose }: { title: string; items: LRRFaultDetail[]; loading: boolean; error: ApiRequestError | null; onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null);
@@ -114,10 +155,7 @@ export function DetailModal({ title, items, loading, error, onClose }: { title: 
   }, [onClose]);
   const exportDetails = () => {
     try {
-      const sheet = XLSX.utils.aoa_to_sheet([
-        DETAIL_COLUMNS.map(([, label]) => label),
-        ...items.map(item => DETAIL_COLUMNS.map(([key]) => item[key] || '')),
-      ]);
+      const sheet = buildLrrFaultDetailSheet(items.map(toLrrFaultExportRow));
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, sheet, '维修故障明细');
       XLSX.writeFile(workbook, `${title.replace(/[\\/:*?"<>|]/g, '_')}_维修明细.xlsx`);
@@ -540,7 +578,7 @@ export default function LRRPage() {
     setDetailError(null);
     setDetailLoading(true);
     try {
-      const result = await lrrApi.getFaultDetails(next);
+      const result = await lrrApi.getFaultDetails(next, 50000, true);
       if (request === detailRequest.current) {
         setDetailItems(result.items);
         setDetailTitle(result.truncated ? `${title}（前 ${result.items.length.toLocaleString('zh-CN')} 条）` : title);
@@ -636,26 +674,10 @@ export default function LRRPage() {
         && loadedQueryKey === filtersKey(filters)
         && response.items.length >= response.total;
       const [faultResult, materialItems] = await Promise.all([
-        lrrApi.getFaultDetails(filters),
+        lrrApi.getFaultDetails(filters, 50000, true),
         reuseLoadedList ? Promise.resolve(response.items.slice(0, response.total)) : lrrApi.getAllLRRData(filters),
       ]);
-      const faultRows = faultResult.items.map((item) => ({
-        月份: item.month,
-        物料PN: displayMaterialNumber(item.materialNumber),
-        完整物料PN: item.materialNumber,
-        物料描述: item.materialDescription,
-        SN: item.sn,
-        故障类型: item.faultType,
-        故障描述: item.faultDesc,
-        计入机型: item.matchedModel,
-        销售订单: item.salesOrder,
-        维修记录订单: item.productionOrder,
-        故障现象: item.faultPhenomenon,
-        维修措施: item.repairAction,
-        故障工站: item.station,
-        维修人员: item.repairPerson,
-        维修时间: item.repairTime,
-      }));
+      const faultRows = faultResult.items.map(toLrrFaultExportRow);
       const summaryRows = materialItems.map((item) => ({
         月份: item.month,
         物料PN: displayMaterialNumber(item.materialNumber),
@@ -666,7 +688,7 @@ export default function LRRPage() {
         故障率: item.lrrRate == null ? '' : `${item.lrrRate}%`,
       }));
       const book = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(faultRows), 'LRR故障明细');
+      XLSX.utils.book_append_sheet(book, buildLrrFaultDetailSheet(faultRows), 'LRR故障明细');
       XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(summaryRows), '汇总数据');
       XLSX.writeFile(book, `LRR数据_${new Date().toISOString().slice(0, 10)}.xlsx`);
     } catch (err) {

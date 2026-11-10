@@ -128,8 +128,12 @@ export const lrrApi = {
   },
 
   /** 故障明细(用于导出)，返回全量命中记录 */
-  async getFaultDetails(filters: LRRFilters = {}, limit = 50000): Promise<LRRFaultDetailsResponse> {
-    const qs = buildQuery(filters, { limit });
+  async getFaultDetails(
+    filters: LRRFilters = {},
+    limit = 50000,
+    includeSourceFields = false,
+  ): Promise<LRRFaultDetailsResponse> {
+    const qs = buildQuery(filters, { limit, ...(includeSourceFields ? { includeSourceFields: true } : {}) });
     const url = `${API_BASE_URL}/lrr/fault-details${qs}`;
     return cachedRequest(url, () => requestJson<LRRFaultDetailsResponse>(url));
   },
