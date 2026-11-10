@@ -144,6 +144,12 @@ function buildLrrFaultDetailSheet(rows: readonly Record<string, unknown>[]): XLS
   return sheet;
 }
 
+const DETAIL_COLUMNS = [
+  ['matchedModel', '计入机型'], ['sn', '维修记录SN'], ['salesOrder', '销售订单'],
+  ['productionOrder', '维修记录订单'], ['faultPhenomenon', '故障现象'], ['repairAction', '维修措施'],
+  ['station', '故障工站'], ['repairPerson', '维修人员'], ['repairTime', '维修时间'],
+] as const satisfies ReadonlyArray<readonly [keyof LRRFaultDetail, string]>;
+
 export function DetailModal({ title, items, loading, error, onClose }: { title: string; items: LRRFaultDetail[]; loading: boolean; error: ApiRequestError | null; onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const [exportError, setExportError] = useState('');
