@@ -56,14 +56,6 @@ class ProcessRecordConfigUpdate(BaseModel):
     allowPasswordReset: bool = False
 
 
-class MdmVendorConfig(BaseModel):
-    hasCookie: bool = False
-
-
-class MdmVendorConfigUpdate(BaseModel):
-    cookie: str = Field(min_length=1, max_length=16000)
-
-
 # ============== 机型指标配置 ==============
 
 

@@ -53,7 +53,9 @@ export const faApplicationsApi = {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ pn, vendor }),
   }),
-  listEmployees: () => requestJson<{ items: OAEmployee[] }>(`${API_BASE_URL}/fa/employees`),
+  searchEmployees: (query: string) => requestJson<{ items: OAEmployee[] }>(
+    `${API_BASE_URL}/fa/employees?q=${encodeURIComponent(query)}`,
+  ),
   preview: (query: FAPreviewRequest) => requestJson<FAPreview>(`${API_BASE_URL}/fa/preview`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },

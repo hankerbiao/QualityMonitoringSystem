@@ -27,8 +27,6 @@ from app.schemas.settings import (
     EmailAlertConfig,
     EmailAlertConfigUpdate,
     ManualWeeklyEmailCheckRequest,
-    MdmVendorConfig,
-    MdmVendorConfigUpdate,
     ModelTargetsResponse,
     ProcessRecordConfig,
     ProcessRecordConfigUpdate,
@@ -187,42 +185,6 @@ async def update_process_record_config(config: ProcessRecordConfigUpdate):
         data=_process_records_from_doc(doc),
         message="关键工位影像追溯凭据已更新",
     )
-
-
-def _mdm_vendor_config_key(username: str) -> str:
-    return f"mdm_vendor_cookie:{username}"
-
-
-@router.get("/mdm-vendor", response_model=Response[MdmVendorConfig])
-async def get_mdm_vendor_config(current_user: Annotated[dict, Depends(get_current_user)]):
-    """Return only the current user's MDM cookie configuration status."""
-    username = str(current_user.get("username") or current_user.get("itcode") or "").strip()
-    doc = await _read_doc(_mdm_vendor_config_key(username)) if username else None
-    return Response(
-        success=True, data=MdmVendorConfig(hasCookie=bool(doc and doc.get("cookieCiphertext")))
-    )
-
-
-@router.put("/mdm-vendor", response_model=Response[MdmVendorConfig])
-async def update_mdm_vendor_config(
-    config: MdmVendorConfigUpdate,
-    current_user: Annotated[dict, Depends(get_current_user)],
-):
-    """Save the current user's encrypted MDM cookie without returning it."""
-    username = str(current_user.get("username") or current_user.get("itcode") or "").strip()
-    cookie = config.cookie.strip()
-    if not username or not cookie:
-        raise HTTPException(status_code=422, detail="Cookie 不能为空")
-    try:
-        ciphertext = encrypt_credential(cookie)
-    except CredentialEncryptionError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    await get_database()[CONFIGS].update_one(
-        {"key": _mdm_vendor_config_key(username)},
-        {"$set": {"cookieCiphertext": ciphertext, "updatedAt": datetime.now(timezone.utc)}},
-        upsert=True,
-    )
-    return Response(success=True, data=MdmVendorConfig(hasCookie=True), message="MDM Cookie 已保存")
 
 
 @router.post(

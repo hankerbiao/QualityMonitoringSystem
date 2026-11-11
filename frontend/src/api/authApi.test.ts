@@ -41,4 +41,21 @@ describe('change password API', () => {
     await expect(changePassword('old-password', 'NewPassword123')).rejects.toThrow('登录状态已过期');
     expect(unauthorized).toHaveBeenCalledOnce();
   });
+
+  it('keeps the session when a 401 carries a business error code', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          success: false,
+          code: 'UPSTREAM_CREDENTIAL_INVALID',
+          error: '上游服务凭据已失效',
+          retryable: false,
+        }),
+        { status: 401 },
+      ),
+    );
+
+    await expect(changePassword('old-password', 'NewPassword123')).rejects.toThrow('上游服务凭据已失效');
+    expect(unauthorized).not.toHaveBeenCalled();
+  });
 });

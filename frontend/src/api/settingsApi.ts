@@ -10,10 +10,6 @@ export interface TestEmailResult {
   error?: string;
 }
 
-export interface MdmVendorConfigStatus {
-  hasCookie: boolean;
-}
-
 export interface WeeklyQualifiedModels {
   window: { from: string; to: string };
   threshold: number;
@@ -41,18 +37,6 @@ export interface ManualWeeklyEmailCheckResult extends WeeklyQualifiedModels {
 }
 
 export const settingsApi = {
-  async getMdmVendorConfig(): Promise<MdmVendorConfigStatus> {
-    return requestData<MdmVendorConfigStatus>(`${API_BASE_URL}/settings/mdm-vendor`);
-  },
-
-  async updateMdmVendorCookie(cookie: string): Promise<MdmVendorConfigStatus> {
-    return requestData<MdmVendorConfigStatus>(`${API_BASE_URL}/settings/mdm-vendor`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ cookie }),
-    });
-  },
-
   async getModelTargetSourceModels(): Promise<string[]> {
     return requestData<string[]>(`${API_BASE_URL}/settings/model-targets/models`);
   },

@@ -1,7 +1,7 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowLeft, Check, ChevronLeft, ChevronRight, ClipboardCheck, Download, Inbox, Info, Mail, RefreshCw, RotateCcw, Search, Send, X } from 'lucide-react';
-import { faApplicationsApi, type FACreateRequest } from '../api/faApplicationsApi';
+import { faApplicationsApi, type FACreateRequest, type OAEmployee } from '../api/faApplicationsApi';
 import type { FAApplication, FADOAChange, FARepairFault, FAStage, FAPreviewRequest } from '../types/faApplications';
 import { DateRangePicker } from '../components/shared/DateRangePicker';
 import { dateRangePresets } from '../utils/dateRange';
@@ -32,21 +32,48 @@ function MultiEmailInput({
   label,
   values,
   onChange,
-  employees,
 }: {
   label: string;
   values: string[];
   onChange: (values: string[]) => void;
-  employees: Awaited<ReturnType<typeof faApplicationsApi.listEmployees>>['items'];
 }) {
   const [input, setInput] = useState('');
   const [isFocused, setIsFocused] = useState(false);
-  const keyword = input.trim().toLocaleLowerCase();
-  const suggestions = keyword.length >= 2 && !keyword.includes('@')
-    ? employees.filter(employee => [employee.itcode, employee.realname, employee.internalName, employee.email, employee.department, employee.position, employee.company, employee.directBoss]
-      .some(value => value.toLocaleLowerCase().includes(keyword)))
-      .slice(0, 20)
-    : [];
+  const [suggestions, setSuggestions] = useState<OAEmployee[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState('');
+  const requestId = useRef(0);
+  const keyword = input.trim();
+
+  useEffect(() => {
+    const currentRequestId = ++requestId.current;
+    setSuggestions([]);
+    setSearching(isFocused && Boolean(keyword));
+    setSearchError('');
+    if (!isFocused || !keyword) return;
+
+    const timer = window.setTimeout(() => {
+      setSearching(true);
+      void faApplicationsApi.searchEmployees(keyword)
+        .then(result => {
+          if (currentRequestId === requestId.current) setSuggestions(result.items);
+        })
+        .catch(reason => {
+          if (currentRequestId === requestId.current) {
+            setSearchError(reason instanceof Error ? reason.message : '员工搜索失败');
+          }
+        })
+        .finally(() => {
+          if (currentRequestId === requestId.current) setSearching(false);
+        });
+    }, 250);
+
+    return () => {
+      window.clearTimeout(timer);
+      if (currentRequestId === requestId.current) requestId.current += 1;
+    };
+  }, [isFocused, keyword]);
+
   const add = (raw: string) => {
     const emails = raw.split(/[;,，；\s]+/).map(email => email.trim()).filter(Boolean);
     const next = [...values];
@@ -68,7 +95,7 @@ function MultiEmailInput({
               if (event.nativeEvent.isComposing) return;
               event.preventDefault();
               if (suggestions.length > 0) add(suggestions[0].email);
-              else add(input);
+              else if (!searching && input.includes('@')) add(input);
               return;
             }
             if (event.key === ',' || event.key === ';') {
@@ -77,13 +104,15 @@ function MultiEmailInput({
             }
           }} placeholder="输入员工关键词或邮箱" className="min-w-[220px] flex-1 px-1 py-1 text-sm outline-none" />
         </div>
-        {isFocused && input.trim().length >= 2 && !input.includes('@') && <div role="listbox" aria-label={`${label}员工搜索结果`} className="absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-auto rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+        {isFocused && keyword.length >= 1 && <div role="listbox" aria-label={`${label}员工搜索结果`} aria-busy={searching} className="absolute left-0 right-0 top-full z-20 mt-1 max-h-64 overflow-auto rounded-md border border-slate-200 bg-white p-1 shadow-lg">
+          {searching && <p className="px-3 py-2 text-xs text-slate-500">正在搜索…</p>}
+          {searchError && <p role="status" className="px-3 py-2 text-xs text-amber-700">搜索失败：{searchError}</p>}
           {suggestions.map(employee => <button key={`${employee.itcode}-${employee.email}`} type="button" role="option" aria-selected="false" onMouseDown={event => event.preventDefault()} onClick={() => add(employee.email)} className="flex w-full flex-col items-start rounded px-3 py-2 text-left hover:bg-blue-50">
             <span className="text-sm font-medium text-slate-800">{employee.realname || employee.internalName || employee.itcode} <span className="text-xs font-normal text-slate-500">{employee.itcode}</span></span>
             <span className="text-xs text-blue-700">{employee.email}</span>
             {employee.department && <span className="text-[11px] text-slate-500">{employee.department}</span>}
           </button>)}
-          {suggestions.length === 0 && <p className="px-3 py-2 text-xs text-slate-500">没有找到匹配员工</p>}
+          {!searching && !searchError && suggestions.length === 0 && <p className="px-3 py-2 text-xs text-slate-500">没有找到匹配员工</p>}
         </div>}
       </div>
     </div>
@@ -217,9 +246,6 @@ export default function FAApplicationsPage() {
   const [page, setPage] = useState(1);
   const [listLoading, setListLoading] = useState(false);
   const [listUpdatedAt, setListUpdatedAt] = useState('');
-  const [employees, setEmployees] = useState<Awaited<ReturnType<typeof faApplicationsApi.listEmployees>>['items']>([]);
-  const [employeesLoading, setEmployeesLoading] = useState(true);
-  const [employeesError, setEmployeesError] = useState('');
   const [detailsApplication, setDetailsApplication] = useState<FAApplication | null>(null);
   const [selectedRepair, setSelectedRepair] = useState<Set<string>>(new Set());
   const [selectedDoa, setSelectedDoa] = useState<Set<string>>(new Set());
@@ -239,6 +265,7 @@ export default function FAApplicationsPage() {
   const [vendorLookupLoading, setVendorLookupLoading] = useState(false);
   const vendorLookupRequestId = useRef(0);
   const vendorInputRef = useRef<HTMLInputElement>(null);
+  const vendorEditRevision = useRef(0);
   const [stageError, setStageError] = useState('');
   const [vendorAutoFilled, setVendorAutoFilled] = useState(false);
   const [listPn, setListPn] = useState('');
@@ -249,30 +276,48 @@ export default function FAApplicationsPage() {
   const [recentPn, setRecentPn] = useState<string[]>(loadRecentPn);
   const listRequestId = useRef(0);
 
-  useEffect(() => {
-    const pn = form.pn.trim();
+  /**
+   * 主动查询物料厂商。
+   *
+   * 只在用户点到「厂商」输入框时触发，不再随物料号输入逐字发请求——
+   * 逐字查询既浪费 MDM 会话又会刷屏报错。查出结果同时返回厂商名。
+   */
+  const runVendorLookup = async (pn: string): Promise<string | null> => {
     const requestId = ++vendorLookupRequestId.current;
-    setVendorLookup(null);
+    setVendorLookupLoading(true);
     setVendorLookupError('');
-    if (!pn) {
-      setVendorLookupLoading(false);
-      return;
-    }
-    const timer = window.setTimeout(async () => {
-      setVendorLookupLoading(true);
-      try {
-        const result = await faApplicationsApi.lookupVendor(pn);
-        if (requestId === vendorLookupRequestId.current) setVendorLookup({ pn, vendor: result.vendor });
-      } catch (reason) {
-        if (requestId === vendorLookupRequestId.current) {
-          setVendorLookupError(reason instanceof Error ? reason.message : '厂商查询失败');
-        }
-      } finally {
-        if (requestId === vendorLookupRequestId.current) setVendorLookupLoading(false);
+    try {
+      const result = await faApplicationsApi.lookupVendor(pn);
+      if (requestId !== vendorLookupRequestId.current) return null;
+      setVendorLookup({ pn, vendor: result.vendor });
+      if (!result.vendor) setVendorLookupError('MDM 未查到该物料号对应的厂商，请手动填写');
+      return result.vendor;
+    } catch (reason) {
+      if (requestId === vendorLookupRequestId.current) {
+        setVendorLookup(null);
+        setVendorLookupError(reason instanceof Error ? reason.message : '厂商查询失败');
       }
-    }, 450);
-    return () => window.clearTimeout(timer);
-  }, [form.pn]);
+      return null;
+    } finally {
+      if (requestId === vendorLookupRequestId.current) setVendorLookupLoading(false);
+    }
+  };
+
+  const handleVendorFocus = async () => {
+    const pn = form.pn.trim();
+    if (!pn) return;
+    const editRevision = vendorEditRevision.current;
+    const cached = vendorLookup?.pn === pn ? vendorLookup.vendor : undefined;
+    const vendor = cached === undefined ? await runVendorLookup(pn) : cached;
+    if (
+      vendor
+      && vendorEditRevision.current === editRevision
+      && vendorInputRef.current?.value.trim() === ''
+    ) {
+      updateVendor(vendor);
+      setVendorAutoFilled(true);
+    }
+  };
 
   const filtersKey = [listPn.trim(), listCreator.trim(), listStatus, listDateFrom, listDateTo].join('|');
   const hasListFilter = Boolean(listPn.trim() || listCreator.trim() || listStatus || listDateFrom || listDateTo);
@@ -310,20 +355,6 @@ export default function FAApplicationsPage() {
     return () => window.clearTimeout(timer);
   }, [page, filtersKey]);
 
-  const loadEmployees = useCallback(async () => {
-    setEmployeesLoading(true);
-    setEmployeesError('');
-    try {
-      const result = await faApplicationsApi.listEmployees();
-      setEmployees(result.items);
-    } catch (reason) {
-      setEmployeesError(reason instanceof Error ? reason.message : '员工通讯录加载失败');
-    } finally {
-      setEmployeesLoading(false);
-    }
-  }, []);
-  useEffect(() => { void loadEmployees(); }, [loadEmployees]);
-
   const selectedCount = selectedRepair.size + selectedDoa.size;
   const stages = form.stages;
   const mutateForm = (patch: Partial<FAPreviewRequest>) => {
@@ -339,6 +370,11 @@ export default function FAApplicationsPage() {
   const updatePn = (pn: string) => {
     mutateForm({ pn, vendor: '' });
     setVendorAutoFilled(false);
+    // 物料号变了，上一次的查询结果与错误都不再适用，同时作废在途请求。
+    vendorLookupRequestId.current += 1;
+    setVendorLookup(null);
+    setVendorLookupError('');
+    setVendorLookupLoading(false);
     if (pn.trim()) setPnError('');
   };
   const updateVendor = (vendor: string) => {
@@ -346,22 +382,15 @@ export default function FAApplicationsPage() {
     if (vendor.trim()) setVendorError('');
     setVendorAutoFilled(false);
   };
-  useEffect(() => {
-    if (
-      vendorLookup?.pn === form.pn.trim()
-      && vendorLookup.vendor
-      && !form.vendor.trim()
-      && vendorInputRef.current === document.activeElement
-    ) {
-      updateVendor(vendorLookup.vendor);
-      setVendorAutoFilled(true);
-    }
-  }, [vendorLookup, form.pn, form.vendor]);
   const resetForm = () => {
     setForm({ ...initialForm });
     setPreview(null);
     setSelectedRepair(new Set());
     setSelectedDoa(new Set());
+    vendorLookupRequestId.current += 1;
+    setVendorLookup(null);
+    setVendorLookupError('');
+    setVendorLookupLoading(false);
     setPnError(''); setStageError(''); setVendorError(''); setVendorAutoFilled(false);
     setStep(1); setNotice(''); setError('');
   };
@@ -505,12 +534,12 @@ export default function FAApplicationsPage() {
                 <label>
                   <span className="mb-1 block text-xs font-semibold text-slate-600">厂商 <span className="text-red-600">*</span></span>
                   <div className="relative">
-                    <input ref={vendorInputRef} value={form.vendor} onFocus={() => { if (!form.vendor.trim() && vendorLookup?.pn === form.pn.trim() && vendorLookup.vendor) { updateVendor(vendorLookup.vendor); setVendorAutoFilled(true); } }} onBlur={() => { if (form.pn.trim() && form.vendor.trim()) void faApplicationsApi.rememberVendor(form.pn.trim(), form.vendor.trim()).catch(() => undefined); }} onChange={event => updateVendor(event.target.value)} placeholder="查询后点击此处填入厂商" className="h-10 w-full rounded-md border border-slate-300 px-3 pr-16 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
+                    <input ref={vendorInputRef} value={form.vendor} onFocus={() => void handleVendorFocus()} onBlur={() => { if (form.pn.trim() && form.vendor.trim()) void faApplicationsApi.rememberVendor(form.pn.trim(), form.vendor.trim()).catch(() => undefined); }} onChange={event => { vendorEditRevision.current += 1; updateVendor(event.target.value); }} placeholder="点击此处查询并填入厂商" className="h-10 w-full rounded-md border border-slate-300 px-3 pr-16 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" />
                     {vendorAutoFilled && form.vendor && <span className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 rounded bg-blue-50 px-1.5 py-0.5 text-[11px] text-blue-700" title="已自动填充上次输入的厂商，可直接修改">已记忆</span>}
                   </div>
                   {vendorError && <p className="mt-1 text-xs text-red-600">{vendorError}</p>}
                   {vendorLookupLoading && <p className="mt-1 text-xs text-slate-500">正在查询物料厂商…</p>}
-                  {!vendorLookupLoading && vendorLookup?.pn === form.pn.trim() && vendorLookup.vendor && !form.vendor.trim() && <p className="mt-1 text-xs text-blue-700">已查到厂商：{vendorLookup.vendor}，点击输入框自动填入</p>}
+                  {!vendorLookupLoading && vendorLookup?.pn === form.pn.trim() && vendorLookup.vendor && !form.vendor.trim() && <p className="mt-1 text-xs text-blue-700">已查到厂商：{vendorLookup.vendor}</p>}
                   {vendorLookupError && <p className="mt-1 text-xs text-red-600">{vendorLookupError}</p>}
                 </label>
                 <label className="xl:col-span-2">
@@ -565,8 +594,7 @@ export default function FAApplicationsPage() {
 
           {step === 3 && <section className="space-y-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm md:p-5">
             <div><div className="flex items-center gap-2"><Mail className="size-5 text-blue-600" /><h2 className="text-base font-semibold text-slate-900">确认邮件并发送</h2></div><p className="mt-1 text-sm text-slate-500">邮件发送成功后才保存申请单 · 当前明细 {selectedCount} 条</p></div>
-            {!employeesLoading && employeesError && <p role="status" className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800">员工通讯录加载失败，仍可手动输入邮箱。{employeesError} <button type="button" onClick={() => void loadEmployees()} className="underline">重试</button></p>}
-            <div className="grid gap-4 md:grid-cols-2"><MultiEmailInput label="收件人" values={emailTo} onChange={setEmailTo} employees={employees} /><MultiEmailInput label="抄送人" values={emailCc} onChange={setEmailCc} employees={employees} /></div>
+            <div className="grid gap-4 md:grid-cols-2"><MultiEmailInput label="收件人" values={emailTo} onChange={setEmailTo} /><MultiEmailInput label="抄送人" values={emailCc} onChange={setEmailCc} /></div>
             <div className="grid gap-4 xl:grid-cols-2">
               <div className="space-y-3">
                 <label className="block"><span className="mb-1 block text-xs font-semibold text-slate-600">邮件主题</span><input value={subject} onChange={event => setSubject(event.target.value)} placeholder="选填" className="h-10 w-full rounded-md border border-slate-300 bg-white px-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100" /></label>

@@ -17,76 +17,55 @@ from app.schemas.fa_applications import (
     FAPreviewRequest,
     FASubmitRequest,
 )
-from app.services.credential_crypto import CredentialEncryptionError, decrypt_credential
 from app.services.fa_application_service import (
     build_preview,
     deliver_application_email,
     normalize_recipients,
 )
 from app.services.mail_service import MailSendError
-from app.services.mdm_vendor_service import MdmCookieExpired, lookup_vendor
-from app.services.oa_user_directory import list_employees, search_employees
+from app.services.material_vendor_service import lookup_vendor
+from app.services.oa_user_directory import search_employee_suggestions
 
 router = APIRouter(dependencies=[Depends(dashboard_dependency("fa"))])
 
 
 @router.get("/employees")
-async def employees(q: str | None = Query(default=None, min_length=2, max_length=100)):
+async def employees(q: str = Query(min_length=1, max_length=100)):
     try:
-        return {"items": await (search_employees(q) if q else list_employees())}
+        return {"items": await search_employee_suggestions(q)}
     except Exception as exc:
+        # 否则上游返回体结构变化只会变成一个 502，无从排查。
+        log_error(f"FA OA employee search failed: {type(exc).__name__}: {exc}")
         raise HTTPException(status_code=502, detail="员工通讯录查询失败，请稍后重试") from exc
 
 
 @router.get("/vendor")
 async def lookup_material_vendor(
-    current_user: Annotated[dict, Depends(get_current_user)],
     pn: str = Query(min_length=1, max_length=100),
 ):
-    """Look up a material vendor, preferring the shared positive-result cache."""
+    """Look up a material vendor through HANA, preferring the shared cache."""
     material_number = pn.strip()
     if not material_number:
         raise HTTPException(status_code=422, detail="请输入物料号")
     db = get_database()
     cache_key = material_number.upper()
-    cached = await db.mdm_vendor_cache.find_one({"_id": cache_key}, {"vendor": 1})
-    if cached and cached.get("vendor"):
+    cached = await db.mdm_vendor_cache.find_one(
+        {"_id": cache_key}, {"vendor": 1, "source": 1}
+    )
+    if cached and cached.get("vendor") and cached.get("source") in {"hana", "manual"}:
         return {"pn": material_number, "vendor": cached["vendor"], "cached": True}
 
-    username = str(current_user.get("username") or current_user.get("itcode") or "").strip()
-    config = (
-        await db.configs.find_one({"key": f"mdm_vendor_cookie:{username}"}) if username else None
-    )
-    ciphertext = (config or {}).get("cookieCiphertext")
-    if not ciphertext:
-        raise HTTPException(
-            status_code=400, detail="尚未配置 MDM Cookie，请到系统配置管理的 MDM 厂商查询中填写"
-        )
     try:
-        cookie = decrypt_credential(ciphertext)
-        vendor = await lookup_vendor(material_number, cookie)
-    except MdmCookieExpired as exc:
-        raise HTTPException(
-            status_code=401,
-            detail="MDM 登录信息已失效，请到系统配置管理的 MDM 厂商查询中更新 Cookie",
-        ) from exc
-    except CredentialEncryptionError as exc:
-        raise HTTPException(
-            status_code=400, detail="MDM Cookie 无法解密，请重新到系统配置管理中保存 Cookie"
-        ) from exc
+        vendor = await lookup_vendor(material_number)
     except Exception as exc:
-        # Keep the user-facing response generic, but log the upstream failure
-        # details for diagnosis. Exception text contains request/status info,
-        # never the Cookie header.
-        log_error(f"FA MDM vendor lookup failed: {type(exc).__name__}: {exc}")
-        raise HTTPException(status_code=502, detail="MDM 厂商查询暂时失败，请稍后重试") from exc
+        log_error(f"FA material vendor lookup failed: {type(exc).__name__}: {exc}")
+        raise HTTPException(status_code=502, detail="物料厂商查询暂时失败，请稍后重试") from exc
 
-    if vendor:
-        await db.mdm_vendor_cache.update_one(
-            {"_id": cache_key},
-            {"$set": {"pn": material_number, "vendor": vendor}},
-            upsert=True,
-        )
+    await db.mdm_vendor_cache.update_one(
+        {"_id": cache_key},
+        {"$set": {"pn": material_number, "vendor": vendor, "source": "hana"}},
+        upsert=True,
+    )
     return {"pn": material_number, "vendor": vendor, "cached": False}
 
 
@@ -99,7 +78,7 @@ async def save_material_vendor(
     del current_user
     await get_database().mdm_vendor_cache.update_one(
         {"_id": payload.pn.upper()},
-        {"$set": {"pn": payload.pn, "vendor": payload.vendor}},
+        {"$set": {"pn": payload.pn, "vendor": payload.vendor, "source": "manual"}},
         upsert=True,
     )
     return {"pn": payload.pn, "vendor": payload.vendor, "cached": True}

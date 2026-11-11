@@ -66,10 +66,13 @@ class Settings(BaseSettings):
     )
     MAIL_PROXY_TOKEN: str = ""
 
-    # OA employee directory credentials are used server-side only.
-    OA_USER_API_URL: str = "https://central-data.1oa.com.cn/api/v1/centralData/datasets/oa_user"
-    OA_USER_API_KEY: str = ""
-    OA_USER_CACHE_TTL_SECONDS: int = 604800
+    MATERIAL_VENDOR_API_URL: str = "http://10.17.150.235:18080/api/hana/material-vendor"
+
+    # OA employee search credentials are used server-side only.
+    OA_EMPLOYEE_SEARCH_URL: str = (
+        "https://meilisearch.1oa.com.cn/documents/api/v1/collections/oa_employees/search"
+    )
+    OA_EMPLOYEE_SEARCH_API_KEY: str = ""
 
     # 日志配置
     LOG_DIR: str = "logs"

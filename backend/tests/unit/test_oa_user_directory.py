@@ -2,34 +2,96 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.core.config import Settings
 from app.services import oa_user_directory as directory
 
 
-@pytest.fixture(autouse=True)
-def clear_cache():
-    directory.clear_employee_cache()
-    yield
-    directory.clear_employee_cache()
-
-
 @pytest.mark.asyncio
-async def test_employee_directory_reads_all_pages_and_sends_api_key(monkeypatch):
+async def test_employee_suggestions_search_meilisearch_with_single_character(monkeypatch):
     requests = []
 
     class Response:
-        def __init__(self, payload):
-            self.payload = payload
-
         def raise_for_status(self):
             return None
 
         def json(self):
-            return self.payload
+            return {
+                "hits": [
+                    {
+                        "itcode": "zhangbing",
+                        "realname": "张兵",
+                        "email": "zhangbing@example.com",
+                        "department": "质量部",
+                        "position": "工程师",
+                    },
+                    {"realname": "无邮箱员工"},
+                ]
+            }
 
     class Client:
-        def __init__(self, **_kwargs):
-            assert _kwargs["trust_env"] is False
+        def __init__(self, **kwargs):
+            assert kwargs["trust_env"] is False
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, url, *, json, headers):
+            requests.append((url, json, headers))
+            return Response()
+
+    monkeypatch.setattr(
+        directory,
+        "get_settings",
+        lambda: SimpleNamespace(
+            OA_EMPLOYEE_SEARCH_URL="https://meilisearch.example.test/search",
+            OA_EMPLOYEE_SEARCH_API_KEY="server-key",
+        ),
+    )
+    monkeypatch.setattr(directory.httpx, "AsyncClient", Client)
+
+    matches = await directory.search_employee_suggestions(" z ")
+
+    assert [employee["email"] for employee in matches] == ["zhangbing@example.com"]
+    url, payload, headers = requests[0]
+    assert url == "https://meilisearch.example.test/search"
+    assert payload == {
+        "q": "z",
+        "limit": 10,
+        "matchingStrategy": "last",
+        "attributesToRetrieve": ["email", "realname", "department", "position", "itcode"],
+        "attributesToHighlight": ["email", "realname"],
+    }
+    assert headers == {"Authorization": "Bearer server-key"}
+
+
+@pytest.mark.asyncio
+async def test_employee_suggestions_unwrap_gateway_envelope(monkeypatch):
+    """1oa 网关把 Meilisearch 结果包在 {"data": {"hits": [...]}} 里。"""
+
+    class Response:
+        def raise_for_status(self):
+            return None
+
+        def json(self):
+            return {
+                "data": {
+                    "estimatedTotalHits": 2,
+                    "hits": [
+                        {"itcode": "linxj1", "realname": "LIN.SHIAN-JIANN", "email": "linxj1@example.com",
+                         "department": "中科天机", "position": "首席科学家"},
+                        {"itcode": "nobody", "realname": "无邮箱员工"},
+                    ],
+                    "limit": 10,
+                    "query": "li",
+                },
+                "meta": {"request_id": "req_1"},
+                "error": None,
+            }
+
+    class Client:
+        def __init__(self, **kwargs):
             pass
 
         async def __aenter__(self):
@@ -38,43 +100,56 @@ async def test_employee_directory_reads_all_pages_and_sends_api_key(monkeypatch)
         async def __aexit__(self, *_args):
             return None
 
-        async def get(self, url, *, params, headers):
-            requests.append((url, params, headers))
-            if params["page"] == 1:
-                return Response({"items": [{"itcode": "a1", "realname": "张三", "email": "a@example.com"}], "page": 1, "page_size": 200, "has_more": True})
-            return Response({"items": [{"itcode": "b2", "realname": "李四", "email": "b@example.com"}], "page": 2, "page_size": 200, "has_more": False})
+        async def post(self, url, *, json, headers):
+            return Response()
 
-    monkeypatch.setattr(directory, "get_settings", lambda: SimpleNamespace(
-        OA_USER_API_KEY="server-key",
-        OA_USER_API_URL="https://oa.example.test/users",
-        OA_USER_CACHE_TTL_SECONDS=300,
-    ))
+    monkeypatch.setattr(
+        directory,
+        "get_settings",
+        lambda: SimpleNamespace(
+            OA_EMPLOYEE_SEARCH_URL="https://gw.example.test/search",
+            OA_EMPLOYEE_SEARCH_API_KEY="server-key",
+        ),
+    )
     monkeypatch.setattr(directory.httpx, "AsyncClient", Client)
 
-    matches = await directory.search_employees("李四")
+    matches = await directory.search_employee_suggestions("li")
 
-    assert [employee["email"] for employee in matches] == ["b@example.com"]
-    assert [request[1]["page"] for request in requests] == [1, 2]
-    assert all(request[2] == {"X-API-Key": "server-key"} for request in requests)
-
-
-def test_employee_directory_cache_defaults_to_one_week():
-    assert Settings().OA_USER_CACHE_TTL_SECONDS == 7 * 24 * 60 * 60
+    assert [employee["email"] for employee in matches] == ["linxj1@example.com"]
+    assert matches[0]["itcode"] == "linxj1"
 
 
 @pytest.mark.asyncio
-async def test_employee_search_matches_email_itcode_and_department(monkeypatch):
-    async def load_employees():
-        directory._cache = [
-            {"itcode": "abc123", "realname": "张三", "internalName": "Sam", "email": "sam@example.com", "department": "质量部"},
-            {"itcode": "def456", "realname": "李四", "internalName": "Lee", "email": "lee@example.com", "department": "研发部"},
-        ]
-        directory._cache_expires_at = 99999999999
-        return directory._cache
+async def test_employee_suggestions_surface_gateway_error(monkeypatch):
+    class Response:
+        def raise_for_status(self):
+            return None
 
-    monkeypatch.setattr(directory, "_load_employees", load_employees)
+        def json(self):
+            return {"data": None, "meta": {"request_id": "req_2"}, "error": "invalid api key"}
 
-    assert (await directory.search_employees("ABC1"))[0]["email"] == "sam@example.com"
-    assert (await directory.search_employees("研发"))[0]["email"] == "lee@example.com"
-    assert (await directory.search_employees("lee@example"))[0]["itcode"] == "def456"
-    assert await directory.search_employees("x") == []
+    class Client:
+        def __init__(self, **kwargs):
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *_args):
+            return None
+
+        async def post(self, url, *, json, headers):
+            return Response()
+
+    monkeypatch.setattr(
+        directory,
+        "get_settings",
+        lambda: SimpleNamespace(
+            OA_EMPLOYEE_SEARCH_URL="https://gw.example.test/search",
+            OA_EMPLOYEE_SEARCH_API_KEY="server-key",
+        ),
+    )
+    monkeypatch.setattr(directory.httpx, "AsyncClient", Client)
+
+    with pytest.raises(RuntimeError, match="invalid api key"):
+        await directory.search_employee_suggestions("li")

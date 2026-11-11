@@ -278,3 +278,25 @@ async def test_submit_does_not_save_when_email_with_details_fails(monkeypatch):
     with pytest.raises(HTTPException, match="申请单未保存"):
         await api.submit_application.__wrapped__(payload=payload, current_user={"username": "tester"})
     database.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_vendor_lookup_queries_hana_and_updates_cache(monkeypatch):
+    from app.api import fa_applications as api
+
+    database = AsyncMock()
+    database.mdm_vendor_cache.find_one = AsyncMock(return_value=None)
+    database.mdm_vendor_cache.update_one = AsyncMock()
+    monkeypatch.setattr(api, "get_database", lambda: database)
+    lookup = AsyncMock(return_value="NVIDIA")
+    monkeypatch.setattr(api, "lookup_vendor", lookup)
+
+    result = await api.lookup_material_vendor(pn="XXB2400123")
+
+    assert result == {"pn": "XXB2400123", "vendor": "NVIDIA", "cached": False}
+    lookup.assert_awaited_once_with("XXB2400123")
+    database.mdm_vendor_cache.update_one.assert_awaited_once_with(
+        {"_id": "XXB2400123"},
+        {"$set": {"pn": "XXB2400123", "vendor": "NVIDIA", "source": "hana"}},
+        upsert=True,
+    )

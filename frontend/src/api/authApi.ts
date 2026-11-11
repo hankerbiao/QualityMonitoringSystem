@@ -118,6 +118,33 @@ async function refreshAccessToken(): Promise<string | null> {
   }
 }
 
+const AUTH_RESPONSE_CODES = new Set([
+  'AUTH_REQUIRED',
+  'AUTH_INVALID',
+  'TOKEN_EXPIRED',
+  'TOKEN_INVALID',
+  'SESSION_EXPIRED',
+]);
+
+/**
+ * 判断一个 401 是否真的代表“本系统登录态失效”。
+ *
+ * 后端把本系统鉴权失败包成 `{ code: 'HTTP_ERROR', error: '...' }`，
+ * 而业务层面的上游凭据问题会带自己的 code。
+ * 只有前者才应该清理本地 token 并跳回登录页；后者必须留在当前页面展示错误。
+ */
+async function isOwnSessionExpired(response: Response): Promise<boolean> {
+  try {
+    const payload = (await response.clone().json()) as { code?: unknown } | null;
+    const code = typeof payload?.code === 'string' ? payload.code : '';
+    if (AUTH_RESPONSE_CODES.has(code)) return true;
+    if (code && code !== 'HTTP_ERROR') return false;
+    return true;
+  } catch {
+    return true;
+  }
+}
+
 export async function apiFetch(input: string, init: RequestInit = {}): Promise<Response> {
   let token = getAccessToken();
 
@@ -136,7 +163,7 @@ export async function apiFetch(input: string, init: RequestInit = {}): Promise<R
     headers,
   });
 
-  if (response.status === 401) {
+  if (response.status === 401 && (await isOwnSessionExpired(response))) {
     unauthorizedHandler();
     throw new Error('UNAUTHORIZED');
   }

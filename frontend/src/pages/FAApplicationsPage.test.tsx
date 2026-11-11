@@ -7,7 +7,7 @@ import type { FAPreview, FARepairFault, FADOAChange } from '../types/faApplicati
 import FAApplicationsPage from './FAApplicationsPage';
 
 vi.mock('../api/faApplicationsApi', () => ({
-  faApplicationsApi: { list: vi.fn(), listEmployees: vi.fn(), preview: vi.fn(), submit: vi.fn() },
+  faApplicationsApi: { list: vi.fn(), searchEmployees: vi.fn(), preview: vi.fn(), submit: vi.fn() },
 }));
 
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
@@ -27,7 +27,7 @@ it('previews the selected fault records alongside the editable email body', asyn
     doaChanges: [doa],
   };
   vi.mocked(faApplicationsApi.list).mockResolvedValue({ items: [], total: 0, page: 1, pageSize: 20 });
-  vi.mocked(faApplicationsApi.listEmployees).mockResolvedValue({ items: [] });
+  vi.mocked(faApplicationsApi.searchEmployees).mockResolvedValue({ items: [] });
   vi.mocked(faApplicationsApi.preview).mockResolvedValue(preview);
   render(<MemoryRouter><FAApplicationsPage /></MemoryRouter>);
 
@@ -59,7 +59,7 @@ function mockEmptyList(total = 0) {
   vi.mocked(faApplicationsApi.list).mockImplementation(async (params = {}) => ({
     items: [], total, page: params.page ?? 1, pageSize: 20,
   }));
-  vi.mocked(faApplicationsApi.listEmployees).mockResolvedValue({ items: [] });
+  vi.mocked(faApplicationsApi.searchEmployees).mockResolvedValue({ items: [] });
 }
 
 it('按发生环节条件渲染日期范围，并展示提交前的查询摘要', () => {
