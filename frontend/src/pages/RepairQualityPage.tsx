@@ -40,6 +40,7 @@ export default function RepairQualityPage() {
   const [customers, setCustomers] = useState<string[]>([]);
   const [bases, setBases] = useState<string[]>([]);
   const [models, setModels] = useState<string[]>([]);
+  const [orderTypes, setOrderTypes] = useState<string[]>([]);
   const [advanced, setAdvanced] = useState(EMPTY_ADVANCED_FILTERS);
   const [result, setResult] = useState<RepairQualitySummary | null>(null);
   const [loading, setLoading] = useState(false);
@@ -79,6 +80,7 @@ export default function RepairQualityPage() {
         ...(models.length ? { productModels: models } : {}),
         ...(customers.length ? { customers } : {}),
         ...(bases.length ? { bases } : {}),
+        ...(orderTypes.length ? { orderTypes } : {}),
       };
       setResult(await rtyApi.getRepairQuality(params));
       setAppliedQuery(params);
@@ -102,6 +104,7 @@ export default function RepairQualityPage() {
     setCustomers([]);
     setBases([]);
     setModels([]);
+    setOrderTypes([]);
     setAdvanced(EMPTY_ADVANCED_FILTERS);
     setResult(null);
     setError('');
@@ -160,6 +163,7 @@ export default function RepairQualityPage() {
             <MultiSelect label="客户（多选）" options={options.customers} value={customers} onChange={setCustomers} />
             <MultiSelect label="基地（多选）" options={options.bases} value={bases} onChange={setBases} />
             <MultiSelect label="机型（多选）" options={options.productModels} value={models} onChange={setModels} />
+            <MultiSelect label="订单类型（多选）" options={options.orderTypes ?? []} value={orderTypes} onChange={setOrderTypes} />
             <div className="flex gap-2">
               <button type="submit" disabled={loading || exporting} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-teal-700 px-2.5 text-xs font-medium text-white hover:bg-teal-800 disabled:opacity-50"><Search className="size-3.5" />{loading ? '分析中' : '查询'}</button>
               <button type="button" onClick={reset} disabled={loading || exporting} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 text-xs font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"><RotateCcw className="size-3.5" />重置</button>

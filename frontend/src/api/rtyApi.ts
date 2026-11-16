@@ -126,6 +126,7 @@ function buildRepairQualityQuery(params: RepairQualityQuery): URLSearchParams {
   params.productModels?.forEach(value => qs.append('productModels', value));
   params.customers?.forEach(value => qs.append('customers', value));
   params.bases?.forEach(value => qs.append('bases', value));
+  params.orderTypes?.forEach(value => qs.append('orderTypes', value));
   for (const key of ['serialNumbers', 'productionOrders', 'salesOrders'] as const) params[key]?.forEach(value => qs.append(key, value));
   return qs;
 }

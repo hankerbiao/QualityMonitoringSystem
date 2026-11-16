@@ -135,6 +135,7 @@ async def _load_sources_uncached(
     product_models: list[str] | None = None,
     customers: list[str] | None = None,
     bases: list[str] | None = None,
+    order_types: list[str] | None = None,
     serial_numbers: list[str] | None = None,
     production_orders: list[str] | None = None,
     sales_orders: list[str] | None = None,
@@ -172,6 +173,7 @@ async def _load_sources_uncached(
         raise DataGatewayError("完整订单数据缺失或重复，请重试")
 
     models, customer_values, base_values = set(product_models or []), set(customers or []), set(bases or [])
+    selected_types = set(order_types or [])
     selected_production = {normalize_order(value) for value in advanced_filters.values(production_orders)}
     selected_sales = {advanced_filters.normalize_sales_order(value) for value in advanced_filters.values(sales_orders)}
     selected_orders: set[str] = set()
@@ -193,6 +195,7 @@ async def _load_sources_uncached(
             or models and model not in models
             or customer_values and customer not in customer_values
             or base_values and base not in base_values
+            or selected_types and str(data.get("AUART") or "").strip() not in selected_types
             or not advanced_filters.order_matches(order, data.get("VBELN"), selected_production, selected_sales)
         ):
             continue
@@ -245,6 +248,7 @@ async def _load_sources(
     product_models: list[str] | None = None,
     customers: list[str] | None = None,
     bases: list[str] | None = None,
+    order_types: list[str] | None = None,
     serial_numbers: list[str] | None = None,
     production_orders: list[str] | None = None,
     sales_orders: list[str] | None = None,
@@ -256,6 +260,7 @@ async def _load_sources(
         tuple(sorted(product_models or [])),
         tuple(sorted(customers or [])),
         tuple(sorted(bases or [])),
+        tuple(sorted(order_types or [])),
         tuple(sorted(serial_numbers or [])),
         tuple(sorted(production_orders or [])),
         tuple(sorted(sales_orders or [])),
@@ -270,6 +275,7 @@ async def _load_sources(
             product_models=product_models,
             customers=customers,
             bases=bases,
+            order_types=order_types,
             serial_numbers=serial_numbers, production_orders=production_orders, sales_orders=sales_orders,
             full_fault_rows=full_fault_rows,
         ),
@@ -284,12 +290,13 @@ async def analyze(
     product_models: list[str] | None = None,
     customers: list[str] | None = None,
     bases: list[str] | None = None,
+    order_types: list[str] | None = None,
     serial_numbers: list[str] | None = None,
     production_orders: list[str] | None = None,
     sales_orders: list[str] | None = None,
 ) -> dict[str, Any]:
     _, repairs, metadata = await _load_sources(
-        date_from, date_to, product_models=product_models, customers=customers, bases=bases,
+        date_from, date_to, product_models=product_models, customers=customers, bases=bases, order_types=order_types,
         serial_numbers=serial_numbers, production_orders=production_orders, sales_orders=sales_orders
     )
     return aggregate_repairs(repairs, metadata)
@@ -305,6 +312,7 @@ async def details(
     product_models: list[str] | None = None,
     customers: list[str] | None = None,
     bases: list[str] | None = None,
+    order_types: list[str] | None = None,
     serial_numbers: list[str] | None = None,
     production_orders: list[str] | None = None,
     sales_orders: list[str] | None = None,
@@ -313,7 +321,7 @@ async def details(
     export_all: bool = False,
 ) -> dict[str, Any]:
     _, repairs, metadata = await _load_sources(
-        date_from, date_to, product_models=product_models, customers=customers, bases=bases,
+        date_from, date_to, product_models=product_models, customers=customers, bases=bases, order_types=order_types,
         serial_numbers=serial_numbers, production_orders=production_orders, sales_orders=sales_orders
     )
     rows_by_sn, groups = _group_repairs(repairs, metadata)
@@ -361,6 +369,7 @@ async def build_export(
     product_models: list[str] | None = None,
     customers: list[str] | None = None,
     bases: list[str] | None = None,
+    order_types: list[str] | None = None,
     serial_numbers: list[str] | None = None,
     production_orders: list[str] | None = None,
     sales_orders: list[str] | None = None,
@@ -371,6 +380,7 @@ async def build_export(
         product_models=product_models,
         customers=customers,
         bases=bases,
+        order_types=order_types,
         serial_numbers=serial_numbers, production_orders=production_orders, sales_orders=sales_orders,
         full_fault_rows=True,
     )
@@ -383,17 +393,27 @@ async def build_export(
 
 async def options() -> dict[str, list[str]]:
     if current_base_permissions() == ():
-        return {"productModels": [], "customers": [], "bases": []}
+        return {"productModels": [], "customers": [], "bases": [], "orderTypes": []}
     rows = await data_gateway.all_orders(max_rows=MAX_EXPORT_ORDERS)
-    values = {"productModels": set(), "customers": set(), "bases": set()}
+    values = {"productModels": set(), "customers": set(), "bases": set(), "orderTypes": set()}
+    allowed_rows = []
     for item in rows:
         row = rty_gateway.normalize_order_row(item)
         data = row["data"]
         base = str(data.get("LGORT") or "").strip()
         if not base_allowed(base):
             continue
+        allowed_rows.append(item)
         for key, field in (("productModels", "MAKTX_TH"), ("customers", "KID"), ("bases", "LGORT")):
             value = str(data.get(field) or "").strip()
             if value:
                 values[key].add(value)
+    # Order list rows may omit AUART; read the complete source before building options.
+    for index in range(0, len(allowed_rows), 1000):
+        for item in await rty_export._full_orders(allowed_rows[index:index + 1000]):
+            if isinstance(item, BaseException):
+                raise item
+            value = str(_source(item).get("AUART") or "").strip()
+            if value:
+                values["orderTypes"].add(value)
     return {key: sorted(items) for key, items in values.items()}

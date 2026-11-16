@@ -337,3 +337,37 @@ async def test_export_rejects_reversed_date_range():
     with pytest.raises(HTTPException) as error:
         await repair_quality.build_export("2026-11-01", "2026-10-01")
     assert error.value.status_code == 422
+
+@pytest.mark.asyncio
+async def test_order_type_filters_selected_orders_and_preserves_lifecycle(monkeypatch):
+    orders = [{"id": "a", "aufnr": "1"}, {"id": "b", "aufnr": "2"}]
+    full = [
+        {"_id": "a", "data": {"AUFNR": "1", "GSTRS": "20261010", "LGORT": "1000", "AUART": "A"}},
+        {"_id": "b", "data": {"AUFNR": "2", "GSTRS": "20261010", "LGORT": "1000", "AUART": "B"}},
+    ]
+    monkeypatch.setattr(repair_quality.data_gateway, "all_orders", AsyncMock(return_value=orders))
+    monkeypatch.setattr(repair_quality.data_gateway, "export_rows", AsyncMock(return_value=full))
+    selected = AsyncMock(return_value=[{"PCODE": "SN1", "AUFNR": "1"}])
+    monkeypatch.setattr(repair_quality.rty_gateway, "_faults_for_orders", selected)
+    monkeypatch.setattr(repair_quality.rty_gateway, "_faults_for_sns", AsyncMock(return_value=[
+        {"PCODE": "SN1", "AUFNR": "1", "T_FIND": "2026-10-10"},
+        {"PCODE": "SN1", "AUFNR": "2", "T_FIND": "2026-10-11"},
+    ]))
+    rows, faults, _ = await repair_quality._load_sources_uncached("2026-10-01", "2026-10-31", order_types=["A"])
+    selected.assert_awaited_once_with({"1"})
+    assert [row["AUART"] for row in rows] == ["A"]
+    assert len(faults) == 2
+
+@pytest.mark.asyncio
+async def test_options_read_order_types_from_full_authorized_orders(monkeypatch):
+    rows = [
+        {"id": "a", "raw": {"data": {"LGORT": "1000"}}},
+        {"id": "b", "raw": {"data": {"LGORT": "2000"}}},
+    ]
+    monkeypatch.setattr(repair_quality.data_gateway, "all_orders", AsyncMock(return_value=rows))
+    full = AsyncMock(return_value=[{"raw": {"data": {"AUART": "Z001"}}}])
+    monkeypatch.setattr(repair_quality.rty_export, "_full_orders", full)
+    with base_access_scope(["1000"]):
+        result = await repair_quality.options()
+    full.assert_awaited_once_with([rows[0]])
+    assert result["orderTypes"] == ["Z001"]

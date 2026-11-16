@@ -137,12 +137,14 @@ export interface RepairQualitySummary extends Omit<RepairQualityGroup, 'customer
 }
 
 export interface RepairQualityOptions {
+  orderTypes?: string[];
   productModels: string[];
   customers: string[];
   bases: string[];
 }
 
 export interface RepairQualityQuery {
+  orderTypes?: string[];
   serialNumbers?: string[];
   productionOrders?: string[];
   salesOrders?: string[];

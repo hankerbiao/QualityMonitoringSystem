@@ -265,3 +265,14 @@ async def test_reinsert_usage_ignores_reversed_bom_postings(monkeypatch):
     orders, rows, usage, postings = await reinsert_rate.load_sources("2026-01-01", "2026-01-31", [], [], [])
     assert usage["1"].quantities["PN1"] == 3
     assert len(postings) == 1
+
+@pytest.mark.asyncio
+async def test_order_types_are_sent_to_order_loader_and_isolate_cache(monkeypatch):
+    monkeypatch.setattr(reinsert_rate, "_CACHE", reinsert_rate.AsyncTTLCache())
+    loader = AsyncMock(return_value=[])
+    monkeypatch.setattr(reinsert_rate.rty_export, "_load_orders", loader)
+    await reinsert_rate.load_sources("2026-01-01", "2026-01-31", None, None, None, order_types=["A", "B"])
+    await reinsert_rate.load_sources("2026-01-01", "2026-01-31", None, None, None, order_types=["C"])
+    assert loader.await_count == 2
+    assert loader.await_args_list[0].args[0]["orderTypes"] == "A,B"
+    assert loader.await_args_list[1].args[0]["orderTypes"] == "C"

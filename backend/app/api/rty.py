@@ -70,12 +70,13 @@ async def get_reinsert_rate(
     productModels: Annotated[list[str] | None, Query()] = None,
     customers: Annotated[list[str] | None, Query()] = None,
     bases: Annotated[list[str] | None, Query()] = None,
+    orderTypes: Annotated[list[str] | None, Query()] = None,
     serialNumbers: Annotated[list[str] | None, Query()] = None,
     productionOrders: Annotated[list[str] | None, Query()] = None,
     salesOrders: Annotated[list[str] | None, Query()] = None,
 ):
     orders, faults, usage, _ = await reinsert_rate.load_sources(
-        dateFrom, dateTo, productModels, customers, bases, **_advanced_kwargs(serialNumbers, productionOrders, salesOrders)
+        dateFrom, dateTo, productModels, customers, bases, **({"order_types": orderTypes} if orderTypes else {}), **_advanced_kwargs(serialNumbers, productionOrders, salesOrders)
     )
     return Response(success=True, data=reinsert_rate.aggregate(orders, faults, usage, dateFrom, dateTo))
 
@@ -88,6 +89,7 @@ async def get_reinsert_details(
     productModels: Annotated[list[str] | None, Query()] = None,
     customers: Annotated[list[str] | None, Query()] = None,
     bases: Annotated[list[str] | None, Query()] = None,
+    orderTypes: Annotated[list[str] | None, Query()] = None,
     serialNumbers: Annotated[list[str] | None, Query()] = None,
     productionOrders: Annotated[list[str] | None, Query()] = None,
     salesOrders: Annotated[list[str] | None, Query()] = None,
@@ -102,7 +104,7 @@ async def get_reinsert_details(
     if kind == "postings" and (not component or not pn):
         raise HTTPException(status_code=422, detail="发料明细需要部件和PN")
     orders, faults, usage, postings = await reinsert_rate.load_sources(
-        dateFrom, dateTo, productModels, customers, bases, **_advanced_kwargs(serialNumbers, productionOrders, salesOrders)
+        dateFrom, dateTo, productModels, customers, bases, **({"order_types": orderTypes} if orderTypes else {}), **_advanced_kwargs(serialNumbers, productionOrders, salesOrders)
     )
     return Response(success=True, data=reinsert_rate.details(
         orders, faults, usage, postings, base, month, component, pn, kind, page, pageSize, model
@@ -130,6 +132,7 @@ async def get_repair_quality(
     productModels: Annotated[list[str] | None, Query()] = None,
     customers: Annotated[list[str] | None, Query()] = None,
     bases: Annotated[list[str] | None, Query()] = None,
+    orderTypes: Annotated[list[str] | None, Query()] = None,
     serialNumbers: Annotated[list[str] | None, Query()] = None,
     productionOrders: Annotated[list[str] | None, Query()] = None,
     salesOrders: Annotated[list[str] | None, Query()] = None,
@@ -140,6 +143,7 @@ async def get_repair_quality(
         product_models=productModels,
         customers=customers,
         bases=bases,
+        **({"order_types": orderTypes} if orderTypes else {}),
         **_advanced_kwargs(serialNumbers, productionOrders, salesOrders),
     )
     return Response(success=True, data=data, message=f"分析到 {data['snCount']} 个维修 SN")
@@ -168,6 +172,7 @@ async def get_repair_quality_details(
     productModels: Annotated[list[str] | None, Query()] = None,
     customers: Annotated[list[str] | None, Query()] = None,
     bases: Annotated[list[str] | None, Query()] = None,
+    orderTypes: Annotated[list[str] | None, Query()] = None,
     serialNumbers: Annotated[list[str] | None, Query()] = None,
     productionOrders: Annotated[list[str] | None, Query()] = None,
     salesOrders: Annotated[list[str] | None, Query()] = None,
@@ -179,6 +184,7 @@ async def get_repair_quality_details(
         dateFrom, dateTo, customer, base, bucket,
         product_models=productModels, customers=customers, bases=bases,
         page=page, page_size=pageSize, export_all=exportAll,
+        **({"order_types": orderTypes} if orderTypes else {}),
         **_advanced_kwargs(serialNumbers, productionOrders, salesOrders),
     )
     return Response(success=True, data=data)
@@ -195,12 +201,14 @@ async def get_repair_quality_export(
     productModels: Annotated[list[str] | None, Query()] = None,
     customers: Annotated[list[str] | None, Query()] = None,
     bases: Annotated[list[str] | None, Query()] = None,
+    orderTypes: Annotated[list[str] | None, Query()] = None,
     serialNumbers: Annotated[list[str] | None, Query()] = None,
     productionOrders: Annotated[list[str] | None, Query()] = None,
     salesOrders: Annotated[list[str] | None, Query()] = None,
 ):
     data = await repair_quality.build_export(
         dateFrom, dateTo, product_models=productModels, customers=customers, bases=bases,
+        **({"order_types": orderTypes} if orderTypes else {}),
         **_advanced_kwargs(serialNumbers, productionOrders, salesOrders)
     )
     return Response(success=True, data=data)

@@ -32,7 +32,7 @@ export default function ReinsertRatePage() {
   const [advanced, setAdvanced] = useState(EMPTY_ADVANCED_FILTERS);
   const [applied, setApplied] = useState(initial);
   const [data, setData] = useState<ReinsertDashboard | null>(null);
-  const [options, setOptions] = useState({ productModels: [] as string[], customers: [] as string[], bases: [] as string[] });
+  const [options, setOptions] = useState({ productModels: [] as string[], customers: [] as string[], bases: [] as string[], orderTypes: [] as string[] });
   const [error, setError] = useState('');
   const [optionsError, setOptionsError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -57,7 +57,7 @@ export default function ReinsertRatePage() {
   }, []);
   useEffect(() => {
     let active = true;
-    reinsertApi.options().then(result => { if (active) setOptions(result); }).catch(reason => {
+    reinsertApi.options().then(result => { if (active) setOptions({ ...result, orderTypes: result.orderTypes ?? [] }); }).catch(reason => {
       if (active) setOptionsError(reason instanceof Error ? reason.message : '筛选项加载失败');
     });
     void load(initial);
@@ -116,6 +116,7 @@ export default function ReinsertRatePage() {
         <MultiSelect label="基地（多选）" options={options.bases} value={draft.bases ?? []} onChange={bases => setDraft(value => ({ ...value, bases }))} />
         <MultiSelect label="客户（多选）" options={options.customers} value={draft.customers ?? []} onChange={customers => setDraft(value => ({ ...value, customers }))} />
         <MultiSelect label="机型（多选）" options={options.productModels} value={draft.productModels ?? []} onChange={productModels => setDraft(value => ({ ...value, productModels }))} />
+        <MultiSelect label="订单类型（多选）" options={options.orderTypes} value={draft.orderTypes ?? []} onChange={orderTypes => setDraft(value => ({ ...value, orderTypes }))} />
         <button type="submit" disabled={loading} className="inline-flex h-8 items-center gap-1.5 rounded-md bg-teal-700 px-3 text-xs font-medium text-white hover:bg-teal-800 disabled:opacity-50"><Search className="size-3.5" />查询</button>
         <button type="button" disabled={loading} onClick={() => { setDraft(initial); setAdvanced(EMPTY_ADVANCED_FILTERS); void load(initial); }} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-xs text-slate-700 hover:bg-slate-50"><RotateCcw className="size-3.5" />重置</button>
         <button type="button" onClick={() => void exportDashboard()} disabled={loading || exporting || !data?.models.length} className="inline-flex h-8 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-xs text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"><Download className="size-3.5" />{exporting ? '导出中...' : '导出 Excel'}</button>

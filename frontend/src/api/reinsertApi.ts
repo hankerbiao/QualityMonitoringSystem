@@ -2,6 +2,7 @@ import { requestData } from './authApi';
 import { API_BASE_URL } from '../constants';
 
 export interface ReinsertQuery {
+  orderTypes?: string[];
   serialNumbers?: string[];
   productionOrders?: string[];
   salesOrders?: string[];
@@ -64,7 +65,7 @@ function params(query: ReinsertQuery | DetailQuery | (ReinsertQuery & { kind: 'f
 }
 
 export const reinsertApi = {
-  options: () => requestData<{ productModels: string[]; customers: string[]; bases: string[] }>(
+  options: () => requestData<{ productModels: string[]; customers: string[]; bases: string[]; orderTypes?: string[] }>(
     `${API_BASE_URL}/rty/reinsert-rate/options`,
   ),
   dashboard: (query: ReinsertQuery) =>

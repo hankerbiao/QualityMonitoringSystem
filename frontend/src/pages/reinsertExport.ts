@@ -15,6 +15,7 @@ export function buildReinsertWorkbook(data: ReinsertDashboard, query: ReinsertQu
     ['机型筛选', query.productModels?.join('、') || '全部'],
     ['基地筛选', query.bases?.join('、') || '全部'],
     ['客户筛选', query.customers?.join('、') || '全部'],
+    ['订单类型筛选', query.orderTypes?.join('、') || '全部'],
     ['缺少 SN 或工站的记录', data.invalidCount], ['其中重插记录', data.invalidReinsertCount],
     ['说明', '重插率以百分数数值表示，例如 2 表示 2%。空值表示数据缺失或无法计算。'],
   ]);

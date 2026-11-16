@@ -77,6 +77,7 @@ async def load_sources(
     models: list[str] | None,
     customers: list[str] | None,
     bases: list[str] | None,
+    order_types: list[str] | None = None,
     serial_numbers: list[str] | None = None,
     production_orders: list[str] | None = None,
     sales_orders: list[str] | None = None,
@@ -93,6 +94,7 @@ async def load_sources(
         tuple(sorted(models or [])),
         tuple(sorted(customers or [])),
         tuple(sorted(bases or [])),
+        tuple(sorted(order_types or [])),
         tuple(sorted(serial_numbers or [])),
         tuple(sorted(production_orders or [])),
         tuple(sorted(sales_orders or [])),
@@ -100,7 +102,7 @@ async def load_sources(
 
     async def load():
         orders = await rty_export._load_orders(
-            {"dateFrom": start, "dateTo": end, "orderScope": "normal"},
+            {"dateFrom": start, "dateTo": end, "orderScope": "normal", "orderTypes": ",".join(order_types or [])},
             product_models=models,
             customers=customers,
             bases=bases,
