@@ -26,7 +26,7 @@ import { StationPassFindings, StationQueryLaunch } from '../components/station/S
 import { buildStationPassWorkbook } from '../components/station/exportData';
 import { buildFaultDetailSheet } from '../components/rty/templateExport';
 import { REPAIR_DETAIL_COLUMNS } from '../components/rty/repairDetailColumns';
-import { combinedStationPassRate, rowMatchesBand, summarizeStationRates, type StationRateRow } from '../utils/stationPassRate';
+import { combinedStationPassRate, detectStationInputCountAnomalies, rowMatchesBand, summarizeStationRates, type StationRateRow } from '../utils/stationPassRate';
 import { useSettings } from '../context/SettingsContext';
 import { useAuth } from '../context/AuthContext';
 
@@ -83,7 +83,19 @@ const STATION_DESCRIPTIONS: Record<string, string> = {
   OP310: '附件装箱',
   OP320: '包装',
 };
-const STATION_CODES = Object.keys(STATION_DESCRIPTIONS);
+
+function compareStationCodes(left: string, right: string): number {
+  const leftMatch = left.match(/^OP(\d+)(.*)$/);
+  const rightMatch = right.match(/^OP(\d+)(.*)$/);
+  const numberOrder = Number(leftMatch?.[1] ?? Number.POSITIVE_INFINITY) - Number(rightMatch?.[1] ?? Number.POSITIVE_INFINITY);
+  return numberOrder || (leftMatch?.[2] ?? left).localeCompare(rightMatch?.[2] ?? right, 'en');
+}
+
+function sortStationCodes(stations: readonly string[]): string[] {
+  return [...stations].sort(compareStationCodes);
+}
+
+const STATION_CODES = sortStationCodes(Object.keys(STATION_DESCRIPTIONS));
 
 function stationDescription(stationCode: string): string {
   return STATION_DESCRIPTIONS[stationCode] ?? '';
@@ -378,7 +390,7 @@ export default function StationPassRatePage() {
       setRows(response);
       const savedStations = settings.stationPassRateConfig.selectedStations;
       setSelectedStations(settings.stationPassRateConfig.configured
-        ? savedStations.filter((station) => STATION_CODES.includes(station))
+        ? sortStationCodes(savedStations.filter((station) => STATION_CODES.includes(station)))
         : STATION_CODES);
       setAppliedQuery(query);
       setDataUpdatedAt(new Date());
@@ -525,6 +537,16 @@ export default function StationPassRatePage() {
     };
   }, [rows, selectedStations]);
 
+  const stationInputCountAnomalies = useMemo(() => matrix.rows.flatMap((row) => (
+    detectStationInputCountAnomalies(row.stationRows, matrix.stations).map((anomaly) => ({
+      ...anomaly,
+      dimensionValue: row.dimensionValue,
+    }))
+  )), [matrix.rows, matrix.stations]);
+  const stationInputCountAnomaliesByCell = useMemo(() => new Map(
+    stationInputCountAnomalies.map((anomaly) => [`${anomaly.dimensionValue}\u0000${anomaly.station}`, anomaly]),
+  ), [stationInputCountAnomalies]);
+
   const openDetail = async (rate: StationRateRow, type: 'input' | 'defect' = 'input') => {
     if (!appliedQuery) return;
     const requestId = ++detailRequestId.current;
@@ -655,7 +677,7 @@ export default function StationPassRatePage() {
   const toggleStation = (station: string) => {
     setSelectedStations((current) => current.includes(station)
       ? current.filter((value) => value !== station)
-      : [...current, station]);
+      : sortStationCodes([...current, station]));
   };
   const closeStationConfig = () => setStationConfigOpen(false);
 
@@ -780,11 +802,17 @@ export default function StationPassRatePage() {
 
           {hasSearched && <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3"><div><div className="text-xs font-semibold text-slate-700">组合工站</div><div className="mt-0.5 text-xs text-slate-400">已选 {selectedStations.length} / {STATION_CODES.length} 个工站</div></div><div className="flex flex-wrap items-center gap-3">{selectedStations.length > 0 && <label className="inline-flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" checked={onlyAvailableStations} onChange={(event) => setOnlyAvailableStations(event.target.checked)} className="size-4 rounded border-slate-300 text-cyan-600" />仅计算当前有值工站</label>}<button type="button" onClick={() => setFindingsOpen(true)} disabled={loading || !!error || matrix.rows.length === 0} aria-haspopup="dialog" className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:border-cyan-300 hover:bg-cyan-50 disabled:opacity-50"><BarChart3 className="size-4" />工位分析</button>{canConfigureStations && <button type="button" onClick={() => setStationConfigOpen(true)} aria-haspopup="dialog" aria-expanded={stationConfigOpen} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700"><Settings2 className="size-4" />配置工站</button>}</div></div>}
 
+          {hasSearched && !loading && !error && stationInputCountAnomalies.length > 0 && <div role="status" className="border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-800">
+            <span className="font-semibold">过站量异常：{stationInputCountAnomalies.length} 组后一工站分母高于前一工站。</span>{' '}
+            {stationInputCountAnomalies.slice(0, 3).map((anomaly) => `${anomaly.dimensionValue} ${anomaly.previousStation} ${anomaly.previousCount} → ${anomaly.station} ${anomaly.count}`).join('；')}
+            {stationInputCountAnomalies.length > 3 ? '；更多异常已在表格中标红' : ''}
+          </div>}
+
           {(loading || error || hasSearched) && <div role="region" aria-label="工位过站直通率搜索结果" tabIndex={0} className="max-h-[65dvh] overflow-auto">
             <table className="w-full min-w-max border-separate border-spacing-0 text-left">
           <thead className="text-xs font-semibold text-slate-600"><tr><th className="sticky left-0 top-0 z-20 min-w-52 border-b border-r border-slate-200 bg-slate-50 px-4 py-3 text-left shadow-[1px_0_0_0_rgb(226_232_240)]">{dimensionLabel}</th><th className="sticky left-52 top-0 z-20 min-w-30 border-b border-r border-slate-200 bg-slate-100 px-3 py-3 text-center shadow-[1px_0_0_0_rgb(226_232_240)]">RTY直通率</th><th className="sticky left-[20.5rem] top-0 z-20 min-w-32 border-b border-r border-slate-200 bg-cyan-50 px-3 py-3 text-center"><span className="inline-flex items-center justify-center gap-1">组合工站直通率<HelpTooltip label="查看组合工站直通率计算方法">将选中工站的单站直通率转为小数后相乘，再转回百分比。只反映已选工站组合表现，不是 RTY 汇总值。</HelpTooltip></span></th>{matrix.stations.map((station) => { const description = stationDescription(station); return <th key={station} className="sticky top-0 z-10 min-w-32 border-b border-r border-slate-200 bg-slate-50 px-3 py-3 text-center font-mono"><span className="inline-flex items-center justify-center gap-1 text-slate-700">{station}{description && <HelpTooltip label={`查看工位 ${station} 说明`}>{description}</HelpTooltip>}</span></th>; })}</tr></thead>
               <tbody className="text-xs">
-                {loading ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-slate-500"><span className="inline-flex items-center gap-2"><RefreshCw className="size-4 animate-spin text-cyan-600" />正在计算工位过站量与维修记录匹配关系... {formatDuration(loadingElapsedMs)}</span></td></tr> : error ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-red-600">{error}</td></tr> : matrix.rows.length === 0 ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-slate-500">当前条件下暂无工位过站数据</td></tr> : tableRows.length === 0 ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-slate-500">没有落在该区间的记录</td></tr> : tableRows.map((row) => { const combinedRate = combinedStationPassRate(row.stationRows, selectedStations, onlyAvailableStations); return <tr key={row.dimensionValue} className="group"><th className="sticky left-0 z-10 max-w-52 truncate border-b border-r border-slate-200 bg-white px-4 py-3.5 text-left font-mono font-semibold text-slate-800 shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-slate-50" title={row.dimensionValue}>{row.dimensionValue}</th><td className="sticky left-52 z-10 border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-center shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-slate-100/70"><div className="font-mono text-sm font-semibold text-slate-800">{formatRate(row.total.inputCount, row.total.defectCount)}</div><div className="mt-0.5 font-mono text-[11px] text-slate-500">{row.total.defectCount}/{row.total.inputCount}</div></td><td className="sticky left-[20.5rem] z-10 border-b border-r border-slate-200 bg-cyan-50 px-3 py-2 text-center shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-cyan-100/70"><div className="font-mono text-sm font-semibold text-cyan-900">{combinedRate === null ? '-' : `${combinedRate.toFixed(2)}%`}</div><div className="mt-0.5 text-[11px] text-cyan-700">{selectedStations.length ? `${selectedStations.length} 个工站` : '未选择工站'}</div></td>{matrix.stations.map((station) => { const rate = row.stationRows.get(station); return !rate ? <td key={station} className="border-b border-r border-slate-100 bg-slate-50/40 px-3 py-2 text-center text-slate-300">-</td> : <td key={station} className="border-b border-r border-slate-100 p-1.5 text-center"><button type="button" onClick={() => void openDetail(rate)} className={`flex min-h-13 w-full flex-col items-center justify-center rounded-sm px-2 py-1.5 font-mono transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${rateTone(rate.passRate)}`} title={`过站量 ${rate.inputCount}，维修记录 ${rate.defectCount} 条；点击查看明细`}><span className="text-sm font-semibold">{rate.passRate.toFixed(2)}%</span><span className="mt-0.5 text-[11px] font-medium opacity-75">{rate.defectCount}/{rate.inputCount}</span></button></td>; })}</tr>; })}
+                {loading ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-slate-500"><span className="inline-flex items-center gap-2"><RefreshCw className="size-4 animate-spin text-cyan-600" />正在计算工位过站量与维修记录匹配关系... {formatDuration(loadingElapsedMs)}</span></td></tr> : error ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-red-600">{error}</td></tr> : matrix.rows.length === 0 ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-slate-500">当前条件下暂无工位过站数据</td></tr> : tableRows.length === 0 ? <tr><td colSpan={colSpan} className="px-4 py-10 text-center text-slate-500">没有落在该区间的记录</td></tr> : tableRows.map((row) => { const combinedRate = combinedStationPassRate(row.stationRows, selectedStations, onlyAvailableStations); return <tr key={row.dimensionValue} className="group"><th className="sticky left-0 z-10 max-w-52 truncate border-b border-r border-slate-200 bg-white px-4 py-3.5 text-left font-mono font-semibold text-slate-800 shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-slate-50" title={row.dimensionValue}>{row.dimensionValue}</th><td className="sticky left-52 z-10 border-b border-r border-slate-200 bg-slate-50 px-3 py-2 text-center shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-slate-100/70"><div className="font-mono text-sm font-semibold text-slate-800">{formatRate(row.total.inputCount, row.total.defectCount)}</div><div className="mt-0.5 font-mono text-[11px] text-slate-500">{row.total.defectCount}/{row.total.inputCount}</div></td><td className="sticky left-[20.5rem] z-10 border-b border-r border-slate-200 bg-cyan-50 px-3 py-2 text-center shadow-[1px_0_0_0_rgb(226_232_240)] group-hover:bg-cyan-100/70"><div className="font-mono text-sm font-semibold text-cyan-900">{combinedRate === null ? '-' : `${combinedRate.toFixed(2)}%`}</div><div className="mt-0.5 text-[11px] text-cyan-700">{selectedStations.length ? `${selectedStations.length} 个工站` : '未选择工站'}</div></td>{matrix.stations.map((station) => { const rate = row.stationRows.get(station); const anomaly = stationInputCountAnomaliesByCell.get(`${row.dimensionValue}\u0000${station}`); return !rate ? <td key={station} className="border-b border-r border-slate-100 bg-slate-50/40 px-3 py-2 text-center text-slate-300">-</td> : <td key={station} className={`border-b border-r border-slate-100 p-1.5 text-center ${anomaly ? 'bg-red-50 ring-2 ring-inset ring-red-500' : ''}`}><button type="button" onClick={() => void openDetail(rate)} className={`flex min-h-13 w-full flex-col items-center justify-center rounded-sm px-2 py-1.5 font-mono transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-1 ${anomaly ? 'bg-red-50 text-red-800 hover:bg-red-100 focus-visible:ring-red-500' : rateTone(rate.passRate)}`} title={anomaly ? `后一工站分母高于前一工站：${anomaly.previousStation} ${anomaly.previousCount}，${station} ${anomaly.count}，多 ${anomaly.count - anomaly.previousCount}；点击查看明细` : `过站量 ${rate.inputCount}，维修记录 ${rate.defectCount} 条；点击查看明细`}><span className="text-sm font-semibold">{rate.passRate.toFixed(2)}%</span><span className="mt-0.5 text-[11px] font-medium opacity-75">{rate.defectCount}/{rate.inputCount}</span>{anomaly && <span className="mt-0.5 text-[10px] font-semibold">前站 {anomaly.previousStation}：{anomaly.previousCount}</span>}</button></td>; })}</tr>; })}
               </tbody>
             </table>
           </div>}

@@ -2,11 +2,36 @@ import { describe, expect, it } from 'vitest';
 import {
   combinedStationPassRate,
   datePresetRange,
+  detectStationInputCountAnomalies,
   matchingDatePreset,
   rankVolumes,
   rowMatchesBand,
   summarizeStationRates,
 } from './stationPassRate';
+
+describe('detectStationInputCountAnomalies', () => {
+  it('flags a later station when its denominator exceeds the previous station', () => {
+    const rows = new Map([
+      ['OP10', { inputCount: 100 }],
+      ['OP20', { inputCount: 101 }],
+      ['OP30', { inputCount: 80 }],
+    ]);
+
+    expect(detectStationInputCountAnomalies(rows, ['OP10', 'OP20', 'OP30'])).toEqual([
+      { previousStation: 'OP10', station: 'OP20', previousCount: 100, count: 101 },
+    ]);
+  });
+
+  it('allows equal or lower counts and skips comparisons with a missing station', () => {
+    const rows = new Map([
+      ['OP10', { inputCount: 100 }],
+      ['OP20', { inputCount: 100 }],
+      ['OP40', { inputCount: 120 }],
+    ]);
+
+    expect(detectStationInputCountAnomalies(rows, ['OP10', 'OP20', 'OP30', 'OP40'])).toEqual([]);
+  });
+});
 
 describe('combinedStationPassRate', () => {
   const rows = new Map([

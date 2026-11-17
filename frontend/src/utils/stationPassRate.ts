@@ -2,6 +2,34 @@ export interface StationRateValue {
   passRate: number;
 }
 
+export interface StationInputCountAnomaly {
+  previousStation: string;
+  station: string;
+  previousCount: number;
+  count: number;
+}
+
+export function detectStationInputCountAnomalies<T extends { inputCount: number }>(
+  stationRows: ReadonlyMap<string, T>,
+  stationCodes: readonly string[],
+): StationInputCountAnomaly[] {
+  const anomalies: StationInputCountAnomaly[] = [];
+  for (let index = 1; index < stationCodes.length; index += 1) {
+    const previousStation = stationCodes[index - 1];
+    const station = stationCodes[index];
+    const previous = stationRows.get(previousStation);
+    const current = stationRows.get(station);
+    if (!previous || !current || current.inputCount <= previous.inputCount) continue;
+    anomalies.push({
+      previousStation,
+      station,
+      previousCount: previous.inputCount,
+      count: current.inputCount,
+    });
+  }
+  return anomalies;
+}
+
 export function combinedStationPassRate(
   stationRows: ReadonlyMap<string, StationRateValue>,
   stationCodes: readonly string[],

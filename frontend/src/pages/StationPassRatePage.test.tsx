@@ -142,6 +142,21 @@ describe('StationPassRatePage customer filter', () => {
     expect(context.updateSettings).not.toHaveBeenCalled();
   });
 
+  it('warns and marks a station whose denominator exceeds the previous station', async () => {
+    context.stationConfig = { selectedStations: ['OP10', 'OP20'], configured: true };
+    vi.mocked(rtyApi.getStationPassRates).mockResolvedValue([
+      { dimensionValue: 'M', stationCode: 'OP10', stationName: '装配', inputCount: 10, defectCount: 0, passRate: 100, totalInputCount: 10, totalDefectCount: 0 },
+      { dimensionValue: 'M', stationCode: 'OP20', stationName: '测试', inputCount: 11, defectCount: 0, passRate: 100, totalInputCount: 10, totalDefectCount: 0 },
+    ]);
+    render(<MemoryRouter><StationPassRatePage /></MemoryRouter>);
+
+    await ensureCustomer();
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+
+    expect((await screen.findByRole('status')).textContent).toContain('M OP10 10 → OP20 11');
+    expect(await screen.findByText('前站 OP10：10')).toBeTruthy();
+  });
+
   it('renders only the static station headers, regardless of API station codes', async () => {
     const descriptions = [
       ['OP10', '组装'], ['OP20', '组装'], ['OP30', '组装'], ['OP40', '组装'], ['OP50', '组装'],
