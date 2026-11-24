@@ -1,4 +1,4 @@
-import { DefectDetail, RTYData, RTYFilterParams, SalesOrderSummary, PaginatedRTYResponse, PaginatedExcludedOrdersResponse, RepairQualityOptions, RepairQualitySummary, StationPassDetail, StationPassQuery, StationPassRate } from '../types';
+import { DefectDetail, RTYData, RTYFilterParams, SalesOrderSummary, PaginatedRTYResponse, PaginatedExcludedOrdersResponse, RepairQualityOptions, RepairQualitySummary, StationPassDetail, StationPassMissingDetail, StationPassQuery, StationPassRate } from '../types';
 import { requestData, requestJson } from './authApi';
 import { API_BASE_URL } from '../constants';
 import type { RepairQualityDetailQuery, RepairQualityDetails, RepairQualityExport, RepairQualityQuery, RTYCycleDetails, RTYCycleDetailQuery, RTYTemplateExport, StationPassExport } from '../types/rty';
@@ -234,6 +234,12 @@ export const rtyApi = {
     qs.set('stationCode', stationCode);
     qs.set('detailType', detailType);
     return requestData<StationPassDetail[]>(`${API_BASE_URL}/rty/station-pass-details?${qs}`);
+  },
+
+  async getStationPassMissingDetails(params: StationPassQuery, stationCodes: string[]): Promise<StationPassMissingDetail[]> {
+    const qs = buildStationPassQuery(params);
+    stationCodes.forEach((stationCode) => qs.append('stationCodes', stationCode));
+    return requestData<StationPassMissingDetail[]>(`${API_BASE_URL}/rty/station-pass-missing-details?${qs}`);
   },
 
   async getCycleData(

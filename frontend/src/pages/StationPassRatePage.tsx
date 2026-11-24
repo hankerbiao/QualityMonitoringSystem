@@ -307,6 +307,7 @@ export default function StationPassRatePage() {
   const [hasSearched, setHasSearched] = useState(false);
   const [error, setError] = useState('');
   const [exporting, setExporting] = useState(false);
+  const [missingExporting, setMissingExporting] = useState(false);
   const [exportError, setExportError] = useState('');
   const [appliedQuery, setAppliedQuery] = useState<StationPassQuery | null>(null);
   const [dataUpdatedAt, setDataUpdatedAt] = useState<Date | null>(null);
@@ -631,6 +632,37 @@ export default function StationPassRatePage() {
     }
   };
 
+  const exportMissingStationSns = async () => {
+    if (!appliedQuery || !stationInputCountAnomalies.length || missingExporting) return;
+    setMissingExporting(true);
+    setExportError('');
+    try {
+      const missingRows = await rtyApi.getStationPassMissingDetails(appliedQuery, matrix.stations);
+      if (!missingRows.length) {
+        setExportError('当前异常中未找到可导出的主机唯一条码');
+        return;
+      }
+      const targetCounts = new Map(matrix.rows.map((row) => [row.dimensionValue, row.total.inputCount]));
+      const data = missingRows.map((row) => ({
+        [dimensionLabels[appliedQuery.groupBy]]: row.dimensionValue,
+        目标机器数: targetCounts.get(row.dimensionValue) ?? '',
+        前一工站: row.previousStation,
+        前一工站过站SN数: row.previousCount,
+        后一工站: row.station,
+        后一工站过站SN数: row.count,
+        'SN（主机唯一条码）': row.sn,
+      }));
+      const book = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(book, XLSX.utils.json_to_sheet(data), '疑似缺失过站SN');
+      XLSX.writeFile(book, `疑似缺失工站过站SN_${appliedQuery.dateFrom}_${appliedQuery.dateTo}.xlsx`);
+    } catch (err) {
+      console.error('Failed to export missing station pass serial numbers', err);
+      setExportError(err instanceof Error && err.message ? err.message : '疑似缺失 SN 导出失败，请重试');
+    } finally {
+      setMissingExporting(false);
+    }
+  };
+
   const updateField = <K extends keyof StationQueryState>(key: K, setter: (value: StationQueryState[K]) => void, value: StationQueryState[K]) => {
     setter(value);
     queryRef.current = { ...queryRef.current, [key]: value };
@@ -802,10 +834,15 @@ export default function StationPassRatePage() {
 
           {hasSearched && <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 bg-white px-4 py-3"><div><div className="text-xs font-semibold text-slate-700">组合工站</div><div className="mt-0.5 text-xs text-slate-400">已选 {selectedStations.length} / {STATION_CODES.length} 个工站</div></div><div className="flex flex-wrap items-center gap-3">{selectedStations.length > 0 && <label className="inline-flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" checked={onlyAvailableStations} onChange={(event) => setOnlyAvailableStations(event.target.checked)} className="size-4 rounded border-slate-300 text-cyan-600" />仅计算当前有值工站</label>}<button type="button" onClick={() => setFindingsOpen(true)} disabled={loading || !!error || matrix.rows.length === 0} aria-haspopup="dialog" className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 hover:border-cyan-300 hover:bg-cyan-50 disabled:opacity-50"><BarChart3 className="size-4" />工位分析</button>{canConfigureStations && <button type="button" onClick={() => setStationConfigOpen(true)} aria-haspopup="dialog" aria-expanded={stationConfigOpen} className="inline-flex h-9 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-3 text-sm font-medium text-slate-700 transition-colors hover:border-cyan-300 hover:bg-cyan-50 hover:text-cyan-700"><Settings2 className="size-4" />配置工站</button>}</div></div>}
 
-          {hasSearched && !loading && !error && stationInputCountAnomalies.length > 0 && <div role="status" className="border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-800">
-            <span className="font-semibold">过站量异常：{stationInputCountAnomalies.length} 组后一工站分母高于前一工站。</span>{' '}
-            {stationInputCountAnomalies.slice(0, 3).map((anomaly) => `${anomaly.dimensionValue} ${anomaly.previousStation} ${anomaly.previousCount} → ${anomaly.station} ${anomaly.count}`).join('；')}
-            {stationInputCountAnomalies.length > 3 ? '；更多异常已在表格中标红' : ''}
+          {hasSearched && !loading && !error && stationInputCountAnomalies.length > 0 && <div role="status" className="flex flex-wrap items-center justify-between gap-3 border-b border-red-200 bg-red-50 px-4 py-2 text-xs text-red-800">
+            <div>
+              <span className="font-semibold">过站量异常：{stationInputCountAnomalies.length} 组后一工站分母高于前一工站。</span>{' '}
+              {stationInputCountAnomalies.slice(0, 3).map((anomaly) => `${anomaly.dimensionValue} ${anomaly.previousStation} ${anomaly.previousCount} → ${anomaly.station} ${anomaly.count}`).join('；')}
+              {stationInputCountAnomalies.length > 3 ? '；更多异常已在表格中标红' : ''}
+            </div>
+            <button type="button" onClick={() => void exportMissingStationSns()} disabled={missingExporting || exporting || !appliedQuery} className="inline-flex h-8 shrink-0 items-center gap-1.5 rounded-md border border-red-300 bg-white px-2.5 font-medium text-red-800 transition-colors hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-50">
+              <Download className="size-3.5" />{missingExporting ? 'SN 导出中' : '导出异常 SN'}
+            </button>
           </div>}
 
           {(loading || error || hasSearched) && <div role="region" aria-label="工位过站直通率搜索结果" tabIndex={0} className="max-h-[65dvh] overflow-auto">

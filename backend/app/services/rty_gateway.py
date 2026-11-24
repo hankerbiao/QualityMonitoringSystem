@@ -23,6 +23,7 @@ from app.schemas.rty import (
     RTYData,
     SalesOrderSummary,
     StationPassDetail,
+    StationPassMissingDetail,
     StationPassRate,
 )
 from app.services.async_ttl_cache import AsyncTTLCache
@@ -1079,6 +1080,183 @@ async def station_rates(
         )
         for (dimension_value, station), value in sorted(by_station.items())
     ]
+
+
+async def station_missing_details(
+    date_from: str | None,
+    date_to: str | None,
+    station_codes: list[str],
+    serial_number: str | None = None,
+    product_models: list[str] | None = None,
+    bases: list[str] | None = None,
+    group_by: str = "salesOrder",
+    order_scope: str = "normal",
+    customers: list[str] | None = None,
+    overseas: bool = False,
+    product_model: str | None = None,
+    base: str | None = None,
+    customer: str | None = None,
+    order_types: list[str] | None = None,
+    serial_numbers: list[str] | None = None,
+    production_orders: list[str] | None = None,
+    sales_orders: list[str] | None = None,
+) -> list[StationPassMissingDetail]:
+    """Find SNs seen at a later selected station but absent from its predecessor."""
+    if current_base_permissions() == ():
+        return []
+    from app.services import advanced_filters
+
+    stations = list(
+        dict.fromkeys(
+            normalize_station_code(str(value).strip())
+            for value in station_codes
+            if str(value).strip()
+        )
+    )
+    if len(stations) < 2:
+        return []
+
+    start, end = _date_range(date_from, date_to)
+    serial_values = advanced_filters.values(serial_numbers)
+    production_values = {
+        normalize_order(value) for value in advanced_filters.values(production_orders)
+    }
+    sales_values = {
+        advanced_filters.normalize_sales_order(value)
+        for value in advanced_filters.values(sales_orders)
+    }
+    date_from_iso = f"{start[:4]}-{start[4:6]}-{start[6:]}"
+    date_to_iso = f"{end[:4]}-{end[4:6]}-{end[6:]}"
+    selected_models = {
+        value.strip()
+        for value in [*(product_models or []), product_model]
+        if value and value.strip()
+    }
+    selected_bases = {
+        value.strip() for value in [*(bases or []), base] if value and value.strip()
+    }
+    selected_customers = {
+        value.strip()
+        for value in [*(customers or []), customer]
+        if value and value.strip()
+    }
+    include_empty_customer = NO_CUSTOMER_ID in selected_customers
+    selected_customers.discard(NO_CUSTOMER_ID)
+    order_filters = {
+        "dateFrom": date_from_iso,
+        "dateTo": date_to_iso,
+        "serialNumber": serial_number or "",
+        "orderScope": order_scope,
+        "overseas": "true" if overseas else "",
+        "orderTypes": ",".join(order_types or []),
+    }
+    if selected_customers or selected_models or selected_bases:
+        orders = await _orders(order_filters)
+        records = None
+    else:
+        records, orders = await asyncio.gather(
+            _station_records_in_range(start, end, serial_number=serial_number),
+            _orders(order_filters),
+        )
+    orders = [
+        row
+        for row in orders
+        if advanced_filters.order_matches(
+            row["aufnr"], row["data"].get("VBELN"), production_values, sales_values
+        )
+        and (
+            not selected_models
+            or str(row["data"].get("MAKTX_TH") or "").strip() in selected_models
+        )
+        and (
+            not selected_bases
+            or str(row["data"].get("LGORT") or "").strip() in selected_bases
+        )
+        and (
+            not selected_customers
+            and not include_empty_customer
+            or str(row["data"].get("KID") or "").strip() in selected_customers
+            or include_empty_customer and not str(row["data"].get("KID") or "").strip()
+        )
+    ]
+    if records is None:
+        records = await _station_records_in_range(
+            start,
+            end,
+            serial_number=serial_number,
+            production_orders={
+                normalize_order(row["aufnr"])
+                for row in orders
+                if normalize_order(row["aufnr"])
+            },
+        )
+    records = _station_rows_in_planned_range(records, start, end)
+    if serial_values:
+        records = [
+            item
+            for item in records
+            if str(_raw(item).get("PCODE") or "").strip() in serial_values
+        ]
+        selected_orders = {
+            normalize_order(_raw(item).get("AUFNR")) for item in records
+        }
+        orders = [row for row in orders if normalize_order(row["aufnr"]) in selected_orders]
+    scope_orders = {
+        normalize_order(row["aufnr"])
+        for row in orders
+        if normalize_order(row["aufnr"])
+    }
+
+    by_station: dict[tuple[str, str], set[str]] = defaultdict(set)
+    for item in records:
+        raw = _raw(item)
+        sn = str(raw.get("PCODE") or "").strip()
+        station = normalize_station_code(
+            str(
+                item.get("stationCode")
+                or raw.get("LINE_CODE")
+                or raw.get("SPEC")
+                or raw.get("OPERATION")
+                or ""
+            ).strip()
+        )
+        if (
+            sn
+            and station in stations
+            and _matches_station_filters(
+                raw,
+                serial_number=serial_number,
+                product_models=list(selected_models),
+                bases=list(selected_bases),
+                customers=list(selected_customers),
+                group_by=group_by,
+                order_scope=order_scope,
+                scope_orders=scope_orders,
+            )
+        ):
+            dimension_value = _station_dimension_value(raw, group_by)
+            by_station[(dimension_value, station)].add(sn)
+
+    dimensions = sorted({dimension for dimension, _station in by_station})
+    result: list[StationPassMissingDetail] = []
+    for dimension_value in dimensions:
+        for previous_station, station in zip(stations, stations[1:], strict=False):
+            previous_sns = by_station.get((dimension_value, previous_station))
+            current_sns = by_station.get((dimension_value, station))
+            if not previous_sns or not current_sns or len(current_sns) <= len(previous_sns):
+                continue
+            for sn in sorted(current_sns - previous_sns):
+                result.append(
+                    StationPassMissingDetail(
+                        dimensionValue=dimension_value,
+                        previousStation=previous_station,
+                        station=station,
+                        previousCount=len(previous_sns),
+                        count=len(current_sns),
+                        sn=sn,
+                    )
+                )
+    return result
 
 
 async def station_details(

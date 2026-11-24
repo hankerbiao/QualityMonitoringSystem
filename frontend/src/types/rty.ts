@@ -116,6 +116,15 @@ export interface StationPassDetail {
   raw?: Record<string, unknown>;
 }
 
+export interface StationPassMissingDetail {
+  dimensionValue: string;
+  previousStation: string;
+  station: string;
+  previousCount: number;
+  count: number;
+  sn: string;
+}
+
 export interface RepairQualityDistribution {
   repairCount: string;
   snCount: number;

@@ -131,6 +131,17 @@ class StationPassDetail(BaseModel):
     raw: dict[str, Any] = Field(default_factory=dict, description="匹配到的原始维修记录字段")
 
 
+class StationPassMissingDetail(BaseModel):
+    """后一工站有过站记录、前一工站缺少过站记录的主机 SN。"""
+
+    dimensionValue: str
+    previousStation: str
+    station: str
+    previousCount: int = Field(..., ge=0)
+    count: int = Field(..., ge=0)
+    sn: str
+
+
 # ============== 故障明细模型 ==============
 
 

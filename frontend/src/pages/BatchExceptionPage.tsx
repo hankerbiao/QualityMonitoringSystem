@@ -22,6 +22,8 @@ interface DisplayRow { row: Row; members: Row[] }
 interface QueryResult {
   upstreamTotal: number;
   readCount: number;
+  activeTotal: number;
+  excludedTotal: number;
   complete: boolean;
   queriedAt: string;
   sync: { year: number; fetched: number; inserted: number; syncedAt: string; cached?: boolean };
@@ -81,6 +83,7 @@ const tableColumns = [
 
 const detailLabels: Record<string, string> = {
   sequence: '序号', platform: '平台', customer: '客户', base: '基地', errTypeFirst: '批次类别', causedBy: '责任单位',
+  excludedNon5000: '非5000公司标记',
   id: '异常ID', factory: '上游基地', state: '处理状态', exceptionId: '异常单号', orderID: '生产订单',
   salesReceipts: '销售订单', materialSn: '物料SN', models: '生产机型', productionCount: '生产数量',
   errNum: '异常台数', productType: '产品类型', customerId: '客户编码', createTime: '录入时间',
@@ -331,6 +334,7 @@ export default function BatchExceptionPage() {
   const [revision, setRevision] = useState(0);
   const [optionsRevision, setOptionsRevision] = useState(0);
   const [result, setResult] = useState<QueryResult | null>(null);
+  const [showExcluded, setShowExcluded] = useState(false);
   const [options, setOptions] = useState<OptionsResult | null>(null);
   const [error, setError] = useState('');
   const [optionsError, setOptionsError] = useState('');
@@ -357,6 +361,8 @@ export default function BatchExceptionPage() {
   const [mergeLoading, setMergeLoading] = useState(false);
   const [unmergeLoading, setUnmergeLoading] = useState(false);
   const [unmergeError, setUnmergeError] = useState('');
+  const [exclusionLoading, setExclusionLoading] = useState(false);
+  const [exclusionError, setExclusionError] = useState('');
   const detailSection = useRef<HTMLElement>(null);
   const requestId = useRef(0);
   const optionsId = useRef(0);
@@ -395,6 +401,7 @@ export default function BatchExceptionPage() {
     for (const [key, value] of Object.entries(applied)) {
       if (value) params.set(key, value);
     }
+    params.set('excludedOnly', String(showExcluded));
     requestData<QueryResult>(`${API_BASE_URL}/batch-exception/query?${params}`)
       .then((data) => {
         if (id === requestId.current) setResult(data);
@@ -408,7 +415,7 @@ export default function BatchExceptionPage() {
     return () => {
       requestId.current += 1;
     };
-  }, [applied, revision]);
+  }, [applied, revision, showExcluded]);
 
   // 筛选项：上游没有独立选项接口，由后端按基地抽样推导并缓存。
   useEffect(() => {
@@ -442,8 +449,8 @@ export default function BatchExceptionPage() {
 
   // 统计口径：被合并的记录不再单独计数，由组内锚点行代表整组。
   const statRows = useMemo(
-    () => (result?.rows ?? []).filter((row) => row.mergedInto == null),
-    [result],
+    () => showExcluded ? [] : (result?.rows ?? []).filter((row) => row.mergedInto == null),
+    [result, showExcluded],
   );
   const baseChart = useMemo(() => stackedDistribution(statRows, 'base'), [statRows]);
   const platformChart = useMemo(() => stackedDistribution(statRows, 'platform'), [statRows]);
@@ -504,6 +511,15 @@ export default function BatchExceptionPage() {
   const reset = () => {
     setDraft({ ...initial });
     runQuery({ ...initial });
+  };
+  const switchRecordView = (excluded: boolean) => {
+    if (excluded === showExcluded) return;
+    setResult(null);
+    setLoading(true);
+    setShowExcluded(excluded);
+    setSelectedSequences(new Set());
+    setSelection(null);
+    setPage(1);
   };
   // 分布面板下钻只过滤当前已加载的明细，不改动上游查询条件，可随时清除。
   const drillDown = (field: string, raw: string, label: string, title: string) => {
@@ -671,6 +687,31 @@ export default function BatchExceptionPage() {
       setBulkEditError(err instanceof Error ? err.message : '批量保存失败');
     } finally {
       setBulkEditLoading(false);
+    }
+  };
+
+  const updateNon5000Mark = async () => {
+    if (!selectedSequences.size) return;
+    if (selectedSequences.size > 500) {
+      setExclusionError('每次最多处理 500 条记录，请减少选择数量。');
+      return;
+    }
+    const marked = !showExcluded;
+    setExclusionLoading(true);
+    setExclusionError('');
+    try {
+      await requestData<{ updated: number }>(`${API_BASE_URL}/batch-exception/non-5000-company`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sequences: [...selectedSequences], marked }),
+      });
+      setSelectedSequences(new Set());
+      setSelection(null);
+      refresh();
+    } catch (err) {
+      setExclusionError(err instanceof Error ? err.message : '标记更新失败');
+    } finally {
+      setExclusionLoading(false);
     }
   };
 
@@ -1015,29 +1056,55 @@ export default function BatchExceptionPage() {
               </div>
             )}
 
-            <section className="grid items-start gap-3 lg:grid-cols-2 xl:grid-cols-4">
-              <StackedDistributionChart
-                title="SIMS 批次异常报告分布 by 生产基地"
-                data={baseChart}
-                onSelect={(datum) => drillDown('base', datum.raw, datum.name, '基地')}
-              />
-              <StackedDistributionChart
-                title="SIMS 批次异常平台分布"
-                data={platformChart}
-                onSelect={(datum) => drillDown('platform', datum.raw, datum.name, '平台')}
-              />
-              <StackedDistributionChart
-                title="SIMS 批次异常客户分布"
-                data={customerChart}
-                onSelect={(datum) => drillDown('customer', datum.raw, datum.name, '客户')}
-              />
-              <CategoryChart
-                data={categoryChart}
-                selectedCategories={selectedChartCategories}
-                onSelectedCategoriesChange={setSelectedChartCategories}
-                onSelect={(datum) => drillDown('errTypeFirst', datum.raw, datum.name, '批次类别')}
-              />
-            </section>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div role="tablist" aria-label="批次异常记录范围" className="inline-flex rounded-lg border border-slate-200 bg-white p-1 shadow-sm">
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={!showExcluded}
+                  onClick={() => switchRecordView(false)}
+                  className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${!showExcluded ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
+                >
+                  参与统计 <span className="ml-1 tabular-nums">{result.activeTotal.toLocaleString()}</span>
+                </button>
+                <button
+                  type="button"
+                  role="tab"
+                  aria-selected={showExcluded}
+                  onClick={() => switchRecordView(true)}
+                  className={`rounded-md px-3 py-1.5 text-xs font-semibold transition ${showExcluded ? 'bg-amber-500 text-white shadow-sm' : 'text-slate-600 hover:bg-slate-50'}`}
+                >
+                  非5000公司 <span className="ml-1 tabular-nums">{result.excludedTotal.toLocaleString()}</span>
+                </button>
+              </div>
+              {showExcluded && <p className="text-xs text-amber-700">已标记记录不参与图表统计；进入编辑模式并选择记录后，可移出标记并恢复统计。</p>}
+            </div>
+
+            {!showExcluded && (
+              <section className="grid items-start gap-3 lg:grid-cols-2 xl:grid-cols-4">
+                <StackedDistributionChart
+                  title="SIMS 批次异常报告分布 by 生产基地"
+                  data={baseChart}
+                  onSelect={(datum) => drillDown('base', datum.raw, datum.name, '基地')}
+                />
+                <StackedDistributionChart
+                  title="SIMS 批次异常平台分布"
+                  data={platformChart}
+                  onSelect={(datum) => drillDown('platform', datum.raw, datum.name, '平台')}
+                />
+                <StackedDistributionChart
+                  title="SIMS 批次异常客户分布"
+                  data={customerChart}
+                  onSelect={(datum) => drillDown('customer', datum.raw, datum.name, '客户')}
+                />
+                <CategoryChart
+                  data={categoryChart}
+                  selectedCategories={selectedChartCategories}
+                  onSelectedCategoriesChange={setSelectedChartCategories}
+                  onSelect={(datum) => drillDown('errTypeFirst', datum.raw, datum.name, '批次类别')}
+                />
+              </section>
+            )}
 
             <section ref={detailSection} className="scroll-mt-20 overflow-hidden rounded-xl border border-slate-200/80 bg-white shadow-sm">
               <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 px-4 py-3">
@@ -1048,24 +1115,38 @@ export default function BatchExceptionPage() {
                   <>
                     <span className="rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-medium text-amber-700">已选 {selectedSequences.size} 条</span>
                     {unmergeError && <span role="alert" className="text-xs text-rose-600">{unmergeError}</span>}
+                    {exclusionError && <span role="alert" className="text-xs text-rose-600">{exclusionError}</span>}
                     <div className="ml-auto flex flex-wrap items-center gap-2">
                       <button
                         type="button"
-                        disabled={mergeSelectedRows.length < 2 || mergeLoading}
-                        onClick={openMergeDialog}
-                        title="把选中的记录合并统计为一条"
-                        className="inline-flex items-center gap-1 rounded-md bg-violet-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-violet-700 disabled:opacity-40"
+                        disabled={!selectedSequences.size || exclusionLoading}
+                        onClick={updateNon5000Mark}
+                        className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-semibold text-white disabled:opacity-40 ${showExcluded ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-500 hover:bg-amber-600'}`}
                       >
-                        <Layers3 className="size-3.5" />合并统计
+                        {showExcluded ? <RotateCcw className="size-3.5" /> : <X className="size-3.5" />}
+                        {exclusionLoading ? '处理中…' : showExcluded ? '移出标记，恢复统计' : '标记非5000公司'}
                       </button>
-                      <button
-                        type="button"
-                        disabled={!selectedSequences.size || bulkEditLoading}
-                        onClick={openBulkEditor}
-                        className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-40"
-                      >
-                        <Pencil className="size-3.5" />批量修改平台/客户
-                      </button>
+                      {!showExcluded && (
+                        <>
+                          <button
+                            type="button"
+                            disabled={mergeSelectedRows.length < 2 || mergeLoading || exclusionLoading}
+                            onClick={openMergeDialog}
+                            title="把选中的记录合并统计为一条"
+                            className="inline-flex items-center gap-1 rounded-md bg-violet-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-violet-700 disabled:opacity-40"
+                          >
+                            <Layers3 className="size-3.5" />合并统计
+                          </button>
+                          <button
+                            type="button"
+                            disabled={!selectedSequences.size || bulkEditLoading || exclusionLoading}
+                            onClick={openBulkEditor}
+                            className="inline-flex items-center gap-1 rounded-md bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700 disabled:opacity-40"
+                          >
+                            <Pencil className="size-3.5" />批量修改平台/客户
+                          </button>
+                        </>
+                      )}
                     </div>
                   </>
                 )}

@@ -19,6 +19,7 @@ from app.schemas.rty import (
     SalesOrderSummary,
     StationPassDetail,
     StationPassExport,
+    StationPassMissingDetail,
     StationPassRate,
 )
 from app.services import cycle_details, reinsert_rate, repair_quality, rty_export, rty_gateway
@@ -381,6 +382,48 @@ async def get_station_pass_details(
         **_advanced_kwargs(serialNumbers, productionOrders, salesOrders),
     )
     return Response(success=True, data=rows, message=f"查询到 {len(rows)} 条明细")
+
+
+@router.get(
+    "/station-pass-missing-details",
+    response_model=Response[list[StationPassMissingDetail]],
+    dependencies=[Depends(dashboard_dependency("station-pass-rate"))],
+)
+async def get_station_pass_missing_details(
+    stationCodes: Annotated[list[str], Query()],
+    dateFrom: str | None = None,
+    dateTo: str | None = None,
+    serialNumber: str | None = None,
+    productModels: Annotated[list[str] | None, Query()] = None,
+    customers: Annotated[list[str] | None, Query()] = None,
+    bases: Annotated[list[str] | None, Query()] = None,
+    serialNumbers: Annotated[list[str] | None, Query()] = None,
+    productionOrders: Annotated[list[str] | None, Query()] = None,
+    salesOrders: Annotated[list[str] | None, Query()] = None,
+    productModel: str | None = None,
+    customer: str | None = None,
+    base: str | None = None,
+    groupBy: StationGroupBy = "salesOrder",
+    orderScope: OrderScopeQuery = "normal",
+    overseas: bool = False,
+    orderTypes: Annotated[list[str] | None, Query()] = None,
+):
+    _require_station_dates(dateFrom, dateTo)
+    rows = await rty_gateway.station_missing_details(
+        dateFrom,
+        dateTo,
+        station_codes=stationCodes,
+        serial_number=serialNumber,
+        product_models=[*(productModels or []), *([productModel] if productModel else [])],
+        bases=[*(bases or []), *([base] if base else [])],
+        group_by=groupBy,
+        order_scope=orderScope,
+        customers=[*(customers or []), *([customer] if customer else [])],
+        overseas=overseas,
+        order_types=orderTypes,
+        **_advanced_kwargs(serialNumbers, productionOrders, salesOrders),
+    )
+    return Response(success=True, data=rows, message=f"查询到 {len(rows)} 个疑似缺失 SN")
 
 
 @router.get(
