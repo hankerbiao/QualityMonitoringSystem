@@ -17,7 +17,43 @@ COMPOSITE_MODEL_ITEMS: dict[str, frozenset[str]] = {
 }
 EXCLUDED_ORDER_STATUSES = ("DLID", "RELEASED")
 EXCLUDED_ORDER_TYPES = ("C001",)
-REPAIR_DISPLAY_FIELDS = ("FACTORY", "ZNGWD2", "MATNR", "MAKTX", "ERROR_CODE", "FIX_REMARKS")
+REPAIR_DISPLAY_FIELDS = (
+    "FACTORY",
+    "VBELN",
+    "AUFNR",
+    "ZJXMC",
+    "PCODE",
+    "ZNGGZ",
+    "U_FIND",
+    "T_FIND",
+    "ZNGWD3",
+    "ZNGWD2",
+    "U_FIX",
+    "ZWXDT",
+    "ZWXWD3",
+    "SECFLG",
+    "ZBJ",
+    "ZZRFL",
+    "ZCCLH",
+    "SECOND_PART_NO",
+    "FIX_REMARKS",
+    "MATNR",
+    "MAKTX",
+    "ZMCOD1",
+    "ZRCOD1",
+    "ZMCOD2",
+    "ZRCOD2",
+    "RECORD01REPAIRM",
+    "ERROR_CODE",
+    "ERROR_MSG",
+    "REJUDGE",
+    "RET",
+    "RPDESC",
+    "RNOTE",
+    "U_RMA_NAM",
+    "RMA_RESULT",
+    "AUART",
+)
 
 
 def normalize_order(value: Any) -> str:

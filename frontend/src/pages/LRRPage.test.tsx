@@ -3,6 +3,7 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-li
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { lrrApi } from '../api/lrrApi';
+import { FAULT_COLUMNS } from '../components/rty/templateExport';
 import LRRPage, { DetailModal } from './LRRPage';
 
 const xlsx = vi.hoisted(() => ({
@@ -79,7 +80,7 @@ it('shows additional repair fields and preserves the full LRR export', () => {
     raw: { FACTORY: '基地A', ZNGWD2: '维度2内容', MATNR: '000123', MAKTX: '原始物料描述', ERROR_CODE: 'E01', FIX_REMARKS: '维修备注内容' } };
   render(<DetailModal title="PN1 故障明细" items={[item]} loading={false} error={null} onClose={() => {}} />);
   const dialog = screen.getByRole('dialog', { name: 'PN1 故障明细' });
-  expect(within(dialog).getByText('计入机型')).toBeTruthy();
+  expect(within(dialog).getByText('生产基地')).toBeTruthy();
   expect(within(dialog).getByText('故障现象内容')).toBeTruthy();
   for (const value of Object.values(item.raw)) {
     expect(within(dialog).getByRole('cell', { name: value })).toBeTruthy();
@@ -87,6 +88,10 @@ it('shows additional repair fields and preserves the full LRR export', () => {
   expect(within(dialog).getByText('共 1 条记录')).toBeTruthy();
   fireEvent.click(within(dialog).getByRole('button', { name: '导出维修 SN' }));
   const [headers, values] = xlsx.aoa_to_sheet.mock.calls[0][0] as unknown[][];
+  expect(headers).toEqual([
+    ...FAULT_COLUMNS.map(([, label]) => label),
+    'LRR归属月份', 'LRR物料PN', 'LRR完整物料PN', 'LRR物料描述', 'LRR计入机型', 'LRR故障类型', 'LRR故障描述',
+  ]);
   expect(values[headers.indexOf('维修人员备注维修信息')]).toBe('维修备注内容');
   expect(values[headers.indexOf('LRR完整物料PN')]).toBe('PN1');
   expect(xlsx.writeFile).toHaveBeenCalled();

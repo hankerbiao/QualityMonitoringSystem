@@ -22,6 +22,7 @@ from app.services.data_gateway_client import DataGatewayError, data_gateway
 from app.services.lrr_normalization import compact_date
 from app.services.rty_shared import (
     COMPOSITE_MODEL_ITEMS,
+    REPAIR_DISPLAY_FIELDS,
     normalize_order,
     order_variants,
     validate_date,
@@ -64,43 +65,7 @@ ORDER_FIELDS = (
     "MAKTX",
     "NAME1_ZU",
 )
-FAULT_FIELDS = (
-    "FACTORY",
-    "VBELN",
-    "AUFNR",
-    "ZJXMC",
-    "PCODE",
-    "ZNGGZ",
-    "U_FIND",
-    "T_FIND",
-    "ZNGWD3",
-    "ZNGWD2",
-    "U_FIX",
-    "ZWXDT",
-    "ZWXWD3",
-    "SECFLG",
-    "ZBJ",
-    "ZZRFL",
-    "ZCCLH",
-    "SECOND_PART_NO",
-    "FIX_REMARKS",
-    "MATNR",
-    "MAKTX",
-    "ZMCOD1",
-    "ZRCOD1",
-    "ZMCOD2",
-    "ZRCOD2",
-    "RECORD01REPAIRM",
-    "ERROR_CODE",
-    "ERROR_MSG",
-    "REJUDGE",
-    "RET",
-    "RPDESC",
-    "RNOTE",
-    "U_RMA_NAM",
-    "RMA_RESULT",
-    "AUART",
-)
+FAULT_FIELDS = REPAIR_DISPLAY_FIELDS
 
 
 def _source(item: dict[str, Any]) -> dict[str, Any]:

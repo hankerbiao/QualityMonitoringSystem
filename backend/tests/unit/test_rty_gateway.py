@@ -410,6 +410,8 @@ async def test_repair_display_fields_are_enriched_from_full_source_row(monkeypat
             "raw": {"data": {
                 "_source_key": "fault-1",
                 "PCODE": "SN1",
+                "VBELN": "SO1",
+                "AUFNR": "PO1",
                 "FACTORY": "基地A",
                 "ZNGWD2": "维度2",
                 "MATNR": "PN1",
@@ -420,16 +422,25 @@ async def test_repair_display_fields_are_enriched_from_full_source_row(monkeypat
         }]),
     )
 
-    rows = await rty_gateway.enrich_fault_display_fields([{"_id": "fault-1", "PCODE": "SN1"}])
+    rows = await rty_gateway.enrich_fault_display_fields([
+        {"_id": "fault-1", "PCODE": "SN1", "AUFNR": "PO1"}
+    ])
 
-    assert rty_gateway.to_detail(rows[0]).repairFields == {
-        "FACTORY": "基地A",
-        "ZNGWD2": "维度2",
-        "MATNR": "PN1",
-        "MAKTX": "物料描述",
-        "ERROR_CODE": "E01",
-        "FIX_REMARKS": "已更换部件",
-    }
+    repair_fields = rty_gateway.to_detail(rows[0]).repairFields
+    assert repair_fields["FACTORY"] == "基地A"
+    assert repair_fields["VBELN"] == "SO1"
+    assert repair_fields["AUFNR"] == "PO1"
+    assert repair_fields["ZNGWD2"] == "维度2"
+    assert repair_fields["MATNR"] == "PN1"
+    assert repair_fields["MAKTX"] == "物料描述"
+    assert repair_fields["ERROR_CODE"] == "E01"
+    assert repair_fields["FIX_REMARKS"] == "已更换部件"
+
+
+def test_repair_display_fields_cover_all_fault_export_columns():
+    from app.services.rty_export import FAULT_FIELDS
+
+    assert rty_gateway.REPAIR_DISPLAY_FIELDS == FAULT_FIELDS
 
 
 def test_fault_deduplication_does_not_depend_on_repair_date():

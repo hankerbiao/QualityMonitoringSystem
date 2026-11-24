@@ -41,45 +41,10 @@ from app.services.lrr_normalization import (
     normalize_sales_order,
 )
 from app.services.pn_order_filter import is_excluded_order
+from app.services.rty_shared import REPAIR_DISPLAY_FIELDS
 
 router = APIRouter(dependencies=[Depends(dashboard_dependency("lrr"))])
-LRR_SOURCE_FAULT_FIELDS = (
-    "FACTORY",
-    "VBELN",
-    "AUFNR",
-    "ZJXMC",
-    "PCODE",
-    "ZNGGZ",
-    "U_FIND",
-    "T_FIND",
-    "ZNGWD3",
-    "ZNGWD2",
-    "U_FIX",
-    "ZWXDT",
-    "ZWXWD3",
-    "SECFLG",
-    "ZBJ",
-    "ZZRFL",
-    "ZCCLH",
-    "SECOND_PART_NO",
-    "FIX_REMARKS",
-    "MATNR",
-    "MAKTX",
-    "ZMCOD1",
-    "ZRCOD1",
-    "ZMCOD2",
-    "ZRCOD2",
-    "RECORD01REPAIRM",
-    "ERROR_CODE",
-    "ERROR_MSG",
-    "REJUDGE",
-    "RET",
-    "RPDESC",
-    "RNOTE",
-    "U_RMA_NAM",
-    "RMA_RESULT",
-    "AUART",
-)
+LRR_SOURCE_FAULT_FIELDS = REPAIR_DISPLAY_FIELDS
 MAX_LRR_DATE_RANGE_DAYS = 366
 MAX_LRR_UNFILTERED_MONTHS = 2
 LRR_SCOPE_FILTER_MESSAGE = "查询周期超过 2 个月，请至少增加物料号、机型、基地或客户 ID 筛选条件"

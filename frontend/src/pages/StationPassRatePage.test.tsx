@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { FAULT_COLUMNS } from '../components/rty/templateExport';
 import * as XLSX from 'xlsx';
 import { rtyApi } from '../api/rtyApi';
 import StationPassRatePage from './StationPassRatePage';
@@ -427,16 +428,20 @@ describe('StationPassRatePage customer filter', () => {
     fireEvent.click(await screen.findByRole('button', { name: '维修 SN' }));
     await waitFor(() => expect(rtyApi.getStationPassDetails).toHaveBeenCalledTimes(2));
     const dialog = within(screen.getByRole('dialog'));
-    expect(dialog.getAllByRole('columnheader').map(header => header.textContent)).toEqual([
-      '计入机型', '维修记录SN', '销售订单', '维修记录订单', '故障现象',
-      '维修措施', '故障工站', '维修人员', '维修时间', '生产基地', '不良现象维度2',
-      '物料号', '物料描述', '错误码', '维修备注',
-    ]);
+    expect(dialog.getAllByRole('columnheader').map(header => header.textContent)).toEqual(
+      FAULT_COLUMNS.map(([, label]) => label),
+    );
     const cells = within(dialog.getByRole('row', { name: /00001/ })).getAllByRole('cell');
-    expect(cells.map(cell => cell.textContent)).toEqual([
-      'M', '00001', 'SO-1', 'PO-1', '维度3', '处理措施', 'OP10', '维修人', '20261022123000',
-      '基地A', '维度2', '-', '-', '-', '-',
-    ]);
+    expect(cells[0].textContent).toBe('基地A');
+    expect(cells[1].textContent).toBe('SO-1');
+    expect(cells[2].textContent).toBe('PO-1');
+    expect(cells[4].textContent).toBe('00001');
+    expect(cells[5].textContent).toBe('OP10');
+    expect(cells[8].textContent).toBe('维度3');
+    expect(cells[9].textContent).toBe('维度2');
+    expect(cells[10].textContent).toBe('维修人');
+    expect(cells[11].textContent).toBe('20261022123000');
+    expect(cells[12].textContent).toBe('处理措施');
 
     fireEvent.click(screen.getByRole('button', { name: '导出维修 SN' }));
     await waitFor(() => expect(XLSX.writeFile).toHaveBeenCalledTimes(1));
@@ -444,8 +449,8 @@ describe('StationPassRatePage customer filter', () => {
     const workbook = vi.mocked(XLSX.writeFile).mock.calls[0][0];
     expect(workbook.SheetNames).toEqual(['维修故障明细记录']);
     const sheet = workbook.Sheets['维修故障明细记录'];
-    expect(sheet.J1.v).toBe('不良现象维度2');
-    expect(sheet.J2.v).toBe('维度2');
+    expect(sheet.F1.v).toBe(FAULT_COLUMNS[5][1]);
+    expect(sheet.F2.v).toBe('OP10');
     expect(sheet.E2.v).toBe('00001');
     expect(sheet.AI1.v).toBe('订单类型');
     expect(sheet['!autofilter']).toEqual({ ref: 'A1:AI2' });

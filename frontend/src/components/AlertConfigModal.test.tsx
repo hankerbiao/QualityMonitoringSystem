@@ -452,8 +452,8 @@ describe('cycle query and export', () => {
     const dialog = within(screen.getByRole('dialog'));
     expect(dialog.queryByRole('columnheader', { name: '计入故障SN' })).toBeNull();
     const headers = dialog.getAllByRole('columnheader').map(header => header.textContent);
-    const faultIndex = headers.indexOf('故障现象');
-    const repairIndex = headers.indexOf('维修措施');
+    const faultIndex = headers.indexOf('不良现象维度3');
+    const repairIndex = headers.indexOf('维修维度3');
     expect(faultIndex).toBeGreaterThanOrEqual(0);
     expect(repairIndex).toBeGreaterThanOrEqual(0);
     const repairCells = within(dialog.getByRole('row', { name: /CHILD-SN/ })).getAllByRole('cell');
@@ -465,7 +465,7 @@ describe('cycle query and export', () => {
     expect(workbook.SheetNames).toEqual(['维修明细']);
     const exported = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets['维修明细'], { header: 1 });
     expect(exported[0]).toEqual(headers);
-    expect(exported[1][1]).toBe('CHILD-SN');
+    expect(exported[1][4]).toBe('CHILD-SN');
     expect(exported[1][faultIndex]).toBe('原故障现象');
     expect(exported[1][repairIndex]).toBe('维修维度3内容');
   });
