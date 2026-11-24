@@ -197,13 +197,13 @@ describe('cycle query and export', () => {
   });
 
   it.each([
-    { name: 'configured target', target: 92, sourceTarget: 100, input: 360, defects: 8, rate: '97.78%', color: 'text-slate-700' },
-    { name: 'exact target', target: 92, sourceTarget: 100, input: 400, defects: 32, rate: '92.00%', color: 'text-slate-700' },
-    { name: 'below target', target: 92, sourceTarget: 85, input: 400, defects: 33, rate: '91.75%', color: 'text-slate-700' },
-    { name: 'server target', target: undefined, sourceTarget: 92, input: 360, defects: 8, rate: '97.78%', color: 'text-slate-700' },
-    { name: 'zero target', target: 0, sourceTarget: 100, input: 360, defects: 360, rate: '0.00%', color: 'text-slate-700' },
-    { name: 'no production', target: 92, sourceTarget: 92, input: 0, defects: 0, rate: '-', color: 'text-slate-400' },
-  ])('shows production totals without achievement colors for $name', async ({ target, sourceTarget, input, defects, rate, color }) => {
+    { name: 'configured target', target: 92, sourceTarget: 100, input: 360, defects: 8, rate: '97.78%', color: 'text-slate-700', background: 'bg-slate-100' },
+    { name: 'exact target', target: 92, sourceTarget: 100, input: 400, defects: 32, rate: '92.00%', color: 'text-slate-700', background: 'bg-slate-100' },
+    { name: 'below target', target: 92, sourceTarget: 85, input: 400, defects: 33, rate: '91.75%', color: 'text-slate-700', background: 'bg-yellow-100' },
+    { name: 'default target', target: undefined, sourceTarget: 92, input: 360, defects: 8, rate: '97.78%', color: 'text-slate-700', background: 'bg-yellow-100' },
+    { name: 'zero target', target: 0, sourceTarget: 100, input: 360, defects: 360, rate: '0.00%', color: 'text-slate-700', background: 'bg-slate-100' },
+    { name: 'no production', target: 92, sourceTarget: 92, input: 0, defects: 0, rate: '-', color: 'text-slate-400', background: 'bg-slate-100' },
+  ])('shows production totals against the group target for $name', async ({ target, sourceTarget, input, defects, rate, color, background }) => {
     vi.mocked(rtyApi.getCycleData).mockResolvedValue({
       ...result,
       data: [{ ...row, productModel: '3210 C3', inputCount: input, defectCount: defects, targetRate: sourceTarget }],
@@ -213,6 +213,7 @@ describe('cycle query and export', () => {
     const total = within(modelRow).getAllByRole('cell').at(-1)!;
     expect(within(total).getByText(rate)).toBeTruthy();
     expect(total.className).toContain(color);
+    expect(total.className).toContain(background);
   });
 
   it('updates standard columns when targets change without reloading cycle data', async () => {

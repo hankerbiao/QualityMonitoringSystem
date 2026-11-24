@@ -170,9 +170,13 @@ export function appendModelSheets(workbook: XLSX.WorkBook, models: RepairModelSh
   }
 }
 
-export function appendSourceSheets(workbook: XLSX.WorkBook, data: StationPassExport): void {
+export function appendSourceSheets(
+  workbook: XLSX.WorkBook,
+  data: StationPassExport,
+  faultSheet = buildFaultDetailSheet(data.faults),
+): void {
   XLSX.utils.book_append_sheet(workbook, buildSourceSheet(ORDER_COLUMNS, data.orders), '销售订单');
-  XLSX.utils.book_append_sheet(workbook, buildFaultDetailSheet(data.faults), '维修故障明细记录');
+  XLSX.utils.book_append_sheet(workbook, faultSheet, '维修故障明细记录');
   appendModelSheets(workbook, data.modelSheets);
 }
 

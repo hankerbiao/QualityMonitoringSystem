@@ -429,11 +429,13 @@ describe('StationPassRatePage customer filter', () => {
     const dialog = within(screen.getByRole('dialog'));
     expect(dialog.getAllByRole('columnheader').map(header => header.textContent)).toEqual([
       '计入机型', '维修记录SN', '销售订单', '维修记录订单', '故障现象',
-      '维修措施', '故障工站', '维修人员', '维修时间',
+      '维修措施', '故障工站', '维修人员', '维修时间', '生产基地', '不良现象维度2',
+      '物料号', '物料描述', '错误码', '维修备注',
     ]);
     const cells = within(dialog.getByRole('row', { name: /00001/ })).getAllByRole('cell');
     expect(cells.map(cell => cell.textContent)).toEqual([
       'M', '00001', 'SO-1', 'PO-1', '维度3', '处理措施', 'OP10', '维修人', '20261022123000',
+      '基地A', '维度2', '-', '-', '-', '-',
     ]);
 
     fireEvent.click(screen.getByRole('button', { name: '导出维修 SN' }));

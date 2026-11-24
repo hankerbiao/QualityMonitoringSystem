@@ -215,6 +215,7 @@ export interface DefectDetail {
   repairPerson: string;
   repair_effectiveness: string;
   customer: string;
+  repairFields?: Record<string, string>;
 }
 
 export interface RTYFilterParams {

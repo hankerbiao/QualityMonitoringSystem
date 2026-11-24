@@ -179,9 +179,9 @@ export default function CycleDetailModal({
           ) : rows.length === 0 ? (
             <div className="py-12 text-center text-sm text-slate-500">暂无明细数据</div>
           ) : (
-            <table className="w-full min-w-[900px] text-left text-xs">
+            <table className={`w-full text-left text-xs ${tab === 'orders' ? 'min-w-[900px]' : 'min-w-[1300px]'}`}>
               <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-slate-600">
-                <tr>{columns.map(([key, label]) => <th key={key} className="px-3 py-2 font-semibold">{label}</th>)}</tr>
+                <tr>{columns.map(([key, label]) => <th key={key} className="whitespace-nowrap px-3 py-2 font-semibold">{label}</th>)}</tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-slate-700">
                 {rows.map((row, index) => (

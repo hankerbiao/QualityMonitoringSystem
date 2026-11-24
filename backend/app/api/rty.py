@@ -754,6 +754,7 @@ async def get_defect_details_by_filters(
     rows = await rty_gateway.details_by_orders(
         {row["aufnr"] for row in orders},
         productModel,
+        include_repair_fields=True,
     )
     return Response(success=True, data=rows, message="网关故障明细查询完成")
 

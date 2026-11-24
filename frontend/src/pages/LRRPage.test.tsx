@@ -34,20 +34,23 @@ it('shows an empty overview before the first query without loading dashboard dat
   expect(lrrApi.getLRRData).not.toHaveBeenCalled();
 });
 
-it('shows and exports the same repair fields as station details', () => {
+it('shows additional repair fields and preserves the full LRR export', () => {
   const item = { month: '2026-10', materialNumber: 'PN1', materialDescription: '部件', sn: 'SN1',
     faultType: '', faultDesc: '', ngTime: '', matchedModel: 'M1', salesOrder: 'SO1',
     productionOrder: 'PO1', faultPhenomenon: '故障现象内容', repairAction: '更换部件',
-    station: 'OP210', repairPerson: '维修员', repairTime: '20261029091214' };
+    station: 'OP210', repairPerson: '维修员', repairTime: '20261029091214',
+    raw: { FACTORY: '基地A', ZNGWD2: '维度2内容', MATNR: '000123', MAKTX: '原始物料描述', ERROR_CODE: 'E01', FIX_REMARKS: '维修备注内容' } };
   render(<DetailModal title="PN1 故障明细" items={[item]} loading={false} error={null} onClose={() => {}} />);
   const dialog = screen.getByRole('dialog', { name: 'PN1 故障明细' });
   expect(within(dialog).getByText('计入机型')).toBeTruthy();
   expect(within(dialog).getByText('故障现象内容')).toBeTruthy();
+  for (const value of Object.values(item.raw)) {
+    expect(within(dialog).getByRole('cell', { name: value })).toBeTruthy();
+  }
   expect(within(dialog).getByText('共 1 条记录')).toBeTruthy();
   fireEvent.click(within(dialog).getByRole('button', { name: '导出维修 SN' }));
-  expect(xlsx.aoa_to_sheet).toHaveBeenCalledWith([
-    ['计入机型', '维修记录SN', '销售订单', '维修记录订单', '故障现象', '维修措施', '故障工站', '维修人员', '维修时间'],
-    ['M1', 'SN1', 'SO1', 'PO1', '故障现象内容', '更换部件', 'OP210', '维修员', '20261029091214'],
-  ]);
+  const [headers, values] = xlsx.aoa_to_sheet.mock.calls[0][0] as unknown[][];
+  expect(values[headers.indexOf('维修人员备注维修信息')]).toBe('维修备注内容');
+  expect(values[headers.indexOf('LRR完整物料PN')]).toBe('PN1');
   expect(xlsx.writeFile).toHaveBeenCalled();
 });

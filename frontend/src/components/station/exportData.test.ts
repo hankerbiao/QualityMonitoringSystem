@@ -26,8 +26,8 @@ describe('station pass workbook', () => {
       faults: [
         { PCODE: '00001', ZNGWD3: '字节_[字节][擎天]AC测试 尾7LOOP_内存Correctable ECC', ZNGWD2: '维度2-1', AUART: 'C001', U_FIX: '甲', ZWXDT: null, ZUSER: '不替代维修人员' },
         { PCODE: '00001', ZNGWD3: '字节_[字节][擎天]SHC Test_内存Correctable ECC', ZNGWD2: '维度2-2', AUART: 'C002', U_FIX: '乙', ZWXDT: '2027-01-01', ERROR_MSG: '=literal' },
-        { PCODE: '00002', ZNGWD3: '字节_[字节][擎天]IFS设置恢复检查_内存识别不全', ZNGWD2: '维度2-3', AUART: 'C003' },
-        { PCODE: '00003', ZNGWD3: '字节_[字节][擎天]SHC Test_内存Correctable ECC ', ZNGWD2: '维度2-4', AUART: 'C004' },
+        { PCODE: '00002', ZNGWD3: '字节_[字节][擎天]IFS设置恢复检查_内存识别不全', ZNGWD2: '维度2-3', AUART: 'C003', ZWXDT: 20261022123000 },
+        { PCODE: '00003', ZNGWD3: '字节_[字节][擎天]SHC Test_内存Correctable ECC ', ZNGWD2: '维度2-4', AUART: 'C004', ZWXDT: '20260230123000' },
       ],
     });
     const result = XLSX.read(XLSX.write(workbook, { type: 'buffer', bookType: 'xlsx' }), {
@@ -45,7 +45,10 @@ describe('station pass workbook', () => {
     expect(faults.E3).toMatchObject({ t: 's', v: '00001' });
     expect(faults.K2.v).toBe('甲');
     expect(faults.L2).toBeUndefined();
-    expect(faults.L3.v).toBe('2027-01-01');
+    expect(faults.L3).toMatchObject({ t: 'n', v: 46388, w: '20270101' });
+    expect(faults.L4).toMatchObject({ t: 'n', w: '20261022' });
+    expect(XLSX.SSF.format('hh:mm:ss', faults.L4.v)).toBe('12:30:00');
+    expect(faults.L5).toMatchObject({ t: 's', v: '20260230123000' });
     expect(faults.AB3).toMatchObject({ t: 's', v: '=literal' });
     expect(faults.AB3.f).toBeUndefined();
     expect([

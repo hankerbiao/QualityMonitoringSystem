@@ -996,16 +996,18 @@ export default function AlertConfigModal({
                       })}
                       {tableData
                         .map((row, idx) => {
+                        const groupTarget = modelTargets[row.model] ?? 100;
                         const totalRty = row.inputCount > 0
-                          ? ((row.inputCount - row.defectCount) / row.inputCount) * 100
+                          ? ((row.inputCount - row.defectCount) * 100) / row.inputCount
                           : null;
+                        const belowGroupTarget = totalRty !== null && totalRty < groupTarget;
                         
                         return (
                           <tr key={idx} className="border-b border-slate-100 last:border-none hover:bg-slate-50/50">
                             <td className="px-3 py-2 border-r border-slate-100 text-[11px] font-medium text-slate-700 whitespace-nowrap sticky left-0 bg-white z-10">
                               {row.model}
                             </td>
-                            <td className="px-2 py-2 border-r border-slate-100 text-center text-[10px] text-slate-700">{modelTargets[row.model] ?? 100}%</td>
+                            <td className="px-2 py-2 border-r border-slate-100 text-center text-[10px] text-slate-700">{groupTarget}%</td>
                             <td className="px-2 py-2 border-r border-slate-100 text-center text-[10px] text-slate-700">{company5000Targets[row.model] === undefined ? '-' : `${company5000Targets[row.model]}%`}</td>
                             {heatmapMonths.map(month => {
                               const cell = row.cells[month];
@@ -1039,7 +1041,7 @@ export default function AlertConfigModal({
                                 </td>
                               );
                             })}
-                            <td className={`px-2 py-2 border-r border-slate-100 text-center text-[10px] font-semibold bg-slate-100 ${totalRty === null ? 'text-slate-400' : 'text-slate-700'}`}>
+                            <td className={`px-2 py-2 border-r border-slate-100 text-center text-[10px] font-semibold ${belowGroupTarget ? 'bg-yellow-100' : 'bg-slate-100'} ${totalRty === null ? 'text-slate-400' : 'text-slate-700'}`}>
                               {totalRty === null ? '-' : (
                                 <button
                                   type="button"
@@ -1049,7 +1051,7 @@ export default function AlertConfigModal({
                                     inputCount: row.inputCount,
                                     defectCount: row.defectCount,
                                   })}
-                                  className="w-full rounded-sm px-1 py-1 leading-tight transition-colors hover:bg-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600"
+                                  className="w-full rounded-sm px-1 py-1 leading-tight transition-colors hover:bg-white/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-600"
                                   title={`点击查看 ${row.model} 所选周期明细`}
                                 >
                                   <span className="block">{totalRty.toFixed(2)}%</span>

@@ -167,6 +167,7 @@ class DefectDetail(DefectDetailBase):
     """故障明细响应模型 (数据取自 fault_info 集合)"""
 
     id: str = Field(..., description="明细ID")
+    repairFields: dict[str, str] = Field(default_factory=dict, description="维修记录的展示字段")
 
     model_config = ConfigDict(from_attributes=True)
 

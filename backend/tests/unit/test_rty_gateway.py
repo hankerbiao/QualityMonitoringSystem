@@ -400,6 +400,38 @@ async def test_order_detail_source_failure_propagates(monkeypatch):
         await rty_gateway.details_by_orders({"1"})
 
 
+@pytest.mark.asyncio
+async def test_repair_display_fields_are_enriched_from_full_source_row(monkeypatch):
+    monkeypatch.setattr(
+        rty_gateway.data_gateway,
+        "fault_rows_by_host_barcodes",
+        AsyncMock(return_value=[{
+            "id": "fault-1",
+            "raw": {"data": {
+                "_source_key": "fault-1",
+                "PCODE": "SN1",
+                "FACTORY": "基地A",
+                "ZNGWD2": "维度2",
+                "MATNR": "PN1",
+                "MAKTX": "物料描述",
+                "ERROR_CODE": "E01",
+                "FIX_REMARKS": "已更换部件",
+            }},
+        }]),
+    )
+
+    rows = await rty_gateway.enrich_fault_display_fields([{"_id": "fault-1", "PCODE": "SN1"}])
+
+    assert rty_gateway.to_detail(rows[0]).repairFields == {
+        "FACTORY": "基地A",
+        "ZNGWD2": "维度2",
+        "MATNR": "PN1",
+        "MAKTX": "物料描述",
+        "ERROR_CODE": "E01",
+        "FIX_REMARKS": "已更换部件",
+    }
+
+
 def test_fault_deduplication_does_not_depend_on_repair_date():
     base = {"AUFNR": "1", "PCODE": "SN1", "ZNGWD": "F1"}
     rows = [

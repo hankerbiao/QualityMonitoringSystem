@@ -5,6 +5,7 @@ import * as XLSX from 'xlsx';
 import { useNavigate } from 'react-router-dom';
 import { clearLrrApiCache, lrrApi } from '../api/lrrApi';
 import LRRFiltersPanel from '../components/lrr/LRRFilters';
+import { REPAIR_DETAIL_COLUMNS } from '../components/rty/repairDetailColumns';
 import { FAULT_COLUMNS } from '../components/rty/templateExport';
 import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
 import { HelpTooltip } from '../components/shared/HelpTooltip';
@@ -144,12 +145,6 @@ function buildLrrFaultDetailSheet(rows: readonly Record<string, unknown>[]): XLS
   return sheet;
 }
 
-const DETAIL_COLUMNS = [
-  ['matchedModel', '计入机型'], ['sn', '维修记录SN'], ['salesOrder', '销售订单'],
-  ['productionOrder', '维修记录订单'], ['faultPhenomenon', '故障现象'], ['repairAction', '维修措施'],
-  ['station', '故障工站'], ['repairPerson', '维修人员'], ['repairTime', '维修时间'],
-] as const satisfies ReadonlyArray<readonly [keyof LRRFaultDetail, string]>;
-
 export function DetailModal({ title, items, loading, error, onClose }: { title: string; items: LRRFaultDetail[]; loading: boolean; error: ApiRequestError | null; onClose: () => void }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   const [exportError, setExportError] = useState('');
@@ -190,16 +185,28 @@ export function DetailModal({ title, items, loading, error, onClose }: { title: 
           </div>
         ) : (
           <div className="overflow-auto p-4">
-            <table className="w-full min-w-[900px] text-left text-xs">
+            <table className="w-full min-w-[1300px] text-left text-xs">
               <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-slate-600">
-                <tr>{DETAIL_COLUMNS.map(([, label]) => <th key={label} className="px-3 py-2 font-semibold">{label}</th>)}</tr>
+                <tr>{REPAIR_DETAIL_COLUMNS.map(([key, label]) => <th key={key} className="whitespace-nowrap px-3 py-2 font-semibold">{label}</th>)}</tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {items.map((item, index) => (
-                  <tr key={`${item.materialNumber}-${item.sn}-${index}`} className="text-slate-700 hover:bg-slate-50">
-                    {DETAIL_COLUMNS.map(([key]) => <td key={key} className="max-w-64 px-3 py-2" title={item[key] || ''}>{item[key] || '-'}</td>)}
-                  </tr>
-                ))}
+                {items.map((item, index) => {
+                  const exported = toLrrFaultExportRow(item);
+                  const row: Record<string, unknown> = {
+                    ...exported,
+                    matchedModel: item.matchedModel,
+                    MATNR: exported.MATNR || item.materialNumber,
+                    MAKTX: exported.MAKTX || item.materialDescription,
+                  };
+                  return (
+                    <tr key={`${item.materialNumber}-${item.sn}-${index}`} className="text-slate-700 hover:bg-slate-50">
+                      {REPAIR_DETAIL_COLUMNS.map(([key]) => {
+                        const value = String(row[key] ?? '');
+                        return <td key={key} className="max-w-64 px-3 py-2" title={value}>{value || '-'}</td>;
+                      })}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
             {!items.length && <p className="px-4 py-12 text-center text-sm text-slate-400">暂无故障明细</p>}

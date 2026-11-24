@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { X } from 'lucide-react';
 import { DefectDetail, RTYFilterParams } from '../types';
 import { rtyApi } from '../api/rtyApi';
+import { REPAIR_SOURCE_COLUMNS } from './rty/repairDetailColumns';
 
 interface DefectModalProps {
   filters: RTYFilterParams;
@@ -78,6 +79,7 @@ export default function DefectModal({ filters, filterLabel, onClose }: DefectMod
                     <th className="px-3 py-2 font-medium text-slate-700">三次故障现象</th>
                     <th className="px-3 py-2 font-medium text-slate-700">维修人</th>
                     <th className="px-3 py-2 font-medium text-slate-700">维修有效性</th>
+                    {REPAIR_SOURCE_COLUMNS.map(([key, label]) => <th key={key} className="px-3 py-2 font-medium text-slate-700">{label}</th>)}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-slate-700">
@@ -104,6 +106,9 @@ export default function DefectModal({ filters, filterLabel, onClose }: DefectMod
                           </span>
                         ) : '-'}
                       </td>
+                      {REPAIR_SOURCE_COLUMNS.map(([key]) => (
+                        <td key={key} className="max-w-64 truncate px-3 py-2" title={item.repairFields?.[key]}>{item.repairFields?.[key] || '-'}</td>
+                      ))}
                     </tr>
                   ))}
                 </tbody>

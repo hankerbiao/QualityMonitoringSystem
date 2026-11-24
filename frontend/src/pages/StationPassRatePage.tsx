@@ -23,8 +23,7 @@ import { HelpTooltip } from '../components/shared/HelpTooltip';
 import { DateRangePicker } from '../components/shared/DateRangePicker';
 import { customerIdLabel, NO_CUSTOMER_ID } from '../utils/customerId';
 import { StationPassFindings, StationQueryLaunch } from '../components/station/StationPassWorkspace';
-import { buildStationPassWorkbook } from '../components/station/exportData';
-import { buildFaultDetailSheet } from '../components/rty/templateExport';
+import { buildStationPassWorkbook, buildStationRepairSheet } from '../components/station/exportData';
 import { REPAIR_DETAIL_COLUMNS } from '../components/rty/repairDetailColumns';
 import { combinedStationPassRate, detectStationInputCountAnomalies, rowMatchesBand, summarizeStationRates, type StationRateRow } from '../utils/stationPassRate';
 import { useSettings } from '../context/SettingsContext';
@@ -580,7 +579,7 @@ export default function StationPassRatePage() {
         type,
       );
       if (type === 'defect') {
-        const sheet = buildFaultDetailSheet(rows.map((item) => item.raw || {}));
+        const sheet = buildStationRepairSheet(rows.map((item) => item.raw || {}));
         const book = XLSX.utils.book_new();
         XLSX.utils.book_append_sheet(book, sheet, '维修故障明细记录');
         XLSX.writeFile(book, `维修SN_${detail.rate.stationCode}_${appliedQuery.dateFrom}_${appliedQuery.dateTo}.xlsx`);
@@ -880,8 +879,8 @@ export default function StationPassRatePage() {
             <div className="overflow-auto p-4">
               {detailExportError && <p role="alert" className="mb-3 text-xs text-red-600">{detailExportError}</p>}
               {detailLoading ? <div className="py-12 text-center text-sm text-slate-500">正在加载明细...</div> : detailRows.length === 0 ? !detailExportError && <div className="py-12 text-center text-sm text-slate-500">暂无明细数据</div> : detail.type === 'defect' ? (
-                <table className="w-full min-w-[900px] text-left text-xs">
-                  <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-slate-600"><tr>{REPAIR_DETAIL_COLUMNS.map(([, label]) => <th key={label} className="px-3 py-2 font-semibold">{label}</th>)}</tr></thead>
+                <table className="w-full min-w-[1300px] text-left text-xs">
+                  <thead className="sticky top-0 z-10 border-b border-slate-200 bg-slate-50 text-slate-600"><tr>{REPAIR_DETAIL_COLUMNS.map(([key, label]) => <th key={key} className="whitespace-nowrap px-3 py-2 font-semibold">{label}</th>)}</tr></thead>
                   <tbody className="divide-y divide-slate-100 text-slate-700">
                     {detailRows.map((item) => {
                       const values: Record<string, unknown> = { ...item.raw, PCODE: item.raw?.PCODE || item.sn, matchedModel: item.matchedModel };

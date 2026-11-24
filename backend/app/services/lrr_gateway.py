@@ -24,7 +24,7 @@ from app.services.lrr_normalization import (
     source_data,
 )
 from app.services.pn_order_filter import is_excluded_order, normalize_order, reversed_orders
-from app.services.rty_shared import order_variants
+from app.services.rty_shared import REPAIR_DISPLAY_FIELDS, order_variants
 
 MAX_BATCH_ORDER_FILTERS = 200
 MAX_BATCH_SN_FILTERS = 1_000
@@ -635,7 +635,8 @@ async def load_faults(
                 for row in details
                 if _fault_source_key(row) and (
                     not row.get("ZNGWD") or not row.get("ZWXWD") or any(
-                        field not in row for field in ("ZNGWD3", "ZWXWD3", "U_FIX", "ZWXDT")
+                        field not in row
+                        for field in ("ZNGWD3", "ZWXWD3", "U_FIX", "ZWXDT", *REPAIR_DISPLAY_FIELDS)
                     )
                 )
             }

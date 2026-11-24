@@ -28,12 +28,13 @@ from app.schemas.rty import (
 )
 from app.services.async_ttl_cache import AsyncTTLCache
 from app.services.data_gateway_client import DataGatewayError, data_gateway
-from app.services.lrr_normalization import compact_date
+from app.services.lrr_normalization import compact_date, source_data
 from app.services.pn_order_filter import is_excluded_order, reversed_orders
 from app.services.rty_shared import (
     COMPOSITE_MODEL_ITEMS,
     MAX_BINDING_ROW_COUNT,
     MAX_DETAIL_ROW_COUNT,
+    REPAIR_DISPLAY_FIELDS,
     YEAR_END,
     YEAR_START,
     normalize_order,
@@ -1446,12 +1447,41 @@ def to_detail(row: dict[str, Any]) -> DefectDetail:
         repairPerson=str(row.get("ZUSER") or ""),
         repair_effectiveness="",
         customer=str(row.get("customer") or ""),
+        repairFields={field: str(row[field]) for field in REPAIR_DISPLAY_FIELDS if row.get(field) is not None},
     )
+
+
+async def enrich_fault_display_fields(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def source_key(row: dict[str, Any]) -> tuple[str, str, str]:
+        return (
+            str(row.get("_source_key") or row.get("_id") or "").strip(),
+            str(row.get("PCODE") or "").strip(),
+            normalize_order(row.get("AUFNR")),
+        )
+
+    missing_sns = set()
+    for row in rows:
+        identity, sn, _ = source_key(row)
+        if identity and sn and any(field not in row for field in REPAIR_DISPLAY_FIELDS):
+            missing_sns.add(sn)
+    if not missing_sns:
+        return rows
+
+    full_rows = await data_gateway.fault_rows_by_host_barcodes(sorted(missing_sns), time_field="planned")
+    full_by_key = {}
+    for item in full_rows:
+        row = normalize_fault_row({**item, "raw": source_data(item)})
+        key = source_key(row)
+        if key[0]:
+            full_by_key[key] = {field: row[field] for field in REPAIR_DISPLAY_FIELDS if field in row}
+    return [{**row, **full_by_key.get(source_key(row), {})} for row in rows]
 
 
 async def details_by_orders(
     orders: set[str],
     model: str | None = None,
+    *,
+    include_repair_fields: bool = False,
 ) -> list[DefectDetail]:
     if current_base_permissions() is not None:
         allowed = await accessible_order_numbers()
@@ -1470,18 +1500,17 @@ async def details_by_orders(
         row for row in detail_rows
         if normalize_order(row.get("AUFNR")) in selected_orders
     ]
-    rows = _dedup_faults(detail_rows)
-    return [
-        to_detail(row)
-        for row in sorted(
-            rows,
-            key=lambda row: (
-                normalize_order(row.get("AUFNR")),
-                str(row.get("PCODE") or ""),
-                str(row.get("_id") or ""),
-            ),
-        )[:MAX_DETAIL_ROW_COUNT]
-    ]
+    rows = sorted(
+        _dedup_faults(detail_rows),
+        key=lambda row: (
+            normalize_order(row.get("AUFNR")),
+            str(row.get("PCODE") or ""),
+            str(row.get("_id") or ""),
+        ),
+    )[:MAX_DETAIL_ROW_COUNT]
+    if include_repair_fields:
+        rows = await enrich_fault_display_fields(rows)
+    return [to_detail(row) for row in rows]
 
 
 async def accessible_order_numbers() -> frozenset[str]:
