@@ -62,6 +62,11 @@ class BatchExceptionUnmergePayload(BaseModel):
     sequence: int
 
 
+class BatchExceptionNon5000Payload(BaseModel):
+    sequences: list[int] = Field(min_length=1, max_length=500)
+    marked: bool
+
+
 def _validate_factory(factory: str) -> str:
     """校验上游工厂编码，并按基地权限收敛可查询范围。"""
     value = factory.strip()
@@ -100,6 +105,7 @@ async def query(
     sales_receipts: str = Query("", max_length=100, alias="salesReceipts"),
     state: str = Query("", max_length=20),
     caused_by: str = Query("", max_length=100, alias="causedBy"),
+    excluded_only: bool = Query(False, alias="excludedOnly"),
 ):
     if create_time_start > create_time_end:
         raise HTTPException(status_code=400, detail="录入开始日期不能晚于结束日期")
@@ -119,6 +125,7 @@ async def query(
             sales_receipts=sales_receipts.strip(),
             state=state.strip(),
             caused_by=caused_by.strip(),
+            excluded_only=excluded_only,
         )
         data["sync"] = sync
     except BatchExceptionUpstreamError as exc:
@@ -183,6 +190,30 @@ async def update_bulk_editable_fields(payload: BatchExceptionBulkEditableFields)
         },
     )
     return Response(success=True, data={"updated": len(sequences), "sequences": sequences})
+
+
+@router.patch("/non-5000-company")
+async def update_non_5000_company_mark(payload: BatchExceptionNon5000Payload):
+    db = get_database()
+    collection = db[Collections.BATCH_EXCEPTION_RECORDS]
+    sequences = list(dict.fromkeys(payload.sequences))
+    documents = await collection.find({"sequence": {"$in": sequences}}).to_list(length=None)
+    if len(documents) != len(sequences):
+        found = {int(document["sequence"]) for document in documents}
+        missing = next(sequence for sequence in sequences if sequence not in found)
+        raise HTTPException(status_code=404, detail=f"未找到批次异常记录：{missing}")
+
+    for document in documents:
+        _ensure_document_base_access(document)
+
+    await collection.update_many(
+        {"sequence": {"$in": sequences}},
+        {"$set": {"excluded_non_5000": payload.marked}},
+    )
+    return Response(
+        success=True,
+        data={"updated": len(sequences), "sequences": sequences, "marked": payload.marked},
+    )
 
 
 @router.post("/merge")

@@ -133,6 +133,7 @@ def serialize_batch_exception(document: dict[str, Any]) -> dict[str, Any]:
         **editable,
         "sequence": document.get("sequence"),
         "syncYear": document.get("sync_year"),
+        "excludedNon5000": bool(document.get("excluded_non_5000", False)),
         # 合并统计：被合并行指向组内最小 sequence（锚点行本身没有该字段）。
         "mergedInto": document.get("merged_into"),
     }
@@ -298,6 +299,7 @@ async def query_batch_exceptions(
     sales_receipts: str = "",
     state: str = "",
     caused_by: str = "",
+    excluded_only: bool = False,
 ) -> dict[str, Any]:
     """Query this year's local append-only snapshots using dashboard filters."""
     today = beijing_now().date()
@@ -309,6 +311,8 @@ async def query_batch_exceptions(
     )
     factory_code = _factory_code(factory)
     filtered: list[dict[str, Any]] = []
+    active_total = 0
+    excluded_total = 0
     for document in documents:
         source = document.get("source") or {}
         editable = document.get("editable") or {}
@@ -331,10 +335,18 @@ async def query_batch_exceptions(
             continue
         if caused_by and not _responsibility_matches(editable.get("causedBy"), caused_by):
             continue
-        filtered.append(serialize_batch_exception(document))
+        excluded = bool(document.get("excluded_non_5000", False))
+        if excluded:
+            excluded_total += 1
+        else:
+            active_total += 1
+        if excluded == excluded_only:
+            filtered.append(serialize_batch_exception(document))
     return {
         "upstreamTotal": len(filtered),
         "readCount": len(filtered),
+        "activeTotal": active_total,
+        "excludedTotal": excluded_total,
         "complete": True,
         "queriedAt": beijing_now().isoformat(),
         "rows": filtered,
