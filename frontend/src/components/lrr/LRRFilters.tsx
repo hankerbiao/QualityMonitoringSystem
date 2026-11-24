@@ -142,7 +142,6 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
   }, []);
 
   useEffect(() => { void loadOptions(); }, [loadOptions]);
-  useEffect(() => setDraft(filters), [filters]);
 
   const normalizedValue = (value: LRRFilters[typeof FILTER_FIELDS[number]]) => Array.isArray(value) ? value.join('\u0000') : value || '';
   const hasActive = FILTER_FIELDS.some((key) => Boolean(normalizedValue(draft[key]))) || Object.values(advancedQuery(advanced)).some(Boolean);
@@ -169,7 +168,9 @@ export default function LRRFilters({ filters, onSearch, onReset }: Props) {
   const submit = (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (scopeFilterWarning || bomScopeWarning) return;
-    onSearch({ ...draft, serialNumbers: undefined, productionOrders: undefined, salesOrders: undefined, ...advancedQuery(advanced), materialNumber: draft.materialNumber?.trim() || null });
+    const next = { ...draft, serialNumbers: undefined, productionOrders: undefined, salesOrders: undefined, ...advancedQuery(advanced), materialNumber: draft.materialNumber?.trim() || null };
+    setDraft(next);
+    onSearch(next);
   };
   const reset = () => {
     setDraft(EMPTY_DRAFT);

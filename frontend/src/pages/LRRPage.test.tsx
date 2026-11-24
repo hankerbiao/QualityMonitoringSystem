@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, within } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, expect, it, vi } from 'vitest';
 import { lrrApi } from '../api/lrrApi';
@@ -32,6 +32,43 @@ it('shows an empty overview before the first query without loading dashboard dat
   expect(await screen.findByRole('heading', { name: '物料质量概览' })).toBeTruthy();
   expect(screen.getAllByText('待查询').length).toBeGreaterThan(0);
   expect(lrrApi.getLRRData).not.toHaveBeenCalled();
+});
+
+it('sorts the filtered material results across pages and preserves draft filters', async () => {
+  vi.mocked(lrrApi.getOptions).mockResolvedValue({ materialNumbers: [], productModels: [], bases: [], customerIds: [] });
+  vi.mocked(lrrApi.getLRRData).mockImplementation(async (page = 1, limit = 50) => ({
+    items: [], total: 51, page, limit, has_more: page === 1,
+    summary: { materialCount: 51, issuedQuantity: 0, totalFaults: 0, overallLrr: 0 },
+  }));
+  render(<MemoryRouter><LRRPage /></MemoryRouter>);
+  fireEvent.click(screen.getByRole('button', { name: '本月' }));
+  const table = within(await screen.findByRole('region', { name: '物料 PN 明细表' }));
+  const originalFilters = vi.mocked(lrrApi.getLRRData).mock.calls[0][2];
+  fireEvent.click(screen.getByRole('button', { name: '下一页' }));
+  await waitFor(() => expect(screen.getByText(/第 2 \/ 2 页/)).toBeTruthy());
+
+  const material = screen.getByRole<HTMLInputElement>('searchbox', { name: '物料号' });
+  fireEvent.change(material, { target: { value: '12345678' } });
+
+  for (const [label, sortBy, sortDir, ariaSort] of [
+    ['故障总数', 'faultCount', 'desc', 'descending'],
+    ['故障总数', 'faultCount', 'asc', 'ascending'],
+    ['故障率', 'lrrRate', 'desc', 'descending'],
+    ['故障率', 'lrrRate', 'asc', 'ascending'],
+  ]) {
+    fireEvent.click(table.getByRole('button', { name: label }));
+    expect(lrrApi.getLRRData).toHaveBeenLastCalledWith(
+      1, 50, { ...originalFilters, sortBy, sortDir }, expect.any(AbortSignal),
+    );
+    await waitFor(() => expect(table.getByRole('columnheader', { name: label }).getAttribute('aria-sort')).toBe(ariaSort));
+    expect(material.value).toBe('12345678');
+  }
+
+  fireEvent.click(screen.getByRole('button', { name: '查询' }));
+  expect(lrrApi.getLRRData).toHaveBeenLastCalledWith(
+    1, 50, { ...originalFilters, materialNumber: '12345678', sortBy: 'lrrRate', sortDir: 'asc' }, expect.any(AbortSignal),
+  );
+  await waitFor(() => expect(screen.getByText(/第 1 \/ 2 页/)).toBeTruthy());
 });
 
 it('shows additional repair fields and preserves the full LRR export', () => {

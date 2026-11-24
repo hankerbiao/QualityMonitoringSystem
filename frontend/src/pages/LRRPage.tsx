@@ -9,9 +9,10 @@ import { REPAIR_DETAIL_COLUMNS } from '../components/rty/repairDetailColumns';
 import { FAULT_COLUMNS } from '../components/rty/templateExport';
 import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
 import { HelpTooltip } from '../components/shared/HelpTooltip';
+import { SortIcon } from '../components/shared/SortIcon';
 import { LoadingSpinner } from '../components/ui';
 import { ApiRequestError } from '../api/authApi';
-import type { LRRData, LRRFaultDetail, LRRFilteredOrdersResponse, LRRFilters, LRRListResponse, LRRMaterialRank, LRRTrendPoint, LRRUsageDetailsResponse } from '../types';
+import type { LRRData, LRRFaultDetail, LRRFilteredOrdersResponse, LRRFilters, LRRListResponse, LRRMaterialRank, LRRSortField, LRRTrendPoint, LRRUsageDetailsResponse } from '../types';
 import { displayMaterialNumber } from '../utils/lrr';
 
 const EMPTY_FILTERS: LRRFilters = { sortBy: 'month', sortDir: 'asc' };
@@ -569,6 +570,14 @@ export default function LRRPage() {
     void load(1, next);
   }, [load]);
 
+  const handleSort = (sortBy: LRRSortField) => {
+    applyFilters({
+      ...filters,
+      sortBy,
+      sortDir: filters.sortBy === sortBy && filters.sortDir === 'desc' ? 'asc' : 'desc',
+    });
+  };
+
   const reset = useCallback(() => {
     clearLrrApiCache();
     sequence.current += 1;
@@ -762,7 +771,11 @@ export default function LRRPage() {
       </header>
       <main className="mx-auto flex w-full max-w-[1600px] flex-col gap-3 px-4 py-4 sm:px-6 lg:px-8">
         <section className="relative overflow-visible rounded-md border border-slate-200 bg-white shadow-sm">
-          <LRRFiltersPanel filters={filters} onSearch={applyFilters} onReset={reset} />
+          <LRRFiltersPanel
+            filters={filters}
+            onSearch={(next) => applyFilters({ ...next, sortBy: filters.sortBy, sortDir: filters.sortDir })}
+            onReset={reset}
+          />
           {error && <ErrorBanner error={error} onRetry={() => void load(page, filters)} />}
           {exportError && <ErrorBanner error={exportError} onRetry={() => void handleExport()} />}
         </section>
@@ -874,7 +887,17 @@ export default function LRRPage() {
               <div role="region" aria-label="物料 PN 明细表" tabIndex={0} className="min-h-0 flex-1 overflow-auto">
                 <table className="w-full min-w-[900px] border-separate border-spacing-0 text-left text-sm">
                   <thead className="sticky top-0 z-10 text-xs font-semibold text-slate-600">
-                    <tr>{['月份', '物料 PN', '物料描述', '使用总数', '故障总数', '故障率'].map((name) => <th key={name} className="border-b border-r border-slate-200 bg-slate-50 px-4 py-3">{name}</th>)}</tr>
+                    <tr>
+                      {['月份', '物料 PN', '物料描述', '使用总数'].map((name) => <th key={name} className="border-b border-r border-slate-200 bg-slate-50 px-4 py-3">{name}</th>)}
+                      {([['faultCount', '故障总数'], ['lrrRate', '故障率']] as const).map(([field, name]) => (
+                        <th key={field} aria-sort={filters.sortBy === field ? (filters.sortDir === 'asc' ? 'ascending' : 'descending') : 'none'} className="border-b border-r border-slate-200 bg-slate-50 px-4 py-3">
+                          <button type="button" onClick={() => handleSort(field)} className="inline-flex items-center gap-1 hover:text-cyan-800">
+                            {name}
+                            <SortIcon field={field} activeField={filters.sortBy ?? 'month'} direction={filters.sortDir ?? 'asc'} />
+                          </button>
+                        </th>
+                      ))}
+                    </tr>
                   </thead>
                   <tbody className="text-xs">
                     {loading ? <tr><td colSpan={6} className="px-4 py-16 text-center text-slate-500">正在加载数据...</td></tr> : data.length ? data.map((row) => (
