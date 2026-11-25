@@ -21,6 +21,9 @@ from app.services.mfr_devices import is_company_5000, select_devices
 from app.services.scs_gateway import scs_gateway
 
 _SOURCE_TTL_SECONDS = 30.0
+_CHANGE_BATCH_SIZE = 100
+_CHANGE_QUERY_CONCURRENCY = 4
+_FAULT_CHANGE_TYPES = ("换上", "换上-up", "换下")
 _DOA_DEVICES = AsyncTTLCache(max_entries=1)
 _KK_COUNTS = AsyncTTLCache(max_entries=16, copy_values=False)
 
@@ -92,10 +95,8 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
             )
         return devices
 
-    devices, change_up, change_up_up, shipments = await asyncio.gather(
+    devices, shipments = await asyncio.gather(
         _DOA_DEVICES.get_or_set("devices", load_devices, ttl_seconds=_SOURCE_TTL_SECONDS),
-        scs_gateway.all("SCS_CHANGE", changeType="换上"),
-        scs_gateway.all("SCS_CHANGE", changeType="换上-up"),
         _shipments_in_range(start, end),
     )
 
@@ -124,7 +125,6 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
     selected, issues = select_devices(devices, valid_codes, unresolved_codes)
     selected_by_key = {device["deviceKey"]: device for device in selected}
     service_devices: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
-    all_by_key = {device["deviceKey"]: device for device in devices}
     for device in devices:
         for row in device.get("evidence") or []:
             if not isinstance(row, dict):
@@ -138,71 +138,83 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
                 if service:
                     service_devices[service][device["deviceKey"]].add(code)
 
+    service_orders = []
+    for service, candidates in service_devices.items():
+        for key in candidates.keys() & selected_by_key.keys():
+            codes = candidates[key] & selected_by_key[key]["matchedDoaCodes"]
+            dates = {_fault_date(code) for code in codes}
+            # Keep invalid or conflicting dates so the existing diagnostics still run.
+            if dates and (
+                len(dates) > 1 or any(day is None or start <= day <= end for day in dates)
+            ):
+                service_orders.append(service)
+                break
+
+    limiter = asyncio.Semaphore(_CHANGE_QUERY_CONCURRENCY)
+
+    async def load_changes(batch: list[str]):
+        async with limiter:
+            return await scs_gateway.all(
+                "SCS_CHANGE", changeType=",".join(_FAULT_CHANGE_TYPES), serviceOrder=",".join(batch)
+            )
+
+    change_batches = await asyncio.gather(
+        *(
+            load_changes(service_orders[offset : offset + _CHANGE_BATCH_SIZE])
+            for offset in range(0, len(service_orders), _CHANGE_BATCH_SIZE)
+        )
+    )
+    changes = sorted(
+        (change for batch in change_batches for change in batch),
+        key=lambda change: change["change_type"],
+    )
+
     first_faults: dict[tuple[str, str], date] = {}
     fault_details: list[MFRFaultDetail] = []
-    unmatched_changes = 0
     unresolved_dates = 0
-    for change in [*change_up, *change_up_up]:
-        if change["is_revoked"] or change["change_type"] not in {"换上", "换上-up"}:
+    for change in changes:
+        if change["is_revoked"] or change["change_type"] not in _FAULT_CHANGE_TYPES:
             continue
         candidates = service_devices.get(change["service_order"], {})
         selected_candidates = candidates.keys() & selected_by_key.keys()
-        if not selected_candidates:
-            continue
-        serial = str(change.get("device_sn") or "").strip()
-        keys = {
-            key
-            for key in candidates
-            if not serial or str(all_by_key[key].get("deviceSn") or "").strip() == serial
-        }
-        if len(keys) != 1:
-            if any(
-                (day := _fault_date(code)) is not None and start <= day <= end
-                for key in selected_candidates
-                for code in candidates[key] & selected_by_key[key]["matchedDoaCodes"]
-            ):
-                unmatched_changes += 1
-            continue
-        key = next(iter(keys))
-        device = selected_by_key.get(key)
-        if device is None:
-            continue
-        codes = candidates[key] & device["matchedDoaCodes"]
-        if not codes:
-            continue
-        dates = {_fault_date(code) for code in codes}
-        if len(dates) != 1 or None in dates:
-            unresolved_dates += 1
-            continue
-        fault_date = next(iter(dates))
-        if not start <= fault_date <= end:
-            continue
-        month = fault_date.strftime("%Y-%m")
-        identity = str(device.get("deviceSn") or "").strip()
-        month_device = (month, identity or key)
-        first_faults[month_device] = min(first_faults.get(month_device, fault_date), fault_date)
-        production = device.get("productionOrder")
-        fault_details.append(
-            MFRFaultDetail(
-                model=device["orderModel"],
-                plannedDate="",
-                shipmentDate=device["shipmentDate"].isoformat() if device["shipmentDate"] else "",
-                productionOrder=str(production.get("value") or "")
-                if isinstance(production, dict)
-                else "",
-                deviceSn=identity,
-                serviceOrder=change["service_order"],
-                doaCode=min(codes),
-                faultDate=fault_date.isoformat(),
-                changeId=str(change.get("id") or ""),
-                changeType=str(change.get("change_type") or ""),
-                occurredAt=str(change.get("create_at") or ""),
-                partNumber=str(change.get("part_number") or ""),
-                partSn=str(change.get("part_sn") or ""),
-                partName=str(change.get("part_name") or ""),
-                customer=str(change.get("customer") or ""),
+        for key in sorted(selected_candidates):
+            device = selected_by_key[key]
+            codes = candidates[key] & device["matchedDoaCodes"]
+            if not codes:
+                continue
+            dates = {_fault_date(code) for code in codes}
+            if len(dates) != 1 or None in dates:
+                unresolved_dates += 1
+                continue
+            fault_date = next(iter(dates))
+            if not start <= fault_date <= end:
+                continue
+            month = fault_date.strftime("%Y-%m")
+            identity = str(device.get("deviceSn") or "").strip()
+            month_device = (month, identity or key)
+            first_faults[month_device] = min(first_faults.get(month_device, fault_date), fault_date)
+            production = device.get("productionOrder")
+            fault_details.append(
+                MFRFaultDetail(
+                    model=device["orderModel"],
+                    plannedDate="",
+                    shipmentDate=device["shipmentDate"].isoformat() if device["shipmentDate"] else "",
+                    productionOrder=str(production.get("value") or "")
+                    if isinstance(production, dict)
+                    else "",
+                    deviceSn=identity,
+                    serviceOrder=change["service_order"],
+                    doaCode=min(codes),
+                    faultDate=fault_date.isoformat(),
+                    changeId=str(change.get("id") or ""),
+                    changeType=str(change.get("change_type") or ""),
+                    occurredAt=str(change.get("create_at") or ""),
+                    partNumber=str(change.get("part_number") or ""),
+                    partSn=str(change.get("part_sn") or ""),
+                    partName=str(change.get("part_name") or ""),
+                    customer=str(change.get("customer") or ""),
+                )
             )
-        )
     if unresolved_dates:
         issues["faultDateUnresolved"] = unresolved_dates
 
@@ -232,7 +244,7 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
                 faultCount=period_counts[period],
                 fleetCount=cumulative,
                 mfrRate=None
-                if unmatched_changes or unresolved_dates
+                if unresolved_dates
                 else rate(
                     period_counts[period],
                     cumulative,
@@ -258,12 +270,11 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
             denominatorSource="kk_sales_order_deliveries",
             shipmentDeviceCount=fleet,
             mfrRate=None
-            if unmatched_changes or unresolved_dates
+            if unresolved_dates
             else rate(len(first_faults), fleet),
             sourceDeviceCount=len(devices),
             selectedDeviceCount=len(selected),
             deviceIssues=issues,
-            unmatchedChangeCount=unmatched_changes,
         ),
         trend=trend,
         dailyTrend=daily,

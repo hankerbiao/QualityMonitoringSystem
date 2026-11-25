@@ -78,14 +78,17 @@ async def test_groups_distinct_devices_by_declaration_date(monkeypatch, kk_shipm
         values = [
             change("S1", "SN1"),
             change("S1", "SN1", "换上-up"),
-            change("S1", "SN1", "换下"),
+            change("S1", "OTHER-SERIAL", "换下"),
             change("S1", "SN1", revoked=True),
-            change("S2", "SN2"),
-            change("S2", ""),
-            change("S2", "WRONG"),
+            change("S2", "OTHER-SERIAL", "换下"),
             change("S3", "SN4"),
         ]
-        return [item for item in values if item["change_type"] == kwargs["changeType"]]
+        return [
+            item
+            for item in values
+            if item["change_type"] in kwargs["changeType"].split(",")
+            and item["service_order"] in kwargs["serviceOrder"].split(",")
+        ]
 
     monkeypatch.setattr(
         service.scs_gateway,
@@ -96,29 +99,33 @@ async def test_groups_distinct_devices_by_declaration_date(monkeypatch, kk_shipm
         MFRFilters(dateFrom="2026-01-01", dateTo="2026-02-28")
     )
     assert result.summary.selectedDeviceCount == 3
-    assert result.summary.faultCount == 2
+    assert result.summary.faultCount == 3
     assert [row.faultDate for row in result.faultDetails] == [
         "2026-01-10",
-        "2026-02-11",
         "2026-01-10",
+        "2026-01-10",
+        "2026-02-11",
+        "2026-02-12",
     ]
     assert [
         (row.model, row.deviceSn, row.serviceOrder, row.plannedDate, row.occurredAt)
         for row in result.faultDetails
     ] == [
         ("M1", "SN1", "S1", "", "2026-12-01"),
-        ("M2", "SN2", "S2", "", "2026-12-01"),
         ("M1", "SN1", "S1", "", "2026-12-01"),
+        ("M1", "SN1", "S1", "", "2026-12-01"),
+        ("M2", "SN2", "S2", "", "2026-12-01"),
+        ("M2", "SN3", "S2", "", "2026-12-01"),
     ]
-    assert [row.shipmentDate for row in result.faultDetails] == ["2025-01-10", "", "2025-01-10"]
-    assert result.summary.mfrRate is None
-    assert result.summary.unmatchedChangeCount == 2
+    assert [row.shipmentDate for row in result.faultDetails] == ["2025-01-10"] * 3 + ["", "2026-02-12"]
+    assert result.summary.mfrRate == 100.0
+    assert result.summary.unmatchedChangeCount == 0
     assert result.summary.deviceIssues["lifecycleDateIncomplete"] == 3
     assert [(x.period, x.fleetCount, x.faultCount) for x in result.trend] == [
         ("2026-01", 0, 1),
-        ("2026-02", 3, 1),
+        ("2026-02", 3, 2),
     ]
-    assert [x.mfrRate for x in result.trend] == [None, None]
+    assert [x.mfrRate for x in result.trend] == [None, 66.67]
     assert result.dailyTrend == []
     with pytest.raises(ValueError, match="暂只支持按日期筛选"):
         await service.build_device_dashboard(
@@ -135,12 +142,16 @@ async def test_groups_distinct_devices_by_declaration_date(monkeypatch, kk_shipm
     kk_shipments.assert_any_await(date_to=date(2026, 2, 10))
     service.scs_gateway.doa_devices.assert_awaited_once()
     orders.assert_not_awaited()
-    assert len(partial_month.faultDetails) == 1
+    assert len(partial_month.faultDetails) == 2
     assert partial_month.faultDetails[0].deviceSn == "SN2"
     assert partial_month.dailyTrend[0].faultCount == 1
-    assert sum(item.faultCount for item in partial_month.dailyTrend) == 1
-    service.scs_gateway.all.assert_any_await("SCS_CHANGE", changeType="换上")
-    service.scs_gateway.all.assert_any_await("SCS_CHANGE", changeType="换上-up")
+    assert sum(item.faultCount for item in partial_month.dailyTrend) == 2
+    service.scs_gateway.all.assert_any_await(
+        "SCS_CHANGE", changeType="换上,换上-up,换下", serviceOrder="S1,S2"
+    )
+    service.scs_gateway.all.assert_any_await(
+        "SCS_CHANGE", changeType="换上,换上-up,换下", serviceOrder="S2"
+    )
 
 
 async def test_empty_device_scope_does_not_return_a_misleading_zero(monkeypatch):
