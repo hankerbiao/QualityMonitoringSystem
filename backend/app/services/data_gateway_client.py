@@ -1048,6 +1048,60 @@ class DataGatewayClient:
             params={key: value for key, value in params.items() if value != ""},
         )
 
+    async def kk_shipment_batches(self, *, date_from: str, date_to: str) -> list[dict[str, Any]]:
+        try:
+            payload = await self.request_json(
+                "GET",
+                "/api/kk-sales-order-deliveries/shipment-batches",
+                params={"dateFrom": date_from, "dateTo": date_to},
+            )
+        except DataGatewayError as exc:
+            if exc.status_code in {404, 405}:
+                raise DataGatewayError(
+                    "网关尚未提供 KK 实际交付批次，请更新数据网关", status_code=502
+                ) from exc
+            raise
+        if (
+            not isinstance(payload, dict)
+            or payload.get("dateFrom") != date_from
+            or payload.get("dateTo") != date_to
+            or not isinstance(payload.get("items"), list)
+        ):
+            raise DataGatewayError("KK 实际交付批次响应无效")
+        items = payload["items"]
+        seen = set()
+        for item in items:
+            if not isinstance(item, dict):
+                raise DataGatewayError("KK 实际交付批次格式无效")
+            order, day, quantity = (
+                item.get("salesOrder"),
+                item.get("shipmentDate"),
+                item.get("quantity"),
+            )
+            delivery, position = item.get("deliveryNumber"), item.get("deliveryItem")
+            if (
+                not isinstance(order, str)
+                or not order.startswith("XNC")
+                or not isinstance(day, str)
+                or not date_from <= day <= date_to
+                or type(quantity) not in (int, float)
+                or not math.isfinite(quantity)
+                or quantity <= 0
+                or not isinstance(delivery, str)
+                or not isinstance(position, str)
+            ):
+                raise DataGatewayError("KK 实际交付批次缺少有效订单、发货日期或数量")
+            try:
+                if date.fromisoformat(day).isoformat() != day:
+                    raise ValueError(day)
+            except ValueError as exc:
+                raise DataGatewayError("KK 实际交付批次发货日期无效") from exc
+            key = (order, delivery, position, quantity)
+            if key in seen:
+                raise DataGatewayError("KK 实际交付批次出现重复记录")
+            seen.add(key)
+        return items
+
     async def kk_cumulative_deliveries(self, *, date_to: date) -> tuple[tuple[str, str, int], ...]:
         """Read cumulative shipped units grouped by sales order and delivery month.
 

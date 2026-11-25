@@ -10,6 +10,7 @@ import {
   Download,
   Filter,
   Home,
+  Info,
   RotateCcw,
 } from "lucide-react";
 import {
@@ -38,6 +39,7 @@ import { buildDoaWorkbook } from "../components/doa/exportData";
 import { useAuth } from "../context/AuthContext";
 import { formatLocalDate } from "../utils/dateRange";
 import * as XLSX from "xlsx";
+
 
 function granularityForRange(from: string, to: string): DoaTimeGranularity {
   const start = Date.parse(`${from}T00:00:00Z`);
@@ -199,7 +201,8 @@ export default function DoaPage() {
     } catch (err) {
       if (current === requestId.current) {
         setData(null);
-        setError(err instanceof Error ? err.message : "DOA 数据加载失败");
+        const message = err instanceof Error ? err.message : "DOA 数据加载失败";
+        setError(message);
       }
     } finally {
       if (current === requestId.current) setLoading(false);
@@ -440,6 +443,16 @@ export default function DoaPage() {
           <h2 className="text-sm font-semibold text-slate-950">质量概览</h2>
           <HelpTooltip label="查看 DOA 质量概览说明">订单和报修均按生产订单计划开始日期 GSTRS 筛选。有效报修为 5000 公司中判定结果为“是”、非待受理且问题批次数量非空的申报。无法确定计划日期的报修单独展示，不计入当前报修率。</HelpTooltip>
         </div>
+        {summary && summary.unmatchedPlannedRecords > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
+            <p role="status" className="flex min-w-0 items-start gap-2">
+              <Info className="mt-0.5 size-4 shrink-0 text-slate-500" aria-hidden="true" />
+              <span>有 <strong>{num(summary.unmatchedPlannedRecords)}</strong> 条报修申报的生产计划日期待确认。报修和换件指标按已确认计划日期的申报计算。待确认条数不受日期筛选。</span>
+            </p>
+            {canExportAudit && <Link className="shrink-0 font-medium text-blue-700 underline-offset-2 hover:underline focus-visible:underline"
+              to={`/doa/repairs?${doaApi.buildQuery(filters, { unmatchedOnly: "true" })}`}>查看待确认明细</Link>}
+          </div>
+        )}
         <section aria-label="质量概览指标" className="grid grid-cols-2 divide-x divide-y divide-slate-200 border border-slate-200 bg-white lg:grid-cols-4 lg:divide-y-0">
           <Stat
             label="DOA 报修率"

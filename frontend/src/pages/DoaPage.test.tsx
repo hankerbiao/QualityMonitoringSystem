@@ -206,6 +206,12 @@ describe('DoaPage', () => {
       trend: [], byCustomer: [], byModel: [], unmatchedOrders: [],
     });
     render(<MemoryRouter><DoaPage /></MemoryRouter>);
+    await screen.findByLabelText('质量概览指标');
+    const notice = screen.getByRole('status');
+    expect(notice.textContent).toContain('有 3 条报修申报的生产计划日期待确认');
+    expect(notice.textContent).toContain('报修和换件指标按已确认计划日期的申报计算');
+    expect(screen.queryByRole('alert')).toBeNull();
+    expect(screen.getByRole('link', { name: '查看待确认明细' })).toBeTruthy();
     fireEvent.click(await screen.findByRole('button', { name: '未匹配数据' }));
     expect(screen.getByText(/不受日期筛选，不计入当前报修率/)).toBeTruthy();
     expect(screen.getByRole('link', { name: '查看未匹配日期明细' })).toBeTruthy();

@@ -35,9 +35,14 @@ def repair(id, sales, product, qty, date="2026-09-10"):
 
 @pytest.mark.parametrize(
     ("raw", "expected"),
-    [('["000123", "456"]', ["123", "456"]), ("[123 456]", ["123", "456"]),
-     (["000123", "456"], ["123", "456"]), ("[]", []),
-     ("[123 broken]", None), ('["123", ""]', None)],
+    [
+        ('["000123", "456"]', ["123", "456"]),
+        ("[123 456]", ["123", "456"]),
+        (["000123", "456"], ["123", "456"]),
+        ("[]", []),
+        ("[123 broken]", None),
+        ('["123", ""]', None),
+    ],
 )
 def test_production_order_keys_reject_incomplete_or_invalid_values(raw, expected):
     assert doa_service._production_order_keys(raw) == expected
@@ -55,12 +60,20 @@ async def test_customer_uses_all_production_orders_and_plan_date(monkeypatch):
         if view != "SCS_DOA":
             return []
         return [
-            {**repair("ok", "XNC1", "M1", 2, "2026-10-20"), "planned_at": "2026-09-01", "raw": {"production_orders": "[123456 123457]"}},
+            {
+                **repair("ok", "XNC1", "M1", 2, "2026-10-20"),
+                "planned_at": "2026-09-01",
+                "raw": {"production_orders": "[123456 123457]"},
+            },
             {**repair("missing", "XNC2", "M1", 4), "raw": {"production_orders": "[123456 999999]"}},
-            {**repair("conflict", "XNC3", "M1", 8), "raw": {"production_orders": "[123456 123458]"}},
+            {
+                **repair("conflict", "XNC3", "M1", 8),
+                "raw": {"production_orders": "[123456 123458]"},
+            },
         ]
 
     monkeypatch.setattr(doa_service.data_gateway, "all_orders", orders)
+
     async def export_rows(_resource, ids, **kwargs):
         return [{"_id": value} for value in ids]
 
@@ -74,13 +87,23 @@ async def test_customer_uses_all_production_orders_and_plan_date(monkeypatch):
     assert dashboard.summary.shippedCount == 30
     assert dashboard.summary.repairCount == 2
     assert [(r.id, r.customer) for r in details.items] == [("ok", "字跳")]
-    all_rows = await doa_service.get_doa_repairs(DoaFilters(dateFrom="2026-09-01", dateTo="2026-09-30"), 1, 50)
-    assert {r.id: r.customer for r in all_rows.items} == {"ok": "字跳", "missing": "未匹配客户", "conflict": "未填写"}
+    all_rows = await doa_service.get_doa_repairs(
+        DoaFilters(dateFrom="2026-09-01", dateTo="2026-09-30"), 1, 50
+    )
+    assert {r.id: r.customer for r in all_rows.items} == {
+        "ok": "字跳",
+        "missing": "未匹配客户",
+        "conflict": "未填写",
+    }
     audit = await doa_service.get_doa_audit(DoaFilters(dateFrom="2026-09-01", dateTo="2026-09-30"))
     assert {row["id"]: row["matchStatus"] for row in audit["repairs"]} == {
-        "ok": "已匹配", "missing": "未匹配", "conflict": "已匹配"
+        "ok": "已匹配",
+        "missing": "未匹配",
+        "conflict": "已匹配",
     }
-    october = await doa_service.build_doa_dashboard(DoaFilters(dateFrom="2026-10-01", dateTo="2026-10-30", customers=["字跳"]))
+    october = await doa_service.build_doa_dashboard(
+        DoaFilters(dateFrom="2026-10-01", dateTo="2026-10-30", customers=["字跳"])
+    )
     assert october.summary.repairCount == 0
 
 
@@ -231,30 +254,51 @@ async def test_repair_uses_planned_date_and_unmatched_are_listed_separately(monk
     assert [item.id for item in missing.items] == ["unknown"]
 
 
-async def test_dashboard_refuses_unbackfilled_gateway_data(monkeypatch):
-    import pytest
-
-    from app.services.data_gateway_client import DataGatewayError
-
+async def test_dashboard_counts_valid_declaration_codes_without_plan_backfill(monkeypatch):
     async def orders(**kwargs):
-        return [order("1", 10, "2026-09-01")]
+        return [order("XNC1", 999, "2026-09-01")]
+
+    async def shipments(*, date_from, date_to):
+        assert (date_from, date_to) == ("2026-11-01", "2026-11-25")
+        return [
+            {
+                "salesOrder": "XNC1",
+                "shipmentDate": "2026-11-24",
+                "quantity": 100,
+                "deliveryNumber": "D1",
+                "deliveryItem": "10",
+                "model": "M1",
+            }
+        ]
 
     async def rows(view, **kwargs):
-        return (
-            [
-                {
-                    key: value
-                    for key, value in repair("a", "1", "M1", 1).items()
-                    if key not in {"planned_at", "gstrs_status"}
-                }
-            ]
-            if view == "SCS_DOA"
-            else []
-        )
+        if view != "SCS_DOA":
+            return []
+        return [
+            {**repair("valid", "XNC1", "M1", 3), "doa_code": "KX202611240016", "gstrs_status": ""},
+            {
+                **repair("pending", "XNC1", "M1", 4),
+                "doa_code": "KX202611240017",
+                "status": "待受理",
+            },
+            {**repair("invalid", "XNC1", "M1", 8), "doa_code": "KX202611310018"},
+            {**repair("out", "XNC1", "M1", 5), "doa_code": "KX202611260019"},
+        ]
 
     monkeypatch.setattr(doa_service.data_gateway, "all_orders", orders)
+    monkeypatch.setattr(doa_service.data_gateway, "kk_shipment_batches", shipments, raising=False)
     monkeypatch.setattr(doa_service.scs_gateway, "all", rows)
     monkeypatch.setattr(doa_service, "_DOA_ORDERS_CACHE", doa_service.AsyncTTLCache())
     monkeypatch.setattr(doa_service, "_DOA_SNAPSHOT_CACHE", doa_service.AsyncTTLCache())
-    with pytest.raises(DataGatewayError, match="计划日期"):
-        await doa_service.build_doa_dashboard(DoaFilters())
+    filters = DoaFilters(dateFrom="2026-11-01", dateTo="2026-11-25", timeGranularity="day")
+    dashboard = await doa_service.build_doa_dashboard(filters)
+    assert dashboard.summary.shippedCount == 100
+    assert dashboard.summary.repairCount == 3
+    assert dashboard.summary.repairRate == 3
+    assert dashboard.summary.unmatchedPlannedRecords == 1
+    assert [(row.period, row.shippedCount, row.repairCount) for row in dashboard.trend] == [
+        ("2026-11-24", 100, 3)
+    ]
+    normal = await doa_service.get_doa_repairs(filters, 1, 50)
+    assert [(row.id, row.declarationDate) for row in normal.items] == [("valid", "2026-11-24")]
+    assert (await doa_service.get_doa_orders(filters, 1, 50))["totalQuantity"] == 100

@@ -6,6 +6,7 @@ import asyncio
 import json
 import re
 from datetime import datetime, timedelta, timezone
+from zoneinfo import ZoneInfo
 from typing import Any
 
 from app.schemas.doa import (
@@ -21,27 +22,13 @@ from app.schemas.doa import (
 )
 from app.services.async_ttl_cache import AsyncTTLCache
 from app.services.data_gateway_client import DataGatewayError, data_gateway
-from app.services.scs_gateway import scs_gateway
+from app.services.scs_gateway import doa_declaration_date, scs_gateway
 
 DOA_CACHE_TTL_SECONDS = 60.0
 DOA_DASHBOARD_CACHE_TTL_SECONDS = 2 * 60 * 60.0
 _DOA_ORDERS_CACHE = AsyncTTLCache()
 _DOA_SNAPSHOT_CACHE = AsyncTTLCache(max_entries=128)
 _DOA_RAW_CACHE = AsyncTTLCache()
-
-
-def _date(value: Any) -> str | None:
-    if value is None:
-        return None
-    text = str(value).strip()
-    if not text:
-        return None
-    for candidate in (text[:10], text.split(" ", 1)[0]):
-        try:
-            return datetime.strptime(candidate.replace("/", "-"), "%Y-%m-%d").strftime("%Y-%m-%d")
-        except ValueError:
-            continue
-    return None
 
 
 def _gateway_latest_accepted_at(rows: list[dict[str, Any]]) -> datetime | None:
@@ -57,13 +44,9 @@ def _gateway_latest_accepted_at(rows: list[dict[str, Any]]) -> datetime | None:
     return max(values, default=None)
 
 
-def _number(value: Any) -> float:
-    if value is None or isinstance(value, bool):
-        return 0.0
-    if isinstance(value, int | float):
-        return float(value)
-    match = re.search(r"-?\d+(?:\.\d+)?", str(value).replace(",", ""))
-    return float(match.group(0)) if match else 0.0
+def _repair_quantity(value: Any) -> float | None:
+    text = str(value).strip().replace(",", "")
+    return float(text) if re.fullmatch(r"[0-9]+(?:\.[0-9]+)?", text) else None
 
 
 def _rate(repairs: float, shipped: float) -> float | None:
@@ -95,8 +78,6 @@ def _gateway_order(item: dict[str, Any]) -> dict[str, Any]:
         "customer": str(data.get("NAME1_ZU") or item.get("finalUser") or "").strip(),
         "customer_id": str(data.get("KID") or item.get("customerId") or "").strip(),
         "model": str(data.get("MAKTX_TH") or item.get("productionModel") or "").strip(),
-        "shipped_date": _date(item.get("plannedStartDate")),
-        "shipped_count": _number(item.get("orderQuantity")),
         "raw": item,
     }
 
@@ -111,14 +92,11 @@ def _sales_order_scopes(orders: list[dict[str, Any]]) -> dict[str, dict[str, Any
         customers = {row["customer"] for row in rows if row["customer"]}
         customer_ids = {row["customer_id"] for row in rows if row["customer_id"]}
         models = {row["model"] for row in rows if row["model"]}
-        shipment_dates = {row["shipped_date"] for row in rows if row["shipped_date"]}
         scopes[key] = {
             "sales_order": rows[0]["sales_order"],
             "customer": customers.pop() if len(customers) == 1 else "",
             "customer_id": customer_ids.pop() if len(customer_ids) == 1 else "",
             "model": models.pop() if len(models) == 1 else "",
-            "shipped_date": shipment_dates.pop() if len(shipment_dates) == 1 else "",
-            "shipped_count": sum(row["shipped_count"] for row in rows),
         }
     return scopes
 
@@ -151,7 +129,8 @@ def _production_order_scopes(orders: list[dict[str, Any]]) -> dict[str, list[dic
 
 
 def _repair_order_scope(
-    item: dict[str, Any], by_sales: dict[str, dict[str, Any]],
+    item: dict[str, Any],
+    by_sales: dict[str, dict[str, Any]],
     by_production: dict[str, list[dict[str, Any]]],
 ) -> dict[str, Any] | None:
     keys = _production_order_keys(item.get("raw", {}).get("production_orders"))
@@ -164,12 +143,9 @@ def _repair_order_scope(
     rows = [row for key in keys for row in by_production[key]]
     customers = {row["customer"] for row in rows}
     customer_ids = {row["customer_id"] for row in rows if row["customer_id"]}
-    dates = {row["shipped_date"] for row in rows}
     return {
         "customer": next(iter(customers)) if len(customers) == 1 else "",
         "customer_id": next(iter(customer_ids)) if len(customer_ids) == 1 else "",
-        "shipped_date": next(iter(dates)) if len(dates) == 1 else "",
-        "shipped_count": sum(row["shipped_count"] for row in rows),
     }
 
 
@@ -200,10 +176,49 @@ async def _eligible_doa(filters: DoaFilters) -> list[dict[str, Any]]:
     )
 
 
+async def _actual_shipments(
+    filters: DoaFilters, orders: list[dict[str, Any]]
+) -> list[dict[str, Any]]:
+    start, end = _accepted_bounds(filters)
+    if start and end and start > end:
+        return []
+    batches = await data_gateway.kk_shipment_batches(
+        date_from=start, date_to=end or datetime.now(ZoneInfo("Asia/Shanghai")).date().isoformat()
+    )
+    sales = _sales_order_scopes(orders)
+    names_by_id: dict[str, set[str]] = {}
+    for order in orders:
+        if order["customer_id"] and order["customer"]:
+            names_by_id.setdefault(_sales_order_key(order["customer_id"]), set()).add(
+                order["customer"]
+            )
+    rows = []
+    for batch in batches:
+        scope = sales.get(_sales_order_key(batch["salesOrder"]), {})
+        customer_id = str(batch.get("customerId") or "").strip()
+        names = names_by_id.get(_sales_order_key(customer_id), set())
+        customer = next(iter(names)) if len(names) == 1 else scope.get("customer", "")
+        rows.append(
+            {
+                "sales_order": batch["salesOrder"],
+                "customer": customer or customer_id,
+                "customer_id": customer_id,
+                "model": str(batch.get("model") or "").strip() or "未匹配机型",
+                "shipped_date": batch["shipmentDate"],
+                "shipped_count": batch["quantity"],
+                "raw": batch,
+            }
+        )
+    return rows
+
+
 def _selected_orders(orders: list[dict[str, Any]], filters: DoaFilters) -> list[dict[str, Any]]:
     start, end = _accepted_bounds(filters)
     customers = set(filters.customers or ([filters.customer] if filters.customer else []))
-    customer_ids = set(filters.customerIds or ([filters.customerId] if filters.customerId else []))
+    customer_ids = {
+        _sales_order_key(value)
+        for value in filters.customerIds or ([filters.customerId] if filters.customerId else [])
+    }
     models = set(filters.models or ([filters.model] if filters.model else []))
     return [
         row
@@ -211,7 +226,7 @@ def _selected_orders(orders: list[dict[str, Any]], filters: DoaFilters) -> list[
         if (not start or (row["shipped_date"] and row["shipped_date"] >= start))
         and (not end or (row["shipped_date"] and row["shipped_date"] <= end))
         and (not customers or (row["customer"] or "未填写") in customers)
-        and (not customer_ids or row["customer_id"] in customer_ids)
+        and (not customer_ids or _sales_order_key(row["customer_id"]) in customer_ids)
         and (not models or (row["model"] or "未填写") in models)
     ]
 
@@ -238,8 +253,7 @@ def _valid_doa(item: dict[str, Any]) -> bool:
     return (
         item.get("judgment") == "是"
         and item.get("status") != "待受理"
-        and quantity is not None
-        and str(quantity).strip() != ""
+        and _repair_quantity(quantity) is not None
     )
 
 
@@ -248,25 +262,37 @@ def _build_doa_repairs(
     eligible: list[dict[str, Any]],
     changes: list[dict[str, Any]],
     filters: DoaFilters,
+    shipments: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     by_sales = _sales_order_scopes(orders)
     by_production = _production_order_scopes(orders)
-    available_models = {order["model"] for order in orders if order["model"]}
+    shipment_scopes = _sales_order_scopes(shipments)
+    available_models = {order["model"] for order in orders + shipments if order["model"]}
     changed = {row["service_order"] for row in changes if _is_valid_hardware_replacement(row)}
     customers = set(filters.customers or ([filters.customer] if filters.customer else []))
-    customer_ids = set(filters.customerIds or ([filters.customerId] if filters.customerId else []))
+    customer_ids = {
+        _sales_order_key(value)
+        for value in filters.customerIds or ([filters.customerId] if filters.customerId else [])
+    }
     models = set(filters.models or ([filters.model] if filters.model else []))
     rows = []
     for item in eligible:
         if not _valid_doa(item):
             continue
         order = _repair_order_scope(item, by_sales, by_production)
-        customer = (order["customer"] or "未填写") if order else "未匹配客户"
+        shipment = shipment_scopes.get(_sales_order_key(item["sales_order"]))
+        scope = shipment or order
+        customer = (
+            (scope["customer"] or "未填写") if scope else str(item.get("customer") or "未匹配客户")
+        )
         model = _product_model(str(item.get("product") or ""), available_models)
-        customer_id = order["customer_id"] if order else ""
-        if ((customers and customer not in customers)
-                or (customer_ids and customer_id not in customer_ids)
-                or (models and model not in models)):
+        customer_id = scope["customer_id"] if scope else ""
+        declaration_date = doa_declaration_date(str(item.get("doa_code") or ""))
+        if (
+            (customers and customer not in customers)
+            or (customer_ids and _sales_order_key(customer_id) not in customer_ids)
+            or (models and model not in models)
+        ):
             continue
         rows.append(
             {
@@ -274,17 +300,14 @@ def _build_doa_repairs(
                 "sales_order": item["sales_order"],
                 "material_serial": item["host_sn"] or item["part_sn"],
                 "accepted_at": item["accepted_at"],
-                "planned_at": _date(item.get("planned_at")),
-                "gstrs_status": item.get("gstrs_status") or "unmatched",
+                "declaration_date": declaration_date.isoformat() if declaration_date else "",
                 "customer": customer,
                 "customer_id": customer_id,
                 "model": model,
-                "shipped_date": order["shipped_date"] if order else "",
-                "shipped_count": order["shipped_count"] if order else 0,
-                "repair_count": _number(item["repair_count"]),
+                "repair_count": _repair_quantity(item["repair_count"]),
                 "missing_quantity": item["repair_count"] in (None, ""),
                 "has_change": item["service_order"] in changed,
-                "matched_order": bool(order),
+                "matched_order": bool(scope),
                 "data": item["raw"],
             }
         )
@@ -305,13 +328,15 @@ async def _load_doa_snapshot(
         scs_gateway.all("SCS_CHANGE", company5000="true"),
     )
     eligible = [row for row in eligible if _valid_doa(row)]
-    if any(not row.get("gstrs_status") for row in eligible):
-        raise DataGatewayError(
-            "SCS 计划日期回填尚未完成，或网关尚未提供计划日期字段；请先完成同步与回填"
-        )
     service_orders = {row["service_order"] for row in eligible}
     changes = [change for change in changes if change["service_order"] in service_orders]
-    return orders, eligible, _build_doa_repairs(orders, eligible, changes, filters), changes
+    shipments = await _actual_shipments(filters, orders)
+    return (
+        shipments,
+        eligible,
+        _build_doa_repairs(orders, eligible, changes, filters, shipments),
+        changes,
+    )
 
 
 async def _doa_snapshot(
@@ -344,19 +369,18 @@ async def _doa_gateway_repairs(filters: DoaFilters) -> list[dict[str, Any]]:
     return repairs
 
 
-def _filter_planned_repairs(
+def _filter_dated_repairs(
     rows: list[dict[str, Any]], filters: DoaFilters, *, unmatched: bool = False
 ) -> list[dict[str, Any]]:
     start, end = _accepted_bounds(filters)
     if unmatched:
-        return [row for row in rows if row["gstrs_status"] != "matched" or not row["planned_at"]]
+        return [row for row in rows if not row["declaration_date"]]
     return [
         row
         for row in rows
-        if row["gstrs_status"] == "matched"
-        and row["planned_at"]
-        and (not start or row["planned_at"] >= start)
-        and (not end or row["planned_at"] <= end)
+        if row["declaration_date"]
+        and (not start or row["declaration_date"] >= start)
+        and (not end or row["declaration_date"] <= end)
     ]
 
 
@@ -368,8 +392,8 @@ async def _build_doa_dashboard(filters: DoaFilters) -> DoaDashboardResponse:
     (orders, eligible_rows, all_repairs, _), cache_expires_at = await _doa_snapshot_with_expiry(
         filters
     )
-    repairs = _filter_planned_repairs(all_repairs, filters)
-    unmatched_planned = _filter_planned_repairs(all_repairs, filters, unmatched=True)
+    repairs = _filter_dated_repairs(all_repairs, filters)
+    unmatched_planned = _filter_dated_repairs(all_repairs, filters, unmatched=True)
     selected_orders = _selected_orders(orders, filters)
     shipped = sum(item["shipped_count"] for item in selected_orders)
     repair_count = sum(item["repair_count"] for item in repairs)
@@ -418,7 +442,7 @@ async def _build_doa_dashboard(filters: DoaFilters) -> DoaDashboardResponse:
             totals = trend_totals.setdefault(key, [0.0, 0.0, 0.0, set()])
             totals[0] += item["shipped_count"]
     for item in repairs:
-        key = period(item.get("planned_at"))
+        key = period(item.get("declaration_date"))
         if key:
             totals = trend_totals.setdefault(key, [0.0, 0.0, 0.0, set()])
             totals[1] += item["repair_count"]
@@ -474,46 +498,33 @@ async def _build_doa_dashboard(filters: DoaFilters) -> DoaDashboardResponse:
 
 async def get_doa_audit(filters: DoaFilters) -> dict[str, Any]:
     orders, eligible, all_repairs, changes = await _doa_snapshot(filters)
-    repairs = _filter_planned_repairs(all_repairs, filters)
-    matched_by_id = {row["id"]: row["matched_order"] for row in repairs}
+    repairs = _filter_dated_repairs(all_repairs, filters)
+    repairs_by_id = {row["id"]: row for row in repairs}
     audit_rows = []
     for item in eligible:
         if item["judgment"] != "是":
             continue
-        if item["id"] not in matched_by_id:
+        if item["id"] not in repairs_by_id:
             continue
         audit_rows.append(
             {
-                "matchStatus": "已匹配" if matched_by_id[item["id"]] else "未匹配",
+                "matchStatus": "已匹配" if repairs_by_id[item["id"]]["matched_order"] else "未匹配",
                 "salesOrder": item["sales_order"],
                 "id": item["id"],
                 "acceptedAt": item["accepted_at"],
-                "plannedAt": item.get("planned_at") or "",
-                "gstrsStatus": item.get("gstrs_status") or "",
+                "declarationDate": repairs_by_id[item["id"]]["declaration_date"],
                 "repairCount": item["repair_count"],
                 "raw": item["raw"],
             }
         )
     selected_orders = [order["raw"] for order in _selected_orders(orders, filters)]
-    ids = [str(order.get("id") or "") for order in selected_orders]
-    if any(not value for value in ids):
-        raise DataGatewayError("订单缺少原始数据标识，无法导出")
-    source_orders = await data_gateway.export_rows("orders", ids) if ids else []
-    if source_orders is None:
-        raise DataGatewayError("数据源不支持订单原始数据导出")
-    source_orders_by_id = {str(row.get("_id") or ""): row for row in source_orders}
-    if any(value not in source_orders_by_id for value in ids):
-        raise DataGatewayError("订单原始数据不完整，请重新导出", retryable=True)
     audit_ids = {row["id"] for row in audit_rows}
     service_orders = {
         row["service_order"] for row in eligible if row["id"] in audit_ids and row["service_order"]
     }
     return {
         "repairs": audit_rows,
-        "orders": [
-            {**order, "sourceFields": source_orders_by_id[str(order["id"])]}
-            for order in selected_orders
-        ],
+        "orders": selected_orders,
         "changes": [row["raw"] for row in changes if row["service_order"] in service_orders],
     }
 
@@ -525,7 +536,7 @@ async def get_doa_repairs(
     replacement_only: bool = False,
     unmatched_only: bool = False,
 ) -> DoaRepairsResponse:
-    rows = _filter_planned_repairs(
+    rows = _filter_dated_repairs(
         await _doa_gateway_repairs(filters), filters, unmatched=unmatched_only
     )
     if replacement_only:
@@ -539,8 +550,7 @@ async def get_doa_repairs(
                 salesOrder=str(row.get("sales_order") or ""),
                 materialSerial=str(row.get("material_serial") or ""),
                 acceptedAt=str(row.get("accepted_at") or ""),
-                plannedAt=str(row.get("planned_at") or ""),
-                gstrsStatus=str(row.get("gstrs_status") or ""),
+                declarationDate=row["declaration_date"],
                 customer=str(row.get("customer") or ""),
                 customerId=str(row.get("customer_id") or ""),
                 model=str(row.get("model") or ""),
@@ -568,11 +578,13 @@ async def get_doa_orders(filters: DoaFilters, page: int, limit: int) -> dict[str
         "items": [
             {
                 "salesOrder": row["sales_order"],
-                "productionOrder": str(row["raw"].get("aufnr") or ""),
+                "deliveryNumber": row["raw"].get("deliveryNumber", ""),
+                "deliveryItem": row["raw"].get("deliveryItem", ""),
+                "materialNumber": row["raw"].get("materialNumber", ""),
                 "customer": row["customer"],
                 "customerId": row["customer_id"],
                 "model": row["model"],
-                "plannedStartDate": row["shipped_date"] or "",
+                "shipmentDate": row["shipped_date"],
                 "quantity": row["shipped_count"],
             }
             for row in selected

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import csv
 import io
+import re
+from datetime import date
 from typing import Any
 
 from app.services.data_gateway_client import DataGatewayClient, DataGatewayError, data_gateway
@@ -22,6 +24,16 @@ def _first(item: dict[str, Any], *keys: str) -> Any:
 
 def _bool(value: Any) -> bool:
     return str(value).strip().lower() in {"1", "true", "yes", "y", "是"}
+
+
+def doa_declaration_date(code: str) -> date | None:
+    match = re.fullmatch(r"KX([0-9]{8})[0-9]{4}", code)
+    if match is None:
+        return None
+    try:
+        return date.fromisoformat(match[1])
+    except ValueError:
+        return None
 
 
 def normalize_doa(item: dict[str, Any]) -> dict[str, Any]:
