@@ -43,6 +43,7 @@ export interface MFRDashboard {
   trend: MFRTrendItem[];
   dailyTrend: MFRDailyTrendItem[];
   byModel: MFRDimensionItem[];
+  modelOptions?: string[];
   customerIds?: string[];
 }
 

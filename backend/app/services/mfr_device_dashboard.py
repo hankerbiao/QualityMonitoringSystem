@@ -28,6 +28,32 @@ _CHANGE_QUERY_CONCURRENCY = 4
 _FAULT_CHANGE_TYPES = ("换上", "换上-up", "换下")
 _DOA_DEVICES = AsyncTTLCache(max_entries=1)
 _KK_COUNTS = AsyncTTLCache(max_entries=16, copy_values=False)
+_KK_MODEL_BATCHES = AsyncTTLCache(max_entries=6, copy_values=False)
+_MODEL_OPTIONS = AsyncTTLCache(max_entries=1)
+
+
+def _month_index(day: date) -> int:
+    return (day.year - 1) * 12 + day.month - 1
+
+
+async def _model_shipments(start: date, end: date) -> tuple[tuple[int, str, float], ...]:
+    year, month = divmod(max(0, _month_index(start) - _WARRANTY_MONTHS + 1), 12)
+    cutoff = date(year + 1, month + 1, 1)
+
+    async def load():
+        rows = await data_gateway.kk_shipment_batches(
+            date_from=cutoff.isoformat(), date_to=end.isoformat()
+        )
+        return tuple(
+            (
+                _month_index(date.fromisoformat(row["shipmentDate"])),
+                str(row.get("model") or "").strip(),
+                row["quantity"],
+            )
+            for row in rows
+        )
+
+    return await _KK_MODEL_BATCHES.get_or_set((cutoff, end), load, ttl_seconds=3600)
 
 
 async def _shipments_by_month(end: date) -> Counter[int]:
@@ -39,7 +65,7 @@ async def _shipments_by_month(end: date) -> Counter[int]:
     counts: Counter[int] = Counter()
     for _, period, count in shipments:
         year, month = map(int, period.split("-"))
-        counts[year * 12 + month - 1] += count
+        counts[_month_index(date(year, month, 1))] += count
     return counts
 
 
@@ -52,8 +78,9 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
     if start > end:
         raise ValueError("dateFrom/dateTo 必须是有效的 YYYY-MM-DD 日期范围")
 
-    if filters.model or filters.customerId or filters.customerIds:
-        raise ValueError("MFR 暂只支持按日期筛选")
+    if filters.customerId or filters.customerIds:
+        raise ValueError("MFR 支持按日期和机型筛选")
+    model = filters.model.strip()
 
     async def load_devices():
         try:
@@ -71,10 +98,27 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
             )
         return devices
 
-    devices, shipped_by_month = await asyncio.gather(
+    devices, shipments = await asyncio.gather(
         _DOA_DEVICES.get_or_set("devices", load_devices, ttl_seconds=_SOURCE_TTL_SECONDS),
-        _shipments_by_month(end),
+        _model_shipments(start, end) if model else _shipments_by_month(end),
     )
+    try:
+        model_options = set(
+            await _MODEL_OPTIONS.get_or_set("orders", data_gateway.order_models, ttl_seconds=3600)
+        )
+    except DataGatewayError:
+        model_options = set()
+    unknown_shipments: Counter[int] = Counter()
+    shipped_by_month = shipments
+    if model:
+        shipped_by_month = Counter()
+        for month, shipment_model, quantity in shipments:
+            if shipment_model:
+                model_options.add(shipment_model)
+            else:
+                unknown_shipments[month] += quantity
+            if model.casefold() == (shipment_model or "未知机型").casefold():
+                shipped_by_month[month] += quantity
 
     doa_states: dict[str, set[tuple[str, str]]] = defaultdict(set)
     valid_codes: set[str] = set()
@@ -99,6 +143,11 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
         elif judgment == "是":
             valid_codes.add(code)
     selected, issues, device_issue_details = select_devices(devices, valid_codes, unresolved_codes)
+    model_options.update(device["orderModel"] for device in selected)
+    if model:
+        selected = [
+            device for device in selected if device["orderModel"].casefold() == model.casefold()
+        ]
     selected_by_key = {device["deviceKey"]: device for device in selected}
     service_devices: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
     for device in devices:
@@ -221,7 +270,7 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
     fleet = 0
     while (year, month) <= (end.year, end.month):
         period = f"{year:04d}-{month:02d}"
-        month_index = year * 12 + month - 1
+        month_index = _month_index(date(year, month, 1))
         fleet = sum(
             shipped_by_month[index]
             for index in range(month_index - _WARRANTY_MONTHS + 1, month_index + 1)
@@ -254,7 +303,8 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
             faultCount=len(first_faults),
             fleetCount=fleet,
             denominatorSource="kk_sales_order_deliveries",
-            shipmentDeviceCount=fleet,
+            shipmentDeviceCount=round(fleet),
+            shipmentUnknownModelCount=round(sum(unknown_shipments.values())),
             mfrRate=rate(len(first_faults), fleet_months),
             sourceDeviceCount=len(devices),
             selectedDeviceCount=len(selected),
@@ -262,6 +312,7 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
         ),
         trend=trend,
         dailyTrend=daily,
+        modelOptions=sorted(model_options, key=str.casefold),
         faultDetails=fault_details,
         deviceIssueDetails=device_issue_details,
         changeIssueDetails=change_issue_details,

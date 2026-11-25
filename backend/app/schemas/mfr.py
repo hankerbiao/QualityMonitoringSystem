@@ -97,6 +97,7 @@ class MFRDashboardResponse(BaseModel):
     trend: list[MFRTrendItem] = Field(default_factory=list)
     dailyTrend: list[MFRDailyTrendItem] = Field(default_factory=list)
     byModel: list[MFRDimensionItem] = Field(default_factory=list)
+    modelOptions: list[str] = Field(default_factory=list)
     customerIds: list[str] = Field(default_factory=list)
     faultDetails: list[MFRFaultDetail] = Field(default_factory=list)
     deviceIssueDetails: list[MFRDeviceIssueDetail] = Field(default_factory=list)

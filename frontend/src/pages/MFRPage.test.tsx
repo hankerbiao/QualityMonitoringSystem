@@ -29,6 +29,7 @@ vi.mock('recharts', () => ({
 
 const fixture = (filters: MFRFilters): MFRDashboard => ({
   filters,
+  modelOptions: ['Model A', 'Model B'],
   summary: { faultCount: 12, fleetCount: 400, mfrRate: 3, sourceDeviceCount: 402, selectedDeviceCount: 400, deviceIssues: { identityUnverified: 2, faultDateUnresolved: 1 }, unmatchedChangeCount: 1 },
   trend: [{ period: '2026-01', key: '2026-01', faultCount: 12, fleetCount: 400, mfrRate: 3 }],
   dailyTrend: filters.dateFrom.slice(0, 7) === filters.dateTo.slice(0, 7)
@@ -116,13 +117,18 @@ describe('MFR dashboard', () => {
   it('always keeps the filter controls visible and shows pending selections', async () => {
     render(<MemoryRouter><MFRPage /></MemoryRouter>);
     await screen.findAllByText('期末在保台数');
-    expect(screen.queryByLabelText('机型')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '机型' }));
+    fireEvent.change(screen.getByRole('searchbox', { name: '搜索机型' }), { target: { value: 'model b' } });
+    expect(screen.queryByRole('checkbox', { name: 'Model A' })).toBeNull();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Model B' }));
     expect(screen.queryByRole('button', { name: '客户ID' })).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: '故障日期' }));
     fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2025-12-01' } });
     fireEvent.click(screen.getByRole('button', { name: '确定' }));
     expect(screen.getByText(/待应用/)).toBeTruthy();
     expect(mfrApi.getDashboard).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
+    await waitFor(() => expect(mfrApi.getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'Model B', dateFrom: '2025-12-01' })));
   });
 
   it('switches to monthly fault counts for a multi-month range', async () => {

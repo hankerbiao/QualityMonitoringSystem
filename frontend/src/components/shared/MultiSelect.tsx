@@ -9,9 +9,10 @@ interface MultiSelectProps {
   value: string[];
   onChange: (value: string[]) => void;
   floating?: boolean;
+  single?: boolean;
 }
 
-export function MultiSelect({ label, options, value, onChange, floating = false }: MultiSelectProps) {
+export function MultiSelect({ label, options, value, onChange, floating = false, single = false }: MultiSelectProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const root = useRef<HTMLDivElement>(null);
@@ -22,7 +23,7 @@ export function MultiSelect({ label, options, value, onChange, floating = false 
   const normalizedSearch = search.trim().toLocaleLowerCase();
   const filtered = available.filter((option) => option.toLocaleLowerCase().includes(normalizedSearch));
   const title = label.replace(/（多选）$/, '');
-  const ariaLabel = label.endsWith('（多选）') ? label : `${label}（多选）`;
+  const ariaLabel = single ? title : label.endsWith('（多选）') ? label : `${label}（多选）`;
   const summary = value.length === 0
     ? `全部${title}`
     : value.length === 1 ? value[0] : `${value[0]} 等 ${value.length} 项`;
@@ -74,7 +75,7 @@ export function MultiSelect({ label, options, value, onChange, floating = false 
           <div className="flex items-center justify-between gap-2 border-b border-slate-100 bg-slate-50 px-3 py-2">
             <span className="text-xs text-slate-500">已选 {value.length} 项</span>
             <div className="flex items-center gap-3 text-xs">
-              <button type="button" onClick={() => onChange([...new Set([...value, ...filtered])])} className="font-medium text-teal-700">全选</button>
+              {!single && <button type="button" onClick={() => onChange([...new Set([...value, ...filtered])])} className="font-medium text-teal-700">全选</button>}
               <button type="button" onClick={() => onChange([])} className="font-medium text-slate-500">清空</button>
             </div>
           </div>
@@ -84,6 +85,7 @@ export function MultiSelect({ label, options, value, onChange, floating = false 
               aria-label={`搜索${title}`}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
+              onKeyDown={(event) => { if (event.key === 'Enter') event.preventDefault(); }}
               placeholder={`搜索${title}`}
               className="h-8 w-full rounded-md border border-slate-200 bg-slate-50 px-2.5 text-xs font-normal text-slate-700 outline-none focus:border-teal-400 focus:bg-white"
             />
@@ -94,7 +96,15 @@ export function MultiSelect({ label, options, value, onChange, floating = false 
                 <input
                   type="checkbox"
                   checked={value.includes(option)}
-                  onChange={() => onChange(value.includes(option) ? value.filter((item) => item !== option) : [...value, option])}
+                  onChange={() => {
+                    if (single) {
+                      onChange(value.includes(option) ? [] : [option]);
+                      setOpen(false);
+                      trigger.current?.focus();
+                    } else {
+                      onChange(value.includes(option) ? value.filter((item) => item !== option) : [...value, option]);
+                    }
+                  }}
                   className="size-3.5 rounded border-slate-300 accent-teal-700"
                 />
                 <span className="min-w-0 flex-1 break-all">{option}</span>

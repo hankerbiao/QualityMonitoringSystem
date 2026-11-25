@@ -50,6 +50,8 @@ def kk_shipments(monkeypatch):
     )
     mock = AsyncMock(return_value=())
     monkeypatch.setattr(service.data_gateway, "kk_cumulative_deliveries", mock)
+    monkeypatch.setattr(service, "_MODEL_OPTIONS", service.AsyncTTLCache())
+    monkeypatch.setattr(service.data_gateway, "order_models", AsyncMock(return_value=[]))
     return mock
 
 
@@ -135,9 +137,9 @@ async def test_groups_distinct_devices_by_declaration_date(monkeypatch, kk_shipm
     ]
     assert [x.mfrRate for x in result.trend] == [11.11, 50.0]
     assert result.dailyTrend == []
-    with pytest.raises(ValueError, match="暂只支持按日期筛选"):
+    with pytest.raises(ValueError, match="支持按日期和机型筛选"):
         await service.build_device_dashboard(
-            MFRFilters(dateFrom="2026-02-01", dateTo="2026-02-28", model="M2")
+            MFRFilters(dateFrom="2026-02-01", dateTo="2026-02-28", customerId="C1")
         )
     partial_month = await service.build_device_dashboard(
         MFRFilters(dateFrom="2026-02-11", dateTo="2026-02-28")
