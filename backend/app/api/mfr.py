@@ -12,7 +12,11 @@ from app.services.mfr_service import build_mfr_dashboard
 router = APIRouter(dependencies=[Depends(dashboard_dependency("mfr"))])
 
 
-@router.get("/dashboard", response_model=MFRDashboardResponse, response_model_exclude={"faultDetails"})
+@router.get(
+    "/dashboard",
+    response_model=MFRDashboardResponse,
+    response_model_exclude={"faultDetails", "deviceIssueDetails", "changeIssueDetails"},
+)
 async def mfr_dashboard(
     _: Annotated[dict, Depends(get_current_user)],
     dateFrom: str = Query(..., description="统计开始日期 YYYY-MM-DD"),
@@ -22,7 +26,9 @@ async def mfr_dashboard(
 ):
     try:
         ids = sorted(set(filter(None, customerId or [])))
-        return await build_mfr_dashboard(MFRFilters(dateFrom=dateFrom, dateTo=dateTo, model=model, customerIds=ids))
+        return await build_mfr_dashboard(
+            MFRFilters(dateFrom=dateFrom, dateTo=dateTo, model=model, customerIds=ids)
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -37,6 +43,8 @@ async def mfr_export(
 ):
     try:
         ids = sorted(set(filter(None, customerId or [])))
-        return await build_mfr_dashboard(MFRFilters(dateFrom=dateFrom, dateTo=dateTo, model=model, customerIds=ids))
+        return await build_mfr_dashboard(
+            MFRFilters(dateFrom=dateFrom, dateTo=dateTo, model=model, customerIds=ids)
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc

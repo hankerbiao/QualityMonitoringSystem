@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import asyncio
-import re
 from collections import Counter, defaultdict
 from datetime import date, timedelta
 
 from app.schemas.mfr import (
+    MFRChangeIssueDetail,
     MFRDailyTrendItem,
     MFRDashboardResponse,
     MFRFaultDetail,
@@ -18,9 +18,11 @@ from app.schemas.mfr import (
 from app.services.async_ttl_cache import AsyncTTLCache
 from app.services.data_gateway_client import DataGatewayError, data_gateway
 from app.services.mfr_devices import is_company_5000, select_devices
+from app.services.scs_gateway import doa_declaration_date as _fault_date
 from app.services.scs_gateway import scs_gateway
 
 _SOURCE_TTL_SECONDS = 30.0
+_WARRANTY_MONTHS = 36
 _CHANGE_BATCH_SIZE = 100
 _CHANGE_QUERY_CONCURRENCY = 4
 _FAULT_CHANGE_TYPES = ("换上", "换上-up", "换下")
@@ -28,43 +30,17 @@ _DOA_DEVICES = AsyncTTLCache(max_entries=1)
 _KK_COUNTS = AsyncTTLCache(max_entries=16, copy_values=False)
 
 
-def _fault_date(code: str) -> date | None:
-    match = re.fullmatch(r"KX([0-9]{8})[0-9]{4}", code)
-    if match is None:
-        return None
-    digits = match[1]
-    try:
-        return date(int(digits[:4]), int(digits[4:6]), int(digits[6:8]))
-    except ValueError:
-        return None
-
-
-async def _shipments_in_range(start: date, end: date) -> Counter[tuple[str, str]]:
-    async def cumulative(cutoff: date):
-        return await _KK_COUNTS.get_or_set(
-            cutoff,
-            lambda: data_gateway.kk_cumulative_deliveries(date_to=cutoff),
-            ttl_seconds=_SOURCE_TTL_SECONDS,
-        )
-
-    start_month = start.isoformat()[:7]
-    if start.day == 1:
-        through_end = await cumulative(end)
-        before_start = ()
-    else:
-        through_end, before_start = await asyncio.gather(
-            cumulative(end), cumulative(start - timedelta(days=1))
-        )
-
-    counts = Counter(
-        {(order, month): count for order, month, count in through_end if month >= start_month}
+async def _shipments_by_month(end: date) -> Counter[int]:
+    shipments = await _KK_COUNTS.get_or_set(
+        end,
+        lambda: data_gateway.kk_cumulative_deliveries(date_to=end),
+        ttl_seconds=_SOURCE_TTL_SECONDS,
     )
-    counts.subtract(
-        {(order, month): count for order, month, count in before_start if month == start_month}
-    )
-    if any(count < 0 for count in counts.values()):
-        raise DataGatewayError("KK 累计出货汇总在两个截止日之间不一致")
-    return +counts
+    counts: Counter[int] = Counter()
+    for _, period, count in shipments:
+        year, month = map(int, period.split("-"))
+        counts[year * 12 + month - 1] += count
+    return counts
 
 
 async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
@@ -95,9 +71,9 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
             )
         return devices
 
-    devices, shipments = await asyncio.gather(
+    devices, shipped_by_month = await asyncio.gather(
         _DOA_DEVICES.get_or_set("devices", load_devices, ttl_seconds=_SOURCE_TTL_SECONDS),
-        _shipments_in_range(start, end),
+        _shipments_by_month(end),
     )
 
     doa_states: dict[str, set[tuple[str, str]]] = defaultdict(set)
@@ -122,7 +98,7 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
             unresolved_codes.add(code)
         elif judgment == "是":
             valid_codes.add(code)
-    selected, issues = select_devices(devices, valid_codes, unresolved_codes)
+    selected, issues, device_issue_details = select_devices(devices, valid_codes, unresolved_codes)
     selected_by_key = {device["deviceKey"]: device for device in selected}
     service_devices: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
     for device in devices:
@@ -171,7 +147,7 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
 
     first_faults: dict[tuple[str, str], date] = {}
     fault_details: list[MFRFaultDetail] = []
-    unresolved_dates = 0
+    change_issue_details: list[MFRChangeIssueDetail] = []
     for change in changes:
         if change["is_revoked"] or change["change_type"] not in _FAULT_CHANGE_TYPES:
             continue
@@ -184,7 +160,21 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
                 continue
             dates = {_fault_date(code) for code in codes}
             if len(dates) != 1 or None in dates:
-                unresolved_dates += 1
+                change_issue_details.append(
+                    MFRChangeIssueDetail(
+                        reason="faultDateUnresolved",
+                        deviceKey=key,
+                        deviceSn=str(device.get("deviceSn") or ""),
+                        changeDeviceSn=str(change.get("device_sn") or ""),
+                        serviceOrder=change["service_order"],
+                        doaCodes=sorted(codes),
+                        changeId=str(change.get("id") or ""),
+                        changeType=change["change_type"],
+                        occurredAt=str(change.get("create_at") or ""),
+                        partNumber=str(change.get("part_number") or ""),
+                        partSn=str(change.get("part_sn") or ""),
+                    )
+                )
                 continue
             fault_date = next(iter(dates))
             if not start <= fault_date <= end:
@@ -198,11 +188,14 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
                 MFRFaultDetail(
                     model=device["orderModel"],
                     plannedDate="",
-                    shipmentDate=device["shipmentDate"].isoformat() if device["shipmentDate"] else "",
+                    shipmentDate=device["shipmentDate"].isoformat()
+                    if device["shipmentDate"]
+                    else "",
                     productionOrder=str(production.get("value") or "")
                     if isinstance(production, dict)
                     else "",
                     deviceSn=identity,
+                    deviceKey=key,
                     serviceOrder=change["service_order"],
                     doaCode=min(codes),
                     faultDate=fault_date.isoformat(),
@@ -215,42 +208,35 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
                     customer=str(change.get("customer") or ""),
                 )
             )
-    if unresolved_dates:
-        issues["faultDateUnresolved"] = unresolved_dates
+    if change_issue_details:
+        issues["faultDateUnresolved"] = len(change_issue_details)
 
-    shipped_by_month: Counter[str] = Counter()
-    for (_, month), count in shipments.items():
-        shipped_by_month[month] += count
-
-    def rate(faults: int, fleet: int) -> float | None:
-        return round(faults * 100 / fleet, 2) if fleet else None
+    def rate(faults: int, denominator: float) -> float | None:
+        return round(faults * 100 / denominator, 2) if denominator else None
 
     period_counts = Counter(month for month, _ in first_faults)
     daily_faults = Counter(first_faults.values())
-    periods: list[str] = []
     year, month = start.year, start.month
+    trend: list[MFRTrendItem] = []
+    fleet = 0
     while (year, month) <= (end.year, end.month):
-        periods.append(f"{year:04d}-{month:02d}")
-        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
-    fleet = sum(shipped_by_month.values())
-    cumulative = 0
-    trend = []
-    for period in periods:
-        cumulative += shipped_by_month[period]
+        period = f"{year:04d}-{month:02d}"
+        month_index = year * 12 + month - 1
+        fleet = sum(
+            shipped_by_month[index]
+            for index in range(month_index - _WARRANTY_MONTHS + 1, month_index + 1)
+        )
         trend.append(
             MFRTrendItem(
                 period=period,
                 key=period,
                 faultCount=period_counts[period],
-                fleetCount=cumulative,
-                mfrRate=None
-                if unresolved_dates
-                else rate(
-                    period_counts[period],
-                    cumulative,
-                ),
+                fleetCount=fleet,
+                mfrRate=rate(period_counts[period], fleet),
             )
         )
+        year, month = (year + 1, 1) if month == 12 else (year, month + 1)
+    fleet_months = sum(item.fleetCount or 0 for item in trend)
     daily = (
         [
             MFRDailyTrendItem(
@@ -259,7 +245,7 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
             )
             for offset in range((end - start).days + 1)
         ]
-        if len(periods) == 1
+        if len(trend) == 1
         else []
     )
     return MFRDashboardResponse(
@@ -269,9 +255,7 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
             fleetCount=fleet,
             denominatorSource="kk_sales_order_deliveries",
             shipmentDeviceCount=fleet,
-            mfrRate=None
-            if unresolved_dates
-            else rate(len(first_faults), fleet),
+            mfrRate=rate(len(first_faults), fleet_months),
             sourceDeviceCount=len(devices),
             selectedDeviceCount=len(selected),
             deviceIssues=issues,
@@ -279,4 +263,6 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
         trend=trend,
         dailyTrend=daily,
         faultDetails=fault_details,
+        deviceIssueDetails=device_issue_details,
+        changeIssueDetails=change_issue_details,
     )

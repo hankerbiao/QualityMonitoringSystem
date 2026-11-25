@@ -53,6 +53,7 @@ class MFRFaultDetail(BaseModel):
     shipmentDate: str
     productionOrder: str
     deviceSn: str
+    deviceKey: str = ""
     doaCode: str
     faultDate: str
     serviceOrder: str
@@ -65,6 +66,31 @@ class MFRFaultDetail(BaseModel):
     customer: str
 
 
+class MFRDeviceIssueDetail(BaseModel):
+    reason: str
+    deviceKey: str
+    deviceSn: str
+    identityBasis: str
+    doaCodes: list[str]
+    salesOrders: list[str]
+    serviceOrders: list[str]
+    declarationStates: list[str]
+
+
+class MFRChangeIssueDetail(BaseModel):
+    reason: str
+    deviceSn: str
+    deviceKey: str
+    changeDeviceSn: str
+    serviceOrder: str
+    doaCodes: list[str]
+    changeId: str
+    changeType: str
+    occurredAt: str
+    partNumber: str
+    partSn: str
+
+
 class MFRDashboardResponse(BaseModel):
     filters: MFRFilters
     summary: MFRSummary
@@ -73,3 +99,5 @@ class MFRDashboardResponse(BaseModel):
     byModel: list[MFRDimensionItem] = Field(default_factory=list)
     customerIds: list[str] = Field(default_factory=list)
     faultDetails: list[MFRFaultDetail] = Field(default_factory=list)
+    deviceIssueDetails: list[MFRDeviceIssueDetail] = Field(default_factory=list)
+    changeIssueDetails: list[MFRChangeIssueDetail] = Field(default_factory=list)

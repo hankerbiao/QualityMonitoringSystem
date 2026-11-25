@@ -54,10 +54,11 @@ def kk_shipments(monkeypatch):
 
 
 async def test_groups_distinct_devices_by_declaration_date(monkeypatch, kk_shipments):
-    kk_shipments.side_effect = lambda *, date_to: (
-        (("SO1", "2025-12", 1), ("SO1", "2026-02", 3))
-        if date_to == date(2026, 2, 28)
-        else (("SO1", "2025-12", 1), ("SO1", "2026-02", 2))
+    kk_shipments.return_value = (
+        ("SO1", "2023-01", 100),
+        ("SO1", "2023-02", 8),
+        ("SO1", "2025-12", 1),
+        ("SO1", "2026-02", 3),
     )
     monkeypatch.setattr(
         service.scs_gateway,
@@ -117,15 +118,22 @@ async def test_groups_distinct_devices_by_declaration_date(monkeypatch, kk_shipm
         ("M2", "SN2", "S2", "", "2026-12-01"),
         ("M2", "SN3", "S2", "", "2026-12-01"),
     ]
-    assert [row.shipmentDate for row in result.faultDetails] == ["2025-01-10"] * 3 + ["", "2026-02-12"]
-    assert result.summary.mfrRate == 100.0
+    assert [row.shipmentDate for row in result.faultDetails] == ["2025-01-10"] * 3 + [
+        "",
+        "2026-02-12",
+    ]
+    assert [row.deviceKey for row in result.faultDetails] == ["product:a"] * 3 + [
+        "product:b",
+        "product:c",
+    ]
+    assert result.summary.mfrRate == 23.08
     assert result.summary.unmatchedChangeCount == 0
     assert result.summary.deviceIssues["lifecycleDateIncomplete"] == 3
     assert [(x.period, x.fleetCount, x.faultCount) for x in result.trend] == [
-        ("2026-01", 0, 1),
-        ("2026-02", 3, 2),
+        ("2026-01", 9, 1),
+        ("2026-02", 4, 2),
     ]
-    assert [x.mfrRate for x in result.trend] == [None, 66.67]
+    assert [x.mfrRate for x in result.trend] == [11.11, 50.0]
     assert result.dailyTrend == []
     with pytest.raises(ValueError, match="暂只支持按日期筛选"):
         await service.build_device_dashboard(
@@ -134,12 +142,9 @@ async def test_groups_distinct_devices_by_declaration_date(monkeypatch, kk_shipm
     partial_month = await service.build_device_dashboard(
         MFRFilters(dateFrom="2026-02-11", dateTo="2026-02-28")
     )
-    assert partial_month.summary.fleetCount == 1
-    assert partial_month.trend[0].fleetCount == 1
-    assert result.summary.fleetCount == 3
-    assert kk_shipments.await_count == 2
-    kk_shipments.assert_any_await(date_to=date(2026, 2, 28))
-    kk_shipments.assert_any_await(date_to=date(2026, 2, 10))
+    assert partial_month.summary.fleetCount == partial_month.trend[0].fleetCount == 4
+    assert result.summary.fleetCount == 4
+    kk_shipments.assert_awaited_once_with(date_to=date(2026, 2, 28))
     service.scs_gateway.doa_devices.assert_awaited_once()
     orders.assert_not_awaited()
     assert len(partial_month.faultDetails) == 2
@@ -152,6 +157,28 @@ async def test_groups_distinct_devices_by_declaration_date(monkeypatch, kk_shipm
     service.scs_gateway.all.assert_any_await(
         "SCS_CHANGE", changeType="换上,换上-up,换下", serviceOrder="S2"
     )
+
+
+async def test_warranty_window_uses_the_selected_end_day(monkeypatch, kk_shipments):
+    kk_shipments.return_value = (
+        ("SO1", "2023-11", 100),
+        ("SO1", "2023-12", 200),
+        ("SO1", "2026-11", 50),
+    )
+    monkeypatch.setattr(
+        service.scs_gateway,
+        "doa_devices",
+        AsyncMock(return_value=[device("product:a", "123", "S1", "SN1", fault="2026-11-20")]),
+    )
+    monkeypatch.setattr(service.scs_gateway, "all", AsyncMock(return_value=[change("S1", "SN1")]))
+
+    result = await service.build_device_dashboard(
+        MFRFilters(dateFrom="2026-11-15", dateTo="2026-11-25")
+    )
+
+    kk_shipments.assert_awaited_once_with(date_to=date(2026, 11, 25))
+    assert result.summary.fleetCount == result.trend[0].fleetCount == 250
+    assert result.summary.mfrRate == result.trend[0].mfrRate == 0.4
 
 
 async def test_empty_device_scope_does_not_return_a_misleading_zero(monkeypatch):
@@ -199,3 +226,37 @@ def test_fault_date_uses_the_eight_digits_after_kx():
     assert service._fault_date("KX202610310012").isoformat() == "2026-10-31"
     assert service._fault_date("KX202602300012") is None
     assert service._fault_date("KX20261031") is None
+
+
+async def test_invalid_and_conflicting_declaration_dates_are_excluded_from_mfr(
+    monkeypatch, kk_shipments
+):
+    row = device("product:a", "123", "S1", "SN1", fault="2026-02-30")
+    valid = device("product:b", "124", "S2", "SN2", fault="2026-02-10")
+    conflict = device("product:c", "125", "S3", "SN3", fault="2026-02-11")
+    conflict["evidence"].append({**conflict["evidence"][0], "doaCode": "KX202602120001"})
+    kk_shipments.return_value = (("SO1", "2026-02", 20),)
+    monkeypatch.setattr(
+        service.scs_gateway, "doa_devices", AsyncMock(return_value=[row, valid, conflict])
+    )
+    change_row = {**change("S1", "SN1"), "id": "C1"}
+    monkeypatch.setattr(
+        service.scs_gateway,
+        "all",
+        AsyncMock(return_value=[change_row, change("S2", "SN2"), change("S3", "SN3")]),
+    )
+
+    result = await service.build_device_dashboard(
+        MFRFilters(dateFrom="2026-02-01", dateTo="2026-02-28")
+    )
+    assert result.summary.deviceIssues["faultDateUnresolved"] == 2
+    assert result.summary.faultCount == 1
+    assert result.summary.mfrRate == result.trend[0].mfrRate == 5.0
+    assert [detail.deviceSn for detail in result.faultDetails] == ["SN2"]
+    detail = result.changeIssueDetails[0]
+    assert (detail.changeId, detail.serviceOrder, detail.deviceSn, detail.doaCodes) == (
+        "C1",
+        "S1",
+        "SN1",
+        ["KX202602300001"],
+    )

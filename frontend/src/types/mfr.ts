@@ -52,6 +52,7 @@ export interface MFRFaultDetail {
   shipmentDate: string;
   productionOrder: string;
   deviceSn: string;
+  deviceKey?: string;
   doaCode: string;
   faultDate: string;
   serviceOrder: string;
@@ -66,4 +67,27 @@ export interface MFRFaultDetail {
 
 export interface MFRExport extends MFRDashboard {
   faultDetails: MFRFaultDetail[];
+  deviceIssueDetails: {
+    reason: string;
+    deviceKey: string;
+    deviceSn: string;
+    identityBasis: string;
+    doaCodes: string[];
+    salesOrders: string[];
+    serviceOrders: string[];
+    declarationStates: string[];
+  }[];
+  changeIssueDetails: {
+    reason: string;
+    deviceKey: string;
+    deviceSn: string;
+    changeDeviceSn: string;
+    serviceOrder: string;
+    doaCodes: string[];
+    changeId: string;
+    changeType: string;
+    occurredAt: string;
+    partNumber: string;
+    partSn: string;
+  }[];
 }
