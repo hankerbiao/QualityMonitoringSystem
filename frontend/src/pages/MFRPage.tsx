@@ -8,29 +8,24 @@ import { DashboardSwitcher } from '../components/shared/DashboardSwitcher';
 import { DashboardLoading } from '../components/shared/DashboardLoading';
 import { DateRangePicker } from '../components/shared/DateRangePicker';
 import { HelpTooltip } from '../components/shared/HelpTooltip';
-import { MultiSelect } from '../components/shared/MultiSelect';
 import type { MFRDashboard, MFRExport, MFRFilters } from '../types/mfr';
 import { formatLocalDate } from '../utils/dateRange';
 
 const number = (value: number | null) => value == null ? "—" : new Intl.NumberFormat('zh-CN', { maximumFractionDigits: 2 }).format(value);
 const rate = (value: number | null) => value == null ? '—' : `${value.toFixed(2)}%`;
 const deviceIssueLabels: Record<string, string> = {
-  companyUnverified: '公司归属未确认', doaStatusUnresolved: 'DOA 申报状态无法确认', salesOrderMismatch: '销售订单关联不一致', identityUnverified: '设备身份无法确认',
-  identityConflict: '设备身份冲突', productionOrderUnresolved: '生产订单缺失或冲突',
-  planDateUnresolved: '生产订单未匹配', planOrModelConflict: '订单机型或销售订单冲突',
-  shipmentDateUnresolved: '发货日期缺失或无效', shipmentDateConflict: '发货日期冲突',
+  doaStatusUnresolved: 'DOA 申报状态无法确认',
+  identityUnverified: '设备身份无法确认',
+  identityConflict: '设备身份冲突',
 };
 const sameFilters = (a: MFRFilters, b: MFRFilters) =>
-  a.dateFrom === b.dateFrom && a.dateTo === b.dateTo && (a.model ?? '') === (b.model ?? '')
-  && (a.customerIds ?? (a.customerId ? [a.customerId] : [])).join('|') === (b.customerIds ?? (b.customerId ? [b.customerId] : [])).join('|');
+  a.dateFrom === b.dateFrom && a.dateTo === b.dateTo;
 
 function exportStatistics(data: MFRExport, filters: MFRFilters) {
   const workbook = XLSX.utils.book_new();
   const overview = [
     { 指标: '统计开始日期', 数值: filters.dateFrom },
     { 指标: '统计结束日期', 数值: filters.dateTo },
-    { 指标: '机型', 数值: filters.model || '全部机型' },
-    { 指标: '客户ID', 数值: filters.customerIds?.join('、') || filters.customerId || '全部客户ID' },
     { 指标: '综合 MFR（%）', 数值: data.summary.mfrRate },
     { 指标: '故障整机', 数值: data.summary.faultCount },
     { 指标: '期间出货台数', 数值: data.summary.fleetCount },
@@ -43,9 +38,6 @@ function exportStatistics(data: MFRExport, filters: MFRFilters) {
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(data.trend.map(item => ({
     统计月份: item.period, 故障整机: item.faultCount, 累计出货台数: item.fleetCount, 'MFR（%）': item.mfrRate,
   }))), '月度明细');
-  XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(data.byModel.map(item => ({
-    机型: item.key, 故障整机: item.faultCount, 期间出货台数: item.fleetCount, 'MFR（%）': item.mfrRate,
-  }))), '机型汇总');
   const headers = ['机型', '故障日期', 'DOA申报单号', '发货日期', '生产订单号', '设备SN', '服务单号', '换件记录ID', '换件类型', '换件时间', '物料编码', '部件SN', '部件名称', '客户'];
   const rows = data.faultDetails.map(item => [item.model, item.faultDate, item.doaCode, item.shipmentDate, item.productionOrder,
     item.deviceSn, item.serviceOrder, item.changeId, item.changeType, item.occurredAt,
@@ -64,13 +56,11 @@ function Metric({ label, value, detail, accent }: { label: string; value: string
 export default function MFRPage() {
   const [initialFilters] = useState<MFRFilters>(() => {
     const now = new Date();
-    return { dateFrom: formatLocalDate(new Date(now.getFullYear(), now.getMonth(), 1)), dateTo: formatLocalDate(now), model: '' };
+    return { dateFrom: formatLocalDate(new Date(now.getFullYear(), now.getMonth(), 1)), dateTo: formatLocalDate(now) };
   });
   const [draft, setDraft] = useState(initialFilters);
   const [filters, setFilters] = useState(initialFilters);
   const [data, setData] = useState<MFRDashboard | null>(null);
-  const [modelOptions, setModelOptions] = useState<string[]>([]);
-  const [customerIdOptions, setCustomerIdOptions] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [exporting, setExporting] = useState(false);
@@ -86,8 +76,6 @@ export default function MFRPage() {
       const result = await mfrApi.getDashboard(next);
       if (id !== requestId.current) return;
       setData(result);
-      if (!next.model) setModelOptions(result.byModel.map(item => item.key));
-      setCustomerIdOptions(result.customerIds ?? []);
     } catch (err) {
       if (id === requestId.current) setError(err instanceof Error ? err.message : 'MFR 数据加载失败');
     } finally {
@@ -104,18 +92,9 @@ export default function MFRPage() {
       setError('请选择有效的日期范围');
       return;
     }
-    const customerIds = next.customerIds?.length ? [...new Set(next.customerIds.filter(Boolean))].sort() : next.customerId ? [next.customerId] : [];
-    const normalized: MFRFilters = { ...next, model: next.model?.trim() ?? '' };
-    if (customerIds.length) {
-      normalized.customerId = '';
-      normalized.customerIds = customerIds;
-    } else {
-      delete normalized.customerId;
-      delete normalized.customerIds;
-    }
-    setDraft(normalized);
-    setFilters(normalized);
-    void load(normalized);
+    setDraft(next);
+    setFilters(next);
+    void load(next);
   };
   const summary = data?.summary;
   const unresolvedDevices = Object.entries(summary?.deviceIssues ?? {}).filter(([key]) => key !== 'lifecycleDateIncomplete' && key !== 'faultDateUnresolved').reduce((total, [, value]) => total + value, 0);
@@ -141,7 +120,7 @@ export default function MFRPage() {
       <div className="mx-auto flex min-h-14 max-w-[1600px] flex-wrap items-center justify-between gap-x-4 gap-y-2 px-4 py-2 sm:px-6 lg:px-8">
         <div className="flex min-w-0 items-center gap-3">
           <Link to="/" className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-slate-300 bg-white px-2.5 py-1.5 text-sm font-medium text-slate-700 transition hover:border-indigo-300 hover:bg-indigo-50 hover:text-indigo-700" aria-label="返回首页" title="返回首页"><Home className="size-4" />返回首页</Link>
-          <div className="min-w-0"><div className="flex items-center gap-1"><h1 className="truncate text-lg font-semibold text-slate-950">MFR 现网质量看板</h1><HelpTooltip label="查看 MFR 看板说明">按 DOA 申报单号中的日期统计故障整机。</HelpTooltip></div><p className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-600"><Activity className="size-3 text-indigo-600" />DOA 申报日期</p></div>
+          <div className="min-w-0"><div className="flex items-center gap-1"><h1 className="truncate text-lg font-semibold text-slate-950">MFR 现网质量看板</h1><HelpTooltip label="查看 MFR 看板说明">按 SCS 销售订单号的 XNC 前缀判定 5000 公司归属，按 DOA 申报单号中的日期统计故障整机。</HelpTooltip></div><p className="mt-0.5 flex items-center gap-1 text-[11px] text-slate-600"><Activity className="size-3 text-indigo-600" />DOA 申报日期</p></div>
         </div>
         <DashboardSwitcher />
       </div>
@@ -152,17 +131,12 @@ export default function MFRPage() {
         <div className="flex min-h-10 items-center gap-3 px-3 sm:px-4">
           <div className="flex min-w-0 flex-1 items-center gap-2">
             <SlidersHorizontal className="size-4 shrink-0 text-indigo-700" /><span className="shrink-0 text-sm font-semibold text-slate-800">筛选条件</span>
-            <span className="truncate text-xs text-slate-500">{filters.dateFrom} 至 {filters.dateTo} · {filters.model || '全部机型'} · {(filters.customerIds?.length ? filters.customerIds.join('、') : '全部客户ID')}{pending && ' · 待应用'}</span>
+            <span className="truncate text-xs text-slate-500">{filters.dateFrom} 至 {filters.dateTo}{pending && ' · 待应用'}</span>
           </div>
           <button type="button" disabled={loading || (sameFilters(filters, initialFilters) && sameFilters(draft, initialFilters))} onClick={() => apply(initialFilters)} className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-slate-600 hover:text-indigo-700 disabled:opacity-40" aria-label="重置筛选" title="重置筛选"><RotateCcw className="size-3.5" />重置</button>
         </div>
         <form id="mfr-filter-controls" onSubmit={event => { event.preventDefault(); apply(draft); }} className="flex flex-wrap items-end gap-2 border-t border-slate-100 px-3 py-2 sm:px-4">
           <div className="w-full sm:w-80"><DateRangePicker label="故障日期" from={draft.dateFrom} to={draft.dateTo} disabled={loading} onChange={(dateFrom, dateTo) => setDraft(current => ({ ...current, dateFrom, dateTo }))} /></div>
-          <label className="flex w-full flex-col gap-1 text-[11px] font-medium text-slate-600 sm:w-56">机型
-            <input list="mfr-model-options" value={draft.model ?? ''} disabled={loading} onChange={event => setDraft(current => ({ ...current, model: event.target.value }))} placeholder="全部机型" className="h-9 w-full rounded-md border border-slate-300 bg-white px-2.5 text-xs text-slate-700 outline-none focus:border-indigo-600 focus:ring-2 focus:ring-indigo-100 disabled:opacity-50" />
-            <datalist id="mfr-model-options">{modelOptions.map(model => <option key={model} value={model} />)}</datalist>
-          </label>
-          <div className="w-full sm:w-56"><MultiSelect label="客户ID" options={customerIdOptions} value={draft.customerIds?.length ? draft.customerIds : draft.customerId ? [draft.customerId] : []} onChange={customerIds => setDraft(current => ({ ...current, customerId: '', customerIds }))} /></div>
           <div className="flex gap-2">
             <button type="submit" disabled={loading} className="flex h-9 items-center gap-1.5 rounded-md bg-indigo-700 px-4 text-sm font-medium text-white hover:bg-indigo-800 disabled:opacity-50"><Search className="size-4" />查询</button>
           </div>
@@ -182,7 +156,7 @@ export default function MFRPage() {
             <Metric label="综合 MFR" value={rate(summary.mfrRate)} detail="所选期间故障整机数 ÷ 所选期间出货整机数 × 100%。" accent="bg-indigo-600" />
             <Metric label="故障整机" value={number(summary.faultCount)} detail="按 DOA 申报单号中的日期筛选，同一整机每月计一次。" accent="bg-sky-500" />
             <Metric label="期间出货台数" value={number(summary.fleetCount)} detail="按所选起止日期筛选 KK 交付明细发货日期（WADAT），含起止两日，按交付批次去重后汇总 LFIMG 出货数量。" accent="bg-violet-500" />
-            <Metric label="未归属设备" value={number(unresolvedDevices)} detail="数据源全量中申报状态、订单归属、设备身份或故障日期无法唯一确定的设备，不受当前日期和机型筛选。" accent="bg-amber-500" />
+            <Metric label="未归属设备" value={number(unresolvedDevices)} detail="数据源全量中申报状态或设备身份无法确认的设备，不受当前日期筛选。" accent="bg-amber-500" />
           </div>
 
           {!!summary.deviceIssues.faultDateUnresolved && <p className="px-4 py-2 text-xs text-amber-800">有 {number(summary.deviceIssues.faultDateUnresolved)} 条换件记录的 DOA 申报日期无效或冲突。</p>}

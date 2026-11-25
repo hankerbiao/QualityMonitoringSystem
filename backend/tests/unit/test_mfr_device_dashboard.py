@@ -20,7 +20,8 @@ def device(key, order, service_no, serial, shipment="2026-10-01", fault="2026-10
             {
                 "company5000": True,
                 "doaCode": "KX" + fault.replace("-", "") + "0001",
-                "doaSalesOrder": "SO1",
+                "doaSalesOrder": "XNC1",
+                "model": "M1" if service_no == "S1" else "M2",
                 "judgment": "是",
                 "doaStatus": "已受理",
                 "shipmentDate": shipment,
@@ -44,7 +45,9 @@ def change(service_no, serial, kind="换上", revoked=False, when="2026-12-01"):
 @pytest.fixture(autouse=True)
 def kk_shipments(monkeypatch):
     monkeypatch.setattr(service, "_DOA_DEVICES", service.AsyncTTLCache(max_entries=1))
-    monkeypatch.setattr(service, "_KK_COUNTS", service.AsyncTTLCache(max_entries=1, copy_values=False))
+    monkeypatch.setattr(
+        service, "_KK_COUNTS", service.AsyncTTLCache(max_entries=1, copy_values=False)
+    )
     mock = AsyncMock(return_value=())
     monkeypatch.setattr(service.data_gateway, "kk_cumulative_deliveries", mock)
     return mock
@@ -67,32 +70,8 @@ async def test_groups_distinct_devices_by_declaration_date(monkeypatch, kk_shipm
             ]
         ),
     )
-    monkeypatch.setattr(
-        service.data_gateway,
-        "all_orders",
-        AsyncMock(
-            return_value=[
-                {
-                    "aufnr": "10349985",
-                    "plannedStartDate": "2026-03-10",
-                    "productionModel": "M1",
-                    "salesOrder": "SO1",
-                },
-                {
-                    "aufnr": "10349986",
-                    "plannedStartDate": "2026-04-11",
-                    "productionModel": "M2",
-                    "salesOrder": "SO1",
-                },
-                {
-                    "aufnr": "10349987",
-                    "plannedStartDate": "2026-04-12",
-                    "productionModel": "M2",
-                    "salesOrder": "SO1",
-                },
-            ]
-        ),
-    )
+    orders = AsyncMock(side_effect=AssertionError("MFR must not query the sales order dashboard"))
+    monkeypatch.setattr(service.data_gateway, "all_orders", orders)
 
     async def rows(view, **kwargs):
         assert view == "SCS_CHANGE"
@@ -119,13 +98,17 @@ async def test_groups_distinct_devices_by_declaration_date(monkeypatch, kk_shipm
     assert result.summary.selectedDeviceCount == 3
     assert result.summary.faultCount == 2
     assert [row.faultDate for row in result.faultDetails] == [
-        "2026-01-10", "2026-02-11", "2026-01-10",
+        "2026-01-10",
+        "2026-02-11",
+        "2026-01-10",
     ]
-    assert [(row.model, row.deviceSn, row.serviceOrder, row.plannedDate, row.occurredAt)
-            for row in result.faultDetails] == [
-        ("M1", "SN1", "S1", "2026-03-10", "2026-12-01"),
-        ("M2", "SN2", "S2", "2026-04-11", "2026-12-01"),
-        ("M1", "SN1", "S1", "2026-03-10", "2026-12-01"),
+    assert [
+        (row.model, row.deviceSn, row.serviceOrder, row.plannedDate, row.occurredAt)
+        for row in result.faultDetails
+    ] == [
+        ("M1", "SN1", "S1", "", "2026-12-01"),
+        ("M2", "SN2", "S2", "", "2026-12-01"),
+        ("M1", "SN1", "S1", "", "2026-12-01"),
     ]
     assert [row.shipmentDate for row in result.faultDetails] == ["2025-01-10", "", "2025-01-10"]
     assert result.summary.mfrRate is None
@@ -137,10 +120,10 @@ async def test_groups_distinct_devices_by_declaration_date(monkeypatch, kk_shipm
     ]
     assert [x.mfrRate for x in result.trend] == [None, None]
     assert result.dailyTrend == []
-    one_model = await service.build_device_dashboard(
-        MFRFilters(dateFrom="2026-02-01", dateTo="2026-02-28", model="M2")
-    )
-    assert one_model.summary.fleetCount == 0
+    with pytest.raises(ValueError, match="暂只支持按日期筛选"):
+        await service.build_device_dashboard(
+            MFRFilters(dateFrom="2026-02-01", dateTo="2026-02-28", model="M2")
+        )
     partial_month = await service.build_device_dashboard(
         MFRFilters(dateFrom="2026-02-11", dateTo="2026-02-28")
     )
@@ -151,17 +134,17 @@ async def test_groups_distinct_devices_by_declaration_date(monkeypatch, kk_shipm
     kk_shipments.assert_any_await(date_to=date(2026, 2, 28))
     kk_shipments.assert_any_await(date_to=date(2026, 2, 10))
     service.scs_gateway.doa_devices.assert_awaited_once()
-    assert len(one_model.faultDetails) == 1
-    assert one_model.faultDetails[0].deviceSn == "SN2"
-    assert one_model.dailyTrend[10].faultCount == 1
-    assert sum(item.faultCount for item in one_model.dailyTrend) == 1
-    service.scs_gateway.all.assert_any_await("SCS_CHANGE", changeType="换上", company5000="true")
-    service.scs_gateway.all.assert_any_await("SCS_CHANGE", changeType="换上-up", company5000="true")
+    orders.assert_not_awaited()
+    assert len(partial_month.faultDetails) == 1
+    assert partial_month.faultDetails[0].deviceSn == "SN2"
+    assert partial_month.dailyTrend[0].faultCount == 1
+    assert sum(item.faultCount for item in partial_month.dailyTrend) == 1
+    service.scs_gateway.all.assert_any_await("SCS_CHANGE", changeType="换上")
+    service.scs_gateway.all.assert_any_await("SCS_CHANGE", changeType="换上-up")
 
 
 async def test_empty_device_scope_does_not_return_a_misleading_zero(monkeypatch):
     monkeypatch.setattr(service.scs_gateway, "doa_devices", AsyncMock(return_value=[]))
-    monkeypatch.setattr(service.data_gateway, "all_orders", AsyncMock(return_value=[]))
     monkeypatch.setattr(service.scs_gateway, "all", AsyncMock(return_value=[]))
     with pytest.raises(DataGatewayError, match="没有数据"):
         await service.build_device_dashboard(MFRFilters(dateFrom="2026-10-01", dateTo="2026-10-29"))
@@ -178,28 +161,16 @@ async def test_devices_with_yes_doa_are_counted_even_when_pending(monkeypatch, s
     devices[2]["evidence"][0]["doaStatus"] = "待受理"
     devices[3]["evidence"][0]["judgment"] = ""
     monkeypatch.setattr(service.scs_gateway, "doa_devices", AsyncMock(return_value=devices))
-    monkeypatch.setattr(
-        service.data_gateway,
-        "all_orders",
-        AsyncMock(
-            return_value=[
-                {
-                    "aufnr": str(i),
-                    "plannedStartDate": "2026-10-01",
-                    "productionModel": "M1",
-                    "salesOrder": sales_order,
-                }
-                for i in range(1, 5)
-            ]
-        ),
-    )
-
     monkeypatch.setattr(service.scs_gateway, "all", AsyncMock(return_value=[]))
     result = await service.build_device_dashboard(
         MFRFilters(dateFrom="2026-10-01", dateTo="2026-10-29")
     )
-    assert result.summary.selectedDeviceCount == 2
-    assert result.summary.deviceIssues["doaStatusUnresolved"] == 1
+    if sales_order.startswith("XNC"):
+        assert result.summary.selectedDeviceCount == 2
+        assert result.summary.deviceIssues["doaStatusUnresolved"] == 1
+    else:
+        assert result.summary.selectedDeviceCount == 0
+        assert not result.summary.deviceIssues
 
 
 async def test_old_gateway_reports_missing_device_interface(monkeypatch):
@@ -208,10 +179,10 @@ async def test_old_gateway_reports_missing_device_interface(monkeypatch):
         "doa_devices",
         AsyncMock(side_effect=DataGatewayError("not found", status_code=404)),
     )
-    monkeypatch.setattr(service.data_gateway, "all_orders", AsyncMock(return_value=[]))
     monkeypatch.setattr(service.scs_gateway, "all", AsyncMock(return_value=[]))
     with pytest.raises(DataGatewayError, match="未提供 SCS DOA 设备接口"):
         await service.build_device_dashboard(MFRFilters(dateFrom="2026-10-01", dateTo="2026-10-29"))
+
 
 def test_fault_date_uses_the_eight_digits_after_kx():
     assert service._fault_date("KX202610310012").isoformat() == "2026-10-31"

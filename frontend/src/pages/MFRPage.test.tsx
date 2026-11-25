@@ -27,7 +27,7 @@ vi.mock('recharts', () => ({
 
 const fixture = (filters: MFRFilters): MFRDashboard => ({
   filters,
-  summary: { faultCount: 12, fleetCount: 400, mfrRate: 3, sourceDeviceCount: 402, selectedDeviceCount: 400, deviceIssues: { planDateUnresolved: 2 }, unmatchedChangeCount: 1 },
+  summary: { faultCount: 12, fleetCount: 400, mfrRate: 3, sourceDeviceCount: 402, selectedDeviceCount: 400, deviceIssues: { identityUnverified: 2 }, unmatchedChangeCount: 1 },
   trend: [{ period: '2026-01', key: '2026-01', faultCount: 12, fleetCount: 400, mfrRate: 3 }],
   dailyTrend: filters.dateFrom.slice(0, 7) === filters.dateTo.slice(0, 7)
     ? [{ period: filters.dateFrom, faultCount: 4 }, { period: filters.dateTo, faultCount: 8 }]
@@ -66,7 +66,7 @@ describe('MFR dashboard', () => {
     const today = new Date();
     await screen.findAllByText('期间出货台数');
     expect(mfrApi.getDashboard).toHaveBeenCalledWith({
-      dateFrom: formatLocalDate(new Date(today.getFullYear(), today.getMonth(), 1)), dateTo: formatLocalDate(today), model: '',
+      dateFrom: formatLocalDate(new Date(today.getFullYear(), today.getMonth(), 1)), dateTo: formatLocalDate(today),
     });
     const fleetMetricHelp = screen.getByRole('button', { name: '查看期间出货台数说明' });
     fireEvent.focus(fleetMetricHelp);
@@ -75,7 +75,7 @@ describe('MFR dashboard', () => {
     expect(screen.getByText(/数据源中有 2 台设备/)).toBeTruthy();
     const coverageHelp = screen.getByRole('button', { name: '查看未归属设备说明' });
     fireEvent.focus(coverageHelp);
-    expect(screen.getByRole('tooltip').textContent).toContain('不受当前日期和机型筛选');
+    expect(screen.getByRole('tooltip').textContent).toContain('不受当前日期筛选');
     fireEvent.blur(coverageHelp);
     const trendHelp = screen.getByRole('button', { name: '查看趋势统计方式' });
     expect(screen.queryByText('按申报单号中的故障日期展示，每台整机计入当月首次有效故障所在日。')).toBeNull();
@@ -90,11 +90,11 @@ describe('MFR dashboard', () => {
   it('always keeps the filter controls visible and shows pending selections', async () => {
     render(<MemoryRouter><MFRPage /></MemoryRouter>);
     await screen.findAllByText('期间出货台数');
-    expect(screen.getByLabelText('机型')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '故障日期' })).toBeTruthy();
-    expect(screen.queryByRole('button', { name: /筛选条件/ })).toBeNull();
-    fireEvent.change(screen.getByLabelText('机型'), { target: { value: 'Model A' } });
-    expect((screen.getByLabelText('机型') as HTMLInputElement).value).toBe('Model A');
+    expect(screen.queryByLabelText('机型')).toBeNull();
+    expect(screen.queryByRole('button', { name: '客户ID' })).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: '故障日期' }));
+    fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2025-12-01' } });
+    fireEvent.click(screen.getByRole('button', { name: '确定' }));
     expect(screen.getByText(/待应用/)).toBeTruthy();
     expect(mfrApi.getDashboard).toHaveBeenCalledTimes(1);
   });
@@ -116,33 +116,13 @@ describe('MFR dashboard', () => {
     expect(screen.getByTestId('mfr-line')).toBeTruthy();
   });
 
-  it('filters by model and resets while keeping model options', async () => {
+  it('exports the applied overall, monthly and fault data', async () => {
     render(<MemoryRouter><MFRPage /></MemoryRouter>);
-    await screen.findByText(/数据源中有/);
-    expect(screen.queryByRole('heading', { name: '机型排行' })).toBeNull();
-    fireEvent.change(screen.getByLabelText('机型'), { target: { value: 'Model A' } });
-    fireEvent.click(screen.getByRole('button', { name: '查询' }));
-    await waitFor(() => expect(mfrApi.getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'Model A' })));
-    await screen.findByText(/数据源中有/);
-    expect((screen.getByLabelText('机型') as HTMLInputElement).value).toBe('Model A');
-    expect(document.querySelectorAll('#mfr-model-options option')).toHaveLength(2);
-    const reset = screen.getByRole('button', { name: '重置筛选' }) as HTMLButtonElement;
-    expect(reset.disabled).toBe(false);
-    fireEvent.click(reset);
-    await waitFor(() => expect(mfrApi.getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ model: '' })));
-  });
-
-  it('exports the applied overview, monthly and model data', async () => {
-    render(<MemoryRouter><MFRPage /></MemoryRouter>);
-    await screen.findByRole('button', { name: '导出统计数据' });
-    fireEvent.change(screen.getByLabelText('机型'), { target: { value: 'Model A' } });
-    fireEvent.click(screen.getByRole('button', { name: '查询' }));
-    await waitFor(() => expect(mfrApi.getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'Model A' })));
     await screen.findByRole('button', { name: '导出统计数据' });
     fireEvent.click(within(screen.getByRole('button', { name: '导出统计数据' })).getByText('导出统计数据'));
     await waitFor(() => expect(xlsx.writeFile).toHaveBeenCalled());
-    expect(mfrApi.getExport).toHaveBeenCalledWith(expect.objectContaining({ model: 'Model A' }));
-    expect(xlsx.book_append_sheet.mock.calls.map(call => call[2])).toEqual(['质量概览', '月度明细', '机型汇总', '故障明细']);
+    expect(mfrApi.getExport).toHaveBeenCalledWith(expect.objectContaining({ dateFrom: expect.any(String), dateTo: expect.any(String) }));
+    expect(xlsx.book_append_sheet.mock.calls.map(call => call[2])).toEqual(['质量概览', '月度明细', '故障明细']);
     expect(xlsx.aoa_to_sheet).toHaveBeenCalledWith(expect.arrayContaining([
       ['Model A', '2026-01-10', 'KX202601100001', '2026-01-10', '123', 'SN1', 'S1', 'C1', '换上', '2026-12-01', 'PN1', 'PS1', '部件', '客户'],
     ]));

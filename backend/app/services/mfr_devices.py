@@ -5,11 +5,6 @@ from datetime import date, datetime
 from typing import Any
 
 
-def _order_key(value: Any) -> str:
-    text = str(value or "").strip()
-    return text[-8:].lstrip("0") or "0" if text.isdigit() else ""
-
-
 def _date(value: Any) -> date | None:
     text = str(value or "").strip().replace("/", "-")
     for length, fmt in ((10, "%Y-%m-%d"), (8, "%Y%m%d")):
@@ -20,44 +15,19 @@ def _date(value: Any) -> date | None:
     return None
 
 
-def sales_key(value: Any) -> str:
-    text = str(value or "").strip()
-    return (text.lstrip("0") or "0") if text.isdigit() else text
-
-
-def order_customer_id(value: dict[str, Any]) -> str:
-    raw = value.get("raw") if isinstance(value.get("raw"), dict) else value
-    nested = raw.get("data") if isinstance(raw.get("data"), dict) else raw
-    return str(value.get("customerId") or nested.get("KID") or "").strip()
+def is_company_5000(row: dict[str, Any]) -> bool:
+    order = str(row.get("doaSalesOrder") or "").strip()
+    if not order:
+        order = str(row.get("salesOrder") or "").strip()
+    return order.startswith("XNC")
 
 
 def select_devices(
     devices: list[dict[str, Any]],
-    orders: list[dict[str, Any]],
-    start: date | None,
-    end: date | None,
-    doa_orders: dict[str, set[str]],
     valid_doa_codes: set[str],
     unresolved_doa_codes: set[str],
-    model: str = "",
-    customer_ids: set[str] | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int]]:
-    """Return unique identifiable devices and explicitly count unresolvable evidence."""
-    plans: dict[str, set[tuple[str, str, str]]] = defaultdict(set)
-    planned_dates: dict[str, set[date]] = defaultdict(set)
-    for order in orders:
-        number = _order_key(order.get("aufnr"))
-        if not number:
-            continue
-        planned = _date(order.get("plannedStartDate"))
-        if planned is not None:
-            planned_dates[number].add(planned)
-        order_model = str(order.get("productionModel") or "").strip() or "未知机型"
-        sales_order = sales_key(order.get("salesOrder"))
-        plans[number].add((order_model, sales_order, order_customer_id(order)))
-
-    sales_orders = {sales_key(order.get("salesOrder")) for order in orders} - {""}
-
+    """Select identifiable devices with valid XNC declaration evidence."""
     selected: list[dict[str, Any]] = []
     issues: Counter[str] = Counter()
     identity_keys: dict[tuple[str, str], set[str]] = defaultdict(set)
@@ -71,20 +41,17 @@ def select_devices(
                     identity_keys[(field, value)].add(device["deviceKey"])
     ambiguous_ids = {key for keys in identity_keys.values() if len(keys) > 1 for key in keys}
     for device in devices:
-        evidence = device.get("evidence")
-        if not isinstance(evidence, list):
-            issues["doaStatusUnresolved"] += 1
+        evidence = [
+            row
+            for row in device.get("evidence") or []
+            if isinstance(row, dict) and is_company_5000(row)
+        ]
+        if not evidence:
             continue
-        codes = {str(row.get("doaCode") or "").strip() for row in evidence if isinstance(row, dict)}
-        relevant = {
-            code
-            for code in codes
-            if any(order in sales_orders or order.startswith("XNC") for order in doa_orders.get(code, ()))
-        }
-        if not relevant & valid_doa_codes:
-            if codes & unresolved_doa_codes or (
-                not relevant and (not codes or "" in codes or codes - doa_orders.keys())
-            ):
+        codes = {str(row.get("doaCode") or "").strip() for row in evidence}
+        matched_codes = codes & valid_doa_codes
+        if not matched_codes:
+            if "" in codes or codes & unresolved_doa_codes:
                 issues["doaStatusUnresolved"] += 1
             continue
         if device.get("identityBasis") not in {"product_barcode", "product_context"}:
@@ -93,65 +60,21 @@ def select_devices(
         if device["deviceKey"] in ambiguous_ids:
             issues["identityConflict"] += 1
             continue
-        production = device.get("productionOrder")
-        if not isinstance(production, dict) or production.get("status") != "valid":
-            issues["productionOrderUnresolved"] += 1
-            continue
-        order_key = _order_key(production.get("value"))
-        choices = plans.get(order_key, set())
-        if not order_key or not choices:
-            issues["planDateUnresolved"] += 1
-            continue
-        if len(choices) != 1:
-            issues["planOrModelConflict"] += 1
-            continue
-        order_model, sales_order, matched_customer_id = next(iter(choices))
-        if customer_ids and matched_customer_id not in customer_ids:
-            continue
-        matched_codes = {
-            code for code in relevant & valid_doa_codes if doa_orders.get(code) == {sales_order}
-        }
-        if not sales_order or not matched_codes:
-            issues["salesOrderMismatch"] += 1
-            continue
-        product_sales = device.get("salesOrder")
-        if isinstance(product_sales, dict) and product_sales.get("status") == "conflict":
-            issues["salesOrderMismatch"] += 1
-            continue
-        if (
-            isinstance(product_sales, dict)
-            and product_sales.get("status") == "valid"
-            and sales_key(product_sales.get("value")) != sales_order
-        ):
-            issues["salesOrderMismatch"] += 1
-            continue
-        shipment_values = [
-            row.get("shipmentDate") for row in evidence
-            if isinstance(row, dict) and str(row.get("doaCode") or "").strip() in matched_codes
+        matched_rows = [
+            row for row in evidence if str(row.get("doaCode") or "").strip() in matched_codes
         ]
-        shipment_dates = {_date(value) for value in shipment_values}
+        shipment_dates = {_date(row.get("shipmentDate")) for row in matched_rows}
         shipment = next(iter(shipment_dates)) if len(shipment_dates) == 1 else None
-        if start is not None and end is not None:
-            if not shipment_values or None in shipment_dates:
-                issues["shipmentDateUnresolved"] += 1
-                continue
-            if shipment is None:
-                issues["shipmentDateConflict"] += 1
-                continue
-            if not start <= shipment <= end:
-                continue
-        if model and order_model != model:
-            continue
-        dates = planned_dates.get(order_key, set())
-        planned = next(iter(dates)) if len(dates) == 1 else None
-        selected.append({
-            **device,
-            "plannedDate": planned,
-            "shipmentDate": shipment,
-            "matchedDoaCodes": matched_codes,
-            "orderModel": order_model,
-            "customerId": matched_customer_id,
-        })
+        models = {str(row.get("model") or "").strip() for row in matched_rows} - {""}
+        model = next(iter(models)) if len(models) == 1 else "未知机型"
+        selected.append(
+            {
+                **device,
+                "shipmentDate": shipment,
+                "matchedDoaCodes": matched_codes,
+                "orderModel": model,
+            }
+        )
         for field in ("factoryDate", "warrantyEndDate"):
             value = device.get(field)
             if not isinstance(value, dict) or value.get("status") != "valid":

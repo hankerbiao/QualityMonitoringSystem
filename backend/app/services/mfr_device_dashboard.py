@@ -10,7 +10,6 @@ from datetime import date, timedelta
 from app.schemas.mfr import (
     MFRDailyTrendItem,
     MFRDashboardResponse,
-    MFRDimensionItem,
     MFRFaultDetail,
     MFRFilters,
     MFRSummary,
@@ -18,7 +17,7 @@ from app.schemas.mfr import (
 )
 from app.services.async_ttl_cache import AsyncTTLCache
 from app.services.data_gateway_client import DataGatewayError, data_gateway
-from app.services.mfr_devices import order_customer_id, sales_key, select_devices
+from app.services.mfr_devices import is_company_5000, select_devices
 from app.services.scs_gateway import scs_gateway
 
 _SOURCE_TTL_SECONDS = 30.0
@@ -74,6 +73,9 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
     if start > end:
         raise ValueError("dateFrom/dateTo 必须是有效的 YYYY-MM-DD 日期范围")
 
+    if filters.model or filters.customerId or filters.customerIds:
+        raise ValueError("MFR 暂只支持按日期筛选")
+
     async def load_devices():
         try:
             devices = await scs_gateway.doa_devices()
@@ -90,16 +92,13 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
             )
         return devices
 
-    devices, orders, change_up, change_up_up, shipments = await asyncio.gather(
+    devices, change_up, change_up_up, shipments = await asyncio.gather(
         _DOA_DEVICES.get_or_set("devices", load_devices, ttl_seconds=_SOURCE_TTL_SECONDS),
-        data_gateway.all_orders(),
-        scs_gateway.all("SCS_CHANGE", changeType="换上", company5000="true"),
-        scs_gateway.all("SCS_CHANGE", changeType="换上-up", company5000="true"),
+        scs_gateway.all("SCS_CHANGE", changeType="换上"),
+        scs_gateway.all("SCS_CHANGE", changeType="换上-up"),
         _shipments_in_range(start, end),
     )
 
-    doa_orders: dict[str, set[str]] = defaultdict(set)
-    fallback_doa_orders: dict[str, set[str]] = defaultdict(set)
     doa_states: dict[str, set[tuple[str, str]]] = defaultdict(set)
     valid_codes: set[str] = set()
     unresolved_codes: set[str] = set()
@@ -110,18 +109,9 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
             code = str(row.get("doaCode") or "").strip()
             if not code:
                 continue
-            order_no = sales_key(row.get("doaSalesOrder"))
-            if order_no:
-                doa_orders[code].add(order_no)
-            else:
-                device_order = sales_key(row.get("salesOrder"))
-                if device_order.startswith("XNC"):
-                    fallback_doa_orders[code].add(device_order)
             doa_states[code].add(
                 (str(row.get("judgment") or "").strip(), str(row.get("doaStatus") or "").strip())
             )
-    for code, fallback_orders in fallback_doa_orders.items():
-        doa_orders.setdefault(code, fallback_orders)
     for code, states in doa_states.items():
         if len(states) != 1:
             unresolved_codes.add(code)
@@ -131,23 +121,7 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
             unresolved_codes.add(code)
         elif judgment == "是":
             valid_codes.add(code)
-    selected, issues = select_devices(
-        devices,
-        orders,
-        None,
-        None,
-        doa_orders,
-        valid_codes,
-        unresolved_codes,
-        filters.model,
-        set(filters.customerIds or ([filters.customerId] if filters.customerId else [])),
-    )
-    sales_orders = {sales_key(order.get("salesOrder")) for order in orders} - {""}
-    allowed_codes = {
-        code
-        for code, sales in doa_orders.items()
-        if sales and all(order in sales_orders or order.startswith("XNC") for order in sales)
-    }
+    selected, issues = select_devices(devices, valid_codes, unresolved_codes)
     selected_by_key = {device["deviceKey"]: device for device in selected}
     service_devices: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
     all_by_key = {device["deviceKey"]: device for device in devices}
@@ -156,7 +130,7 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
             if not isinstance(row, dict):
                 continue
             code = str(row.get("doaCode") or "").strip()
-            if code not in allowed_codes:
+            if not code or not is_company_5000(row):
                 continue
             aliases = row.get("serviceOrderAliases")
             for value in [row.get("serviceOrder"), *(aliases if isinstance(aliases, list) else [])]:
@@ -165,7 +139,6 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
                     service_devices[service][device["deviceKey"]].add(code)
 
     first_faults: dict[tuple[str, str], date] = {}
-    model_devices: dict[str, set[tuple[str, str]]] = defaultdict(set)
     fault_details: list[MFRFaultDetail] = []
     unmatched_changes = 0
     unresolved_dates = 0
@@ -208,13 +181,15 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
         identity = str(device.get("deviceSn") or "").strip()
         month_device = (month, identity or key)
         first_faults[month_device] = min(first_faults.get(month_device, fault_date), fault_date)
-        model_devices[device["orderModel"]].add(month_device)
+        production = device.get("productionOrder")
         fault_details.append(
             MFRFaultDetail(
                 model=device["orderModel"],
-                plannedDate=device["plannedDate"].isoformat() if device["plannedDate"] else "",
+                plannedDate="",
                 shipmentDate=device["shipmentDate"].isoformat() if device["shipmentDate"] else "",
-                productionOrder=str(device["productionOrder"].get("value") or ""),
+                productionOrder=str(production.get("value") or "")
+                if isinstance(production, dict)
+                else "",
                 deviceSn=identity,
                 serviceOrder=change["service_order"],
                 doaCode=min(codes),
@@ -231,51 +206,13 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
     if unresolved_dates:
         issues["faultDateUnresolved"] = unresolved_dates
 
-    customer_ids = set(filters.customerIds or ([filters.customerId] if filters.customerId else []))
-    order_dimensions: dict[str, set[tuple[str, str]]] = defaultdict(set)
-    for order in orders:
-        order_dimensions[sales_key(order.get("salesOrder"))].add(
-            (
-                str(order.get("productionModel") or "").strip(),
-                order_customer_id(order),
-            )
-        )
-
-    shipped_by_model: Counter[str] = Counter()
     shipped_by_month: Counter[str] = Counter()
-    for (sales_order, month), count in shipments.items():
-        order_no = sales_key(sales_order)
-        dimensions = order_dimensions.get(order_no, set()) if order_no else set()
-        models = {model for model, _ in dimensions if model}
-        customers = {customer for _, customer in dimensions if customer}
-        model = next(iter(models)) if len(models) == 1 else "未知机型"
-        if filters.model and model != filters.model:
-            continue
-        if customer_ids and (len(customers) != 1 or not customers <= customer_ids):
-            continue
-        shipped_by_model[model] += count
+    for (_, month), count in shipments.items():
         shipped_by_month[month] += count
 
     def rate(faults: int, fleet: int) -> float | None:
         return round(faults * 100 / fleet, 2) if fleet else None
 
-    model_keys = (
-        {filters.model} if filters.model else model_devices.keys() | shipped_by_model.keys()
-    )
-    model_rows = [
-        MFRDimensionItem(
-            key=model,
-            faultCount=len(model_devices[model]),
-            fleetCount=shipped_by_model[model],
-            mfrRate=None
-            if unmatched_changes or unresolved_dates
-            else rate(
-                len(model_devices[model]),
-                shipped_by_model[model],
-            ),
-        )
-        for model in sorted(model_keys)
-    ]
     period_counts = Counter(month for month, _ in first_faults)
     daily_faults = Counter(first_faults.values())
     periods: list[str] = []
@@ -283,7 +220,7 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
     while (year, month) <= (end.year, end.month):
         periods.append(f"{year:04d}-{month:02d}")
         year, month = (year + 1, 1) if month == 12 else (year, month + 1)
-    fleet = sum(shipped_by_model.values())
+    fleet = sum(shipped_by_month.values())
     cumulative = 0
     trend = []
     for period in periods:
@@ -330,9 +267,5 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
         ),
         trend=trend,
         dailyTrend=daily,
-        byModel=model_rows,
-        customerIds=sorted(
-            {order_customer_id(order) for order in orders if order_customer_id(order)}
-        ),
         faultDetails=fault_details,
     )
