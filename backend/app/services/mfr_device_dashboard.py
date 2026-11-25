@@ -17,9 +17,15 @@ from app.schemas.mfr import (
     MFRSummary,
     MFRTrendItem,
 )
+from app.services.async_ttl_cache import AsyncTTLCache
 from app.services.data_gateway_client import DataGatewayError, data_gateway
 from app.services.mfr_devices import order_customer_id, sales_key, select_devices
 from app.services.scs_gateway import scs_gateway
+
+
+_SOURCE_TTL_SECONDS = 30.0
+_DOA_DEVICES = AsyncTTLCache(max_entries=1)
+_KK_COUNTS = AsyncTTLCache(max_entries=16, copy_values=False)
 
 
 def _fault_date(code: str) -> date | None:
@@ -44,28 +50,31 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
 
     async def load_devices():
         try:
-            return await scs_gateway.doa_devices()
+            devices = await scs_gateway.doa_devices()
         except DataGatewayError as exc:
             if exc.status_code == 404:
                 raise DataGatewayError(
                     "当前数据网关未提供 SCS DOA 设备接口，请更新或切换网关", status_code=502
                 ) from exc
             raise
+        if not devices:
+            raise DataGatewayError(
+                "SCS DOA 设备接口没有数据，请核查设备同步状态和数据网关版本",
+                status_code=502,
+            )
+        return devices
 
     devices, orders, change_up, change_up_up, shipments = await asyncio.gather(
-        load_devices(),
+        _DOA_DEVICES.get_or_set("devices", load_devices, ttl_seconds=_SOURCE_TTL_SECONDS),
         data_gateway.all_orders(),
         scs_gateway.all("SCS_CHANGE", changeType="换上", company5000="true"),
         scs_gateway.all("SCS_CHANGE", changeType="换上-up", company5000="true"),
-        data_gateway.all_pages(
-            "GET", "/api/kk-sales-order-deliveries", filters={"dateTo": end.isoformat()},
+        _KK_COUNTS.get_or_set(
+            end,
+            lambda: data_gateway.kk_cumulative_deliveries(date_to=end),
+            ttl_seconds=_SOURCE_TTL_SECONDS,
         ),
     )
-    if not devices:
-        raise DataGatewayError(
-            "SCS DOA 设备接口没有数据，请核查设备同步状态和数据网关版本",
-            status_code=502,
-        )
 
     doa_orders: dict[str, set[str]] = defaultdict(set)
     doa_states: dict[str, set[tuple[str, str]]] = defaultdict(set)
@@ -195,19 +204,8 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
 
     shipped_by_model: Counter[str] = Counter()
     shipped_by_month: Counter[str] = Counter()
-    seen_serials: set[str] = set()
-    for row in shipments:
-        serial = str(row.get("SN") or "").strip()
-        if not serial:
-            continue
-        try:
-            shipped = date.fromisoformat(str(row.get("WADAT") or ""))
-        except ValueError as exc:
-            raise DataGatewayError("KK 交付明细包含无效发货日期") from exc
-        if shipped > end or serial in seen_serials:
-            raise DataGatewayError("KK 交付明细日期超出筛选范围或包含重复 SN")
-        seen_serials.add(serial)
-        order_no = sales_key(row.get("VBELN"))
+    for sales_order, month, count in shipments:
+        order_no = sales_key(sales_order)
         dimensions = order_dimensions.get(order_no, set()) if order_no else set()
         models = {model for model, _ in dimensions if model}
         customers = {customer for _, customer in dimensions if customer}
@@ -216,8 +214,8 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
             continue
         if customer_ids and (len(customers) != 1 or not customers <= customer_ids):
             continue
-        shipped_by_model[model] += 1
-        shipped_by_month[shipped.strftime("%Y-%m")] += 1
+        shipped_by_model[model] += count
+        shipped_by_month[month] += count
 
     def rate(faults: int, fleet: int) -> float | None:
         return round(faults * 100 / fleet, 2) if fleet else None

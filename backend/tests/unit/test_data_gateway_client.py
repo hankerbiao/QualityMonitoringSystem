@@ -1,10 +1,29 @@
 import asyncio
+from datetime import date
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 
 from app.services.data_gateway_client import DataGatewayClient, DataGatewayError
+
+
+@pytest.mark.asyncio
+async def test_kk_cumulative_counts_preserve_unassigned_orders_and_reject_duplicates():
+    client = DataGatewayClient("http://gateway.test")
+    row = {"salesOrder": "", "month": "2026-11", "devices": 3}
+    client.request_json = AsyncMock(side_effect=[
+        {"dateTo": "2026-11-25", "items": [row]},
+        {"dateTo": "2026-11-25", "items": [row, row]},
+    ])
+
+    cutoff = date(2026, 11, 25)
+    assert await client.kk_cumulative_deliveries(date_to=cutoff) == (("", "2026-11", 3),)
+    client.request_json.assert_awaited_once_with(
+        "GET", "/api/kk-sales-order-deliveries/cumulative-counts", params={"dateTo": "2026-11-25"}
+    )
+    with pytest.raises(DataGatewayError, match="分组重复"):
+        await client.kk_cumulative_deliveries(date_to=cutoff)
 
 
 @pytest.mark.asyncio

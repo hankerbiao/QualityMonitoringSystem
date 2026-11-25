@@ -1039,6 +1039,40 @@ class DataGatewayClient:
             params={key: value for key, value in params.items() if value != ""},
         )
 
+    async def kk_cumulative_deliveries(self, *, date_to: date) -> tuple[tuple[str, str, int], ...]:
+        """Read cumulative SN counts grouped by sales order and shipment month."""
+        cutoff = date_to.isoformat()
+        try:
+            payload = await self.request_json(
+                "GET",
+                "/api/kk-sales-order-deliveries/cumulative-counts",
+                params={"dateTo": cutoff},
+            )
+        except DataGatewayError as exc:
+            if exc.status_code in {404, 405}:
+                raise DataGatewayError("网关未提供 KK 累计出货汇总，请更新数据网关", status_code=502) from exc
+            raise
+        if not isinstance(payload, dict) or payload.get("dateTo") != cutoff:
+            raise DataGatewayError("KK 累计出货汇总响应日期无效")
+        items = payload.get("items")
+        if not isinstance(items, list):
+            raise DataGatewayError("KK 累计出货汇总缺少明细")
+        groups: dict[tuple[str, str], int] = {}
+        for item in items:
+            if not isinstance(item, dict):
+                raise DataGatewayError("KK 累计出货汇总分组格式无效")
+            order, month, count = item.get("salesOrder"), item.get("month"), item.get("devices")
+            if not isinstance(order, str) or not isinstance(month, str) or type(count) is not int or count <= 0:
+                raise DataGatewayError("KK 累计出货汇总分组格式无效")
+            try:
+                first_day = date.fromisoformat(f"{month}-01")
+            except ValueError as exc:
+                raise DataGatewayError("KK 累计出货汇总月份无效") from exc
+            if month != first_day.isoformat()[:7] or first_day > date_to or (order, month) in groups:
+                raise DataGatewayError("KK 累计出货汇总月份越界或分组重复")
+            groups[order, month] = count
+        return tuple((order, month, count) for (order, month), count in groups.items())
+
     async def kk_shipment_stats(self, *, date_from: str, date_to: str) -> dict[str, Any]:
         """Shipment denominator aggregated by the gateway.
 

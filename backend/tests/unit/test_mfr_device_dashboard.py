@@ -1,3 +1,4 @@
+from datetime import date
 from unittest.mock import AsyncMock
 
 import pytest
@@ -42,16 +43,15 @@ def change(service_no, serial, kind="换上", revoked=False, when="2026-12-01"):
 
 @pytest.fixture(autouse=True)
 def kk_shipments(monkeypatch):
-    mock = AsyncMock(return_value=[])
-    monkeypatch.setattr(service.data_gateway, "all_pages", mock)
+    monkeypatch.setattr(service, "_DOA_DEVICES", service.AsyncTTLCache(max_entries=1))
+    monkeypatch.setattr(service, "_KK_COUNTS", service.AsyncTTLCache(max_entries=1, copy_values=False))
+    mock = AsyncMock(return_value=())
+    monkeypatch.setattr(service.data_gateway, "kk_cumulative_deliveries", mock)
     return mock
 
 
 async def test_groups_distinct_devices_by_declaration_date(monkeypatch, kk_shipments):
-    kk_shipments.return_value = [
-        {"SN": "A", "WADAT": "20251231", "VBELN": "SO1"},
-        {"SN": "B", "WADAT": "20260215", "VBELN": "SO1"},
-    ]
+    kk_shipments.return_value = (("SO1", "2025-12", 1), ("SO1", "2026-02", 1))
     monkeypatch.setattr(
         service.scs_gateway,
         "doa_devices",
@@ -137,6 +137,8 @@ async def test_groups_distinct_devices_by_declaration_date(monkeypatch, kk_shipm
         MFRFilters(dateFrom="2026-02-01", dateTo="2026-02-28", model="M2")
     )
     assert one_model.summary.fleetCount == 0
+    kk_shipments.assert_awaited_once_with(date_to=date(2026, 2, 28))
+    service.scs_gateway.doa_devices.assert_awaited_once()
     assert len(one_model.faultDetails) == 1
     assert one_model.faultDetails[0].deviceSn == "SN2"
     assert one_model.dailyTrend[10].faultCount == 1
