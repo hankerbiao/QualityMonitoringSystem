@@ -186,7 +186,7 @@ export default function MFRPage() {
           <div className="grid grid-cols-2 divide-x divide-y divide-slate-200 lg:grid-cols-4 lg:divide-y-0">
             <Metric label="综合 MFR" value={rate(summary.mfrRate)} detail="所选期间故障整机数 ÷ 截至所选结束日累计出货整机数 × 100%。" accent="bg-indigo-600" />
             <Metric label="故障整机" value={number(summary.faultCount)} detail="按 DOA 申报单号中的日期筛选，同一整机每月计一次。" accent="bg-sky-500" />
-            <Metric label="累计出货台数" value={number(summary.fleetCount)} detail="截至所选结束日，按 KK 交付明细发货日期纳入，按非空 SN 去重。" accent="bg-violet-500" />
+            <Metric label="累计出货台数" value={number(summary.fleetCount)} detail="截至所选结束日，按 KK 交付明细发货日期（WADAT）纳入，按交付批次去重后汇总 LFIMG 出货数量。" accent="bg-violet-500" />
             <Metric label="未归属设备" value={number(unresolvedDevices)} detail="数据源全量中申报状态、订单归属、设备身份或故障日期无法唯一确定的设备，不受当前日期和机型筛选。" accent="bg-amber-500" />
           </div>
 

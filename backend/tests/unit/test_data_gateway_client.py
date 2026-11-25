@@ -11,7 +11,7 @@ from app.services.data_gateway_client import DataGatewayClient, DataGatewayError
 @pytest.mark.asyncio
 async def test_kk_cumulative_counts_preserve_unassigned_orders_and_reject_duplicates():
     client = DataGatewayClient("http://gateway.test")
-    row = {"salesOrder": "", "month": "2026-11", "devices": 3}
+    row = {"salesOrder": "", "month": "2026-11", "quantity": 3, "devices": 3}
     client.request_json = AsyncMock(side_effect=[
         {"dateTo": "2026-11-25", "items": [row]},
         {"dateTo": "2026-11-25", "items": [row, row]},

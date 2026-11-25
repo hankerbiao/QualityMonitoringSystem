@@ -958,10 +958,13 @@ class DataGatewayClient:
                     {**params, "dateFrom": (middle + timedelta(days=1)).isoformat()},
                 ]
             else:
-                orders = list(dict.fromkeys(
-                    normalize_order(value) if value.strip().isdigit() else value.strip()
-                    for value in params.get("productionOrder", "").split(",") if value.strip()
-                ))
+                orders = list(
+                    dict.fromkeys(
+                        normalize_order(value) if value.strip().isdigit() else value.strip()
+                        for value in params.get("productionOrder", "").split(",")
+                        if value.strip()
+                    )
+                )
                 if len(orders) > 1:
                     middle = len(orders) // 2
                     partitions = [
@@ -987,7 +990,9 @@ class DataGatewayClient:
 
     async def packaging_counts(self, production_orders: list[str]) -> list[dict[str, Any]] | None:
         """Return gateway-aggregated packaging counts for selected production orders."""
-        values = list(dict.fromkeys(str(value).strip() for value in production_orders if str(value).strip()))
+        values = list(
+            dict.fromkeys(str(value).strip() for value in production_orders if str(value).strip())
+        )
         if not values:
             return []
         if len(values) > 50:
@@ -1005,7 +1010,9 @@ class DataGatewayClient:
             raise
         items = payload.get("items") if isinstance(payload, dict) else None
         if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
-            raise DataGatewayError("包装数量接口返回格式错误，无法完整导出", code="DATA_GATEWAY_BAD_RESPONSE")
+            raise DataGatewayError(
+                "包装数量接口返回格式错误，无法完整导出", code="DATA_GATEWAY_BAD_RESPONSE"
+            )
         requested = set(normalized_values)
         result: dict[str, dict[str, Any]] = {}
         for item in items:
@@ -1019,7 +1026,9 @@ class DataGatewayClient:
                 or quantity < 0
                 or type(item.get("missingBarcode")) is not bool
             ):
-                raise DataGatewayError("包装数量接口返回的数据不完整或包含无关订单", code="DATA_GATEWAY_BAD_RESPONSE")
+                raise DataGatewayError(
+                    "包装数量接口返回的数据不完整或包含无关订单", code="DATA_GATEWAY_BAD_RESPONSE"
+                )
             result[order] = item
         return [
             result.get(
@@ -1040,7 +1049,14 @@ class DataGatewayClient:
         )
 
     async def kk_cumulative_deliveries(self, *, date_to: date) -> tuple[tuple[str, str, int], ...]:
-        """Read cumulative SN counts grouped by sales order and shipment month."""
+        """Read cumulative shipped units grouped by sales order and delivery month.
+
+        Quantity is the shipment count: the gateway sums LFIMG once per delivery
+        batch, so a delivery item that repeats its quantity on every serial row
+        is not multiplied. There is no serial-count or DOA fallback here; a
+        payload without quantities is rejected instead of shipping a different
+        denominator.
+        """
         cutoff = date_to.isoformat()
         try:
             payload = await self.request_json(
@@ -1050,7 +1066,9 @@ class DataGatewayClient:
             )
         except DataGatewayError as exc:
             if exc.status_code in {404, 405}:
-                raise DataGatewayError("网关未提供 KK 累计出货汇总，请更新数据网关", status_code=502) from exc
+                raise DataGatewayError(
+                    "网关未提供 KK 累计出货汇总，请更新数据网关", status_code=502
+                ) from exc
             raise
         if not isinstance(payload, dict) or payload.get("dateTo") != cutoff:
             raise DataGatewayError("KK 累计出货汇总响应日期无效")
@@ -1061,43 +1079,28 @@ class DataGatewayClient:
         for item in items:
             if not isinstance(item, dict):
                 raise DataGatewayError("KK 累计出货汇总分组格式无效")
-            order, month, count = item.get("salesOrder"), item.get("month"), item.get("devices")
-            if not isinstance(order, str) or not isinstance(month, str) or type(count) is not int or count <= 0:
-                raise DataGatewayError("KK 累计出货汇总分组格式无效")
+            order, month = item.get("salesOrder"), item.get("month")
+            count = item.get("quantity")
+            if (
+                not isinstance(order, str)
+                or not isinstance(month, str)
+                or isinstance(count, bool)
+                or not isinstance(count, (int, float))
+                or count <= 0
+            ):
+                raise DataGatewayError("KK 累计出货汇总缺少 LFIMG 出货数量")
             try:
                 first_day = date.fromisoformat(f"{month}-01")
             except ValueError as exc:
                 raise DataGatewayError("KK 累计出货汇总月份无效") from exc
-            if month != first_day.isoformat()[:7] or first_day > date_to or (order, month) in groups:
+            if (
+                month != first_day.isoformat()[:7]
+                or first_day > date_to
+                or (order, month) in groups
+            ):
                 raise DataGatewayError("KK 累计出货汇总月份越界或分组重复")
-            groups[order, month] = count
+            groups[order, month] = int(round(count))
         return tuple((order, month, count) for (order, month), count in groups.items())
-
-    async def kk_shipment_stats(self, *, date_from: str, date_to: str) -> dict[str, Any]:
-        """Shipment denominator aggregated by the gateway.
-
-        The gateway deduplicates devices by serial number, groups them by
-        delivery date (WADAT) and production model, and caches the result, so a
-        dashboard month costs one request instead of hundreds of list pages.
-        """
-        payload = await self.request_json(
-            "GET",
-            "/api/kk-sales-order-deliveries/shipment-stats",
-            params={"dateFrom": date_from, "dateTo": date_to},
-        )
-        if not isinstance(payload, dict) or type(payload.get("deviceCount")) is not int:
-            raise DataGatewayError(
-                "生产数据源返回了无效出货统计，请联系管理员",
-                code="DATA_GATEWAY_BAD_RESPONSE",
-            )
-        for key in ("byMonth", "byModel"):
-            items = payload.get(key)
-            if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
-                raise DataGatewayError(
-                    "生产数据源返回了无效出货统计，请联系管理员",
-                    code="DATA_GATEWAY_BAD_RESPONSE",
-                )
-        return payload
 
     async def scs_doa_page(
         self, *, page: int = 1, page_size: int = 20, **filters: str

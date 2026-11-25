@@ -70,7 +70,7 @@ describe('MFR dashboard', () => {
     });
     const fleetMetricHelp = screen.getByRole('button', { name: '查看累计出货台数说明' });
     fireEvent.focus(fleetMetricHelp);
-    expect(screen.getByRole('tooltip').textContent).toContain('按非空 SN 去重');
+    expect(screen.getByRole('tooltip').textContent).toContain('LFIMG 出货数量');
     fireEvent.blur(fleetMetricHelp);
     expect(screen.getByText(/数据源中有 2 台设备/)).toBeTruthy();
     const coverageHelp = screen.getByRole('button', { name: '查看未归属设备说明' });
