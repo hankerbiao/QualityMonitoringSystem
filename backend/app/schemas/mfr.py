@@ -14,7 +14,7 @@ class MFRFilters(BaseModel):
 class MFRDimensionItem(BaseModel):
     key: str
     faultCount: int = 0
-    fleetCount: float = 0
+    fleetCount: float | None = None
     mfrRate: float | None = None
 
 
@@ -29,10 +29,9 @@ class MFRDailyTrendItem(BaseModel):
 
 class MFRSummary(BaseModel):
     faultCount: int = 0
-    fleetCount: float = 0
+    fleetCount: float | None = None
     mfrRate: float | None = None
-    # Which denominator backs the rate: shipment records or DOA devices.
-    denominatorSource: str = "kk_sales_order_deliveries"
+    denominatorSource: str = "unavailable"
     shipmentDeviceCount: int = 0
     shipmentRecordCount: int = 0
     shipmentBatchCount: int = 0
@@ -54,6 +53,8 @@ class MFRFaultDetail(BaseModel):
     shipmentDate: str
     productionOrder: str
     deviceSn: str
+    doaCode: str
+    faultDate: str
     serviceOrder: str
     changeId: str
     changeType: str

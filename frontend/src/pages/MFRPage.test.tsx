@@ -44,7 +44,7 @@ describe('MFR dashboard', () => {
     vi.mocked(mfrApi.getDashboard).mockImplementation(async filters => fixture(filters));
     vi.mocked(mfrApi.getExport).mockImplementation(async filters => ({ ...fixture(filters), faultDetails: [{
       model: 'Model A', plannedDate: '2026-01-10', shipmentDate: '2026-01-10', productionOrder: '123', deviceSn: 'SN1',
-      serviceOrder: 'S1', changeId: 'C1', changeType: '换上', occurredAt: '2026-12-01',
+      doaCode: 'KX202601100001', faultDate: '2026-01-10', serviceOrder: 'S1', changeId: 'C1', changeType: '换上', occurredAt: '2026-12-01',
       partNumber: 'PN1', partSn: 'PS1', partName: '部件', customer: '客户',
     }] }));
   });
@@ -64,13 +64,13 @@ describe('MFR dashboard', () => {
   it('loads the current month and explains the device denominator and unresolved evidence', async () => {
     render(<MemoryRouter><MFRPage /></MemoryRouter>);
     const today = new Date();
-    await screen.findAllByText('出货台数');
+    await screen.findAllByText('累计出货台数');
     expect(mfrApi.getDashboard).toHaveBeenCalledWith({
       dateFrom: formatLocalDate(new Date(today.getFullYear(), today.getMonth(), 1)), dateTo: formatLocalDate(today), model: '',
     });
-    const fleetMetricHelp = screen.getByRole('button', { name: '查看出货台数说明' });
+    const fleetMetricHelp = screen.getByRole('button', { name: '查看累计出货台数说明' });
     fireEvent.focus(fleetMetricHelp);
-    expect(screen.getByRole('tooltip').textContent).toContain('不判断是否在保');
+    expect(screen.getByRole('tooltip').textContent).toContain('按非空 SN 去重');
     fireEvent.blur(fleetMetricHelp);
     expect(screen.getByText(/数据源中有 2 台设备/)).toBeTruthy();
     const coverageHelp = screen.getByRole('button', { name: '查看未归属设备说明' });
@@ -78,9 +78,9 @@ describe('MFR dashboard', () => {
     expect(screen.getByRole('tooltip').textContent).toContain('不受当前日期和机型筛选');
     fireEvent.blur(coverageHelp);
     const trendHelp = screen.getByRole('button', { name: '查看趋势统计方式' });
-    expect(screen.queryByText('此处按发货日期逐日展示关联换件事件，MFR 保持月度口径。')).toBeNull();
+    expect(screen.queryByText('按申报单号中的故障日期展示，每台整机计入当月首次有效故障所在日。')).toBeNull();
     fireEvent.focus(trendHelp);
-    expect(screen.getByRole('tooltip').textContent).toBe('此处按发货日期逐日展示关联换件事件，MFR 保持月度口径。');
+    expect(screen.getByRole('tooltip').textContent).toBe('按申报单号中的故障日期展示，每台整机计入当月首次有效故障所在日。');
     fireEvent.blur(trendHelp);
     expect(screen.queryByRole('tooltip')).toBeNull();
     expect(screen.getByTestId('trend-chart').getAttribute('data-periods')).toContain(formatLocalDate(today));
@@ -89,9 +89,9 @@ describe('MFR dashboard', () => {
 
   it('always keeps the filter controls visible and shows pending selections', async () => {
     render(<MemoryRouter><MFRPage /></MemoryRouter>);
-    await screen.findAllByText('出货台数');
+    await screen.findAllByText('累计出货台数');
     expect(screen.getByLabelText('机型')).toBeTruthy();
-    expect(screen.getByRole('button', { name: '发货日期' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: '故障日期' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /筛选条件/ })).toBeNull();
     fireEvent.change(screen.getByLabelText('机型'), { target: { value: 'Model A' } });
     expect((screen.getByLabelText('机型') as HTMLInputElement).value).toBe('Model A');
@@ -102,16 +102,16 @@ describe('MFR dashboard', () => {
   it('switches back to the monthly fault and MFR trend for a multi-month range', async () => {
     render(<MemoryRouter><MFRPage /></MemoryRouter>);
     await screen.findByText('Model A');
-    fireEvent.click(screen.getByRole('button', { name: '发货日期' }));
+    fireEvent.click(screen.getByRole('button', { name: '故障日期' }));
     fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-01-01' } });
     fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-03-31' } });
     fireEvent.click(screen.getByRole('button', { name: '确定' }));
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
     await screen.findByTestId('mfr-line');
     const trendHelp = screen.getByRole('button', { name: '查看趋势统计方式' });
-    expect(screen.queryByText(/设备和关联换件事件均按发货日期归月/)).toBeNull();
+    expect(screen.queryByText(/按申报单号中的故障日期归月/)).toBeNull();
     fireEvent.focus(trendHelp);
-    expect(screen.getByRole('tooltip').textContent).toContain('设备和关联换件事件均按发货日期归月');
+    expect(screen.getByRole('tooltip').textContent).toContain('按申报单号中的故障日期归月');
     expect(screen.getByTestId('trend-chart').getAttribute('data-periods')).toBe('2026-01');
     expect(screen.getByTestId('mfr-line')).toBeTruthy();
   });
@@ -120,7 +120,7 @@ describe('MFR dashboard', () => {
     render(<MemoryRouter><MFRPage /></MemoryRouter>);
     await screen.findByText('Model A');
     fireEvent.click(screen.getByRole('button', { name: /Model A/ }));
-    expect(screen.getByText('故障事件 10 · 出货台数 200')).toBeTruthy();
+    expect(screen.getByText('故障整机 10 · 累计出货台数 200')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '查看该机型趋势' }));
     await waitFor(() => expect(mfrApi.getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'Model A' })));
     await screen.findByText(/数据源中有/);
@@ -144,9 +144,9 @@ describe('MFR dashboard', () => {
     expect(mfrApi.getExport).toHaveBeenCalledWith(expect.objectContaining({ model: 'Model A' }));
     expect(xlsx.book_append_sheet.mock.calls.map(call => call[2])).toEqual(['质量概览', '月度明细', '机型汇总', '故障明细']);
     expect(xlsx.aoa_to_sheet).toHaveBeenCalledWith(expect.arrayContaining([
-      ['Model A', '2026-01-10', '123', 'SN1', 'S1', 'C1', '换上', '2026-12-01', 'PN1', 'PS1', '部件', '客户'],
+      ['Model A', '2026-01-10', 'KX202601100001', '2026-01-10', '123', 'SN1', 'S1', 'C1', '换上', '2026-12-01', 'PN1', 'PS1', '部件', '客户'],
     ]));
-    expect(xlsx.json_to_sheet).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ 统计月份: '2026-01', 故障事件: 12, 出货台数: 400 })]));
+    expect(xlsx.json_to_sheet).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ 统计月份: '2026-01', 故障整机: 12, 累计出货台数: 400 })]));
     expect(xlsx.writeFile).toHaveBeenCalledWith(expect.anything(), expect.stringMatching(/^MFR统计_.*\.xlsx$/));
   });
 

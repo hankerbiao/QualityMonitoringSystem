@@ -34,8 +34,8 @@ def order_customer_id(value: dict[str, Any]) -> str:
 def select_devices(
     devices: list[dict[str, Any]],
     orders: list[dict[str, Any]],
-    start: date,
-    end: date,
+    start: date | None,
+    end: date | None,
     doa_orders: dict[str, set[str]],
     valid_doa_codes: set[str],
     unresolved_doa_codes: set[str],
@@ -126,14 +126,17 @@ def select_devices(
             if isinstance(row, dict) and str(row.get("doaCode") or "").strip() in matched_codes
         ]
         shipment_dates = {_date(value) for value in shipment_values}
-        if not shipment_values or None in shipment_dates:
-            issues["shipmentDateUnresolved"] += 1
-            continue
-        if len(shipment_dates) != 1:
-            issues["shipmentDateConflict"] += 1
-            continue
-        shipment = next(iter(shipment_dates))
-        if not start <= shipment <= end or (model and order_model != model):
+        shipment = next(iter(shipment_dates)) if len(shipment_dates) == 1 else None
+        if start is not None and end is not None:
+            if not shipment_values or None in shipment_dates:
+                issues["shipmentDateUnresolved"] += 1
+                continue
+            if shipment is None:
+                issues["shipmentDateConflict"] += 1
+                continue
+            if not start <= shipment <= end:
+                continue
+        if model and order_model != model:
             continue
         dates = planned_dates.get(order_key, set())
         planned = next(iter(dates)) if len(dates) == 1 else None
@@ -141,6 +144,7 @@ def select_devices(
             **device,
             "plannedDate": planned,
             "shipmentDate": shipment,
+            "matchedDoaCodes": matched_codes,
             "orderModel": order_model,
             "customerId": matched_customer_id,
         })

@@ -9,7 +9,7 @@ export interface MFRFilters {
 export interface MFRDimensionItem {
   key: string;
   faultCount: number;
-  fleetCount: number;
+  fleetCount: number | null;
   mfrRate: number | null;
 }
 
@@ -26,7 +26,7 @@ export interface MFRDashboard {
   filters: MFRFilters;
   summary: {
     faultCount: number;
-    fleetCount: number;
+    fleetCount: number | null;
     mfrRate: number | null;
     denominatorSource?: string;
     shipmentDeviceCount?: number;
@@ -52,6 +52,8 @@ export interface MFRFaultDetail {
   shipmentDate: string;
   productionOrder: string;
   deviceSn: string;
+  doaCode: string;
+  faultDate: string;
   serviceOrder: string;
   changeId: string;
   changeType: string;
