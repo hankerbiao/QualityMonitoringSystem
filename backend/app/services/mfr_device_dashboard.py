@@ -18,6 +18,7 @@ from app.schemas.mfr import (
 )
 from app.services.data_gateway_client import DataGatewayError, data_gateway
 from app.services.mfr_devices import order_customer_id, sales_key, select_devices
+from app.services.mfr_shipments import shipment_denominator
 from app.services.scs_gateway import scs_gateway
 
 
@@ -57,11 +58,24 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
                 ) from exc
             raise
 
-    devices, orders, change_up, change_up_up = await asyncio.gather(
+    async def load_shipments() -> dict[str, Any]:
+        try:
+            return await data_gateway.kk_shipment_stats(
+                date_from=filters.dateFrom, date_to=filters.dateTo
+            )
+        except DataGatewayError as exc:
+            if exc.status_code in {404, 405}:
+                raise DataGatewayError(
+                    "数据网关未提供 KK 出货统计接口，无法计算 MFR 分母", status_code=502
+                ) from exc
+            raise
+
+    devices, orders, change_up, change_up_up, shipments = await asyncio.gather(
         load_devices(),
         data_gateway.all_orders(),
         scs_gateway.all("SCS_CHANGE", changeType="换上"),
         scs_gateway.all("SCS_CHANGE", changeType="换上-up"),
+        load_shipments(),
     )
     if not devices:
         raise DataGatewayError(
@@ -152,19 +166,30 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
                 partName=str(change.get("part_name") or ""), customer=str(change.get("customer") or ""),
             ))
 
+    customer_ids = set(filters.customerIds or ([filters.customerId] if filters.customerId else []))
+    if customer_ids:
+        raise ValueError("KK 出货统计暂不支持客户ID筛选，无法计算该范围的 MFR")
+    denominator = shipment_denominator(shipments, filters.model)
+
     model_counts: dict[str, list[int]] = defaultdict(lambda: [0, 0])
     period_counts: dict[str, list[int]] = defaultdict(lambda: [0, 0])
     daily_faults: Counter[date] = Counter()
     for device in selected:
         shipped = device["shipmentDate"]
         count = faults[device["deviceKey"]]
-        for bucket in (
-            model_counts[device["orderModel"]],
-            period_counts[shipped.strftime("%Y-%m")],
-        ):
-            bucket[0] += count
-            bucket[1] += 1
+        model_counts[device["orderModel"]][0] += count
+        period_counts[shipped.strftime("%Y-%m")][0] += count
         daily_faults[shipped] += count
+    for model, devices_shipped in denominator.by_model.items():
+        model_counts[model][1] = devices_shipped
+    for period, devices_shipped in denominator.by_month.items():
+        period_counts[period][1] = devices_shipped
+    if filters.model:
+        # A model drill-down must not list every other model with zero faults.
+        drill_down = filters.model
+        model_counts = defaultdict(lambda: [0, 0], {
+            drill_down: [model_counts.get(drill_down, [0, 0])[0], denominator.device_count]
+        })
 
     affected_models = {selected_by_key[key]["orderModel"] for key in affected_devices}
     affected_periods = {selected_by_key[key]["shipmentDate"].strftime("%Y-%m") for key in affected_devices}
@@ -206,8 +231,15 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
         filters=filters,
         summary=MFRSummary(
             faultCount=event_count,
-            fleetCount=len(selected),
-            mfrRate=None if unmatched_changes else _rate(event_count, len(selected)),
+            fleetCount=denominator.device_count,
+            mfrRate=None if unmatched_changes else _rate(event_count, denominator.device_count),
+            denominatorSource=denominator.source,
+            shipmentDeviceCount=denominator.device_count,
+            shipmentRecordCount=denominator.record_count,
+            shipmentBatchCount=denominator.batch_count,
+            shipmentMissingSerialCount=denominator.missing_serial_count,
+            shipmentUnknownModelCount=denominator.unknown_model_count,
+            shipmentFallbackModelCount=denominator.fallback_model_count,
             sourceDeviceCount=len(devices),
             selectedDeviceCount=len(selected),
             deviceIssues=issues,

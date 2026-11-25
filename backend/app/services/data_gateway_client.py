@@ -1039,6 +1039,32 @@ class DataGatewayClient:
             params={key: value for key, value in params.items() if value != ""},
         )
 
+    async def kk_shipment_stats(self, *, date_from: str, date_to: str) -> dict[str, Any]:
+        """Shipment denominator aggregated by the gateway.
+
+        The gateway deduplicates devices by serial number, groups them by
+        delivery date (WADAT) and production model, and caches the result, so a
+        dashboard month costs one request instead of hundreds of list pages.
+        """
+        payload = await self.request_json(
+            "GET",
+            "/api/kk-sales-order-deliveries/shipment-stats",
+            params={"dateFrom": date_from, "dateTo": date_to},
+        )
+        if not isinstance(payload, dict) or type(payload.get("deviceCount")) is not int:
+            raise DataGatewayError(
+                "生产数据源返回了无效出货统计，请联系管理员",
+                code="DATA_GATEWAY_BAD_RESPONSE",
+            )
+        for key in ("byMonth", "byModel"):
+            items = payload.get(key)
+            if not isinstance(items, list) or any(not isinstance(item, dict) for item in items):
+                raise DataGatewayError(
+                    "生产数据源返回了无效出货统计，请联系管理员",
+                    code="DATA_GATEWAY_BAD_RESPONSE",
+                )
+        return payload
+
     async def scs_doa_page(
         self, *, page: int = 1, page_size: int = 20, **filters: str
     ) -> dict[str, Any]:

@@ -31,6 +31,14 @@ class MFRSummary(BaseModel):
     faultCount: int = 0
     fleetCount: float = 0
     mfrRate: float | None = None
+    # Which denominator backs the rate: shipment records or DOA devices.
+    denominatorSource: str = "kk_sales_order_deliveries"
+    shipmentDeviceCount: int = 0
+    shipmentRecordCount: int = 0
+    shipmentBatchCount: int = 0
+    shipmentMissingSerialCount: int = 0
+    shipmentUnknownModelCount: int = 0
+    shipmentFallbackModelCount: int = 0
     warrantyDateCoverage: float | None = None
     ordersWithWarrantyDates: int | None = None
     ordersMissingWarrantyDates: int | None = None

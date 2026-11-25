@@ -28,6 +28,13 @@ export interface MFRDashboard {
     faultCount: number;
     fleetCount: number;
     mfrRate: number | null;
+    denominatorSource?: string;
+    shipmentDeviceCount?: number;
+    shipmentRecordCount?: number;
+    shipmentBatchCount?: number;
+    shipmentMissingSerialCount?: number;
+    shipmentUnknownModelCount?: number;
+    shipmentFallbackModelCount?: number;
     sourceDeviceCount: number;
     selectedDeviceCount: number;
     deviceIssues: Record<string, number>;

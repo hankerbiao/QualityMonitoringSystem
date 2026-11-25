@@ -64,11 +64,11 @@ describe('MFR dashboard', () => {
   it('loads the current month and explains the device denominator and unresolved evidence', async () => {
     render(<MemoryRouter><MFRPage /></MemoryRouter>);
     const today = new Date();
-    await screen.findAllByText('DOA 设备数');
+    await screen.findAllByText('出货台数');
     expect(mfrApi.getDashboard).toHaveBeenCalledWith({
       dateFrom: formatLocalDate(new Date(today.getFullYear(), today.getMonth(), 1)), dateTo: formatLocalDate(today), model: '',
     });
-    const fleetMetricHelp = screen.getByRole('button', { name: '查看DOA 设备数说明' });
+    const fleetMetricHelp = screen.getByRole('button', { name: '查看出货台数说明' });
     fireEvent.focus(fleetMetricHelp);
     expect(screen.getByRole('tooltip').textContent).toContain('不判断是否在保');
     fireEvent.blur(fleetMetricHelp);
@@ -87,17 +87,15 @@ describe('MFR dashboard', () => {
     expect(screen.queryByTestId('mfr-line')).toBeNull();
   });
 
-  it('collapses and reopens filters without discarding pending selections', async () => {
+  it('always keeps the filter controls visible and shows pending selections', async () => {
     render(<MemoryRouter><MFRPage /></MemoryRouter>);
-    await screen.findAllByText('DOA 设备数');
+    await screen.findAllByText('出货台数');
+    expect(screen.getByLabelText('机型')).toBeTruthy();
+    expect(screen.getByRole('button', { name: '发货日期' })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /筛选条件/ })).toBeNull();
     fireEvent.change(screen.getByLabelText('机型'), { target: { value: 'Model A' } });
-    const toggle = screen.getByRole('button', { name: /筛选条件/ });
-    fireEvent.click(toggle);
-    expect(toggle.getAttribute('aria-expanded')).toBe('false');
-    expect(screen.queryByLabelText('机型')).toBeNull();
-    expect(toggle.textContent).toContain('待应用');
-    fireEvent.click(toggle);
     expect((screen.getByLabelText('机型') as HTMLInputElement).value).toBe('Model A');
+    expect(screen.getByText(/待应用/)).toBeTruthy();
     expect(mfrApi.getDashboard).toHaveBeenCalledTimes(1);
   });
 
@@ -122,7 +120,7 @@ describe('MFR dashboard', () => {
     render(<MemoryRouter><MFRPage /></MemoryRouter>);
     await screen.findByText('Model A');
     fireEvent.click(screen.getByRole('button', { name: /Model A/ }));
-    expect(screen.getByText('故障事件 10 · DOA 设备数 200')).toBeTruthy();
+    expect(screen.getByText('故障事件 10 · 出货台数 200')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: '查看该机型趋势' }));
     await waitFor(() => expect(mfrApi.getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'Model A' })));
     await screen.findByText(/数据源中有/);
@@ -148,7 +146,7 @@ describe('MFR dashboard', () => {
     expect(xlsx.aoa_to_sheet).toHaveBeenCalledWith(expect.arrayContaining([
       ['Model A', '2026-01-10', '123', 'SN1', 'S1', 'C1', '换上', '2026-12-01', 'PN1', 'PS1', '部件', '客户'],
     ]));
-    expect(xlsx.json_to_sheet).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ 统计月份: '2026-01', 故障事件: 12, DOA设备数: 400 })]));
+    expect(xlsx.json_to_sheet).toHaveBeenCalledWith(expect.arrayContaining([expect.objectContaining({ 统计月份: '2026-01', 故障事件: 12, 出货台数: 400 })]));
     expect(xlsx.writeFile).toHaveBeenCalledWith(expect.anything(), expect.stringMatching(/^MFR统计_.*\.xlsx$/));
   });
 
