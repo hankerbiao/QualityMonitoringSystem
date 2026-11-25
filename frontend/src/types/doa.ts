@@ -42,8 +42,8 @@ export interface DoaDashboard {
     excludedRepairRecords: number;
     unmatchedRepairRecords: number;
     missingQuantityRecords: number;
-    unmatchedPlannedRecords: number;
-    unmatchedPlannedQuantity: number;
+    invalidDeclarationDateRecords: number;
+    invalidDeclarationDateQuantity: number;
     latestDataAt: string | null;
   };
   trend: DoaTrendItem[];
@@ -54,11 +54,13 @@ export interface DoaDashboard {
 
 export interface DoaOrderItem {
   salesOrder: string;
-  productionOrder: string;
+  deliveryNumber: string;
+  deliveryItem?: string;
+  materialNumber?: string;
   customer: string;
   customerId?: string;
   model: string;
-  plannedStartDate: string;
+  shipmentDate: string;
   quantity: number;
 }
 export interface DoaOrdersResponse {
@@ -70,23 +72,21 @@ export interface DoaOrdersResponse {
 }
 
 export interface DoaAudit {
-  repairs: { matchStatus: string; salesOrder: string; id: string; acceptedAt: string; repairCount: number | string; raw: Record<string, unknown> }[];
+  repairs: { matchStatus: string; salesOrder: string; id: string; doaCode?: string; acceptedAt: string; declarationDate?: string; repairCount: number | string; raw: Record<string, unknown> }[];
   orders: Record<string, unknown>[];
   changes: Record<string, unknown>[];
 }
 
 export interface DoaRepairItem {
   id: string;
+  doaCode?: string;
   salesOrder: string;
   materialSerial: string;
   acceptedAt: string;
-  plannedAt: string;
-  gstrsStatus: string;
+  declarationDate: string;
   customer: string;
   customerId?: string;
   model: string;
-  shippedDate: string;
-  shippedCount: number;
   repairCount: number;
   missingQuantity: boolean;
   data: Record<string, unknown>;

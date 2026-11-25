@@ -1,6 +1,7 @@
 from app.schemas.doa import DoaFilters, DoaRawFilters
 from app.services import doa_service
 from app.services.doa_service import _gateway_latest_accepted_at
+from tests.unit.doa_shipment_fixtures import mock_kk_batches  # noqa: F401
 
 
 def test_gateway_latest_accepted_at_uses_the_newest_valid_timestamp():
@@ -102,7 +103,7 @@ async def test_gateway_doa_uses_linked_sales_order_when_product_name_differs(mon
                     "host_sn": "SN-1",
                     "part_sn": "",
                     "accepted_at": "2026-09-02",
-                    "planned_at": "2026-09-02",
+                    "doa_code": "KX202609020001",
                     "gstrs_status": "matched",
                     "judgment": "是",
                     "repair_count": 1,
@@ -142,7 +143,7 @@ async def test_doa_replacement_rate_counts_only_valid_replacement_defect_quantit
             "host_sn": "SN-1",
             "part_sn": "",
             "accepted_at": "2026-09-02",
-            "planned_at": "2026-09-02",
+            "doa_code": "KX202609020001",
             "gstrs_status": "matched",
             "judgment": "是",
             "repair_count": 2,
@@ -155,7 +156,7 @@ async def test_doa_replacement_rate_counts_only_valid_replacement_defect_quantit
             "host_sn": "SN-2",
             "part_sn": "",
             "accepted_at": "2026-09-02",
-            "planned_at": "2026-09-02",
+            "doa_code": "KX202609020001",
             "gstrs_status": "matched",
             "judgment": "是",
             "repair_count": 3,
@@ -168,7 +169,7 @@ async def test_doa_replacement_rate_counts_only_valid_replacement_defect_quantit
             "host_sn": "SN-3",
             "part_sn": "",
             "accepted_at": "2026-09-02",
-            "planned_at": "2026-09-02",
+            "doa_code": "KX202609020001",
             "gstrs_status": "matched",
             "judgment": "是",
             "repair_count": 4,
@@ -181,7 +182,7 @@ async def test_doa_replacement_rate_counts_only_valid_replacement_defect_quantit
             "host_sn": "SN-4",
             "part_sn": "",
             "accepted_at": "2026-09-02",
-            "planned_at": "2026-09-02",
+            "doa_code": "KX202609020001",
             "gstrs_status": "matched",
             "judgment": "否",
             "repair_count": 5,

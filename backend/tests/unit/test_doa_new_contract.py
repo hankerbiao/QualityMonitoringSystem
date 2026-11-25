@@ -2,6 +2,7 @@ import pytest
 
 from app.schemas.doa import DoaFilters
 from app.services import doa_service
+from tests.unit.doa_shipment_fixtures import mock_kk_batches  # noqa: F401
 
 
 def order(sales, qty, date, model="M1", customer="A"):
@@ -10,6 +11,8 @@ def order(sales, qty, date, model="M1", customer="A"):
         "salesOrder": sales,
         "orderQuantity": qty,
         "plannedStartDate": date,
+        "shipmentDate": date,
+        "shipmentQuantity": qty,
         "productionModel": model,
         "finalUser": customer,
     }
@@ -22,8 +25,7 @@ def repair(id, sales, product, qty, date="2026-09-10"):
         "judgment": "是",
         "repair_count": qty,
         "accepted_at": date,
-        "planned_at": date,
-        "gstrs_status": "matched",
+        "doa_code": "KX" + date.replace("-", "") + "0001",
         "service_order": id,
         "host_sn": id,
         "part_sn": "",
@@ -62,7 +64,7 @@ async def test_customer_uses_all_production_orders_and_plan_date(monkeypatch):
         return [
             {
                 **repair("ok", "XNC1", "M1", 2, "2026-10-20"),
-                "planned_at": "2026-09-01",
+                "doa_code": "KX202609010001",
                 "raw": {"production_orders": "[123456 123457]"},
             },
             {**repair("missing", "XNC2", "M1", 4), "raw": {"production_orders": "[123456 999999]"}},
@@ -210,11 +212,11 @@ async def test_blank_quantity_is_excluded_but_zero_is_counted(monkeypatch):
     details = await doa_service.get_doa_repairs(DoaFilters(), 1, 50)
     assert dashboard.summary.repairCount == 0
     assert dashboard.summary.matchedRepairRecords == 1
-    assert dashboard.summary.unmatchedPlannedRecords == 0
+    assert dashboard.summary.invalidDeclarationDateRecords == 0
     assert [r.id for r in details.items] == ["zero"]
 
 
-async def test_repair_uses_planned_date_and_unmatched_are_listed_separately(monkeypatch):
+async def test_repair_uses_declaration_date_and_invalid_codes_are_listed_separately(monkeypatch):
     async def orders(**kwargs):
         return [order("1", 100, "2026-09-01")]
 
@@ -224,17 +226,17 @@ async def test_repair_uses_planned_date_and_unmatched_are_listed_separately(monk
         return [
             {
                 **repair("in", "1", "M1", 2, "2026-10-10"),
-                "planned_at": "2026-09-01",
+                "doa_code": "KX202609010001",
                 "gstrs_status": "matched",
             },
             {
                 **repair("out", "1", "M1", 3, "2026-09-10"),
-                "planned_at": "2026-10-01",
+                "doa_code": "KX202610010001",
                 "gstrs_status": "matched",
             },
             {
                 **repair("unknown", "1", "M1", 7, "2026-09-10"),
-                "planned_at": "",
+                "doa_code": "KX202609310001",
                 "gstrs_status": "unmatched",
             },
         ]
@@ -246,7 +248,7 @@ async def test_repair_uses_planned_date_and_unmatched_are_listed_separately(monk
     filters = DoaFilters(dateFrom="2026-09-01", dateTo="2026-09-30")
     result = await doa_service.build_doa_dashboard(filters)
     assert result.summary.repairCount == 2
-    assert result.summary.unmatchedPlannedRecords == 1
+    assert result.summary.invalidDeclarationDateRecords == 1
     assert [(item.period, item.repairCount) for item in result.trend] == [("2026-09", 2)]
     normal = await doa_service.get_doa_repairs(filters, 1, 50)
     missing = await doa_service.get_doa_repairs(filters, 1, 50, unmatched_only=True)
@@ -295,7 +297,7 @@ async def test_dashboard_counts_valid_declaration_codes_without_plan_backfill(mo
     assert dashboard.summary.shippedCount == 100
     assert dashboard.summary.repairCount == 3
     assert dashboard.summary.repairRate == 3
-    assert dashboard.summary.unmatchedPlannedRecords == 1
+    assert dashboard.summary.invalidDeclarationDateRecords == 1
     assert [(row.period, row.shippedCount, row.repairCount) for row in dashboard.trend] == [
         ("2026-11-24", 100, 3)
     ]

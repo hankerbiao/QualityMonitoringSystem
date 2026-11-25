@@ -71,16 +71,14 @@ export default function DoaRepairsPage() {
       const items = await doaApi.getAllRepairs(filters, replacementOnly, 1000, unmatchedOnly);
       const rows = items.map((item) => ({
         ...item.data,
+        DOA申报单号: item.doaCode || item.id,
         销售订单: item.salesOrder,
         序列号: item.materialSerial,
         受理日期: item.acceptedAt,
-        生产订单计划日期: item.plannedAt,
-        计划日期匹配状态: item.gstrsStatus,
+        单号申报日期: item.declarationDate,
         客户: item.customer,
         客户ID: item.customerId,
         机型: item.model,
-        订单计划开始日期: item.shippedDate,
-        匹配订单数量: item.shippedCount,
         问题批次数量: item.repairCount,
       }));
       const ws = XLSX.utils.json_to_sheet(rows);
@@ -100,7 +98,7 @@ export default function DoaRepairsPage() {
       setExporting(false);
     }
   };
-  const pageTitle = unmatchedOnly ? "DOA 未匹配计划日期明细（不受日期筛选）" : replacementOnly ? "DOA 换件不良明细" : "DOA 报修明细";
+  const pageTitle = unmatchedOnly ? "DOA 申报日期异常明细（不受日期筛选）" : replacementOnly ? "DOA 换件不良明细" : "DOA 报修明细";
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800">
       <header className="border-b border-slate-200 bg-white">
@@ -117,7 +115,7 @@ export default function DoaRepairsPage() {
               <div className="flex items-center gap-1"><p className="text-lg font-semibold text-slate-950">{pageTitle}</p>
                 <HelpTooltip label="查看报修明细计算说明">
                   <p>有效报修为 5000 公司中判定结果为“是”、非待受理且问题批次数量非空的申报；条数为申报记录数，问题批次数量为各条数量之和。</p>
-                  <p className="mt-1">{unmatchedOnly ? "无法确定生产订单计划日期的申报不受日期筛选，不计入当前报修率；仍受客户、机型筛选。" : "按生产订单计划开始日期 GSTRS、客户和机型筛选；无法确定计划日期的申报单独展示，不计入当前报修率。"}</p>
+                  <p className="mt-1">{unmatchedOnly ? "单号日期无效的申报仍受客户、机型筛选，不计入报修率。" : "按 DOA 申报单号中的日期、客户和机型筛选。"}</p>
                   {replacementOnly && <p className="mt-1">换件明细仅包括同一服务单有未撤销“换上”或“换上-up”记录的有效报修，每条报修只计一次。</p>}
                 </HelpTooltip>
               </div>
@@ -155,13 +153,13 @@ export default function DoaRepairsPage() {
                 <thead className="bg-slate-50 text-xs text-slate-400">
                   <tr>
                     {[
+                      "DOA 申报单号",
                       "销售订单",
                       "序列号",
                       "受理日期",
-                      "生产订单计划日期",
+                      "单号申报日期",
                       "客户",
                       "机型",
-                      "订单计划开始日期",
                       "问题批次数量",
                     ].map((h) => (
                       <th key={h} className="px-4 py-2.5 font-medium">
@@ -178,22 +176,20 @@ export default function DoaRepairsPage() {
                       className="cursor-pointer text-slate-600 hover:bg-blue-50/40"
                     >
                       <td className="px-4 py-3 font-mono text-xs text-blue-600">
-                        {value(item.salesOrder)}
+                        {value(item.doaCode || item.id)}
                       </td>
+                      <td className="px-4 py-3 font-mono text-xs">{value(item.salesOrder)}</td>
                       <td className="px-4 py-3 font-mono text-xs">
                         {value(item.materialSerial)}
                       </td>
                       <td className="px-4 py-3 text-xs">
                         {value(item.acceptedAt)}
                       </td>
-                      <td className="px-4 py-3 text-xs">{value(item.plannedAt)}</td>
+                      <td className="px-4 py-3 text-xs">{value(item.declarationDate)}</td>
                       <td className="max-w-[220px] truncate px-4 py-3">
                         {value(item.customer)}
                       </td>
                       <td className="px-4 py-3">{value(item.model)}</td>
-                      <td className="px-4 py-3 text-xs">
-                        {value(item.shippedDate)}
-                      </td>
                       <td className="px-4 py-3 font-mono">
                         {item.repairCount}
                       </td>
@@ -202,7 +198,7 @@ export default function DoaRepairsPage() {
                   {!items.length && (
                     <tr>
                       <td
-                        colSpan={7}
+                        colSpan={8}
                         className="px-4 py-16 text-center text-sm text-slate-400"
                       >
                         暂无{replacementOnly ? "换件" : "报修"}数据

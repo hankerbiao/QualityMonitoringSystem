@@ -1,6 +1,7 @@
 from app.api.doa import _filters
 from app.schemas.doa import DoaFilters
 from app.services import doa_service
+from tests.unit.doa_shipment_fixtures import mock_kk_batches  # noqa: F401
 
 
 def shipment(
@@ -38,8 +39,7 @@ def doa(
         "judgment": judgment,
         "repair_count": repair_count,
         "accepted_at": "2026-09-02",
-        "planned_at": "2026-09-15",
-        "gstrs_status": "matched",
+        "doa_code": "KX202609150001",
         "service_order": record_id,
         "host_sn": f"SN-{record_id}",
         "part_sn": "",
@@ -157,8 +157,14 @@ async def test_doa_snapshot_is_keyed_by_filters_and_expires_after_two_hours(monk
     assert calls == ["A", "B", "A"]
 
 
-async def test_dashboard_reuses_orders_across_filter_changes(monkeypatch):
+async def test_dashboard_reuses_orders_and_shipments_across_filter_changes(monkeypatch):
     calls = 0
+    shipment_queries = []
+    load_shipments = doa_service.data_gateway.kk_shipment_batches
+
+    async def shipment_batches(**filters):
+        shipment_queries.append(filters)
+        return await load_shipments(**filters)
 
     async def all_orders(**_filters):
         nonlocal calls
@@ -169,15 +175,28 @@ async def test_dashboard_reuses_orders_across_filter_changes(monkeypatch):
         return [doa("one", "1", "是", 2)] if view_id == "SCS_DOA" else []
 
     monkeypatch.setattr(doa_service, "_DOA_ORDERS_CACHE", doa_service.AsyncTTLCache())
+    monkeypatch.setattr(doa_service, "_DOA_SHIPMENTS_CACHE", doa_service.AsyncTTLCache())
     monkeypatch.setattr(doa_service.data_gateway, "all_orders", all_orders)
+    monkeypatch.setattr(doa_service.data_gateway, "kk_shipment_batches", shipment_batches)
     monkeypatch.setattr(doa_service.scs_gateway, "all", all_rows)
 
-    first = await doa_service._build_doa_dashboard(DoaFilters(customer="A"))
-    second = await doa_service._build_doa_dashboard(DoaFilters(customer="B"))
+    filters = DoaFilters(dateFrom="2026-09-01", dateTo="2026-09-30")
+    first = await doa_service._build_doa_dashboard(filters.model_copy(update={"customer": "A"}))
+    second = await doa_service._build_doa_dashboard(
+        filters.model_copy(update={"customer": "B", "timeGranularity": "day"})
+    )
+    third = await doa_service._build_doa_dashboard(
+        filters.model_copy(update={"dateFrom": "2026-09-02"})
+    )
 
     assert first.summary.shippedCount == 20
     assert second.summary.shippedCount == 0
+    assert third.summary.shippedCount == 0
     assert calls == 1
+    assert shipment_queries == [
+        {"date_from": "2026-09-01", "date_to": "2026-09-30"},
+        {"date_from": "2026-09-02", "date_to": "2026-09-30"},
+    ]
 
 
 async def test_dashboard_and_repairs_share_one_doa_snapshot(monkeypatch):
@@ -227,7 +246,6 @@ async def test_snapshot_keeps_only_orders_and_changes_relevant_to_eligible_repai
 
     assert [order["sales_order"] for order in orders] == ["0001", "1", "2"]
     assert [change["service_order"] for change in changes] == ["one"]
-    assert repairs[0]["shipped_count"] == 30
     assert repairs[0]["has_change"] is True
 
 
@@ -240,6 +258,8 @@ async def test_dashboard_uses_matched_order_quantities_once_per_period(monkeypat
                 "productionModel": "M1",
                 "finalUser": "A",
                 "plannedStartDate": "2026-09-01",
+                "shipmentDate": "2026-09-01",
+                "shipmentQuantity": 60,
             },
             {
                 "salesOrder": "0001",
@@ -247,12 +267,16 @@ async def test_dashboard_uses_matched_order_quantities_once_per_period(monkeypat
                 "productionModel": "M1",
                 "finalUser": "A",
                 "plannedStartDate": "2026-09-01",
+                "shipmentDate": "2026-09-01",
+                "shipmentQuantity": 40,
             },
             {
                 "salesOrder": "9999",
                 "orderQuantity": 500,
                 "productionModel": "M2",
                 "plannedStartDate": "2026-10-01",
+                "shipmentDate": "2026-10-01",
+                "shipmentQuantity": 500,
             },
         ]
 
@@ -263,7 +287,7 @@ async def test_dashboard_uses_matched_order_quantities_once_per_period(monkeypat
         second = doa("two", "0001", "是", 3)
         third = doa("three", "1", "是", 1)
         third["accepted_at"] = "2026-10-02"
-        third["planned_at"] = "2026-10-02"
+        third["doa_code"] = "KX202610020001"
         return [first, second, third, doa("missing", "404", "是", 7)]
 
     monkeypatch.setattr(doa_service.data_gateway, "all_orders", all_orders)
@@ -290,6 +314,8 @@ async def test_audit_includes_unmatched_scs_and_matched_original_orders(monkeypa
                 "orderQuantity": 20,
                 "aufnr": "P1",
                 "plannedStartDate": "2026-09-15",
+                "shipmentDate": "2026-09-15",
+                "shipmentQuantity": 20,
             }
         ]
 
@@ -314,10 +340,9 @@ async def test_audit_includes_unmatched_scs_and_matched_original_orders(monkeypa
 
     result = await doa_service.get_doa_audit(DoaFilters(dateFrom="2026-09-01"))
     assert [row["matchStatus"] for row in result["repairs"]] == ["已匹配", "未匹配"]
-    assert result["orders"][0]["aufnr"] == "P1"
-    assert result["orders"][0]["orderQuantity"] == 20
+    assert result["orders"][0]["shipmentDate"] == "2026-09-15"
+    assert result["orders"][0]["quantity"] == 20
     assert result["repairs"][0]["raw"] == {}
-    assert result["orders"][0]["sourceFields"]["data"]["SAP_FIELD"] == "original"
     assert result["changes"][0]["change_type"] == "换上"
 
 
@@ -333,12 +358,16 @@ async def test_drilldown_intersects_date_ranges_and_does_not_mark_filtered_order
                 "orderQuantity": 20,
                 "finalUser": "A",
                 "plannedStartDate": "2026-09-15",
+                "shipmentDate": "2026-09-15",
+                "shipmentQuantity": 20,
             },
             {
                 "salesOrder": "2",
                 "orderQuantity": 30,
                 "finalUser": "B",
                 "plannedStartDate": "2026-09-15",
+                "shipmentDate": "2026-09-15",
+                "shipmentQuantity": 30,
             },
         ]
 
@@ -404,7 +433,7 @@ async def test_dashboard_uses_scs_scope_and_judgment_yes(monkeypatch):
     assert order_filters == {}
 
 
-async def test_dashboard_accepts_order_quantity_without_actual_shipment_fields(monkeypatch):
+async def test_dashboard_does_not_fall_back_to_order_quantity(monkeypatch):
     async def all_orders(**_filters):
         return [{"salesOrder": "0001", "orderQuantity": 100, "plannedStartDate": "2026-09-01"}]
 
@@ -415,8 +444,8 @@ async def test_dashboard_accepts_order_quantity_without_actual_shipment_fields(m
     monkeypatch.setattr(doa_service.scs_gateway, "all", no_rows)
 
     result = await doa_service._build_doa_dashboard(DoaFilters())
-    assert result.summary.shippedCount == 100
-    assert result.summary.repairRate == 0
+    assert result.summary.shippedCount == 0
+    assert result.summary.repairRate is None
 
 
 async def test_empty_shipment_results_keep_unmatched_scs_records_visible(monkeypatch):
@@ -447,9 +476,7 @@ def test_sales_order_scope_does_not_depend_on_last_duplicate_order_row():
         ]
     )
 
-    assert scopes["1"]["shipped_count"] == 50
     assert scopes["1"]["model"] == ""
-    assert scopes["1"]["shipped_date"] == ""
 
 
 async def test_dashboard_exposes_same_snapshot_expiry_when_reused(monkeypatch):

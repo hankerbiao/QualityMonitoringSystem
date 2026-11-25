@@ -52,8 +52,8 @@ class DoaSummary(BaseModel):
     excludedRepairRecords: int = 0
     unmatchedRepairRecords: int = 0
     missingQuantityRecords: int = 0
-    unmatchedPlannedRecords: int = 0
-    unmatchedPlannedQuantity: float = 0
+    invalidDeclarationDateRecords: int = 0
+    invalidDeclarationDateQuantity: float = 0
     latestDataAt: datetime | None = None
 
 
@@ -74,6 +74,7 @@ class DoaDashboardResponse(BaseModel):
 
 class DoaRepairItem(BaseModel):
     id: str
+    doaCode: str = ""
     salesOrder: str = ""
     materialSerial: str = ""
     acceptedAt: str = ""
@@ -81,8 +82,6 @@ class DoaRepairItem(BaseModel):
     customer: str = ""
     customerId: str = ""
     model: str = ""
-    shippedDate: str = ""
-    shippedCount: float = 0
     repairCount: float = 0
     missingQuantity: bool = False
     data: dict = Field(default_factory=dict)

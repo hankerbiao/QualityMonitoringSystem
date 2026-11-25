@@ -75,11 +75,11 @@ function readFilters(params: URLSearchParams): DoaFilters {
     acceptedDateFrom: params.get("acceptedDateFrom") || undefined,
     acceptedDateTo: params.get("acceptedDateTo") || undefined,
     customer: params.get("customer") || "",
-    customerId: params.get("customerId") || "",
-    model: params.get("model") || "",
+    customerId: "",
+    model: "",
     customers: params.getAll("customers"),
-    customerIds: params.getAll("customerIds"),
-    models: params.getAll("models"),
+    customerIds: [],
+    models: [],
     timeGranularity:
       granularity === "year" || granularity === "day" || granularity === "month"
         ? granularity : granularityForRange(dateFrom, dateTo),
@@ -167,6 +167,7 @@ export default function DoaPage() {
   const [error, setError] = useState("");
   const [exportError, setExportError] = useState("");
   const [exporting, setExporting] = useState(false);
+  const [matchedExporting, setMatchedExporting] = useState(false);
   const [reportExporting, setReportExporting] = useState(false);
   const [filtersExpanded, setFiltersExpanded] = useState(true);
   const [unmatchedExpanded, setUnmatchedExpanded] = useState(false);
@@ -238,13 +239,13 @@ export default function DoaPage() {
       const workbook = XLSX.utils.book_new();
       const scs = audit.repairs.map(({ raw, ...row }) => flat({ ...raw, ...row }));
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(scs), "SCS申报");
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(audit.orders.map(flat)), "分母订单原始行");
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(audit.orders.map(flat)), "实际交付批次");
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(audit.changes.map(flat)), "关联换件记录");
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet([
-        ["计算口径", "订单数量代替出货数量，并非实际发货数量"],
-        ["时间", "报修和订单均按生产订单计划开始日期 GSTRS；未匹配日期的报修单独展示"],
+        ["计算口径", "出货量来自 SAP KK 交付批次的实际发货数量 LFIMG"],
+        ["时间", "报修按 DOA 申报单号中的日期，出货按 SAP 实际发货日期 WADAT"],
         ["筛选", filterSummary],
-        ["说明", "有唯一计划日期的有效申报计入；未匹配日期单独列示；订单来源字段保存在 sourceFields 列"],
+        ["说明", "有效申报按单号日期计入，异常日期单独列示。出货明细按 SAP 交付批次去重。"],
       ]), "计算说明");
       XLSX.writeFile(workbook, `DOA核对数据_${new Date().toISOString().slice(0, 10)}.xlsx`);
     } catch (err) {
@@ -253,19 +254,32 @@ export default function DoaPage() {
       setExporting(false);
     }
   };
-  const exportUnmatchedOrders = () => {
-    if (loading || !data?.unmatchedOrders.length) return;
+  const exportValidDoa = async () => {
+    if (!canExportAudit || loading || matchedExporting || !data?.summary.matchedRepairRecords) return;
+    setMatchedExporting(true);
     setExportError("");
     try {
-      const rows = data.unmatchedOrders.map((item) => ({
-        销售订单: item.salesOrder || "未填写",
-        申报条数: item.recordCount,
+      const audit = await doaApi.getAudit(filters);
+      if (audit.repairs.length !== data.summary.matchedRepairRecords) {
+        throw new Error("看板与有效申报条数不一致，请刷新后重试");
+      }
+      const rows = audit.repairs.map((item) => ({
+        申报编号: item.doaCode || item.id,
+        销售订单: item.salesOrder,
+        服务单号: String(item.raw.service_uid ?? ""),
+        序列号: String(item.raw.sugon_sn || item.raw.spare_part_sn || ""),
+        主机型号: String(item.raw.host_model ?? ""),
+        受理日期: item.acceptedAt,
+        单号申报日期: item.declarationDate ?? "",
+        问题批次数量: Number(String(item.repairCount).replace(/,/g, "")),
       }));
       const workbook = XLSX.utils.book_new();
-      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), "未匹配销售订单");
-      XLSX.writeFile(workbook, `DOA未匹配销售订单_${new Date().toISOString().slice(0, 10)}.xlsx`);
+      XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), "有效DOA申报");
+      XLSX.writeFile(workbook, `有效DOA申报_${formatLocalDate(new Date())}.xlsx`);
     } catch (err) {
-      setExportError(err instanceof Error ? err.message : "导出失败");
+      setExportError(err instanceof Error ? err.message : "有效 DOA 申报导出失败，请重试");
+    } finally {
+      setMatchedExporting(false);
     }
   };
   const exportReport = async () => {
@@ -287,8 +301,8 @@ export default function DoaPage() {
       if (!sameTotal(orders.reduce((total, item) => total + item.quantity, 0), data.summary.shippedCount)
         || (details && (!sameTotal(totalRepairs(details.repairs), data.summary.repairCount)
           || !sameTotal(totalRepairs(details.replacements), data.summary.replacementCount)
-          || details.unmatchedDates.length !== data.summary.unmatchedPlannedRecords
-          || !sameTotal(totalRepairs(details.unmatchedDates), data.summary.unmatchedPlannedQuantity)))) {
+          || details.unmatchedDates.length !== data.summary.invalidDeclarationDateRecords
+          || !sameTotal(totalRepairs(details.unmatchedDates), data.summary.invalidDeclarationDateQuantity)))) {
         throw new Error("看板与明细数据已发生变化，请稍后重试或重新登录后再导出");
       }
       XLSX.writeFile(buildDoaWorkbook(data, filters, orders, details), `DOA质量报表_${formatLocalDate(new Date())}.xlsx`);
@@ -300,6 +314,8 @@ export default function DoaPage() {
     }
   };
   const summary = data?.summary;
+  const invalidDateQuantity = summary?.invalidDeclarationDateQuantity ?? 0;
+  const unmatchedModelQuantity = data?.byModel.find(item => item.key === "未匹配机型")?.repairCount ?? 0;
   const rankingItems = [
     ...(rankingDimension === "customer"
       ? data?.byCustomer || []
@@ -318,8 +334,6 @@ export default function DoaPage() {
         ]
       : []),
     (filters.customers?.length ? filters.customers.join("、") : filters.customer) || "全部客户",
-    (filters.customerIds?.length ? filters.customerIds.join("、") : filters.customerId) || "全部客户ID",
-    (filters.models?.length ? filters.models.join("、") : filters.model) || "全部机型",
     filters.timeGranularity === "year"
       ? "按年"
       : filters.timeGranularity === "day"
@@ -363,7 +377,7 @@ export default function DoaPage() {
               <Download className="size-4" aria-hidden="true" />
               {reportExporting ? "导出中…" : "导出 Excel"}
             </button>
-            {!loading && !error && data && (
+            {!loading && !error && (invalidDateQuantity > 0 || unmatchedModelQuantity > 0) && (
               <button
                 type="button"
                 aria-expanded={unmatchedExpanded}
@@ -413,10 +427,10 @@ export default function DoaPage() {
               id="doa-filter-controls"
               className="border-t border-slate-100 px-3 py-2 sm:px-4"
             >
-              <div className="grid grid-cols-2 gap-3 md:flex md:flex-wrap md:items-end">
-                <div className="col-span-2 min-w-0 md:w-[300px]">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 md:flex md:flex-wrap md:items-end">
+                <div className="min-w-0 sm:col-span-2 md:w-[300px]">
                   <DateRangePicker
-                    label="生产订单计划开始日期"
+                    label="统计日期"
                     from={filters.dateFrom}
                     to={filters.dateTo}
                     disabled={loading}
@@ -426,8 +440,6 @@ export default function DoaPage() {
                   />
                 </div>
                 <div className="min-w-0 md:w-[200px]"><MultiSelect label="客户" options={options.customers} value={filters.customers?.length ? filters.customers : filters.customer ? [filters.customer] : []} onChange={(customers) => apply({ customers, customer: "" })} /></div>
-                <div className="min-w-0 md:w-[200px]"><MultiSelect label="客户ID" options={options.customerIds ?? []} value={filters.customerIds?.length ? filters.customerIds : filters.customerId ? [filters.customerId] : []} onChange={(customerIds) => apply({ customerIds, customerId: "" })} /></div>
-                <div className="min-w-0 md:w-[200px]"><MultiSelect label="机型" options={options.models} value={filters.models?.length ? filters.models : filters.model ? [filters.model] : []} onChange={(models) => apply({ models, model: "" })} /></div>
               </div>
             </div>
           )}
@@ -441,13 +453,13 @@ export default function DoaPage() {
         {!error && (loading ? <DashboardLoading dashboard="DOA" /> : <>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
           <h2 className="text-sm font-semibold text-slate-950">质量概览</h2>
-          <HelpTooltip label="查看 DOA 质量概览说明">订单和报修均按生产订单计划开始日期 GSTRS 筛选。有效报修为 5000 公司中判定结果为“是”、非待受理且问题批次数量非空的申报。无法确定计划日期的报修单独展示，不计入当前报修率。</HelpTooltip>
+          <HelpTooltip label="查看 DOA 质量概览说明">出货按 SAP 发货日期 WADAT 筛选。有效报修的销售订单号以 XNC 开头，判定结果为“是”、非待受理且问题批次数量有效的申报。报修日期取自申报单号，如 KX202611240016 对应 2026-11-24。</HelpTooltip>
         </div>
-        {summary && summary.unmatchedPlannedRecords > 0 && (
+        {summary && invalidDateQuantity > 0 && (
           <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 rounded-md border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700">
             <p role="status" className="flex min-w-0 items-start gap-2">
               <Info className="mt-0.5 size-4 shrink-0 text-slate-500" aria-hidden="true" />
-              <span>有 <strong>{num(summary.unmatchedPlannedRecords)}</strong> 条报修申报的生产计划日期待确认。报修和换件指标按已确认计划日期的申报计算。待确认条数不受日期筛选。</span>
+              <span>有 <strong>{num(summary.invalidDeclarationDateRecords)}</strong> 条申报的单号日期无法解析，已排除。异常条数不受日期筛选。</span>
             </p>
             {canExportAudit && <Link className="shrink-0 font-medium text-blue-700 underline-offset-2 hover:underline focus-visible:underline"
               to={`/doa/repairs?${doaApi.buildQuery(filters, { unmatchedOnly: "true" })}`}>查看待确认明细</Link>}
@@ -468,7 +480,7 @@ export default function DoaPage() {
                 </Link>
               </>
             )}
-            help="DOA 报修率 = 有效报修的问题批次数量之和 ÷ 所选条件下订单计划数量之和 × 100%。问题批次数量为空的申报不计入；计划数量为 0 时显示“—”。"
+            help="DOA 报修率 = 有效报修的问题批次数量之和 ÷ 所选条件下实际出货量之和 × 100%。问题批次数量为空的申报不计入；出货数量为 0 时显示“—”。"
             accent="bg-emerald-600"
           />
           <Stat
@@ -486,58 +498,48 @@ export default function DoaPage() {
                 {" "}· 已换件 {num(summary?.replacementRecordCount ?? 0)} 条
               </>
             )}
-            help="DOA 换件率 = 有有效换件记录的报修问题批次数量之和 ÷ 订单计划数量之和 × 100%。有效换件指同一服务单中未撤销的“换上”或“换上-up”记录；同一报修不因多条换件记录重复计数。"
+            help="DOA 换件率 = 有有效换件记录的报修问题批次数量之和 ÷ 实际出货量之和 × 100%。有效换件指同一服务单中未撤销的“换上”或“换上-up”记录；同一报修不因多条换件记录重复计数。"
             accent="bg-sky-600"
           />
           <Stat
-            label="到货数据（计划数量）"
+            label="出货数量"
             value={loading ? "…" : <Link className="text-blue-700 hover:underline" to={`/doa/orders?${doaApi.buildQuery(filters)}`}>{num(summary?.shippedCount ?? 0)}</Link>}
             detail=""
             accent="bg-indigo-500"
-            help="到货数据为符合所选日期、客户和机型条件的 5000 公司销售订单计划数量之和，日期使用生产订单计划开始日期 GSTRS；该数量不是实际发货量。"
+            help="按 5000 公司 SAP KK 交付明细的发货日期和客户筛选，按交付批次去重后汇总 LFIMG。"
           />
           <Stat
-            label="已匹配 DOA"
+            label="有效 DOA 申报"
             value={loading ? "…" : num(summary?.matchedRepairRecords ?? 0)}
-            detail=""
+            detail={canExportAudit && (
+              <button
+                type="button"
+                aria-label="导出有效 DOA 申报"
+                onClick={exportValidDoa}
+                disabled={loading || matchedExporting || !summary?.matchedRepairRecords}
+                className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-1 font-medium text-blue-700 hover:bg-blue-50 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                <Download className="size-3.5" aria-hidden="true" />
+                {matchedExporting ? "导出中…" : "导出明细"}
+              </button>
+            )}
             accent="bg-amber-500"
-            help="有效报修中，销售订单号能在订单数据中找到对应订单的申报条数；这是记录条数，不是问题批次数量。未匹配销售订单的有效报修仍计入报修数量。"
+            help="统计当前筛选范围内销售订单号以 XNC 开头、符合 DOA 报修条件的申报条数。"
           />
         </section>
-        {unmatchedExpanded && <section id="doa-unmatched-data" aria-label="未匹配数据" className="border border-amber-200 bg-amber-50/70 text-sm text-amber-950">
+        {unmatchedExpanded && (invalidDateQuantity > 0 || unmatchedModelQuantity > 0) && <section id="doa-unmatched-data" aria-label="未匹配数据" className="border border-amber-200 bg-amber-50/70 text-sm text-amber-950">
           <div className="flex items-center gap-2 border-b border-amber-200 px-4 py-2 font-semibold">
             <AlertTriangle className="size-4 shrink-0 text-amber-700" />未匹配数据
           </div>
-          <div className="grid divide-y divide-amber-200/70 lg:grid-cols-3 lg:divide-x lg:divide-y-0">
-            <div className="flex min-w-0 flex-col items-start gap-1 px-4 py-2">
-              <p>无法确定生产订单计划日期的报修 {num(summary?.unmatchedPlannedRecords ?? 0)} 条，问题批次数量 {num(summary?.unmatchedPlannedQuantity ?? 0)}；<span className="text-amber-800">不受日期筛选，不计入当前报修率。</span></p>
-              {(summary?.unmatchedPlannedRecords ?? 0) > 0 && <Link className="shrink-0 font-medium text-blue-700 underline" to={`/doa/repairs?${doaApi.buildQuery(filters, { unmatchedOnly: "true" })}`}>查看未匹配日期明细</Link>}
-            </div>
-            <div className="flex min-w-0 flex-col items-start gap-1 px-4 py-2">
-              <p>无法归属机型的有效报修，问题批次数量 {num(data?.byModel.find(item => item.key === "未匹配机型")?.repairCount ?? 0)}。</p>
-              {data?.byModel.some(item => item.key === "未匹配机型") && <Link className="shrink-0 font-medium text-blue-700 underline" to={`/doa/repairs?${doaApi.buildQuery({ ...filters, model: "", models: ["未匹配机型"] })}`}>查看未匹配机型明细</Link>}
-            </div>
-            <div>
-              <div className="flex flex-wrap items-start justify-between gap-2 px-4 py-2">
-                <details className="group min-w-0 flex-1">
-                  <summary className="flex cursor-pointer list-none flex-wrap items-center gap-2 marker:hidden">
-                    <span className="font-semibold">未匹配销售订单：{num(data?.unmatchedOrders?.length ?? 0)} 个，{num(summary?.unmatchedRepairRecords ?? 0)} 条申报</span>
-                    <span className="text-xs text-amber-800">已计入总报修数</span>
-                    <HelpTooltip label="查看未匹配订单说明">未匹配订单的客户单独列示，机型按 SCS 产品字段匹配。</HelpTooltip>
-                    <ChevronDown className="size-4 transition-transform group-open:rotate-180" />
-                  </summary>
-                  <div className="mt-3 max-h-60 overflow-auto border-t border-amber-200">
-                    <table className="w-full text-left text-sm"><thead><tr><th className="px-4 py-2">销售订单</th><th className="px-4 py-2">申报条数</th></tr></thead><tbody>
-                      {(data?.unmatchedOrders ?? []).map((item) => <tr key={item.salesOrder} className="border-t border-amber-100"><td className="px-4 py-2">{item.salesOrder || "未填写"}</td><td className="px-4 py-2">{num(item.recordCount)}</td></tr>)}
-                      {!data?.unmatchedOrders.length && <tr><td colSpan={2} className="px-4 py-4 text-xs text-amber-800">当前没有未匹配订单</td></tr>}
-                    </tbody></table>
-                  </div>
-                </details>
-                <button type="button" onClick={exportUnmatchedOrders} disabled={loading || !data?.unmatchedOrders.length} className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-amber-300 bg-white px-2.5 py-2 text-xs font-semibold text-amber-900 hover:bg-amber-100 disabled:cursor-not-allowed disabled:opacity-50">
-                  <Download className="size-4" />导出未匹配订单
-                </button>
-              </div>
-            </div>
+          <div className="grid divide-y divide-amber-200/70 lg:grid-flow-col lg:auto-cols-fr lg:divide-x lg:divide-y-0">
+            {invalidDateQuantity > 0 && <div className="flex min-w-0 flex-col items-start gap-1 px-4 py-2">
+              <p>无法确定单号申报日期的报修 {num(summary?.invalidDeclarationDateRecords ?? 0)} 条，问题批次数量 {num(invalidDateQuantity)}。<span className="text-amber-800">不受日期筛选，不计入当前报修率。</span></p>
+              {(summary?.invalidDeclarationDateRecords ?? 0) > 0 && <Link className="shrink-0 font-medium text-blue-700 underline" to={`/doa/repairs?${doaApi.buildQuery(filters, { unmatchedOnly: "true" })}`}>查看申报日期异常明细</Link>}
+            </div>}
+            {unmatchedModelQuantity > 0 && <div className="flex min-w-0 flex-col items-start gap-1 px-4 py-2">
+              <p>无法归属机型的有效报修，问题批次数量 {num(unmatchedModelQuantity)}。</p>
+              <Link className="shrink-0 font-medium text-blue-700 underline" to={`/doa/repairs?${doaApi.buildQuery({ ...filters, model: "", models: ["未匹配机型"] })}`}>查看未匹配机型明细</Link>
+            </div>}
           </div>
         </section>}
         <section className="grid gap-2.5 lg:grid-cols-[minmax(0,1.8fr)_minmax(300px,1fr)]">
@@ -547,7 +549,7 @@ export default function DoaPage() {
                 <h2 className="text-sm font-semibold text-slate-900">
                   <BarChart3 className="mr-2 inline size-4 text-emerald-700" />报修与换件趋势
                 </h2>
-                <HelpTooltip label="查看报修与换件趋势说明">按生产订单计划开始日期 GSTRS 将有效报修和订单归入日、月或年周期。每期报修率 = 当期报修问题批次数量 ÷ 当期订单计划数量 × 100%；换件率使用当期有效换件报修的问题批次数量作为分子。计划数量为 0 时不显示比率，未匹配计划日期的报修不计入趋势。</HelpTooltip>
+                <HelpTooltip label="查看报修与换件趋势说明">报修按申报单号日期，出货按实际发货日期，分别归入日、月或年。每期报修率 = 当期报修问题批次数量 ÷ 当期实际出货量 × 100%；换件率使用当期有效换件报修的问题批次数量作为分子。出货数量为 0 时不显示比率，日期无效的申报不计入趋势。</HelpTooltip>
               </div>
               <div className="flex items-center gap-3 text-xs font-medium">
                 <span className="inline-flex items-center gap-1.5 text-emerald-700">
@@ -632,7 +634,7 @@ export default function DoaPage() {
           <div className="min-w-0 border border-slate-200 bg-white">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-slate-200 px-3 py-2 sm:px-4">
               <div className="flex items-center gap-1"><h2 className="text-sm font-semibold text-slate-900">维度排行</h2>
-                <HelpTooltip label="查看客户与机型排行说明">按客户或机型分别汇总有效报修、换件数量和订单计划数量，再计算报修率或换件率。按所选比率降序显示前 10 项，计划数量为 0 时比率显示“—”。机型依据 SCS 产品名称匹配，无法匹配的归为“未匹配机型”；客户无法匹配的单独列示。</HelpTooltip>
+                <HelpTooltip label="查看客户与机型排行说明">按客户或机型分别汇总有效报修、换件数量和实际出货量，再计算报修率或换件率。按所选比率降序显示前 10 项，出货数量为 0 时比率显示“—”。机型直接使用 SCS 主机型号字段，未返回或冲突的归为“未匹配机型”；客户无法匹配的单独列示。</HelpTooltip>
               </div>
               <div role="group" aria-label="排行维度" className="inline-flex border border-slate-200">
                 <button type="button" aria-pressed={rankingDimension === "customer"} onClick={() => setRankingDimension("customer")} className={`h-8 px-3 text-xs font-medium transition-colors ${rankingDimension === "customer" ? "bg-slate-900 text-white" : "bg-white text-slate-600 hover:bg-slate-50"}`}>客户</button>
@@ -668,7 +670,7 @@ export default function DoaPage() {
                     <span className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-100" aria-hidden="true">
                       <span className={`block h-full rounded-full ${rankingMetric === "repairRate" ? "bg-emerald-600" : "bg-sky-600"}`} style={{ width: `${rankingMax > 0 ? Math.max(0, (item[rankingMetric] ?? 0) / rankingMax * 100) : 0}%` }} />
                     </span>
-                    <span className="shrink-0 tabular-nums text-slate-500">订单 {num(item.shippedCount)}</span>
+                    <span className="shrink-0 tabular-nums text-slate-500">出货 {num(item.shippedCount)}</span>
                   </span>
                   </button>
                   {expanded && <div className="space-y-2 border-t border-slate-100 bg-slate-50 px-4 py-3">
@@ -694,9 +696,9 @@ export default function DoaPage() {
         <section className="border border-slate-200 bg-white">
           <div className="flex min-h-11 flex-wrap items-center justify-between gap-2 px-3 sm:px-4">
             <div className="flex items-center gap-1"><h2 className="text-sm font-semibold text-slate-900">周期明细</h2><HelpTooltip label="查看周期明细说明">
-              <p>按生产订单计划开始日期 GSTRS 分日、月或年汇总；当期订单数量为订单计划数量之和，计划数量不是实际发货量。</p>
-              <p className="mt-1">报修服务器数为当期有效报修的非空序列号去重数；报修率和换件率分别以问题批次数量、有效换件报修的问题批次数量为分子，除以当期计划数量，再乘以 100%。</p>
-              <p className="mt-1">有效报修需判定结果为“是”、非待受理且问题批次数量非空。未匹配计划日期不计入；机型按 SCS 产品名称匹配，无法确定的单独归类。</p>
+              <p>报修按申报单号日期，出货按实际发货日期，分别按日、月或年汇总。</p>
+              <p className="mt-1">报修服务器数为当期有效报修的非空序列号去重数；报修率和换件率分别以问题批次数量、有效换件报修的问题批次数量为分子，除以当期出货数量，再乘以 100%。</p>
+              <p className="mt-1">有效报修需判定结果为“是”、非待受理且问题批次数量非空。申报日期异常不计入；机型直接使用 SCS 主机型号字段，未返回或冲突的单独归类。</p>
             </HelpTooltip></div>
             <div className="flex flex-wrap items-center gap-3">
               <span className="text-xs text-slate-500">{loading ? "加载中…" : `${num(data?.trend.length ?? 0)} 个周期`}</span>
@@ -712,7 +714,7 @@ export default function DoaPage() {
                   <th className="px-4 py-2 text-xs font-semibold text-slate-700">报修率</th>
                   <th className="px-4 py-2 text-xs font-semibold text-slate-700">换件不良数量</th>
                   <th className="px-4 py-2 text-xs font-semibold text-slate-700">换件率</th>
-                  <th className="px-4 py-2 text-xs font-semibold text-slate-700">当期订单数量</th>
+                  <th className="px-4 py-2 text-xs font-semibold text-slate-700">当期出货量</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-200">

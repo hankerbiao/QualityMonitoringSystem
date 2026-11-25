@@ -13,12 +13,12 @@ vi.mock('../api/doaApi', () => ({ doaApi: {
 
 afterEach(cleanup);
 
-it('explains the planned order denominator on the order detail page', async () => {
+it('explains the actual shipment denominator on the order detail page', async () => {
   render(<MemoryRouter><DoaOrdersPage /></MemoryRouter>);
-  await screen.findByText(/计划订单 0 条/);
+  await screen.findByText(/交付批次 0 条/);
   const button = screen.getByRole('button', { name: '查看到货数据明细计算说明' });
   fireEvent.mouseEnter(button.parentElement!);
-  expect(screen.getByRole('tooltip').textContent).toContain('计划数量之和');
+  expect(screen.getByRole('tooltip').textContent).toContain('每批仅汇总一次 LFIMG');
 });
 
 it('explains the separate unmatched date scope on the repair detail page', async () => {
@@ -26,5 +26,5 @@ it('explains the separate unmatched date scope on the repair detail page', async
   await screen.findByText(/当前筛选命中 0 条/);
   const button = screen.getByRole('button', { name: '查看报修明细计算说明' });
   fireEvent.focus(button);
-  expect(screen.getByRole('tooltip').textContent).toContain('不受日期筛选，不计入当前报修率');
+  expect(screen.getByRole('tooltip').textContent).toContain('单号日期无效的申报');
 });
