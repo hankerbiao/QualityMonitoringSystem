@@ -76,7 +76,11 @@ def select_devices(
             issues["doaStatusUnresolved"] += 1
             continue
         codes = {str(row.get("doaCode") or "").strip() for row in evidence if isinstance(row, dict)}
-        relevant = {code for code in codes if doa_orders.get(code, set()) & sales_orders}
+        relevant = {
+            code
+            for code in codes
+            if any(order in sales_orders or order.startswith("XNC") for order in doa_orders.get(code, ()))
+        }
         if not relevant & valid_doa_codes:
             if codes & unresolved_doa_codes or (
                 not relevant and (not codes or "" in codes or codes - doa_orders.keys())

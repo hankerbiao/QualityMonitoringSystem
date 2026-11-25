@@ -51,7 +51,11 @@ def kk_shipments(monkeypatch):
 
 
 async def test_groups_distinct_devices_by_declaration_date(monkeypatch, kk_shipments):
-    kk_shipments.return_value = (("SO1", "2025-12", 1), ("SO1", "2026-02", 1))
+    kk_shipments.side_effect = lambda *, date_to: (
+        (("SO1", "2025-12", 1), ("SO1", "2026-02", 3))
+        if date_to == date(2026, 2, 28)
+        else (("SO1", "2025-12", 1), ("SO1", "2026-02", 2))
+    )
     monkeypatch.setattr(
         service.scs_gateway,
         "doa_devices",
@@ -128,8 +132,8 @@ async def test_groups_distinct_devices_by_declaration_date(monkeypatch, kk_shipm
     assert result.summary.unmatchedChangeCount == 2
     assert result.summary.deviceIssues["lifecycleDateIncomplete"] == 3
     assert [(x.period, x.fleetCount, x.faultCount) for x in result.trend] == [
-        ("2026-01", 1, 1),
-        ("2026-02", 2, 1),
+        ("2026-01", 0, 1),
+        ("2026-02", 3, 1),
     ]
     assert [x.mfrRate for x in result.trend] == [None, None]
     assert result.dailyTrend == []
@@ -137,7 +141,15 @@ async def test_groups_distinct_devices_by_declaration_date(monkeypatch, kk_shipm
         MFRFilters(dateFrom="2026-02-01", dateTo="2026-02-28", model="M2")
     )
     assert one_model.summary.fleetCount == 0
-    kk_shipments.assert_awaited_once_with(date_to=date(2026, 2, 28))
+    partial_month = await service.build_device_dashboard(
+        MFRFilters(dateFrom="2026-02-11", dateTo="2026-02-28")
+    )
+    assert partial_month.summary.fleetCount == 1
+    assert partial_month.trend[0].fleetCount == 1
+    assert result.summary.fleetCount == 3
+    assert kk_shipments.await_count == 2
+    kk_shipments.assert_any_await(date_to=date(2026, 2, 28))
+    kk_shipments.assert_any_await(date_to=date(2026, 2, 10))
     service.scs_gateway.doa_devices.assert_awaited_once()
     assert len(one_model.faultDetails) == 1
     assert one_model.faultDetails[0].deviceSn == "SN2"
@@ -155,10 +167,13 @@ async def test_empty_device_scope_does_not_return_a_misleading_zero(monkeypatch)
         await service.build_device_dashboard(MFRFilters(dateFrom="2026-10-01", dateTo="2026-10-29"))
 
 
-async def test_devices_with_yes_doa_are_counted_even_when_pending(monkeypatch):
+@pytest.mark.parametrize("sales_order", ["SO1", "XNC123"])
+async def test_devices_with_yes_doa_are_counted_even_when_pending(monkeypatch, sales_order):
     devices = [device(f"product:{i}", str(i), f"S{i}", f"SN{i}") for i in range(1, 5)]
     for index, item in enumerate(devices, 1):
         item["evidence"][0]["doaCode"] = f"D{index}"
+        item["evidence"][0]["doaSalesOrder"] = "" if sales_order.startswith("XNC") else sales_order
+        item["evidence"][0]["salesOrder"] = sales_order
     devices[1]["evidence"][0]["judgment"] = "否"
     devices[2]["evidence"][0]["doaStatus"] = "待受理"
     devices[3]["evidence"][0]["judgment"] = ""
@@ -172,7 +187,7 @@ async def test_devices_with_yes_doa_are_counted_even_when_pending(monkeypatch):
                     "aufnr": str(i),
                     "plannedStartDate": "2026-10-01",
                     "productionModel": "M1",
-                    "salesOrder": "SO1",
+                    "salesOrder": sales_order,
                 }
                 for i in range(1, 5)
             ]

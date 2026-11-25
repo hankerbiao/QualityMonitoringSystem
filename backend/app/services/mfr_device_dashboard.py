@@ -37,6 +37,34 @@ def _fault_date(code: str) -> date | None:
         return None
 
 
+async def _shipments_in_range(start: date, end: date) -> Counter[tuple[str, str]]:
+    async def cumulative(cutoff: date):
+        return await _KK_COUNTS.get_or_set(
+            cutoff,
+            lambda: data_gateway.kk_cumulative_deliveries(date_to=cutoff),
+            ttl_seconds=_SOURCE_TTL_SECONDS,
+        )
+
+    start_month = start.isoformat()[:7]
+    if start.day == 1:
+        through_end = await cumulative(end)
+        before_start = ()
+    else:
+        through_end, before_start = await asyncio.gather(
+            cumulative(end), cumulative(start - timedelta(days=1))
+        )
+
+    counts = Counter(
+        {(order, month): count for order, month, count in through_end if month >= start_month}
+    )
+    counts.subtract(
+        {(order, month): count for order, month, count in before_start if month == start_month}
+    )
+    if any(count < 0 for count in counts.values()):
+        raise DataGatewayError("KK 累计出货汇总在两个截止日之间不一致")
+    return +counts
+
+
 async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
     try:
         start = date.fromisoformat(filters.dateFrom)
@@ -67,14 +95,11 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
         data_gateway.all_orders(),
         scs_gateway.all("SCS_CHANGE", changeType="换上", company5000="true"),
         scs_gateway.all("SCS_CHANGE", changeType="换上-up", company5000="true"),
-        _KK_COUNTS.get_or_set(
-            end,
-            lambda: data_gateway.kk_cumulative_deliveries(date_to=end),
-            ttl_seconds=_SOURCE_TTL_SECONDS,
-        ),
+        _shipments_in_range(start, end),
     )
 
     doa_orders: dict[str, set[str]] = defaultdict(set)
+    fallback_doa_orders: dict[str, set[str]] = defaultdict(set)
     doa_states: dict[str, set[tuple[str, str]]] = defaultdict(set)
     valid_codes: set[str] = set()
     unresolved_codes: set[str] = set()
@@ -88,9 +113,15 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
             order_no = sales_key(row.get("doaSalesOrder"))
             if order_no:
                 doa_orders[code].add(order_no)
+            else:
+                device_order = sales_key(row.get("salesOrder"))
+                if device_order.startswith("XNC"):
+                    fallback_doa_orders[code].add(device_order)
             doa_states[code].add(
                 (str(row.get("judgment") or "").strip(), str(row.get("doaStatus") or "").strip())
             )
+    for code, fallback_orders in fallback_doa_orders.items():
+        doa_orders.setdefault(code, fallback_orders)
     for code, states in doa_states.items():
         if len(states) != 1:
             unresolved_codes.add(code)
@@ -112,7 +143,11 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
         set(filters.customerIds or ([filters.customerId] if filters.customerId else [])),
     )
     sales_orders = {sales_key(order.get("salesOrder")) for order in orders} - {""}
-    allowed_codes = {code for code, sales in doa_orders.items() if sales and sales <= sales_orders}
+    allowed_codes = {
+        code
+        for code, sales in doa_orders.items()
+        if sales and all(order in sales_orders or order.startswith("XNC") for order in sales)
+    }
     selected_by_key = {device["deviceKey"]: device for device in selected}
     service_devices: dict[str, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
     all_by_key = {device["deviceKey"]: device for device in devices}
@@ -208,7 +243,7 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
 
     shipped_by_model: Counter[str] = Counter()
     shipped_by_month: Counter[str] = Counter()
-    for sales_order, month, count in shipments:
+    for (sales_order, month), count in shipments.items():
         order_no = sales_key(sales_order)
         dimensions = order_dimensions.get(order_no, set()) if order_no else set()
         models = {model for model, _ in dimensions if model}
@@ -249,7 +284,7 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
         periods.append(f"{year:04d}-{month:02d}")
         year, month = (year + 1, 1) if month == 12 else (year, month + 1)
     fleet = sum(shipped_by_model.values())
-    cumulative = sum(count for month, count in shipped_by_month.items() if month < periods[0])
+    cumulative = 0
     trend = []
     for period in periods:
         cumulative += shipped_by_month[period]

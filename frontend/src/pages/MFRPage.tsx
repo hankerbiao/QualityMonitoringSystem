@@ -1,6 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Activity, AlertTriangle, BarChart3, CalendarDays, ChevronDown, Download, Home, RotateCcw, Search, SlidersHorizontal } from 'lucide-react';
+import { Activity, AlertTriangle, BarChart3, CalendarDays, Download, Home, RotateCcw, Search, SlidersHorizontal } from 'lucide-react';
 import { Bar, CartesianGrid, ComposedChart, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import * as XLSX from 'xlsx';
 import { mfrApi } from '../api/mfrApi';
@@ -33,7 +33,7 @@ function exportStatistics(data: MFRExport, filters: MFRFilters) {
     { 指标: '客户ID', 数值: filters.customerIds?.join('、') || filters.customerId || '全部客户ID' },
     { 指标: '综合 MFR（%）', 数值: data.summary.mfrRate },
     { 指标: '故障整机', 数值: data.summary.faultCount },
-    { 指标: '累计出货台数', 数值: data.summary.fleetCount },
+    { 指标: '期间出货台数', 数值: data.summary.fleetCount },
     { 指标: '未能归属设备（全量）', 数值: Object.entries(data.summary.deviceIssues).filter(([key]) => key !== 'lifecycleDateIncomplete' && key !== 'faultDateUnresolved').reduce((sum, [, value]) => sum + value, 0) },
     { 指标: '所选设备日期缺失或冲突', 数值: data.summary.deviceIssues.lifecycleDateIncomplete ?? 0 },
     { 指标: '关联不明确的换件记录', 数值: data.summary.unmatchedChangeCount },
@@ -44,7 +44,7 @@ function exportStatistics(data: MFRExport, filters: MFRFilters) {
     统计月份: item.period, 故障整机: item.faultCount, 累计出货台数: item.fleetCount, 'MFR（%）': item.mfrRate,
   }))), '月度明细');
   XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(data.byModel.map(item => ({
-    机型: item.key, 故障整机: item.faultCount, 累计出货台数: item.fleetCount, 'MFR（%）': item.mfrRate,
+    机型: item.key, 故障整机: item.faultCount, 期间出货台数: item.fleetCount, 'MFR（%）': item.mfrRate,
   }))), '机型汇总');
   const headers = ['机型', '故障日期', 'DOA申报单号', '发货日期', '生产订单号', '设备SN', '服务单号', '换件记录ID', '换件类型', '换件时间', '物料编码', '部件SN', '部件名称', '客户'];
   const rows = data.faultDetails.map(item => [item.model, item.faultDate, item.doaCode, item.shipmentDate, item.productionOrder,
@@ -75,7 +75,6 @@ export default function MFRPage() {
   const [error, setError] = useState('');
   const [exporting, setExporting] = useState(false);
   const [exportError, setExportError] = useState('');
-  const [expandedModel, setExpandedModel] = useState<string | null>(null);
   const requestId = useRef(0);
 
   const load = useCallback(async (next: MFRFilters) => {
@@ -83,7 +82,6 @@ export default function MFRPage() {
     setLoading(true);
     setError('');
     setData(null);
-    setExpandedModel(null);
     try {
       const result = await mfrApi.getDashboard(next);
       if (id !== requestId.current) return;
@@ -119,9 +117,6 @@ export default function MFRPage() {
     setFilters(normalized);
     void load(normalized);
   };
-  const rankedModels = useMemo(() => [...(data?.byModel ?? [])]
-    .sort((a, b) => (b.mfrRate ?? -1) - (a.mfrRate ?? -1) || b.faultCount - a.faultCount).slice(0, 10), [data]);
-  const maxRate = Math.max(0, ...rankedModels.map(item => item.mfrRate ?? 0));
   const summary = data?.summary;
   const unresolvedDevices = Object.entries(summary?.deviceIssues ?? {}).filter(([key]) => key !== 'lifecycleDateIncomplete' && key !== 'faultDateUnresolved').reduce((total, [, value]) => total + value, 0);
   const pending = !sameFilters(draft, filters);
@@ -179,14 +174,14 @@ export default function MFRPage() {
       {data && summary && <>
         <section className="border border-slate-200 bg-white">
           <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-3 py-2 sm:px-4"><div className="flex items-center gap-1"><h2 className="text-sm font-semibold">质量概览</h2><HelpTooltip label="查看 MFR 统计口径与数据来源">
-            <p>月度 MFR = 当月故障整机数 ÷ 统计时点累计出货整机数 × 100%。</p>
+            <p>月度 MFR = 当月故障整机数 ÷ 从所选开始日至当月统计截止日的累计出货整机数 × 100%。</p>
             <p className="mt-1">故障日期取自 DOA 申报单号；同一整机每个自然月计一次。</p>
 
           </HelpTooltip></div><span className="text-xs text-slate-500">{filters.dateFrom} 至 {filters.dateTo} · {filters.model || '全部机型'} · {(filters.customerIds?.length ? filters.customerIds.join('、') : '全部客户ID')}</span></div>
           <div className="grid grid-cols-2 divide-x divide-y divide-slate-200 lg:grid-cols-4 lg:divide-y-0">
-            <Metric label="综合 MFR" value={rate(summary.mfrRate)} detail="所选期间故障整机数 ÷ 截至所选结束日累计出货整机数 × 100%。" accent="bg-indigo-600" />
+            <Metric label="综合 MFR" value={rate(summary.mfrRate)} detail="所选期间故障整机数 ÷ 所选期间出货整机数 × 100%。" accent="bg-indigo-600" />
             <Metric label="故障整机" value={number(summary.faultCount)} detail="按 DOA 申报单号中的日期筛选，同一整机每月计一次。" accent="bg-sky-500" />
-            <Metric label="累计出货台数" value={number(summary.fleetCount)} detail="截至所选结束日，按 KK 交付明细发货日期（WADAT）纳入，按交付批次去重后汇总 LFIMG 出货数量。" accent="bg-violet-500" />
+            <Metric label="期间出货台数" value={number(summary.fleetCount)} detail="按所选起止日期筛选 KK 交付明细发货日期（WADAT），含起止两日，按交付批次去重后汇总 LFIMG 出货数量。" accent="bg-violet-500" />
             <Metric label="未归属设备" value={number(unresolvedDevices)} detail="数据源全量中申报状态、订单归属、设备身份或故障日期无法唯一确定的设备，不受当前日期和机型筛选。" accent="bg-amber-500" />
           </div>
 
@@ -194,7 +189,7 @@ export default function MFRPage() {
           {(unresolvedDevices > 0 || summary.unmatchedChangeCount > 0) && <div className="flex items-start gap-2 border-t border-amber-100 bg-amber-50 px-4 py-2 text-xs leading-5 text-amber-800"><AlertTriangle className="mt-0.5 size-3.5 shrink-0" /><div><p>数据源中有 {number(unresolvedDevices)} 台设备无法确认申报、订单或身份，未参与统计（不受日期和机型筛选）；所选设备关联服务单中有 {number(summary.unmatchedChangeCount)} 条换件记录无法唯一匹配设备，未计入故障整机。</p>{unresolvedDevices > 0 && <details className="mt-1"><summary className="cursor-pointer font-semibold">查看未归属原因</summary><p className="mt-1">{Object.entries(summary.deviceIssues).filter(([key, value]) => key !== 'lifecycleDateIncomplete' && key !== 'faultDateUnresolved' && value > 0).map(([key, value]) => `${deviceIssueLabels[key] || key}：${number(value)} 台`).join(' · ')}</p></details>}</div></div>}
         </section>
 
-        <section className="grid gap-2.5 lg:grid-cols-[minmax(0,1.8fr)_minmax(300px,1fr)]">
+        <section className="min-w-0">
           <div className="min-w-0 border border-slate-200 bg-white">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 px-3 py-2 sm:px-4">
               <div className="flex items-center gap-1"><h2 className="flex items-center gap-2 text-sm font-semibold"><BarChart3 className="size-4 text-indigo-700" />现网故障趋势</h2><HelpTooltip label="查看趋势统计方式">{dailyTrend ? '按申报单号中的故障日期展示，每台整机计入当月首次有效故障所在日。' : '按申报单号中的故障日期归月，同一整机每月计一次。'}</HelpTooltip></div>
@@ -209,17 +204,6 @@ export default function MFRPage() {
               <Bar yAxisId="events" dataKey="faultCount" name="故障整机" fill="#6366f1" radius={[2, 2, 0, 0]} maxBarSize={32} />
               {showMfrTrend && <Line yAxisId="rate" dataKey="mfrRate" name="MFR" type="monotone" stroke="#b45309" strokeWidth={2} dot={{ r: 3, fill: '#b45309' }} connectNulls={false} />}
             </ComposedChart></ResponsiveContainer> : <div className="flex h-full items-center justify-center text-sm text-slate-400">暂无趋势数据</div>}</div>
-          </div>
-          <div className="min-w-0 border border-slate-200 bg-white">
-            <div className="flex items-center justify-between gap-2 border-b border-slate-100 px-3 py-2 sm:px-4"><div className="flex items-center gap-1"><h2 className="text-sm font-semibold">机型排行</h2><HelpTooltip label="查看机型排行说明">按 MFR 从高到低排列，最多显示前 10 项。</HelpTooltip></div><span className="text-xs text-slate-500">{number(data.byModel.length)} 个机型</span></div>
-            <div className="max-h-[250px] overflow-y-auto px-3 sm:px-4">{rankedModels.length ? rankedModels.map((item, index) => <div key={item.key} className="border-b border-slate-100 last:border-0">
-              <button type="button" aria-expanded={expandedModel === item.key} onClick={() => setExpandedModel(expandedModel === item.key ? null : item.key)} className="flex w-full items-center gap-3 py-2 text-left hover:bg-slate-50">
-                <span className="flex size-6 shrink-0 items-center justify-center rounded bg-slate-100 font-mono text-xs text-slate-500">{String(index + 1).padStart(2, '0')}</span>
-                <span className="min-w-0 flex-1"><span className="flex items-center justify-between gap-2"><span className="truncate text-sm font-medium" title={item.key}>{item.key}</span><span className="shrink-0 font-mono text-sm font-semibold text-indigo-700">{rate(item.mfrRate)}</span></span><span className="mt-1.5 block h-1.5 overflow-hidden rounded-full bg-slate-100"><span className="block h-full rounded-full bg-indigo-500" style={{ width: `${maxRate > 0 && item.mfrRate != null ? Math.max(0, item.mfrRate / maxRate * 100) : 0}%` }} /></span></span>
-                <ChevronDown className={`size-4 shrink-0 text-slate-400 ${expandedModel === item.key ? 'rotate-180' : ''}`} />
-              </button>
-              {expandedModel === item.key && <div className="mb-3 ml-9 flex flex-wrap items-center justify-between gap-2 text-xs text-slate-600"><span>故障整机 {number(item.faultCount)} · 累计出货台数 {number(item.fleetCount)}</span><button type="button" onClick={() => apply({ ...filters, model: item.key })} className="font-medium text-indigo-700 hover:underline">查看该机型趋势</button></div>}
-            </div>) : <div className="py-20 text-center text-sm text-slate-400">暂无机型数据</div>}</div>
           </div>
         </section>
 

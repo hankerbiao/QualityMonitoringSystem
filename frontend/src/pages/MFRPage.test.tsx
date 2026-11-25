@@ -64,11 +64,11 @@ describe('MFR dashboard', () => {
   it('loads the current month and explains the device denominator and unresolved evidence', async () => {
     render(<MemoryRouter><MFRPage /></MemoryRouter>);
     const today = new Date();
-    await screen.findAllByText('累计出货台数');
+    await screen.findAllByText('期间出货台数');
     expect(mfrApi.getDashboard).toHaveBeenCalledWith({
       dateFrom: formatLocalDate(new Date(today.getFullYear(), today.getMonth(), 1)), dateTo: formatLocalDate(today), model: '',
     });
-    const fleetMetricHelp = screen.getByRole('button', { name: '查看累计出货台数说明' });
+    const fleetMetricHelp = screen.getByRole('button', { name: '查看期间出货台数说明' });
     fireEvent.focus(fleetMetricHelp);
     expect(screen.getByRole('tooltip').textContent).toContain('LFIMG 出货数量');
     fireEvent.blur(fleetMetricHelp);
@@ -89,7 +89,7 @@ describe('MFR dashboard', () => {
 
   it('always keeps the filter controls visible and shows pending selections', async () => {
     render(<MemoryRouter><MFRPage /></MemoryRouter>);
-    await screen.findAllByText('累计出货台数');
+    await screen.findAllByText('期间出货台数');
     expect(screen.getByLabelText('机型')).toBeTruthy();
     expect(screen.getByRole('button', { name: '故障日期' })).toBeTruthy();
     expect(screen.queryByRole('button', { name: /筛选条件/ })).toBeNull();
@@ -101,7 +101,7 @@ describe('MFR dashboard', () => {
 
   it('switches back to the monthly fault and MFR trend for a multi-month range', async () => {
     render(<MemoryRouter><MFRPage /></MemoryRouter>);
-    await screen.findByText('Model A');
+    await screen.findByRole('heading', { name: '现网故障趋势' });
     fireEvent.click(screen.getByRole('button', { name: '故障日期' }));
     fireEvent.change(screen.getByLabelText('开始日期'), { target: { value: '2026-01-01' } });
     fireEvent.change(screen.getByLabelText('结束日期'), { target: { value: '2026-03-31' } });
@@ -116,12 +116,12 @@ describe('MFR dashboard', () => {
     expect(screen.getByTestId('mfr-line')).toBeTruthy();
   });
 
-  it('drills into a model and resets applied filters while keeping model options', async () => {
+  it('filters by model and resets while keeping model options', async () => {
     render(<MemoryRouter><MFRPage /></MemoryRouter>);
-    await screen.findByText('Model A');
-    fireEvent.click(screen.getByRole('button', { name: /Model A/ }));
-    expect(screen.getByText('故障整机 10 · 累计出货台数 200')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: '查看该机型趋势' }));
+    await screen.findByText(/数据源中有/);
+    expect(screen.queryByRole('heading', { name: '机型排行' })).toBeNull();
+    fireEvent.change(screen.getByLabelText('机型'), { target: { value: 'Model A' } });
+    fireEvent.click(screen.getByRole('button', { name: '查询' }));
     await waitFor(() => expect(mfrApi.getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'Model A' })));
     await screen.findByText(/数据源中有/);
     expect((screen.getByLabelText('机型') as HTMLInputElement).value).toBe('Model A');
@@ -134,11 +134,11 @@ describe('MFR dashboard', () => {
 
   it('exports the applied overview, monthly and model data', async () => {
     render(<MemoryRouter><MFRPage /></MemoryRouter>);
-    await screen.findByText('Model A');
+    await screen.findByRole('button', { name: '导出统计数据' });
     fireEvent.change(screen.getByLabelText('机型'), { target: { value: 'Model A' } });
     fireEvent.click(screen.getByRole('button', { name: '查询' }));
     await waitFor(() => expect(mfrApi.getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'Model A' })));
-    await screen.findByText('Model A');
+    await screen.findByRole('button', { name: '导出统计数据' });
     fireEvent.click(within(screen.getByRole('button', { name: '导出统计数据' })).getByText('导出统计数据'));
     await waitFor(() => expect(xlsx.writeFile).toHaveBeenCalled());
     expect(mfrApi.getExport).toHaveBeenCalledWith(expect.objectContaining({ model: 'Model A' }));
