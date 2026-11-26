@@ -11,7 +11,7 @@ const dashboard: DoaDashboard = {
   byCustomer: [{ key: '客户甲', shippedCount: 100, repairCount: 2, repairRate: 2, replacementCount: 2, replacementRate: 2 }],
   byModel: [], unmatchedOrders: [],
 };
-const repair: DoaRepairItem = { id: 'SCS-1', salesOrder: '001', materialSerial: 'SN1', acceptedAt: '2026-10-02', declarationDate: '2026-10-01', customer: '客户甲', model: 'M1', repairCount: 2, countedRepairCount: 2, missingQuantity: false, data: { secretRawField: 'not exported' } };
+const repair: DoaRepairItem = { id: 'SCS-1', salesOrder: '001', materialSerial: 'SN1', acceptedAt: '2026-10-02', declarationDate: '2026-10-01', customer: '客户甲', model: 'M1', repairCount: 2, countedRepairCount: 2, remark: '有多起报修', missingQuantity: false, data: { secretRawField: 'not exported' } };
 
 describe('buildDoaWorkbook', () => {
   it('exports all summary dimensions and normalized detail without raw SCS fields', () => {
@@ -19,7 +19,7 @@ describe('buildDoaWorkbook', () => {
     expect(book.SheetNames).toEqual(['质量概览', '周期明细', '客户分析', '机型分析', '实际交付明细', '报修明细', '换件明细', '申报日期异常']);
     expect(XLSX.utils.sheet_to_json(book.Sheets['客户分析'])).toEqual([expect.objectContaining({ 客户: '客户甲', 出货数量: 100, 报修率: 0.02 })]);
     expect(book.Sheets['客户分析'].D2.z).toBe('0.00%');
-    expect(XLSX.utils.sheet_to_json(book.Sheets['报修明细'])).toEqual([expect.objectContaining({ 申报编号: 'SCS-1', 问题批次数量: 2, 计入数量: 2 }), expect.objectContaining({ 申报编号: 'duplicate', 问题批次数量: 2, 计入数量: 0 })]);
+    expect(XLSX.utils.sheet_to_json(book.Sheets['报修明细'])).toEqual([expect.objectContaining({ 申报编号: 'SCS-1', 问题批次数量: 2, 计入数量: 2, 备注: '有多起报修' }), expect.objectContaining({ 申报编号: 'duplicate', 问题批次数量: 2, 计入数量: 0, 备注: '有多起报修' })]);
     expect(JSON.stringify(book)).not.toContain('not exported');
     expect(XLSX.utils.sheet_to_json(book.Sheets['申报日期异常'])).toEqual([expect.objectContaining({ 申报编号: 'SCS-2', 问题批次数量: 3 })]);
   });

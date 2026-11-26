@@ -81,6 +81,7 @@ export default function DoaRepairsPage() {
         机型: item.model,
         问题批次数量: item.repairCount,
         计入数量: item.countedRepairCount ?? "",
+        备注: item.remark ?? "",
       }));
       const ws = XLSX.utils.json_to_sheet(rows);
       const wb = XLSX.utils.book_new();
@@ -163,6 +164,7 @@ export default function DoaRepairsPage() {
                       "机型",
                       "问题批次数量",
                       "计入数量",
+                      "备注",
                     ].map((h) => (
                       <th key={h} className="px-4 py-2.5 font-medium">
                         {h}
@@ -198,12 +200,13 @@ export default function DoaRepairsPage() {
                       <td className="px-4 py-3 font-mono">
                         {item.countedRepairCount ?? "—"}
                       </td>
+                      <td className="whitespace-nowrap px-4 py-3">{item.remark}</td>
                     </tr>
                   ))}
                   {!items.length && (
                     <tr>
                       <td
-                        colSpan={9}
+                        colSpan={10}
                         className="px-4 py-16 text-center text-sm text-slate-400"
                       >
                         暂无{replacementOnly ? "换件" : "报修"}数据

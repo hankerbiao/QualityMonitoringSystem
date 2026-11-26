@@ -229,6 +229,7 @@ def _build_doa_repairs(
             "model": model,
             "repair_count": quantity,
             "counted_repair_count": quantity if declaration_date else 0.0,
+            "remark": "",
             "missing_quantity": item["repair_count"] in (None, ""),
             "has_change": item["service_order"] in changed,
             "data": item["raw"],
@@ -240,6 +241,8 @@ def _build_doa_repairs(
         ):
             key = (sales_order_key, item["service_order"], item["host_sn"])
             first = first_by_device.get(key)
+            if first is not None:
+                first["remark"] = row["remark"] = "有多起报修"
             if first is None or (row["doa_code"], row["id"]) < (first["doa_code"], first["id"]):
                 first_by_device[key] = row
                 if first is not None:
@@ -452,6 +455,7 @@ async def get_doa_audit(filters: DoaFilters) -> dict[str, Any]:
             "declarationDate": row["declaration_date"],
             "repairCount": row["repair_count"],
             "countedRepairCount": row["counted_repair_count"],
+            "remark": row["remark"],
             "raw": row["data"],
         }
         for row in repairs
@@ -496,6 +500,7 @@ async def get_doa_repairs(
                 model=str(row.get("model") or ""),
                 repairCount=float(row.get("repair_count") or 0),
                 countedRepairCount=row["counted_repair_count"],
+                remark=row["remark"],
                 missingQuantity=row["missing_quantity"],
                 data=row.get("data") or {},
             )

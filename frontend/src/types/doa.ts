@@ -73,7 +73,7 @@ export interface DoaOrdersResponse {
 }
 
 export interface DoaAudit {
-  repairs: { matchStatus: string; salesOrder: string; id: string; doaCode?: string; acceptedAt: string; declarationDate?: string; repairCount: number | string; countedRepairCount?: number; raw: Record<string, unknown> }[];
+  repairs: { matchStatus: string; salesOrder: string; id: string; doaCode?: string; acceptedAt: string; declarationDate?: string; repairCount: number | string; countedRepairCount?: number; remark?: string; raw: Record<string, unknown> }[];
   orders: Record<string, unknown>[];
   changes: Record<string, unknown>[];
 }
@@ -90,6 +90,7 @@ export interface DoaRepairItem {
   model: string;
   repairCount: number;
   countedRepairCount?: number;
+  remark?: string;
   missingQuantity: boolean;
   data: Record<string, unknown>;
 }

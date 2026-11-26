@@ -29,10 +29,11 @@ function repairRows(items: DoaRepairItem[]): Row[] {
     客户: item.customer, 客户ID: item.customerId || '', 机型: item.model,
     问题批次数量: item.missingQuantity ? '' : item.repairCount,
     计入数量: item.countedRepairCount ?? '',
+    备注: item.remark ?? '',
   }));
 }
 
-const repairHeaders = ['申报编号', '销售订单', '序列号', '受理日期', '单号申报日期', '客户', '客户ID', '机型', '问题批次数量', '计入数量'];
+const repairHeaders = ['申报编号', '销售订单', '序列号', '受理日期', '单号申报日期', '客户', '客户ID', '机型', '问题批次数量', '计入数量', '备注'];
 
 export function buildDoaWorkbook(
   dashboard: DoaDashboard,

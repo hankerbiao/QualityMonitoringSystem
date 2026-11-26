@@ -273,6 +273,7 @@ export default function DoaPage() {
         单号申报日期: item.declarationDate ?? "",
         问题批次数量: Number(String(item.repairCount).replace(/,/g, "")),
         计入数量: item.countedRepairCount ?? "",
+        备注: item.remark ?? "",
       }));
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), "有效DOA申报");

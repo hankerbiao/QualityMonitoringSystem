@@ -85,6 +85,7 @@ class DoaRepairItem(BaseModel):
     model: str = ""
     repairCount: float = 0
     countedRepairCount: float = 0
+    remark: str = ""
     missingQuantity: bool = False
     data: dict = Field(default_factory=dict)
 

@@ -349,6 +349,12 @@ async def test_duplicate_host_declarations_keep_details_and_count_on_first_valid
     ]
     detail = await doa_service.get_doa_repairs(filters, 1, 50)
     assert detail.totalRepairCount == 7
+    assert {item.id: item.remark for item in detail.items} == {
+        "repeat": "有多起报修",
+        "first": "有多起报修",
+        "other-host": "",
+        "other-service": "",
+    }
     assert [(item.id, item.countedRepairCount) for item in detail.items] == [
         ("repeat", 0),
         ("first", 1),
@@ -359,6 +365,7 @@ async def test_duplicate_host_declarations_keep_details_and_count_on_first_valid
     assert sum(row["countedRepairCount"] for row in audit["repairs"]) == 6
     late = filters.model_copy(update={"dateFrom": "2026-10-20"})
     late_details = await doa_service.get_doa_repairs(late, 1, 50, replacement_only=True)
+    assert late_details.items[0].remark == "有多起报修"
     assert [(item.id, item.countedRepairCount) for item in late_details.items] == [
         ("repeat", 0),
         ("other-host", 1),
