@@ -271,7 +271,14 @@ class DataGatewayClient:
                     self._text_inflight.pop(cache_key, None)
         if self.cache_ttl > 0:
             async with self._orders_cache_lock:
-                self._text_cache[cache_key] = (time.monotonic() + self.cache_ttl, text)
+                now = time.monotonic()
+                for expired in [
+                    key for key, (expires, _) in self._text_cache.items() if expires <= now
+                ]:
+                    self._text_cache.pop(expired, None)
+                self._text_cache[cache_key] = (now + self.cache_ttl, text)
+                while len(self._text_cache) > 64:
+                    self._text_cache.pop(next(iter(self._text_cache)))
         return text
 
     async def _request_text_network(

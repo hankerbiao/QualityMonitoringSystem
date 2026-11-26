@@ -5,10 +5,14 @@ from __future__ import annotations
 import asyncio
 import math
 import re
+from collections.abc import Awaitable
 from datetime import datetime, timedelta, timezone
+from time import perf_counter
 from typing import Any
+from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
 
+from app.core.logger import log_info
 from app.schemas.doa import (
     DoaDashboardResponse,
     DoaDimensionItem,
@@ -27,8 +31,10 @@ DOA_CACHE_TTL_SECONDS = 60.0
 DOA_DASHBOARD_CACHE_TTL_SECONDS = 2 * 60 * 60.0
 _DOA_ORDERS_CACHE = AsyncTTLCache()
 _DOA_SHIPMENTS_CACHE = AsyncTTLCache(max_entries=32)
+_DOA_SCS_CACHE = AsyncTTLCache(max_entries=32)
 _DOA_SNAPSHOT_CACHE = AsyncTTLCache(max_entries=128)
 _DOA_RAW_CACHE = AsyncTTLCache()
+_SCS_SERVICE_ORDER_QUERY_MAX_BYTES = 4_096
 
 
 def _gateway_latest_accepted_at(rows: list[dict[str, Any]]) -> datetime | None:
@@ -194,6 +200,46 @@ def _valid_doa(item: dict[str, Any]) -> bool:
     )
 
 
+async def _doa_eligible_rows() -> list[dict[str, Any]]:
+    async def load():
+        eligible = []
+        for row in await scs_gateway.all("SCS_DOA", judgment="是"):
+            if _valid_doa(row):
+                day = doa_declaration_date(str(row.get("doa_code") or ""))
+                eligible.append({**row, "declaration_date": day.isoformat() if day else ""})
+        return eligible
+
+    return await _DOA_SCS_CACHE.get_or_set("repairs", load, ttl_seconds=DOA_CACHE_TTL_SECONDS)
+
+
+def _single_day_service_orders(eligible: list[dict[str, Any]], day: str) -> str | None:
+    # Undated rows also appear in the date exception details, including replacement-only views.
+    orders = {
+        row["service_order"]
+        for row in eligible
+        if row["service_order"] and row["declaration_date"] in {day, ""}
+    }
+    if any("," in order or "，" in order for order in orders):
+        return None
+    service_orders = ",".join(sorted(orders))
+    if len(urlencode({"serviceOrder": service_orders})) > _SCS_SERVICE_ORDER_QUERY_MAX_BYTES:
+        return None
+    return service_orders
+
+
+async def _doa_changes(service_orders: str | None) -> list[dict[str, Any]]:
+    if service_orders == "":
+        return []
+    filters = {"company5000": "true"}
+    if service_orders is not None:
+        filters["serviceOrder"] = service_orders
+    return await _DOA_SCS_CACHE.get_or_set(
+        ("changes", service_orders),
+        lambda: scs_gateway.all("SCS_CHANGE", **filters),
+        ttl_seconds=DOA_CACHE_TTL_SECONDS,
+    )
+
+
 def _build_doa_repairs(
     eligible: list[dict[str, Any]],
     changes: list[dict[str, Any]],
@@ -207,6 +253,7 @@ def _build_doa_repairs(
         _sales_order_key(value)
         for value in filters.customerIds or ([filters.customerId] if filters.customerId else [])
     }
+    start, end = _accepted_bounds(filters)
     rows = []
     first_by_device: dict[tuple[str, str, str], dict[str, Any]] = {}
     for item in eligible:
@@ -215,7 +262,7 @@ def _build_doa_repairs(
         customer = shipment.get("customer") or item.get("customer") or "未匹配客户"
         model = str(item.get("host_model") or "").strip() or "未匹配机型"
         customer_id = shipment.get("customer_id", "")
-        declaration_date = doa_declaration_date(str(item.get("doa_code") or ""))
+        declaration_date = item["declaration_date"]
         quantity = _repair_quantity(item["repair_count"])
         row = {
             "id": item["id"],
@@ -223,7 +270,7 @@ def _build_doa_repairs(
             "sales_order": item["sales_order"],
             "material_serial": item["host_sn"] or item["part_sn"],
             "accepted_at": item["accepted_at"],
-            "declaration_date": declaration_date.isoformat() if declaration_date else "",
+            "declaration_date": declaration_date,
             "customer": customer,
             "customer_id": customer_id,
             "model": model,
@@ -249,7 +296,11 @@ def _build_doa_repairs(
                     first["counted_repair_count"] = 0.0
             else:
                 row["counted_repair_count"] = 0.0
-        rows.append(row)
+        # Process all declarations for duplicate detection, then keep rows used by this snapshot.
+        if not declaration_date or (
+            (not start or declaration_date >= start) and (not end or declaration_date <= end)
+        ):
+            rows.append(row)
     return [
         row
         for row in rows
@@ -266,23 +317,51 @@ async def _load_doa_snapshot(
     list[dict[str, Any]],
     list[dict[str, Any]],
 ]:
+    started = perf_counter()
+    timings: dict[str, float] = {}
+
+    async def timed(source: str, load: Awaitable[list[dict[str, Any]]]) -> list[dict[str, Any]]:
+        before = perf_counter()
+        rows = await load
+        timings[source] = (perf_counter() - before) * 1000
+        return rows
+
+    start, end = _accepted_bounds(filters)
+    eligible_task = asyncio.create_task(timed("scs_doa", _doa_eligible_rows()))
+    change_scope = "all"
+
+    async def load_changes():
+        nonlocal change_scope
+        service_orders = None
+        if start and start == end:
+            service_orders = _single_day_service_orders(await eligible_task, start)
+            if service_orders is not None:
+                change_scope = "service_order" if service_orders else "empty"
+        return await timed("scs_change", _doa_changes(service_orders))
+
     orders, eligible, changes, batches = await asyncio.gather(
-        _doa_gateway_orders(),
-        scs_gateway.all("SCS_DOA", judgment="是"),
-        scs_gateway.all("SCS_CHANGE", company5000="true"),
-        _shipment_batches(filters),
+        timed("orders", _doa_gateway_orders()),
+        eligible_task,
+        load_changes(),
+        timed("shipments", _shipment_batches(filters)),
     )
+    sources_done = perf_counter()
+    change_count = len(changes)
     orders = [order for order in orders if order["sales_order"]]
-    eligible = [row for row in eligible if _valid_doa(row)]
     service_orders = {row["service_order"] for row in eligible}
     changes = [change for change in changes if change["service_order"] in service_orders]
     shipments = _actual_shipments(batches, orders)
-    return (
-        shipments,
-        eligible,
-        _build_doa_repairs(eligible, changes, filters, shipments),
-        changes,
+    repairs = _build_doa_repairs(eligible, changes, filters, shipments)
+    finished = perf_counter()
+    log_info(
+        f"DOA snapshot orders={len(orders)} orders_ms={timings['orders']:.1f} "
+        f"eligible_doa={len(eligible)} scs_doa_ms={timings['scs_doa']:.1f} "
+        f"changes={change_count} change_scope={change_scope} scs_change_ms={timings['scs_change']:.1f} "
+        f"shipments={len(batches)} shipments_ms={timings['shipments']:.1f} "
+        f"repairs={len(repairs)} build_ms={(finished - sources_done) * 1000:.1f} "
+        f"elapsed_ms={(finished - started) * 1000:.1f}"
     )
+    return shipments, eligible, repairs, changes
 
 
 async def _doa_snapshot(
@@ -303,8 +382,13 @@ async def _doa_snapshot_with_expiry(filters: DoaFilters):
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=DOA_DASHBOARD_CACHE_TTL_SECONDS)
         return snapshot, expires_at
 
+    # Model selections and chart granularity are applied after the snapshot loads.
     return await _DOA_SNAPSHOT_CACHE.get_or_set(
-        filters.model_dump_json(),
+        (
+            _accepted_bounds(filters),
+            frozenset(filters.customers or ([filters.customer] if filters.customer else [])),
+            frozenset(filters.customerIds or ([filters.customerId] if filters.customerId else [])),
+        ),
         load,
         ttl_seconds=DOA_DASHBOARD_CACHE_TTL_SECONDS,
     )
