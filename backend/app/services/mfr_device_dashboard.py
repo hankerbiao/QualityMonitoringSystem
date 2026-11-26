@@ -168,10 +168,7 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
         for key in candidates.keys() & selected_by_key.keys():
             codes = candidates[key] & selected_by_key[key]["matchedDoaCodes"]
             dates = {_fault_date(code) for code in codes}
-            # Keep invalid or conflicting dates so the existing diagnostics still run.
-            if dates and (
-                len(dates) > 1 or any(day is None or start <= day <= end for day in dates)
-            ):
+            if dates and (None in dates or start <= min(dates) <= end):
                 service_orders.append(service)
                 break
 
@@ -208,7 +205,7 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
             if not codes:
                 continue
             dates = {_fault_date(code) for code in codes}
-            if len(dates) != 1 or None in dates:
+            if None in dates:
                 change_issue_details.append(
                     MFRChangeIssueDetail(
                         reason="faultDateUnresolved",
@@ -225,7 +222,7 @@ async def build_device_dashboard(filters: MFRFilters) -> MFRDashboardResponse:
                     )
                 )
                 continue
-            fault_date = next(iter(dates))
+            fault_date = min(dates)
             if not start <= fault_date <= end:
                 continue
             month = fault_date.strftime("%Y-%m")

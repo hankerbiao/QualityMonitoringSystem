@@ -70,7 +70,7 @@ def _is_valid_hardware_replacement(change: dict[str, Any]) -> bool:
 
 
 def _replacement_defect_count(repair: dict[str, Any]) -> float:
-    return repair["repair_count"] if repair["has_change"] else 0.0
+    return repair["counted_repair_count"] if repair["has_change"] else 0.0
 
 
 def _gateway_order(item: dict[str, Any]) -> dict[str, Any]:
@@ -207,38 +207,52 @@ def _build_doa_repairs(
         _sales_order_key(value)
         for value in filters.customerIds or ([filters.customerId] if filters.customerId else [])
     }
-    models = set(filters.models or ([filters.model] if filters.model else []))
     rows = []
+    first_by_device: dict[tuple[str, str, str], dict[str, Any]] = {}
     for item in eligible:
-        shipment = shipment_scopes.get(_sales_order_key(item["sales_order"]), {})
+        sales_order_key = _sales_order_key(item["sales_order"])
+        shipment = shipment_scopes.get(sales_order_key, {})
         customer = shipment.get("customer") or item.get("customer") or "未匹配客户"
         model = str(item.get("host_model") or "").strip() or "未匹配机型"
         customer_id = shipment.get("customer_id", "")
         declaration_date = doa_declaration_date(str(item.get("doa_code") or ""))
+        quantity = _repair_quantity(item["repair_count"])
+        row = {
+            "id": item["id"],
+            "doa_code": str(item.get("doa_code") or ""),
+            "sales_order": item["sales_order"],
+            "material_serial": item["host_sn"] or item["part_sn"],
+            "accepted_at": item["accepted_at"],
+            "declaration_date": declaration_date.isoformat() if declaration_date else "",
+            "customer": customer,
+            "customer_id": customer_id,
+            "model": model,
+            "repair_count": quantity,
+            "counted_repair_count": quantity if declaration_date else 0.0,
+            "missing_quantity": item["repair_count"] in (None, ""),
+            "has_change": item["service_order"] in changed,
+            "data": item["raw"],
+        }
         if (
-            (customers and customer not in customers)
-            or (customer_ids and _sales_order_key(customer_id) not in customer_ids)
-            or (models and model not in models)
+            declaration_date
+            and item.get("doa_type") == "整机DOA"
+            and all((item["service_order"], item["host_sn"]))
         ):
-            continue
-        rows.append(
-            {
-                "id": item["id"],
-                "doa_code": str(item.get("doa_code") or ""),
-                "sales_order": item["sales_order"],
-                "material_serial": item["host_sn"] or item["part_sn"],
-                "accepted_at": item["accepted_at"],
-                "declaration_date": declaration_date.isoformat() if declaration_date else "",
-                "customer": customer,
-                "customer_id": customer_id,
-                "model": model,
-                "repair_count": _repair_quantity(item["repair_count"]),
-                "missing_quantity": item["repair_count"] in (None, ""),
-                "has_change": item["service_order"] in changed,
-                "data": item["raw"],
-            }
-        )
-    return rows
+            key = (sales_order_key, item["service_order"], item["host_sn"])
+            first = first_by_device.get(key)
+            if first is None or (row["doa_code"], row["id"]) < (first["doa_code"], first["id"]):
+                first_by_device[key] = row
+                if first is not None:
+                    first["counted_repair_count"] = 0.0
+            else:
+                row["counted_repair_count"] = 0.0
+        rows.append(row)
+    return [
+        row
+        for row in rows
+        if (not customers or row["customer"] in customers)
+        and (not customer_ids or _sales_order_key(row["customer_id"]) in customer_ids)
+    ]
 
 
 async def _load_doa_snapshot(
@@ -302,6 +316,9 @@ def _filter_dated_repairs(
     rows: list[dict[str, Any]], filters: DoaFilters, *, unmatched: bool = False
 ) -> list[dict[str, Any]]:
     start, end = _accepted_bounds(filters)
+    models = set(filters.models or ([filters.model] if filters.model else []))
+    if models:
+        rows = [row for row in rows if row["model"] in models]
     if unmatched:
         return [row for row in rows if not row["declaration_date"]]
     return [
@@ -324,8 +341,14 @@ async def _build_doa_dashboard(filters: DoaFilters) -> DoaDashboardResponse:
     repairs = _filter_dated_repairs(all_repairs, filters)
     invalid_dates = _filter_dated_repairs(all_repairs, filters, unmatched=True)
     selected_orders = _selected_orders(orders, filters)
+    model_sources = selected_orders + repairs
+    if filters.model or filters.models:
+        without_model = filters.model_copy(update={"model": "", "models": []})
+        model_sources = _selected_orders(orders, without_model) + _filter_dated_repairs(
+            all_repairs, without_model
+        )
     shipped = sum(item["shipped_count"] for item in selected_orders)
-    repair_count = sum(item["repair_count"] for item in repairs)
+    repair_count = sum(item["counted_repair_count"] for item in repairs)
     replacement_count = sum(_replacement_defect_count(item) for item in repairs)
     replacement_record_count = sum(1 for item in repairs if item["has_change"])
     granularity = filters.timeGranularity
@@ -346,7 +369,7 @@ async def _build_doa_dashboard(filters: DoaFilters) -> DoaDashboardResponse:
         for item in repairs:
             key = str(item.get(field) or "未填写")
             values = totals.setdefault(key, [0.0, 0.0, 0.0])
-            values[1] += item["repair_count"]
+            values[1] += item["counted_repair_count"]
             values[2] += _replacement_defect_count(item)
 
     def dimensions(field: str) -> list[DoaDimensionItem]:
@@ -374,7 +397,7 @@ async def _build_doa_dashboard(filters: DoaFilters) -> DoaDashboardResponse:
         key = period(item.get("declaration_date"))
         if key:
             totals = trend_totals.setdefault(key, [0.0, 0.0, 0.0, set()])
-            totals[1] += item["repair_count"]
+            totals[1] += item["counted_repair_count"]
             totals[2] += _replacement_defect_count(item)
             if item.get("material_serial"):
                 totals[3].add(item["material_serial"])
@@ -412,6 +435,7 @@ async def _build_doa_dashboard(filters: DoaFilters) -> DoaDashboardResponse:
         trend=trend,
         byCustomer=dimensions("customer"),
         byModel=dimensions("model"),
+        modelOptions=sorted({row["model"] or "未填写" for row in model_sources}),
     )
 
 
@@ -427,6 +451,7 @@ async def get_doa_audit(filters: DoaFilters) -> dict[str, Any]:
             "acceptedAt": row["accepted_at"],
             "declarationDate": row["declaration_date"],
             "repairCount": row["repair_count"],
+            "countedRepairCount": row["counted_repair_count"],
             "raw": row["data"],
         }
         for row in repairs
@@ -470,6 +495,7 @@ async def get_doa_repairs(
                 customerId=str(row.get("customer_id") or ""),
                 model=str(row.get("model") or ""),
                 repairCount=float(row.get("repair_count") or 0),
+                countedRepairCount=row["counted_repair_count"],
                 missingQuantity=row["missing_quantity"],
                 data=row.get("data") or {},
             )

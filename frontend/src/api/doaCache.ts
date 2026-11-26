@@ -1,7 +1,7 @@
 import { API_BASE_URL } from '../constants';
 import type { DoaDashboard, DoaFilters, DoaOptions } from '../types/doa';
 
-const STORAGE_KEY = 'qualiboard:doa-cache:v4';
+const STORAGE_KEY = 'qualiboard:doa-cache:v6';
 const TTL_MS = 2 * 60 * 60 * 1000;
 const MAX_ENTRIES = 20;
 type Entry = { key: string; expiresAt: number; data: unknown };

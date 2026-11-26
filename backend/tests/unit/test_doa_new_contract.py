@@ -304,3 +304,63 @@ async def test_dashboard_counts_valid_declaration_codes_without_plan_backfill(mo
     normal = await doa_service.get_doa_repairs(filters, 1, 50)
     assert [(row.id, row.declarationDate) for row in normal.items] == [("valid", "2026-11-24")]
     assert (await doa_service.get_doa_orders(filters, 1, 50))["totalQuantity"] == 100
+
+
+async def test_duplicate_host_declarations_keep_details_and_count_on_first_valid_day(monkeypatch):
+    def host_row(record_id, day, host_sn, qty=1, **overrides):
+        return {
+            **repair(record_id, "XNC1", "M1", qty, day),
+            "service_order": "S1",
+            "host_sn": host_sn,
+            "host_model": "M1",
+            "part_sn": record_id,
+            "doa_type": "整机DOA",
+            **overrides,
+        }
+
+    async def orders(**kwargs):
+        return [order("XNC1", 100, "2026-10-09")]
+
+    async def rows(view, **kwargs):
+        if view == "SCS_CHANGE":
+            return [{"service_order": "S1", "change_type": "换上", "raw": {}}]
+        return [
+            host_row("repeat", "2026-10-20", "H1"),
+            host_row("first", "2026-10-09", "H1"),
+            host_row("other-host", "2026-10-20", "H2"),
+            host_row("other-service", "2026-10-20", "H1", 4, service_order="S2"),
+            host_row("invalid", "2026-10-01", "H1", doa_code="KX202610000001"),
+        ]
+
+    monkeypatch.setattr(doa_service.data_gateway, "all_orders", orders)
+    monkeypatch.setattr(doa_service.scs_gateway, "all", rows)
+    monkeypatch.setattr(doa_service, "_DOA_ORDERS_CACHE", doa_service.AsyncTTLCache())
+    monkeypatch.setattr(doa_service, "_DOA_SNAPSHOT_CACHE", doa_service.AsyncTTLCache())
+    filters = DoaFilters(dateFrom="2026-10-01", dateTo="2026-10-31", timeGranularity="day")
+    dashboard = await doa_service.build_doa_dashboard(filters)
+    assert dashboard.summary.repairCount == 6
+    assert dashboard.summary.repairRate == 6
+    assert dashboard.summary.matchedRepairRecords == 4
+    assert dashboard.summary.replacementCount == 2
+    assert dashboard.byModel[0].repairCount == dashboard.byCustomer[0].repairCount == 6
+    assert [(item.period, item.repairCount) for item in dashboard.trend] == [
+        ("2026-10-09", 1),
+        ("2026-10-20", 5),
+    ]
+    detail = await doa_service.get_doa_repairs(filters, 1, 50)
+    assert detail.totalRepairCount == 7
+    assert [(item.id, item.countedRepairCount) for item in detail.items] == [
+        ("repeat", 0),
+        ("first", 1),
+        ("other-host", 1),
+        ("other-service", 4),
+    ]
+    audit = await doa_service.get_doa_audit(filters)
+    assert sum(row["countedRepairCount"] for row in audit["repairs"]) == 6
+    late = filters.model_copy(update={"dateFrom": "2026-10-20"})
+    late_details = await doa_service.get_doa_repairs(late, 1, 50, replacement_only=True)
+    assert [(item.id, item.countedRepairCount) for item in late_details.items] == [
+        ("repeat", 0),
+        ("other-host", 1),
+    ]
+    assert (await doa_service.build_doa_dashboard(late)).summary.repairCount == 5

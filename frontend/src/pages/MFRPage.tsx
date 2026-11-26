@@ -20,7 +20,7 @@ const deviceIssueLabels: Record<string, string> = {
   doaStatusUnresolved: 'DOA 申报状态无法确认',
   identityUnverified: '设备身份无法确认',
   identityConflict: '设备身份冲突',
-  faultDateUnresolved: 'DOA 申报日期无效或冲突',
+  faultDateUnresolved: 'DOA 申报日期无效',
   unmatchedChange: '换件记录无法唯一匹配设备',
 };
 const sameFilters = (a: MFRFilters, b: MFRFilters) =>
@@ -221,7 +221,7 @@ export default function MFRPage() {
             </summary>
             <section aria-label="数据告警详情" className="absolute right-3 z-30 mt-2 w-[min(18rem,calc(100vw-1.5rem))] sm:right-0 rounded-lg border border-slate-200 bg-white p-3 text-xs shadow-lg sm:w-96">
               <ul className="space-y-2 text-slate-700">
-                {unresolvedDates > 0 && <li><strong>{number(unresolvedDates)} 条</strong>换件记录的 DOA 申报日期无效或冲突，已排除。</li>}
+                {unresolvedDates > 0 && <li><strong>{number(unresolvedDates)} 条</strong>换件记录的 DOA 申报日期无效，已排除。</li>}
                 {unresolvedDevices > 0 && <li>
                   <strong>{number(unresolvedDevices)} 台</strong>设备无法确认申报状态或身份，未参与统计（不受日期筛选）。
                   <ul className="mt-1 space-y-1 rounded bg-slate-50 p-2">

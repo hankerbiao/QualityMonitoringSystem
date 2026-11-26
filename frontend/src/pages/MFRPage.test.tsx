@@ -304,14 +304,14 @@ describe('MFR dashboard', () => {
     expect(toggle.closest('details')?.open).toBe(true);
     const panel = screen.getByRole('region', { name: '数据告警详情' });
     expect(within(panel).getByText('设备身份无法确认')).toBeTruthy();
-    expect(panel.textContent).toContain('DOA 申报日期无效或冲突');
+    expect(panel.textContent).toContain('DOA 申报日期无效');
     fireEvent.click(within(panel).getByRole('button', { name: '导出排查明细' }));
     await waitFor(() => expect(xlsx.writeFile).toHaveBeenCalled());
     expect(xlsx.aoa_to_sheet).toHaveBeenCalledWith(expect.arrayContaining([
       ['设备身份无法确认', 'material:MS1', 'MS1', 'material_sn', 'D1', 'XNC1', 'S1', '判定 是'],
     ]));
     expect(xlsx.aoa_to_sheet).toHaveBeenCalledWith(expect.arrayContaining([
-      ['DOA 申报日期无效或冲突', 'C2', 'S2', 'D2', 'product:SN1', 'SN1', 'SN2', '换上', '2026-12-01', 'PN2', 'PS2'],
+      ['DOA 申报日期无效', 'C2', 'S2', 'D2', 'product:SN1', 'SN1', 'SN2', '换上', '2026-12-01', 'PN2', 'PS2'],
     ]));
     expect(xlsx.writeFile).toHaveBeenCalledWith(expect.anything(), expect.stringMatching(/^MFR排查明细_.*\.xlsx$/));
   });

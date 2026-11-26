@@ -76,10 +76,10 @@ function readFilters(params: URLSearchParams): DoaFilters {
     acceptedDateTo: params.get("acceptedDateTo") || undefined,
     customer: params.get("customer") || "",
     customerId: "",
-    model: "",
+    model: params.get("model") || "",
     customers: params.getAll("customers"),
     customerIds: [],
-    models: [],
+    models: params.getAll("models"),
     timeGranularity:
       granularity === "year" || granularity === "day" || granularity === "month"
         ? granularity : granularityForRange(dateFrom, dateTo),
@@ -245,7 +245,7 @@ export default function DoaPage() {
         ["计算口径", "出货量来自 SAP KK 交付批次的实际发货数量 LFIMG"],
         ["时间", "报修按 DOA 申报单号中的日期，出货按 SAP 实际发货日期 WADAT"],
         ["筛选", filterSummary],
-        ["说明", "有效申报按单号日期计入，异常日期单独列示。出货明细按 SAP 交付批次去重。"],
+        ["说明", "整机 DOA 按销售订单、服务单和整机序列号去重，取最早有效申报的问题批次数量。异常日期单独列示。出货明细按 SAP 交付批次去重。"],
       ]), "计算说明");
       XLSX.writeFile(workbook, `DOA核对数据_${new Date().toISOString().slice(0, 10)}.xlsx`);
     } catch (err) {
@@ -272,6 +272,7 @@ export default function DoaPage() {
         受理日期: item.acceptedAt,
         单号申报日期: item.declarationDate ?? "",
         问题批次数量: Number(String(item.repairCount).replace(/,/g, "")),
+        计入数量: item.countedRepairCount ?? "",
       }));
       const workbook = XLSX.utils.book_new();
       XLSX.utils.book_append_sheet(workbook, XLSX.utils.json_to_sheet(rows), "有效DOA申报");
@@ -298,9 +299,11 @@ export default function DoaPage() {
       ]);
       const sameTotal = (a: number, b: number) => Math.abs(a - b) < 0.00001;
       const totalRepairs = (items: { repairCount: number }[]) => items.reduce((total, item) => total + item.repairCount, 0);
+      const countedRepairs = (items: { repairCount: number; countedRepairCount?: number }[]) =>
+        items.reduce((total, item) => total + (item.countedRepairCount ?? item.repairCount), 0);
       if (!sameTotal(orders.reduce((total, item) => total + item.quantity, 0), data.summary.shippedCount)
-        || (details && (!sameTotal(totalRepairs(details.repairs), data.summary.repairCount)
-          || !sameTotal(totalRepairs(details.replacements), data.summary.replacementCount)
+        || (details && (!sameTotal(countedRepairs(details.repairs), data.summary.repairCount)
+          || !sameTotal(countedRepairs(details.replacements), data.summary.replacementCount)
           || details.unmatchedDates.length !== data.summary.invalidDeclarationDateRecords
           || !sameTotal(totalRepairs(details.unmatchedDates), data.summary.invalidDeclarationDateQuantity)))) {
         throw new Error("看板与明细数据已发生变化，请稍后重试或重新登录后再导出");
@@ -314,6 +317,7 @@ export default function DoaPage() {
     }
   };
   const summary = data?.summary;
+  const selectedModels = filters.models?.length ? filters.models : filters.model ? [filters.model] : [];
   const invalidDateQuantity = summary?.invalidDeclarationDateQuantity ?? 0;
   const unmatchedModelQuantity = data?.byModel.find(item => item.key === "未匹配机型")?.repairCount ?? 0;
   const rankingItems = [
@@ -334,6 +338,7 @@ export default function DoaPage() {
         ]
       : []),
     (filters.customers?.length ? filters.customers.join("、") : filters.customer) || "全部客户",
+    selectedModels.join("、") || "全部机型",
     filters.timeGranularity === "year"
       ? "按年"
       : filters.timeGranularity === "day"
@@ -440,6 +445,14 @@ export default function DoaPage() {
                   />
                 </div>
                 <div className="min-w-0 md:w-[200px]"><MultiSelect label="客户" options={options.customers} value={filters.customers?.length ? filters.customers : filters.customer ? [filters.customer] : []} onChange={(customers) => apply({ customers, customer: "" })} /></div>
+                <div className="min-w-0 md:w-[200px]">
+                  <MultiSelect
+                    label="机型"
+                    options={data?.modelOptions ?? data?.byModel.map((item) => item.key) ?? []}
+                    value={selectedModels}
+                    onChange={(models) => apply({ models, model: "" })}
+                  />
+                </div>
               </div>
             </div>
           )}
@@ -480,7 +493,7 @@ export default function DoaPage() {
                 </Link>
               </>
             )}
-            help="DOA 报修率 = 有效报修的问题批次数量之和 ÷ 所选条件下实际出货量之和 × 100%。问题批次数量为空的申报不计入；出货数量为 0 时显示“—”。"
+            help="DOA 报修率 = 有效报修去重后的问题批次数量之和 ÷ 所选条件下实际出货量之和 × 100%。同一销售订单、服务单和整机序列号的整机申报，取最早有效申报的数量。出货数量为 0 时显示“—”。"
             accent="bg-emerald-600"
           />
           <Stat
@@ -506,7 +519,7 @@ export default function DoaPage() {
             value={loading ? "…" : <Link className="text-blue-700 hover:underline" to={`/doa/orders?${doaApi.buildQuery(filters)}`}>{num(summary?.shippedCount ?? 0)}</Link>}
             detail=""
             accent="bg-indigo-500"
-            help="按 5000 公司 SAP KK 交付明细的发货日期和客户筛选，按交付批次去重后汇总 LFIMG。"
+            help="按 5000 公司 SAP KK 交付明细的发货日期、客户和机型筛选，按交付批次去重后汇总 LFIMG。"
           />
           <Stat
             label="有效 DOA 申报"
@@ -549,7 +562,7 @@ export default function DoaPage() {
                 <h2 className="text-sm font-semibold text-slate-900">
                   <BarChart3 className="mr-2 inline size-4 text-emerald-700" />报修与换件趋势
                 </h2>
-                <HelpTooltip label="查看报修与换件趋势说明">报修按申报单号日期，出货按实际发货日期，分别归入日、月或年。每期报修率 = 当期报修问题批次数量 ÷ 当期实际出货量 × 100%；换件率使用当期有效换件报修的问题批次数量作为分子。出货数量为 0 时不显示比率，日期无效的申报不计入趋势。</HelpTooltip>
+                <HelpTooltip label="查看报修与换件趋势说明">报修按申报单号日期，出货按实际发货日期，分别归入日、月或年。每期报修率 = 当期去重后的报修问题批次数量 ÷ 当期实际出货量 × 100%；换件率使用当期有效换件报修的问题批次数量作为分子。出货数量为 0 时不显示比率，日期无效的申报不计入趋势。</HelpTooltip>
               </div>
               <div className="flex items-center gap-3 text-xs font-medium">
                 <span className="inline-flex items-center gap-1.5 text-emerald-700">

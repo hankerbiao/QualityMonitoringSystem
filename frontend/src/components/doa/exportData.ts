@@ -28,10 +28,11 @@ function repairRows(items: DoaRepairItem[]): Row[] {
     受理日期: item.acceptedAt, 单号申报日期: item.declarationDate,
     客户: item.customer, 客户ID: item.customerId || '', 机型: item.model,
     问题批次数量: item.missingQuantity ? '' : item.repairCount,
+    计入数量: item.countedRepairCount ?? '',
   }));
 }
 
-const repairHeaders = ['申报编号', '销售订单', '序列号', '受理日期', '单号申报日期', '客户', '客户ID', '机型', '问题批次数量'];
+const repairHeaders = ['申报编号', '销售订单', '序列号', '受理日期', '单号申报日期', '客户', '客户ID', '机型', '问题批次数量', '计入数量'];
 
 export function buildDoaWorkbook(
   dashboard: DoaDashboard,
@@ -56,7 +57,7 @@ export function buildDoaWorkbook(
     { 项目: '申报日期异常申报条数', 内容: summary.invalidDeclarationDateRecords },
     { 项目: '申报日期异常问题批次数量', 内容: summary.invalidDeclarationDateQuantity },
     { 项目: '数据更新至', 内容: summary.latestDataAt || '' },
-    { 项目: '计算口径', 内容: '报修率 = 有效报修问题批次数量 ÷ 实际出货量 × 100%。' },
+    { 项目: '计算口径', 内容: '报修率 = 去重后的有效报修问题批次数量 ÷ 实际出货量 × 100%。同一销售订单、服务单和整机序列号的整机申报，取最早有效申报的数量。' },
     { 项目: '数据范围', 内容: '报修按 DOA 申报单号日期筛选，销售订单号以 XNC 开头，判定为是且非待受理，数量须有效。出货按 SAP 发货日期 WADAT 筛选，按交付批次汇总 LFIMG。' },
     { 项目: '申报日期异常', 内容: '不受日期筛选，不计入当前报修率；仍受客户和机型筛选。' },
     ...(details ? [] : [{ 项目: '报修明细', 内容: '当前账号没有报修明细权限，未导出报修记录。' }]),

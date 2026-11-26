@@ -1,6 +1,6 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import {
-  AlertCircle, ArrowLeft, ArrowRight, CalendarDays,
+  AlertCircle, ArrowLeft, ArrowRight, CalendarDays, Filter,
   ChevronDown, ChevronLeft, ChevronRight, ChevronUp, Download, Layers3, Pencil, RefreshCw,
   RotateCcw, Search, SlidersHorizontal, X,
 } from 'lucide-react';
@@ -193,6 +193,88 @@ const CHART_COLORS = ['#2563eb', '#14b8a6', '#f59e0b', '#ef4444', '#8b5cf6', '#6
 const chartTick = { fontSize: 10, fill: '#64748b' };
 const chartTooltip = { borderRadius: 8, border: '1px solid #cbd5e1', fontSize: 12, boxShadow: '0 8px 24px rgba(15, 23, 42, 0.08)' };
 
+function ColumnFilter({ label, values, selectedValues, searchValue, onSearchChange, onChange }: {
+  label: string;
+  values: { value: string; label: string }[];
+  selectedValues: string[] | undefined;
+  searchValue: string;
+  onSearchChange: (value: string) => void;
+  onChange: (values: string[] | undefined) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const filteredValues = values.filter((item) => item.label.toLocaleLowerCase().includes(searchValue.trim().toLocaleLowerCase()));
+  const selected = new Set(selectedValues ?? values.map((item) => item.value));
+
+  useEffect(() => {
+    if (!open) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) setOpen(false);
+    };
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [open]);
+
+  const toggleValue = (value: string) => {
+    const next = new Set(selected);
+    if (next.has(value)) next.delete(value);
+    else next.add(value);
+    onChange(next.size === values.length ? undefined : [...next]);
+  };
+
+  return (
+    <div className="relative inline-flex" ref={containerRef}>
+      <button
+        type="button"
+        aria-label={`筛选${label}`}
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className={`ml-1 rounded p-0.5 align-middle transition-colors hover:bg-blue-100 ${selectedValues === undefined && !searchValue ? 'text-slate-400 hover:text-blue-700' : 'bg-blue-100 text-blue-700'}`}
+      >
+        <Filter className="size-3" aria-hidden="true" />
+      </button>
+      {open && (
+        <div role="dialog" aria-label={`${label}筛选`} className="absolute left-0 top-full z-30 mt-1 w-56 rounded-lg border border-slate-200 bg-white p-2.5 text-left font-normal shadow-xl shadow-slate-900/15">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="truncate text-xs font-semibold text-slate-700">筛选：{label}</span>
+            <button type="button" onClick={() => onChange(undefined)} className="shrink-0 text-[11px] font-medium text-blue-700 hover:text-blue-900">全选</button>
+          </div>
+          <label className="flex h-8 items-center gap-1.5 rounded border border-slate-200 px-2 text-slate-400 focus-within:border-blue-400">
+            <Search className="size-3.5 shrink-0" aria-hidden="true" />
+            <input
+              autoFocus
+              value={searchValue}
+              onChange={(event) => onSearchChange(event.target.value)}
+              placeholder="搜索值"
+              aria-label={`搜索${label}筛选值`}
+              className="min-w-0 flex-1 bg-transparent text-xs text-slate-700 outline-none placeholder:text-slate-400"
+            />
+          </label>
+          <div className="mt-2 flex max-h-52 flex-col overflow-y-auto">
+            {filteredValues.length ? filteredValues.map((item) => (
+              <label key={item.value} className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-xs text-slate-600 hover:bg-blue-50">
+                <input type="checkbox" checked={selected.has(item.value)} onChange={() => toggleValue(item.value)} className="size-3.5 shrink-0 accent-blue-600" />
+                <span className="truncate" title={item.label}>{item.label}</span>
+              </label>
+            )) : <p className="px-1.5 py-3 text-center text-xs text-slate-400">没有匹配项</p>}
+          </div>
+          <div className="mt-2 flex items-center justify-between border-t border-slate-100 pt-2">
+            <span className="text-[10px] text-slate-400">共 {values.length} 项</span>
+            <button type="button" onClick={() => onChange([])} className="text-[11px] font-medium text-slate-500 hover:text-slate-800">清空</button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function StackedDistributionChart({ title, data, onSelect }: {
   title: string;
   data: ChartDatum[];
@@ -343,6 +425,8 @@ export default function BatchExceptionPage() {
   const [expandedFilters, setExpandedFilters] = useState(false);
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(30);
+  const [columnFilters, setColumnFilters] = useState<Record<string, string[]>>({});
+  const [columnSearches, setColumnSearches] = useState<Record<string, string>>({});
   const [detail, setDetail] = useState<Row | null>(null);
   const [selection, setSelection] = useState<{ field: string; raw: string; label: string; title: string } | null>(null);
   const [editingRow, setEditingRow] = useState<Row | null>(null);
@@ -397,6 +481,8 @@ export default function BatchExceptionPage() {
     setLoading(true);
     setError('');
     setResult(null);
+    setColumnFilters({});
+    setColumnSearches({});
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(applied)) {
       if (value) params.set(key, value);
@@ -529,11 +615,62 @@ export default function BatchExceptionPage() {
     detailSection.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
   };
 
+  const columnFilterOptions = useMemo<Record<string, { value: string; label: string }[]>>(() => {
+    const rows = result?.rows ?? [];
+    const currentValues = Object.fromEntries(tableColumns.map(([key]) => {
+      const values = new Map<string, string>();
+      for (const row of rows) {
+        const value = row[key];
+        const raw = value == null || value === '' ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+        const label = key === 'state' ? stateLabel(value) : raw || '—';
+        values.set(raw, label);
+      }
+      return [key, [...values].map(([value, label]) => ({ value, label }))
+        .sort((a, b) => a.label.localeCompare(b.label, 'zh-CN', { numeric: true }))];
+    }));
+    const editOptions: Record<'platform' | 'customer', string[]> = {
+      platform: ['AMD', 'Intel', 'HG'],
+      customer: ['字节', '阿里', '腾讯', '百度'],
+    };
+    for (const key of ['platform', 'customer'] as const) {
+      const values = new Map((currentValues[key] ?? []).map((item) => [item.value, item.label]));
+      for (const value of editOptions[key]) values.set(value, value);
+      currentValues[key] = [...values].map(([value, label]) => ({ value, label }));
+    }
+    return currentValues;
+  }, [result]);
+
+  const updateColumnFilter = (key: string, values: string[] | undefined) => {
+    setPage(1);
+    setColumnFilters((current) => {
+      const next = { ...current };
+      if (values === undefined) delete next[key];
+      else next[key] = values;
+      return next;
+    });
+  };
+  const updateColumnSearch = (key: string, value: string) => {
+    setPage(1);
+    setColumnSearches((current) => ({ ...current, [key]: value }));
+  };
+
   const filteredRows = useMemo(() => {
     const rows = result?.rows ?? [];
-    if (!selection) return rows;
-    return rows.filter((row) => String(row[selection.field] ?? '').trim() === selection.raw);
-  }, [result, selection]);
+    return rows.filter((row) => {
+      if (selection && String(row[selection.field] ?? '').trim() !== selection.raw) return false;
+      return Object.entries(columnFilters).every(([key, selected]) => {
+        const value = row[key];
+        const raw = value == null || value === '' ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+        return selected.includes(raw);
+      }) && Object.entries(columnSearches).every(([key, search]) => {
+        if (!search.trim()) return true;
+        const value = row[key];
+        const raw = value == null || value === '' ? '' : typeof value === 'object' ? JSON.stringify(value) : String(value);
+        const label = columnFilterOptions[key]?.find((item) => item.value === raw)?.label ?? raw;
+        return label.toLocaleLowerCase().includes(search.trim().toLocaleLowerCase());
+      });
+    });
+  }, [result, selection, columnFilters, columnSearches, columnFilterOptions]);
 
   // 合并组按“统计单元”分页与计数：锚点行带上组员紧跟其后渲染，组不会被页边界截断；
   // 若锚点被明细筛选拆走，组员退化为独立行展示。
@@ -1180,7 +1317,7 @@ export default function BatchExceptionPage() {
                           />
                         </th>
                       )}
-                      {tableColumns.map(([key, label]) => <th key={key} className="whitespace-nowrap px-3 py-2.5 font-semibold">{label}</th>)}
+                      {tableColumns.map(([key, label]) => <th key={key} className="whitespace-nowrap px-3 py-2.5 font-semibold"><span className="inline-flex items-center">{label}<ColumnFilter label={label} values={columnFilterOptions[key] ?? []} selectedValues={columnFilters[key]} searchValue={columnSearches[key] ?? ''} onSearchChange={(value) => updateColumnSearch(key, value)} onChange={(values) => updateColumnFilter(key, values)} /></span></th>)}
                       <th className="px-4 py-3">操作</th>
                     </tr>
                   </thead>
@@ -1271,19 +1408,23 @@ export default function BatchExceptionPage() {
                 <input
                   autoFocus
                   value={bulkEditValues.platform}
+                  list="batch-platform-options"
                   maxLength={100}
                   onChange={(event) => setBulkEditValues((current) => ({ ...current, platform: event.target.value }))}
                   className={inputClass}
                 />
+                <datalist id="batch-platform-options">{(columnFilterOptions.platform ?? []).map(({ value }) => <option key={value} value={value} />)}</datalist>
               </label>
               <label className={labelClass}>
                 客户
                 <input
                   value={bulkEditValues.customer}
+                  list="batch-customer-options"
                   maxLength={100}
                   onChange={(event) => setBulkEditValues((current) => ({ ...current, customer: event.target.value }))}
                   className={inputClass}
                 />
+                <datalist id="batch-customer-options">{(columnFilterOptions.customer ?? []).map(({ value }) => <option key={value} value={value} />)}</datalist>
               </label>
             </div>
             {bulkEditError && <p role="alert" className="px-5 pb-2 text-sm text-rose-600">{bulkEditError}</p>}
@@ -1364,11 +1505,13 @@ export default function BatchExceptionPage() {
             <div className="grid gap-4 p-5 sm:grid-cols-2">
               <label className={labelClass}>
                 平台
-                <input value={editValues.platform} maxLength={100} onChange={(event) => setEditValues((current) => ({ ...current, platform: event.target.value }))} className={inputClass} />
+                <input list="batch-platform-options" value={editValues.platform} maxLength={100} onChange={(event) => setEditValues((current) => ({ ...current, platform: event.target.value }))} className={inputClass} />
+                <datalist id="batch-platform-options">{(columnFilterOptions.platform ?? []).map(({ value }) => <option key={value} value={value} />)}</datalist>
               </label>
               <label className={labelClass}>
                 客户
-                <input value={editValues.customer} maxLength={100} onChange={(event) => setEditValues((current) => ({ ...current, customer: event.target.value }))} className={inputClass} />
+                <input list="batch-customer-options" value={editValues.customer} maxLength={100} onChange={(event) => setEditValues((current) => ({ ...current, customer: event.target.value }))} className={inputClass} />
+                <datalist id="batch-customer-options">{(columnFilterOptions.customer ?? []).map(({ value }) => <option key={value} value={value} />)}</datalist>
               </label>
               <label className={labelClass}>
                 基地

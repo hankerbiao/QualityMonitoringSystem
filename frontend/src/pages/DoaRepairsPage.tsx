@@ -80,6 +80,7 @@ export default function DoaRepairsPage() {
         客户ID: item.customerId,
         机型: item.model,
         问题批次数量: item.repairCount,
+        计入数量: item.countedRepairCount ?? "",
       }));
       const ws = XLSX.utils.json_to_sheet(rows);
       const wb = XLSX.utils.book_new();
@@ -114,9 +115,9 @@ export default function DoaRepairsPage() {
             <div>
               <div className="flex items-center gap-1"><p className="text-lg font-semibold text-slate-950">{pageTitle}</p>
                 <HelpTooltip label="查看报修明细计算说明">
-                  <p>有效报修为 5000 公司中判定结果为“是”、非待受理且问题批次数量非空的申报；条数为申报记录数，问题批次数量为各条数量之和。</p>
-                  <p className="mt-1">{unmatchedOnly ? "单号日期无效的申报仍受客户、机型筛选，不计入报修率。" : "按 DOA 申报单号中的日期、客户和机型筛选。"}</p>
-                  {replacementOnly && <p className="mt-1">换件明细仅包括同一服务单有未撤销“换上”或“换上-up”记录的有效报修，每条报修只计一次。</p>}
+                  <p>有效报修为 5000 公司中判定结果为“是”、非待受理且问题批次数量非空的申报；条数和问题批次数量合计包含每条申报。计入数量用于计算报修率。</p>
+                  <p className="mt-1">{unmatchedOnly ? "单号日期无效的申报仍受客户、机型筛选，不计入报修率。" : "同一销售订单、服务单和整机序列号的整机申报，计入最早有效申报的问题批次数量。"}</p>
+                  {replacementOnly && <p className="mt-1">换件明细仅包括同一服务单有未撤销“换上”或“换上-up”记录的有效报修，计入数量沿用报修去重规则。</p>}
                 </HelpTooltip>
               </div>
               <p className="text-xs text-slate-400">
@@ -161,6 +162,7 @@ export default function DoaRepairsPage() {
                       "客户",
                       "机型",
                       "问题批次数量",
+                      "计入数量",
                     ].map((h) => (
                       <th key={h} className="px-4 py-2.5 font-medium">
                         {h}
@@ -193,12 +195,15 @@ export default function DoaRepairsPage() {
                       <td className="px-4 py-3 font-mono">
                         {item.repairCount}
                       </td>
+                      <td className="px-4 py-3 font-mono">
+                        {item.countedRepairCount ?? "—"}
+                      </td>
                     </tr>
                   ))}
                   {!items.length && (
                     <tr>
                       <td
-                        colSpan={8}
+                        colSpan={9}
                         className="px-4 py-16 text-center text-sm text-slate-400"
                       >
                         暂无{replacementOnly ? "换件" : "报修"}数据

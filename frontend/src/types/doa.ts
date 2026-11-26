@@ -49,6 +49,7 @@ export interface DoaDashboard {
   trend: DoaTrendItem[];
   byCustomer: DoaDimensionItem[];
   byModel: DoaDimensionItem[];
+  modelOptions?: string[];
   unmatchedOrders: { salesOrder: string; recordCount: number }[];
 }
 
@@ -72,7 +73,7 @@ export interface DoaOrdersResponse {
 }
 
 export interface DoaAudit {
-  repairs: { matchStatus: string; salesOrder: string; id: string; doaCode?: string; acceptedAt: string; declarationDate?: string; repairCount: number | string; raw: Record<string, unknown> }[];
+  repairs: { matchStatus: string; salesOrder: string; id: string; doaCode?: string; acceptedAt: string; declarationDate?: string; repairCount: number | string; countedRepairCount?: number; raw: Record<string, unknown> }[];
   orders: Record<string, unknown>[];
   changes: Record<string, unknown>[];
 }
@@ -88,6 +89,7 @@ export interface DoaRepairItem {
   customerId?: string;
   model: string;
   repairCount: number;
+  countedRepairCount?: number;
   missingQuantity: boolean;
   data: Record<string, unknown>;
 }

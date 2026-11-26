@@ -69,6 +69,7 @@ class DoaDashboardResponse(BaseModel):
     trend: list[DoaTrendItem] = Field(default_factory=list)
     byCustomer: list[DoaDimensionItem] = Field(default_factory=list)
     byModel: list[DoaDimensionItem] = Field(default_factory=list)
+    modelOptions: list[str] = Field(default_factory=list)
     unmatchedOrders: list[DoaUnmatchedOrder] = Field(default_factory=list)
 
 
@@ -83,6 +84,7 @@ class DoaRepairItem(BaseModel):
     customerId: str = ""
     model: str = ""
     repairCount: float = 0
+    countedRepairCount: float = 0
     missingQuantity: bool = False
     data: dict = Field(default_factory=dict)
 

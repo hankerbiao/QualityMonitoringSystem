@@ -230,13 +230,14 @@ def test_fault_date_uses_the_eight_digits_after_kx():
     assert service._fault_date("KX20261031") is None
 
 
-async def test_invalid_and_conflicting_declaration_dates_are_excluded_from_mfr(
-    monkeypatch, kk_shipments
+@pytest.mark.parametrize("date_from, expected_count", [("2026-02-01", 2), ("2026-02-12", 0)])
+async def test_repeated_valid_declarations_use_first_date_and_only_invalid_dates_are_flagged(
+    monkeypatch, kk_shipments, date_from, expected_count
 ):
     row = device("product:a", "123", "S1", "SN1", fault="2026-02-30")
     valid = device("product:b", "124", "S2", "SN2", fault="2026-02-10")
     conflict = device("product:c", "125", "S3", "SN3", fault="2026-02-11")
-    conflict["evidence"].append({**conflict["evidence"][0], "doaCode": "KX202602120001"})
+    conflict["evidence"].insert(0, {**conflict["evidence"][0], "doaCode": "KX202602120001"})
     kk_shipments.return_value = (("SO1", "2026-02", 20),)
     monkeypatch.setattr(
         service.scs_gateway, "doa_devices", AsyncMock(return_value=[row, valid, conflict])
@@ -249,13 +250,17 @@ async def test_invalid_and_conflicting_declaration_dates_are_excluded_from_mfr(
     )
 
     result = await service.build_device_dashboard(
-        MFRFilters(dateFrom="2026-02-01", dateTo="2026-02-28")
+        MFRFilters(dateFrom=date_from, dateTo="2026-02-28")
     )
-    assert result.summary.deviceIssues["faultDateUnresolved"] == 2
-    assert result.summary.faultCount == 1
-    assert result.summary.mfrRate == result.trend[0].mfrRate == 5.0
-    assert [detail.deviceSn for detail in result.faultDetails] == ["SN2"]
-    detail = result.changeIssueDetails[0]
+    assert result.summary.deviceIssues["faultDateUnresolved"] == 1
+    assert result.summary.faultCount == expected_count
+    assert result.summary.mfrRate == result.trend[0].mfrRate == expected_count * 5.0
+    assert [(detail.deviceSn, detail.faultDate, detail.doaCode) for detail in result.faultDetails] == (
+        [("SN2", "2026-02-10", "KX202602100001"), ("SN3", "2026-02-11", "KX202602110001")]
+        if expected_count
+        else []
+    )
+    [detail] = result.changeIssueDetails
     assert (detail.changeId, detail.serviceOrder, detail.deviceSn, detail.doaCodes) == (
         "C1",
         "S1",

@@ -82,15 +82,16 @@ describe('DoaPage', () => {
     expect(doaApi.getOptions).toHaveBeenCalledTimes(1);
   });
 
-  it('exports a detailed workbook using the current dashboard filters', async () => {
+  it('exports all detail rows and reconciles the dashboard using counted quantities', async () => {
     vi.mocked(doaApi.getDashboard).mockResolvedValueOnce({
       filters: { dateFrom: '', dateTo: '', customer: '', model: '', timeGranularity: 'month' },
       summary: { shippedCount: 10, repairCount: 2, repairRate: 20, replacementCount: 2, replacementRate: 20, replacementRecordCount: 1, matchedRepairRecords: 1, excludedRepairRecords: 0, unmatchedRepairRecords: 0, missingQuantityRecords: 0, invalidDeclarationDateRecords: 0, invalidDeclarationDateQuantity: 0, latestDataAt: null },
       trend: [], byCustomer: [], byModel: [], unmatchedOrders: [],
     });
     vi.mocked(doaApi.getAllOrders).mockResolvedValueOnce([{ salesOrder: '1', deliveryNumber: '2', customer: '甲', model: 'M1', shipmentDate: '2026-10-01', quantity: 10 }]);
-    const repair = { id: '1', salesOrder: '1', materialSerial: 'SN', acceptedAt: '', declarationDate: '2026-10-01', customer: '甲', model: 'M1', repairCount: 2, missingQuantity: false, data: {} };
-    vi.mocked(doaApi.getAllRepairs).mockResolvedValueOnce([repair]).mockResolvedValueOnce([repair]).mockResolvedValueOnce([]);
+    const repair = { id: '1', salesOrder: '1', materialSerial: 'SN', acceptedAt: '', declarationDate: '2026-10-01', customer: '甲', model: 'M1', repairCount: 2, countedRepairCount: 2, missingQuantity: false, data: {} };
+    const repeat = { ...repair, id: 'duplicate', countedRepairCount: 0 };
+    vi.mocked(doaApi.getAllRepairs).mockResolvedValueOnce([repair, repeat]).mockResolvedValueOnce([repair, repeat]).mockResolvedValueOnce([]);
     render(<MemoryRouter><DoaPage /></MemoryRouter>);
     await screen.findAllByText('20.00%');
     fireEvent.click(screen.getByRole('button', { name: '导出 Excel' }));
@@ -280,18 +281,23 @@ describe('DoaPage', () => {
   });
 
   it('supports selecting multiple customers and models', async () => {
-    vi.mocked(doaApi.getOptions).mockResolvedValueOnce({ customers: ['客户 A', '客户 B'], models: ['M1', 'M2'] });
+    vi.mocked(doaApi.getOptions).mockResolvedValueOnce({ customers: ['客户 A', '客户 B'], models: [] });
     vi.mocked(doaApi.getDashboard).mockResolvedValue({
       filters: { dateFrom: '', dateTo: '', customer: '', model: '', timeGranularity: 'month' },
       summary: { shippedCount: 0, repairCount: 0, repairRate: null, replacementCount: 0, replacementRate: null, replacementRecordCount: 0, matchedRepairRecords: 0, excludedRepairRecords: 0, unmatchedRepairRecords: 0, missingQuantityRecords: 0, invalidDeclarationDateRecords: 0, invalidDeclarationDateQuantity: 0, latestDataAt: null },
-      trend: [], byCustomer: [], byModel: [], unmatchedOrders: [],
+      trend: [], byCustomer: [], byModel: [], modelOptions: ['M1', 'M2'], unmatchedOrders: [],
     });
     render(<MemoryRouter><DoaPage /></MemoryRouter>);
     fireEvent.click(screen.getByRole('button', { name: '客户（多选）' }));
     fireEvent.click(await screen.findByRole('checkbox', { name: '客户 A' }));
     fireEvent.click(screen.getByRole('checkbox', { name: '客户 B' }));
     fireEvent.click(screen.getByRole('button', { name: '机型（多选）' }));
-    fireEvent.click(await screen.findByRole('checkbox', { name: 'M1' }));
+    await screen.findByRole('checkbox', { name: 'M1' });
+    expect(screen.getByRole('checkbox', { name: 'M2' })).toBeTruthy();
+    fireEvent.change(screen.getByRole('searchbox', { name: '搜索机型' }), { target: { value: 'm1' } });
+    expect(screen.queryByRole('checkbox', { name: 'M2' })).toBeNull();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'M1' }));
+    fireEvent.change(screen.getByRole('searchbox', { name: '搜索机型' }), { target: { value: '' } });
     fireEvent.click(screen.getByRole('checkbox', { name: 'M2' }));
     await waitFor(() => expect(doaApi.getDashboard).toHaveBeenLastCalledWith(expect.objectContaining({ customers: ['客户 A', '客户 B'], models: ['M1', 'M2'] })));
   });
